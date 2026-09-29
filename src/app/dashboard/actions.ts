@@ -134,9 +134,7 @@ export async function startSyntheticWorkflow(formData: FormData) {
   const registered = getRegisteredWorkflow(SYNTHETIC_WORKFLOW_KEY);
 
   try {
-    const runtimeRun = await start(registered.workflow, [workflowInput], {
-      region: "syd1",
-    });
+    const runtimeRun = await start(registered.workflow, [workflowInput]);
 
     const { error: confirmError } = await supabase
       .from("workflow_runs")

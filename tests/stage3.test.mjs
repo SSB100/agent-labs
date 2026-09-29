@@ -10,6 +10,7 @@ test("Workflow SDK is configured for Next.js without intercepting internal route
   const nextConfig = await readProjectFile("next.config.ts");
   const proxy = await readProjectFile("proxy.ts");
   const tsconfig = JSON.parse(await readProjectFile("tsconfig.json"));
+  const vercelConfig = JSON.parse(await readProjectFile("vercel.json"));
 
   assert.equal(packageJson.dependencies.workflow, "4.8.9");
   assert.match(nextConfig, /withWorkflow/);
@@ -18,6 +19,7 @@ test("Workflow SDK is configured for Next.js without intercepting internal route
   assert.ok(
     tsconfig.compilerOptions.plugins.some((plugin) => plugin.name === "workflow"),
   );
+  assert.deepEqual(vercelConfig.regions, ["syd1"]);
 });
 
 test("Stage 3 migration creates a versioned runtime workflow and atomic launch reservation", async () => {
@@ -53,10 +55,9 @@ test("Synthetic runtime proves workflow, step, wait, retry and human resume boun
   assert.match(steps, /retryAfter: "1s"/);
   assert.match(steps, /workflow\.stage\.completed/);
   assert.match(steps, /workflow\.owner_intervention\.requested/);
-  assert.match(actions, /start\(registered\.workflow/);
+  assert.match(actions, /start\(registered\.workflow, \[workflowInput\]\)/);
   assert.match(actions, /resumeHook/);
   assert.match(actions, /begin_synthetic_workflow_run/);
-  assert.match(actions, /region: "syd1"/);
   assert.match(registry, /WORKFLOW_REGISTRY/);
 });
 
