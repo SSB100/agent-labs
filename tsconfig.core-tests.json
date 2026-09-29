@@ -16,6 +16,7 @@
     "src/browser/automation.ts",
     "src/browser/providers/**/*.ts",
     "src/browser/registry.ts",
+    "src/browser/replay.ts",
     "src/browser/types.ts",
     "src/core/**/*.ts",
     "src/evaluations/**/*.ts",
