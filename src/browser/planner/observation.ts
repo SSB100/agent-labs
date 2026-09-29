@@ -115,6 +115,14 @@ export async function observeStructuredPage(
         role: element.getAttribute("role"),
         type: element.getAttribute("type"),
         text,
+        value:
+          input instanceof HTMLInputElement ||
+          element instanceof HTMLTextAreaElement ||
+          element instanceof HTMLSelectElement
+            ? input instanceof HTMLInputElement && input.type === "password"
+              ? null
+              : String((element as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement).value ?? "").slice(0, 240)
+            : null,
         name: element.getAttribute("name"),
         placeholder: element.getAttribute("placeholder"),
         href,
