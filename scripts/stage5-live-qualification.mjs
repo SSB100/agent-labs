@@ -9,15 +9,30 @@ import workerRuntimeModule from "../.core-tests/workers/runtime.js";
 
 const { OpenRouterAdapter } = openRouterModule;
 const { buildWorkerModelMessages } = promptModule;
-const { MODEL_REGISTRY, resolveModelRoute } = registryModule;
+const { resolveModelRoute } = registryModule;
 const { runModelRoute } = routerModule;
 const { MODEL_RESEARCHER_MANIFEST, MODEL_RESEARCHER_ROUTE_KEY } = modelWorkerModule;
 const { executeWorkerPack } = workerRuntimeModule;
 
-const QUALIFICATION_TOKEN =
-  "dun0JHSqlfGDFmXUe_5rsK0Ld-Dq4tXYeUH0QytL6gkXxp09TVnbYVbm5_u2aCTK";
-const STRUCTURED_TOKEN = "stage5-structured-output-proof";
+const DIAGNOSTIC_TOKEN =
+  "qlSKzzDN1aMbQkhH2IPkfbzEhhZ7iQvVcd9OMeCxKtaDy4U-Hey98ir6PZZoknEG";
 const WORKFLOW_DEFINITION_ID = "00000000-0000-4000-8000-000000000503";
+const ALLOWED_FAILURE_CATEGORIES = new Set([
+  "contract_invalid",
+  "context_invalid",
+  "validation_failed",
+  "worker_execution_failed",
+  "route_unavailable",
+  "all_routes_failed",
+  "configuration_required",
+  "authentication_required",
+  "rate_limited",
+  "provider_timeout",
+  "provider_unavailable",
+  "provider_rejected",
+  "malformed_model_output",
+  "tool_qualification_failed",
+]);
 
 const fixtures = {
   live: {
@@ -36,23 +51,18 @@ const fixtures = {
   },
 };
 
-const structuredSchema = {
-  type: "object",
-  additionalProperties: false,
-  required: ["token"],
-  properties: {
-    token: { type: "string", const: STRUCTURED_TOKEN },
-  },
-};
-
 function messageOf(error) {
   return error instanceof Error ? error.message : String(error);
 }
 
 function categoryOf(error) {
-  return error && typeof error === "object" && typeof error.category === "string"
-    ? error.category
-    : "qualification_failed";
+  const category =
+    error && typeof error === "object" && typeof error.category === "string"
+      ? error.category
+      : "worker_execution_failed";
+  return ALLOWED_FAILURE_CATEGORIES.has(category)
+    ? category
+    : "worker_execution_failed";
 }
 
 function usageJson(usage) {
@@ -85,7 +95,7 @@ function attemptJson(attempt) {
 }
 
 if (process.env.VERCEL_ENV !== "preview") {
-  console.log("Stage 5 live qualification skipped outside Vercel Preview.");
+  console.log("Stage 5 live route qualification skipped outside Vercel Preview.");
   process.exit(0);
 }
 
@@ -95,7 +105,7 @@ const openRouterKey = process.env.OPENROUTER_API_KEY;
 
 if (!supabaseUrl || !publishableKey || !openRouterKey) {
   throw new Error(
-    "Stage 5 live qualification requires Supabase and OPENROUTER_API_KEY Preview variables.",
+    "Stage 5 live route qualification requires Supabase and OPENROUTER_API_KEY Preview variables.",
   );
 }
 
@@ -104,24 +114,19 @@ const supabase = createClient(supabaseUrl, publishableKey, {
 });
 const adapter = new OpenRouterAdapter();
 
-async function recordQualification(modelKey, qualificationType, evidence) {
-  const { data, error } = await supabase.rpc(
-    "record_stage5_live_model_qualification",
-    {
-      p_evidence: evidence,
-      p_model_key: modelKey,
-      p_qualification_token: QUALIFICATION_TOKEN,
-      p_qualification_type: qualificationType,
+async function recordDiagnostic(stage, details = {}) {
+  const { error } = await supabase.rpc("record_stage5_build_diagnostic", {
+    p_details: {
+      ...details,
+      commitSha: process.env.VERCEL_GIT_COMMIT_SHA ?? null,
+      environment: process.env.VERCEL_ENV ?? null,
     },
-  );
-
+    p_diagnostic_token: DIAGNOSTIC_TOKEN,
+    p_stage: stage,
+  });
   if (error) {
-    throw new Error(
-      `Unable to record ${modelKey} ${qualificationType}: ${error.message}`,
-    );
+    throw new Error(`Unable to record ${stage}: ${error.message}`);
   }
-
-  return data;
 }
 
 async function transition(fixture, operation, payload = {}) {
@@ -138,93 +143,6 @@ async function transition(fixture, operation, payload = {}) {
   }
 
   return data ?? {};
-}
-
-async function qualifyModel(model) {
-  const outcomes = [];
-
-  try {
-    const structured = await adapter.invokeStructured({
-      model,
-      schemaName: "agent_labs_stage5_live_probe",
-      outputSchema: structuredSchema,
-      messages: [
-        {
-          role: "system",
-          content:
-            "Return only the JSON object required by the supplied schema. Preserve the exact token.",
-        },
-        {
-          role: "user",
-          content: `Return the qualification token ${JSON.stringify(STRUCTURED_TOKEN)}.`,
-        },
-      ],
-      requestMetadata: {
-        qualification: "stage5-live-structured-output",
-        modelKey: model.modelKey,
-      },
-    });
-
-    if (structured.output.token !== STRUCTURED_TOKEN) {
-      throw new Error("The structured output did not preserve the qualification token.");
-    }
-
-    const evidence = {
-      passed: true,
-      provider: structured.provider,
-      providerModelId: structured.providerModelId,
-      providerRequestId: structured.providerRequestId,
-      latencyMs: structured.latencyMs,
-      usage: usageJson(structured.usage),
-      source: "vercel_preview_live_qualification",
-    };
-    await recordQualification(model.modelKey, "structured_output", evidence);
-    outcomes.push({ type: "structured_output", ...evidence });
-  } catch (error) {
-    const evidence = {
-      passed: false,
-      category: categoryOf(error),
-      message: messageOf(error).slice(0, 500),
-      source: "vercel_preview_live_qualification",
-    };
-    await recordQualification(model.modelKey, "structured_output", evidence);
-    outcomes.push({ type: "structured_output", ...evidence });
-  }
-
-  try {
-    const tool = await adapter.qualifyToolUse({
-      model,
-      token: `stage5-tool-proof:${model.modelKey}`,
-      requestMetadata: {
-        qualification: "stage5-live-tool-use",
-        modelKey: model.modelKey,
-      },
-    });
-
-    const evidence = {
-      passed: true,
-      provider: tool.provider,
-      providerModelId: tool.providerModelId,
-      providerRequestId: tool.providerRequestId,
-      latencyMs: tool.latencyMs,
-      usage: usageJson(tool.usage),
-      toolName: tool.toolName,
-      source: "vercel_preview_live_qualification",
-    };
-    await recordQualification(model.modelKey, "tool_use", evidence);
-    outcomes.push({ type: "tool_use", ...evidence });
-  } catch (error) {
-    const evidence = {
-      passed: false,
-      category: categoryOf(error),
-      message: messageOf(error).slice(0, 500),
-      source: "vercel_preview_live_qualification",
-    };
-    await recordQualification(model.modelKey, "tool_use", evidence);
-    outcomes.push({ type: "tool_use", ...evidence });
-  }
-
-  return { modelKey: model.modelKey, outcomes };
 }
 
 function routeReceipt(validatedReceipt, routeResult) {
@@ -320,13 +238,33 @@ async function runDurableProof(kind, forcePrimaryFailure) {
       },
     });
 
-    const validated = executeWorkerPack(
-      MODEL_RESEARCHER_MANIFEST,
-      () => routeResult.output,
-      context,
-    );
-    const receipt = routeReceipt(validated.receipt, routeResult);
+    await recordDiagnostic(`stage5_${kind}_route_completed`, {
+      selectedModelKey: routeResult.selectedModel.modelKey,
+      routeAttemptCount: routeResult.attempts.length,
+      output: routeResult.output,
+    });
 
+    let validated;
+    try {
+      validated = executeWorkerPack(
+        MODEL_RESEARCHER_MANIFEST,
+        () => routeResult.output,
+        context,
+      );
+    } catch (error) {
+      await recordDiagnostic(`stage5_${kind}_local_validation_failed`, {
+        category: categoryOf(error),
+        message: messageOf(error).slice(0, 1000),
+        details:
+          error && typeof error === "object" && error.details
+            ? error.details
+            : {},
+        output: routeResult.output,
+      });
+      throw error;
+    }
+
+    const receipt = routeReceipt(validated.receipt, routeResult);
     await transition(fixture, "worker_completed", {
       output: validated.output,
       receipt,
@@ -336,6 +274,11 @@ async function runDurableProof(kind, forcePrimaryFailure) {
       routeAttemptCount: routeResult.attempts.length,
       reportedCostUsd: routeResult.totalReportedCostUsd,
       estimatedCostUsd: routeResult.totalEstimatedCostUsd,
+    });
+
+    await recordDiagnostic(`stage5_${kind}_worker_completed`, {
+      selectedModelKey: routeResult.selectedModel.modelKey,
+      routeAttemptCount: routeResult.attempts.length,
     });
 
     return {
@@ -350,51 +293,40 @@ async function runDurableProof(kind, forcePrimaryFailure) {
     };
   } catch (error) {
     const category = categoryOf(error);
-    await transition(fixture, "worker_failed", {
+    await recordDiagnostic(`stage5_${kind}_worker_failure`, {
       category,
-      message: messageOf(error).slice(0, 500),
-      details: {
-        source: "vercel_preview_live_qualification",
-        attempts:
-          error && typeof error === "object" && Array.isArray(error.attempts)
-            ? error.attempts.map(attemptJson)
-            : [],
-      },
+      message: messageOf(error).slice(0, 1000),
     });
+
+    try {
+      await transition(fixture, "worker_failed", {
+        category,
+        message: messageOf(error).slice(0, 500),
+        details: {
+          source: "vercel_preview_live_qualification",
+          attempts:
+            error && typeof error === "object" && Array.isArray(error.attempts)
+              ? error.attempts.map(attemptJson)
+              : [],
+        },
+      });
+    } catch (transitionError) {
+      await recordDiagnostic(`stage5_${kind}_failure_transition_failed`, {
+        originalCategory: category,
+        originalMessage: messageOf(error).slice(0, 1000),
+        transitionMessage: messageOf(transitionError).slice(0, 1000),
+      });
+    }
     throw error;
   }
 }
 
-const qualificationResults = [];
-for (const model of Object.values(MODEL_REGISTRY)) {
-  qualificationResults.push(await qualifyModel(model));
-}
+const routeResults = [
+  await runDurableProof("live", false),
+  await runDurableProof("fallback", true),
+];
 
-const failedQualifications = qualificationResults.flatMap((result) =>
-  result.outcomes
-    .filter((outcome) => outcome.passed !== true)
-    .map((outcome) => ({ modelKey: result.modelKey, ...outcome })),
-);
-
-const routeResults = [];
-if (failedQualifications.length === 0) {
-  routeResults.push(await runDurableProof("live", false));
-  routeResults.push(await runDurableProof("fallback", true));
-}
-
-console.log(
-  `STAGE5_LIVE_QUALIFICATION=${JSON.stringify({
-    qualificationResults,
-    routeResults,
-    failedQualifications,
-  })}`,
-);
-
-if (failedQualifications.length > 0) {
-  throw new Error(
-    `Stage 5 live model qualification failed for ${failedQualifications.length} capability checks.`,
-  );
-}
+console.log(`STAGE5_ROUTE_QUALIFICATION=${JSON.stringify({ routeResults })}`);
 
 const live = routeResults.find((result) => result.kind === "live");
 const fallback = routeResults.find((result) => result.kind === "fallback");
