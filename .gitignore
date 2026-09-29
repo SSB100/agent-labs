@@ -10,6 +10,7 @@ src/app/.well-known/workflow/
 build/
 coverage/
 .core-tests/
+.worker-tests/
 *.tsbuildinfo
 
 # Local environment files

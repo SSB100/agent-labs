@@ -1,6 +1,7 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, type ReactNode } from "react";
 
 const ACTIVE_WORKFLOW_SELECTOR = [
@@ -22,6 +23,7 @@ function hasActiveWorkflow() {
 }
 
 export default function DashboardTemplate({ children }: DashboardTemplateProps) {
+  const pathname = usePathname();
   const router = useRouter();
 
   useEffect(() => {
@@ -48,5 +50,18 @@ export default function DashboardTemplate({ children }: DashboardTemplateProps) 
     };
   }, [router]);
 
-  return children;
+  return (
+    <>
+      {pathname === "/dashboard" ? (
+        <Link
+          className="compactButton"
+          href="/dashboard/worker-proof"
+          style={{ bottom: 24, position: "fixed", right: 24, zIndex: 50 }}
+        >
+          Worker proof
+        </Link>
+      ) : null}
+      {children}
+    </>
+  );
 }

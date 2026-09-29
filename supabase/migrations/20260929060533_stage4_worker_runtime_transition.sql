@@ -1,0 +1,3 @@
+-- Historical hosted migration marker.
+-- The replayable consolidated Stage 4 transition definition is installed by
+-- 20260929062000_stage4_worker_runtime_consolidation.sql.
