@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "next dev",
     "quality": "npm run lint && npm run typecheck && npm test",
-    "build": "npm run quality && node scripts/stage5-live-qualification.mjs && next build",
+    "build": "npm run quality && node scripts/stage5-preview-env-check.mjs && node scripts/stage5-live-qualification.mjs && next build",
     "start": "next start",
     "lint": "eslint . --max-warnings=0",
     "lint:fix": "eslint . --fix",
