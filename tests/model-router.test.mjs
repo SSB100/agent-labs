@@ -7,7 +7,7 @@ import routerModule from "../.core-tests/models/router.js";
 import typesModule from "../.core-tests/models/types.js";
 import workerModule from "../.core-tests/workers/generic-researcher-model.js";
 
-const { OpenRouterAdapter } = openRouterModule;
+const { OpenRouterAdapter, projectProviderJsonSchema } = openRouterModule;
 const { MODEL_ROUTE_REGISTRY, resolveModelRoute } = registryModule;
 const { runModelRoute } = routerModule;
 const { ModelProviderError, ModelRouterError } = typesModule;
@@ -83,6 +83,58 @@ test("Generic Researcher requests the logical standard route rather than a model
   assert.doesNotMatch(JSON.stringify(MODEL_RESEARCHER_MANIFEST), /openai\//);
   assert.doesNotMatch(JSON.stringify(MODEL_RESEARCHER_MANIFEST), /anthropic\//);
   assert.doesNotMatch(JSON.stringify(MODEL_RESEARCHER_MANIFEST), /google\//);
+});
+
+test("provider schema projection keeps structure while removing unsupported constraints", () => {
+  const projected = projectProviderJsonSchema({
+    type: "object",
+    additionalProperties: false,
+    required: ["id", "items", "count", "status"],
+    properties: {
+      id: {
+        type: "string",
+        format: "uuid",
+        minLength: 1,
+        maxLength: 36,
+      },
+      items: {
+        type: "array",
+        minItems: 1,
+        uniqueItems: true,
+        items: {
+          type: "string",
+          pattern: "^signal-",
+        },
+      },
+      count: {
+        type: "integer",
+        minimum: 1,
+        maximum: 3,
+      },
+      status: {
+        type: "string",
+        const: "complete",
+      },
+    },
+  });
+
+  assert.deepEqual(projected, {
+    type: "object",
+    additionalProperties: false,
+    required: ["id", "items", "count", "status"],
+    properties: {
+      id: { type: "string" },
+      items: {
+        type: "array",
+        items: { type: "string" },
+      },
+      count: { type: "integer" },
+      status: {
+        type: "string",
+        enum: ["complete"],
+      },
+    },
+  });
 });
 
 test("a retryable primary failure uses one genuinely different fallback", async () => {
