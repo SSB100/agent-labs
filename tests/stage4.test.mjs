@@ -5,6 +5,8 @@ import test from "node:test";
 const readProjectFile = (path) =>
   readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
+const isMissingFile = (error) => error?.code === "ENOENT";
+
 test("Stage 4 defines a complete versioned Generic Researcher Worker Pack", async () => {
   const manifest = await readProjectFile("src/workers/generic-researcher.ts");
   const types = await readProjectFile("src/workers/types.ts");
@@ -48,7 +50,10 @@ test("Stage 4 runs the Worker Pack durably and records classified terminal state
     "supabase/migrations/20260929060533_stage4_worker_runtime_transition.sql",
   );
   const runtimeMigration = await readProjectFile(
-    "supabase/migrations/20260929062000_stage4_worker_runtime_consolidation.sql",
+    "supabase/migrations/20260929063538_stage4_worker_runtime_consolidation.sql",
+  );
+  const cleanupMigration = await readProjectFile(
+    "supabase/migrations/20260929063554_stage4_qualification_cleanup.sql",
   );
   const migration = `${foundationMigration}\n${hostedMarker}\n${runtimeMigration}`;
 
@@ -69,6 +74,8 @@ test("Stage 4 runs the Worker Pack durably and records classified terminal state
   assert.match(migration, /failureCategory/);
   assert.match(migration, /grant execute[^;]+to anon/s);
   assert.match(migration, /from public,authenticated,service_role/s);
+  assert.match(cleanupMigration, /00000000-0000-4000-8000-000000004401/);
+  assert.match(cleanupMigration, /00000000-0000-4000-8000-000000004402/);
 });
 
 test("Stage 4 includes an owner-visible proof UI and remains model-provider neutral", async () => {
@@ -90,4 +97,24 @@ test("Stage 4 includes an owner-visible proof UI and remains model-provider neut
     workerFiles,
     /openrouter|openai|anthropic|gemini|generateText|streamText|browserbase|steel/i,
   );
+});
+
+test("Stage 4 live qualification is recorded and temporary access is removed", async () => {
+  await assert.rejects(
+    readProjectFile("src/app/api/stage4/qualification/route.ts"),
+    isMissingFile,
+  );
+  await assert.rejects(
+    readProjectFile("docs/qualification/STAGE_4_INVALID_REDEPLOY_MARKER.md"),
+    isMissingFile,
+  );
+
+  const checkpoint = await readProjectFile(
+    "docs/checkpoints/STAGE_4_WORKER_PACK_RUNTIME.md",
+  );
+  assert.match(checkpoint, /input keys:\s+inputArtifacts, taskContract/);
+  assert.match(checkpoint, /Failure category:\s+validation_failed/);
+  assert.match(checkpoint, /duplicateRowsInserted|inserted zero rows/i);
+  assert.match(checkpoint, /cross-owner RLS isolation/i);
+  assert.match(checkpoint, /temporary Preview qualification route was removed/);
 });
