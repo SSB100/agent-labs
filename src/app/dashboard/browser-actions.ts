@@ -9,6 +9,9 @@ import { resumeHook, start } from "workflow/api";
 import { isDefaultBrowserProviderConfigured } from "@/browser/registry";
 import { createClient } from "@/lib/supabase/server";
 import {
+  type BrowserPlannerRuntimeInput,
+} from "@/workflows/browser-planner-runtime";
+import {
   browserReturnControlHookToken,
   browserTakeControlHookToken,
   type BrowserControlDecision,
@@ -27,6 +30,8 @@ const SAFE_RETURN_PATHS = new Set([
   "/dashboard/workflows",
 ]);
 const BROWSER_WORKFLOW_KEY = "synthetic.browser-provider.qualification" as const;
+const BROWSER_PLANNER_WORKFLOW_KEY =
+  "synthetic.browser-planner.qualification" as const;
 
 type BrowserLaunchResult = {
   browser_identity_id: string;
@@ -63,6 +68,20 @@ async function requireOwnerSession() {
   return { supabase, userId };
 }
 
+async function requireOwnedBusiness(businessId: string) {
+  const { supabase, userId } = await requireOwnerSession();
+  const { data: business, error } = await supabase
+    .from("businesses")
+    .select("id")
+    .eq("id", businessId)
+    .eq("owner_user_id", userId)
+    .maybeSingle();
+  if (error || !business) {
+    redirectWith("/dashboard/accounts", "error", "business-not-found");
+  }
+  return { supabase, userId };
+}
+
 export async function startBrowserQualification(formData: FormData) {
   const businessId = formText(formData, "businessId");
   const idempotencyKey = formText(formData, "idempotencyKey");
@@ -81,17 +100,7 @@ export async function startBrowserQualification(formData: FormData) {
     redirectWith("/dashboard/accounts", "error", "browser-provider-not-configured");
   }
 
-  const { supabase, userId } = await requireOwnerSession();
-  const { data: business, error: businessError } = await supabase
-    .from("businesses")
-    .select("id")
-    .eq("id", businessId)
-    .eq("owner_user_id", userId)
-    .maybeSingle();
-  if (businessError || !business) {
-    redirectWith("/dashboard/accounts", "error", "business-not-found");
-  }
-
+  const { supabase } = await requireOwnedBusiness(businessId);
   const runtimeCapability = `${randomUUID()}${randomUUID()}`;
   const { data, error } = await supabase.rpc("begin_browser_qualification_run", {
     p_business_id: businessId,
@@ -166,6 +175,106 @@ export async function startBrowserQualification(formData: FormData) {
     `/dashboard/workflows/${launch.workflow_run_id}`,
     "message",
     "browser-workflow-started",
+  );
+}
+
+export async function startBrowserPlannerQualification(formData: FormData) {
+  const businessId = formText(formData, "businessId");
+  const idempotencyKey = formText(formData, "idempotencyKey");
+  const launchNonce = formText(formData, "launchNonce");
+
+  if (
+    !UUID_PATTERN.test(businessId) ||
+    !UUID_PATTERN.test(launchNonce) ||
+    idempotencyKey.length < 1 ||
+    idempotencyKey.length > 200
+  ) {
+    redirectWith("/dashboard/accounts", "error", "invalid-browser-planner-launch");
+  }
+
+  if (!isDefaultBrowserProviderConfigured()) {
+    redirectWith("/dashboard/accounts", "error", "browser-provider-not-configured");
+  }
+
+  const { supabase } = await requireOwnedBusiness(businessId);
+  const runtimeCapability = `${randomUUID()}${randomUUID()}`;
+  const { data, error } = await supabase.rpc(
+    "begin_browser_planner_qualification_run",
+    {
+      p_business_id: businessId,
+      p_idempotency_key: idempotencyKey,
+      p_launch_nonce: launchNonce,
+      p_runtime_capability: runtimeCapability,
+    },
+  );
+  const launch = (Array.isArray(data) ? data[0] : data) as BrowserLaunchResult | null;
+
+  if (error || !launch?.workflow_run_id) {
+    console.error("Unable to reserve Browser Planner qualification", error);
+    redirectWith("/dashboard/accounts", "error", "browser-planner-reservation-failed");
+  }
+
+  if (!launch.should_start) {
+    redirectWith(
+      `/dashboard/workflows/${launch.workflow_run_id}`,
+      "message",
+      "browser-planner-duplicate-prevented",
+    );
+  }
+
+  const workflowInput: BrowserPlannerRuntimeInput = {
+    browserIdentityId: launch.browser_identity_id,
+    browserSessionId: launch.browser_session_id,
+    businessId,
+    coreWorkflowRunId: launch.workflow_run_id,
+    providerKey: launch.provider_key,
+    providerProfileId: launch.provider_profile_id,
+    runtimeCapability,
+  };
+
+  try {
+    const registered = getRegisteredWorkflow(BROWSER_PLANNER_WORKFLOW_KEY);
+    const runtimeRun = await start(registered.workflow, [workflowInput]);
+    const { error: confirmError } = await supabase
+      .from("workflow_runs")
+      .update({
+        runtime_launch_status: "started",
+        runtime_provider: "vercel_workflow",
+        runtime_run_id: runtimeRun.runId,
+      })
+      .eq("id", launch.workflow_run_id)
+      .eq("business_id", businessId)
+      .eq("runtime_launch_nonce", launchNonce);
+    if (confirmError) {
+      console.error("Browser Planner launch confirmation failed", confirmError);
+    }
+  } catch (startError) {
+    console.error("Unable to start Browser Planner qualification", startError);
+    await supabase
+      .from("workflow_runs")
+      .update({
+        completed_at: new Date().toISOString(),
+        runtime_launch_status: "launch_failed",
+        status: "failed",
+      })
+      .eq("id", launch.workflow_run_id)
+      .eq("business_id", businessId)
+      .eq("runtime_launch_nonce", launchNonce);
+    redirectWith(
+      `/dashboard/workflows/${launch.workflow_run_id}`,
+      "error",
+      "browser-planner-launch-failed",
+    );
+  }
+
+  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/accounts");
+  revalidatePath("/dashboard/workflows");
+  revalidatePath(`/dashboard/workflows/${launch.workflow_run_id}`);
+  redirectWith(
+    `/dashboard/workflows/${launch.workflow_run_id}`,
+    "message",
+    "browser-planner-workflow-started",
   );
 }
 
