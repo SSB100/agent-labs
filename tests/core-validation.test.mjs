@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import serviceModule from "../.core-tests/service.js";
-import validationModule from "../.core-tests/validation.js";
+import serviceModule from "../.core-tests/core/service.js";
+import validationModule from "../.core-tests/core/validation.js";
 
 const { ValidatedCoreStateService } = serviceModule;
 const { CoreContractValidationError, validateCoreContract } = validationModule;

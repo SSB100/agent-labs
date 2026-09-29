@@ -7,9 +7,9 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "outDir": ".core-tests",
-    "rootDir": "src/core",
+    "rootDir": "src",
     "noEmit": false,
     "incremental": false
   },
-  "include": ["src/core/**/*.ts"]
+  "include": ["src/core/**/*.ts", "src/workers/**/*.ts"]
 }

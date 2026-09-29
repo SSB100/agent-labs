@@ -7,8 +7,9 @@ The repository has completed:
 - **Stage 1: Cloud application scaffold**
 - **Stage 2: Universal Core data contracts**
 - **Stage 3: Vercel Workflow runtime**
+- **Stage 4: Worker Pack runtime**
 
-The next planned stage is **Stage 4: Worker Pack runtime**. It has not been started.
+The next planned stage is **Stage 5: Model Router**. It has not been started.
 
 ## Private application model
 
@@ -42,12 +43,16 @@ Implemented:
 - idempotent workflow launch reservation and duplicate prevention
 - durable workflow state, stage history and business-readable events in Supabase
 - workflow history and Needs You controls in the private control centre
-- a synthetic Start → Worker Task → Wait → Review → Complete qualification workflow
+- a complete versioned Generic Researcher Worker Pack fixture
+- Task Contract-only worker context enforcement
+- capability, knowledge, input, output and evidence validation
+- durable Worker Runs, classified failures, output Artifacts and worker receipts
+- an owner-visible Worker Proof page
 
 Not implemented yet:
 
-- a real specialist worker or model invocation
-- model routing
+- live model invocation
+- model routing, fallback, escalation or provider telemetry
 - browser operation
 - provider connections
 - production capability, knowledge, worker or workflow packs
@@ -74,7 +79,7 @@ Create these variables in Development, Preview and Production:
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
 
-The publishable key is designed for browser use. Do not add a Supabase secret key or service-role key to the client application. Stage 3 runtime transitions use a randomly generated capability scoped to one Workflow Run.
+The publishable key is designed for browser use. Do not add a Supabase secret key or service-role key to the client application. Durable runtime transitions use a random capability scoped to one Workflow Run.
 
 ## Owner account provisioning
 
@@ -117,6 +122,15 @@ Stage 3:
 20260929034351_stage3_capability_helper_permission.sql
 20260929043635_stage3_qualification_cleanup.sql
 20260929044045_stage3_runtime_grant_tightening.sql
+```
+
+Stage 4:
+
+```text
+20260929060408_stage4_worker_pack_foundation.sql
+20260929060533_stage4_worker_runtime_transition.sql
+20260929063538_stage4_worker_runtime_consolidation.sql
+20260929063554_stage4_qualification_cleanup.sql
 ```
 
 Stage checkpoints are stored under `docs/checkpoints/`.
