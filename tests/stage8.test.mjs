@@ -5,6 +5,7 @@ import test from "node:test";
 import automationModule from "../.core-tests/browser/automation.js";
 import steelModule from "../.core-tests/browser/providers/steel.js";
 import registryModule from "../.core-tests/browser/registry.js";
+import replayModule from "../.core-tests/browser/replay.js";
 import typesModule from "../.core-tests/browser/types.js";
 
 const read = (path) => readFileSync(path, "utf8");
@@ -14,6 +15,7 @@ const {
   BROWSER_PROVIDER_COMPARISON,
   DEFAULT_BROWSER_PROVIDER_KEY,
 } = registryModule;
+const { rewriteHlsManifest } = replayModule;
 const { BrowserProviderError } = typesModule;
 
 test("Stage 8 selects Steel while retaining a replaceable Browserbase adapter", () => {
@@ -88,6 +90,35 @@ test("Steel authentication is never forwarded to external replay resources", asy
   assert.equal(calls[0].headers.has("steel-api-key"), false);
   assert.equal(calls[1].url, "https://api.steel.dev/v1/sessions/steel-session-1/hls");
   assert.equal(calls[1].headers.get("steel-api-key"), "steel-secret-test-key");
+});
+
+test("every HLS segment, key and initialization URI is rewritten through the owner proxy", () => {
+  const manifest = [
+    "#EXTM3U",
+    '#EXT-X-MAP:URI="init.mp4"',
+    '#EXT-X-KEY:METHOD=AES-128,URI="keys/key.bin"',
+    "segments/part-1.m4s",
+    "",
+  ].join("\n");
+  const rewritten = rewriteHlsManifest(
+    manifest,
+    "https://recordings.example.test/session/master.m3u8",
+    (resource) => `https://agent-labs.test/replay?resource=${encodeURIComponent(resource)}`,
+  );
+
+  assert.match(
+    rewritten,
+    /URI="https:\/\/agent-labs\.test\/replay\?resource=https%3A%2F%2Frecordings\.example\.test%2Fsession%2Finit\.mp4"/,
+  );
+  assert.match(
+    rewritten,
+    /URI="https:\/\/agent-labs\.test\/replay\?resource=https%3A%2F%2Frecordings\.example\.test%2Fsession%2Fkeys%2Fkey\.bin"/,
+  );
+  assert.match(
+    rewritten,
+    /https:\/\/agent-labs\.test\/replay\?resource=https%3A%2F%2Frecordings\.example\.test%2Fsession%2Fsegments%2Fpart-1\.m4s/,
+  );
+  assert.doesNotMatch(rewritten, /URI="init\.mp4"|URI="keys\/key\.bin"|^segments\/part-1\.m4s$/m);
 });
 
 test("Stage 8 stores provider URLs privately and keeps exposed browser records owner-scoped", () => {
