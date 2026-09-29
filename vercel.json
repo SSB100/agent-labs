@@ -1,6 +1,5 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
-  "regions": ["syd1"],
-  "buildCommand": "npm run qualify:stage5"
+  "regions": ["syd1"]
 }
