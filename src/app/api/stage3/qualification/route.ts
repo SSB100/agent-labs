@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { resumeHook, start } from "workflow/api";
 
+import { createRuntimeClient } from "@/lib/supabase/runtime";
 import {
   syntheticReviewHookToken,
   type SyntheticReviewDecision,
@@ -14,21 +15,53 @@ const QUALIFICATION_KEY = "uxgGHh2PHxL2C-4VTaC837RPkohrLOWMw8vchSdJCRQ";
 
 const fixtures = {
   approve: {
-    businessId: "00000000-0000-4000-8000-000000003303",
-    coreWorkflowRunId: "3c7c4b4c-6407-4d14-b551-6bc5664370a7",
+    businessId: "00000000-0000-4000-8000-000000003305",
+    coreWorkflowRunId: "6c957777-b877-4fd7-9e92-28846d029527",
     runtimeCapability:
-      "6aec6d39-997f-4089-8ef1-e5c733bbd30c06089efc-d241-4e53-b8ce-2cc26dc32c97",
+      "4a621244-fd73-49df-aa83-8995fc034db60bb3c10e-20fa-4c29-b5e5-298fcf465b6a",
   },
   fail: {
-    businessId: "00000000-0000-4000-8000-000000003304",
-    coreWorkflowRunId: "fe154622-e54a-480a-b4b7-501b8d96ac85",
+    businessId: "00000000-0000-4000-8000-000000003306",
+    coreWorkflowRunId: "f0e3163a-7f45-47bb-b512-49f45a751e97",
     runtimeCapability:
-      "273768d0-cdff-4888-b5dc-05568eaf26ccac82920e-2af5-432d-9633-3ca5583bac55",
+      "80c0f8d3-203c-4cfa-a0cb-e14dd5e21110abcf9714-18f4-46c1-be13-ed1b945cbdda",
   },
 } satisfies Record<"approve" | "fail", SyntheticRuntimeInput>;
 
 function unavailable() {
   return Response.json({ error: "Not found" }, { status: 404 });
+}
+
+async function claimAction(
+  fixture: SyntheticRuntimeInput,
+  action: "start" | "resume-approve" | "resume-fail",
+) {
+  const supabase = createRuntimeClient();
+  const { data, error } = await supabase.rpc("claim_stage3_qualification_action", {
+    p_action: action,
+    p_business_id: fixture.businessId,
+    p_runtime_capability: fixture.runtimeCapability,
+    p_workflow_run_id: fixture.coreWorkflowRunId,
+  });
+
+  if (error) {
+    throw new Error(`Unable to claim qualification action: ${error.message}`);
+  }
+
+  return data === true;
+}
+
+async function releaseAction(
+  fixture: SyntheticRuntimeInput,
+  action: "start" | "resume-approve" | "resume-fail",
+) {
+  const supabase = createRuntimeClient();
+  await supabase.rpc("release_stage3_qualification_action", {
+    p_action: action,
+    p_business_id: fixture.businessId,
+    p_runtime_capability: fixture.runtimeCapability,
+    p_workflow_run_id: fixture.coreWorkflowRunId,
+  });
 }
 
 export async function GET(request: NextRequest) {
@@ -43,30 +76,61 @@ export async function GET(request: NextRequest) {
 
   if (action === "start-approve" || action === "start-fail") {
     const fixture = action === "start-approve" ? fixtures.approve : fixtures.fail;
-    const registered = getRegisteredWorkflow("synthetic.core.runtime-proof");
-    const runtimeRun = await start(registered.workflow, [fixture]);
+    const claimed = await claimAction(fixture, "start");
 
-    return Response.json({
-      action,
-      coreWorkflowRunId: fixture.coreWorkflowRunId,
-      runtimeRunId: runtimeRun.runId,
-      started: true,
-    });
+    if (!claimed) {
+      return Response.json({
+        action,
+        alreadyClaimed: true,
+        coreWorkflowRunId: fixture.coreWorkflowRunId,
+      });
+    }
+
+    try {
+      const registered = getRegisteredWorkflow("synthetic.core.runtime-proof");
+      const runtimeRun = await start(registered.workflow, [fixture]);
+
+      return Response.json({
+        action,
+        coreWorkflowRunId: fixture.coreWorkflowRunId,
+        runtimeRunId: runtimeRun.runId,
+        started: true,
+      });
+    } catch (error) {
+      await releaseAction(fixture, "start");
+      throw error;
+    }
   }
 
   if (action === "approve" || action === "fail") {
     const fixture = action === "approve" ? fixtures.approve : fixtures.fail;
-    await resumeHook(syntheticReviewHookToken(fixture.coreWorkflowRunId), {
-      decidedAt: new Date().toISOString(),
-      decision: action,
-      ownerUserId: "stage3-qualification",
-    } satisfies SyntheticReviewDecision);
+    const claimKey = action === "approve" ? "resume-approve" : "resume-fail";
+    const claimed = await claimAction(fixture, claimKey);
 
-    return Response.json({
-      action,
-      coreWorkflowRunId: fixture.coreWorkflowRunId,
-      resumed: true,
-    });
+    if (!claimed) {
+      return Response.json({
+        action,
+        alreadyClaimed: true,
+        coreWorkflowRunId: fixture.coreWorkflowRunId,
+      });
+    }
+
+    try {
+      await resumeHook(syntheticReviewHookToken(fixture.coreWorkflowRunId), {
+        decidedAt: new Date().toISOString(),
+        decision: action,
+        ownerUserId: "stage3-qualification",
+      } satisfies SyntheticReviewDecision);
+
+      return Response.json({
+        action,
+        coreWorkflowRunId: fixture.coreWorkflowRunId,
+        resumed: true,
+      });
+    } catch (error) {
+      await releaseAction(fixture, claimKey);
+      throw error;
+    }
   }
 
   return Response.json(
