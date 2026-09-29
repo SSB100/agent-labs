@@ -42,12 +42,44 @@ Agent Labs V2 uses the existing hosted Supabase project:
 
 `20260929063554_stage4_qualification_cleanup.sql` deletes the temporary success and malformed-output qualification Businesses after evidence was recorded.
 
+### Stage 5
+
+`20260929074449_stage5_model_router_foundation.sql` adds the provider-neutral model registry, capability and qualification records, logical route policies, model invocation telemetry and initial Model Router workflow records.
+
+`20260929074737_stage5_model_router_runtime.sql` adds the first capability-gated durable Model Router transition.
+
+`20260929081542_stage5_model_schema_consolidation.sql` preserves a replayable Stage 5 schema and RLS definition.
+
+`20260929081624_stage5_model_catalog.sql` installs the initial model and route catalog.
+
+`20260929081703_stage5_worker_route_contract.sql` installs the model-backed Generic Researcher and its logical route requirements.
+
+`20260929081753_stage5_runtime_start_task.sql` installs the start, Task Contract and exact-context helpers.
+
+`20260929081833_stage5_runtime_route_worker.sql` installs route resolution and Worker Run helpers.
+
+`20260929081929_stage5_runtime_invocations.sql` installs durable model attempt, token, cost and failure telemetry.
+
+`20260929101714_stage5_openrouter_catalog_correction.sql` aligns the hosted catalog with the live OpenRouter model IDs and current pricing metadata used for qualification.
+
+`20260929101810_stage5_live_qualification_recorder.sql` and `20260929102028_stage5_live_qualification_outcomes.sql` provide temporary capability-gated live qualification evidence recording.
+
+`20260929103127_stage5_build_diagnostics.sql` provides a temporary private build-stage diagnostic used to isolate qualification failures.
+
+`20260929104732_stage5_terminal_transition_fix.sql` hides the prior terminal implementation and routes Worker completion and failure through corrected private helpers.
+
+`20260929105127_stage5_qualification_cleanup.sql` normalises the successful live evidence, marks all five model definitions live-qualified, removes the temporary fixture Businesses and drops the temporary qualification and diagnostic objects.
+
 ## Security boundary
 
-Every exposed table has RLS enabled. Business-scoped records are available only to the authenticated Business owner. Pack, WorkflowDefinition and WorkerDefinition records are read-only to application clients. Evidence, Event and ActionReceipt records are append-only to application clients.
+Every exposed table has RLS enabled. Business-scoped records are available only to the authenticated Business owner. Pack, WorkflowDefinition, WorkerDefinition, model definition, qualification and route records are read-only to application clients. Evidence, Event and ActionReceipt records are append-only to application clients.
 
 Workflow runtimes use the project publishable key plus an unguessable capability scoped to one Workflow Run. They do not expose or depend on a Supabase secret key or service-role key.
 
-Stage 4 workers receive only a Task Contract and explicitly referenced Artifacts. Worker receipts record the pinned pack and worker versions, context policy, validation outcome and stop reason.
+Stage 4 and Stage 5 workers receive only a Task Contract and explicitly referenced Artifacts. Worker receipts record the pinned pack and worker versions, logical model route, selected provider model, context policy, validation outcome, tokens, cost and stop reason.
+
+The Stage 5 runtime's legacy implementation is not executable by API roles. The permanent public transition exposes only the capability-gated entry point required by the durable Workflow client.
+
+`OPENROUTER_API_KEY` remains a server-only Vercel environment variable and is not stored in Supabase application tables.
 
 Never commit secret or service-role keys. Browser, SSR and workflow clients use only the project URL and publishable key through the two `NEXT_PUBLIC_SUPABASE_*` environment variables.
