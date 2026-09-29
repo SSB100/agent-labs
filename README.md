@@ -9,8 +9,9 @@ The repository has completed:
 - **Stage 3: Vercel Workflow runtime**
 - **Stage 4: Worker Pack runtime**
 - **Stage 5: Model Router**
+- **Stage 6: Worker evaluation framework**
 
-The next planned stage is **Stage 6: Worker evaluation framework**. It has not been started.
+The next planned stage is **Stage 7: Core UI and live activity**. It has not been started.
 
 ## Private application model
 
@@ -60,10 +61,19 @@ Implemented:
 - durable provider, model, token, cost and latency telemetry
 - an owner-visible Model Router page
 - live qualification of five models for structured output and tool use
+- versioned Worker evaluation suites and case fixtures
+- schema, role-boundary, mocked-capability, positive-example and negative-example evaluations
+- live competence testing against the current primary and fallback models
+- durable evaluation scores, per-case telemetry and promotion receipts
+- Experimental, Qualified, Assisted and Autonomous Worker maturity states
+- automatic qualification invalidation after relevant Worker Pack, route, model or model-qualification changes
+- a database-enforced Task Contract gate for evaluated workers
+- an owner-visible Worker evaluations page
+- live promotion of the Generic Researcher from Experimental to Qualified after an 11-of-11, 100-point evaluation
 
 Not implemented yet:
 
-- the Stage 6 Worker Pack evaluation and promotion framework
+- the Stage 7 Core UI and live-activity workspace
 - browser operation
 - commerce provider connections
 - production capability, knowledge, worker or workflow packs
@@ -97,7 +107,7 @@ Optional OpenRouter attribution variables are:
 - `OPENROUTER_APP_URL`
 - `OPENROUTER_APP_NAME`
 
-The Supabase publishable key is designed for browser use. `OPENROUTER_API_KEY` is server-only and must never use a `NEXT_PUBLIC_` prefix. Do not add a Supabase secret key or service-role key to the client application. Durable runtime transitions use a random capability scoped to one Workflow Run.
+The Supabase publishable key is designed for browser use. `OPENROUTER_API_KEY` is server-only and must never use a `NEXT_PUBLIC_` prefix. Do not add a Supabase secret key or service-role key to the client application. Durable runtime transitions and Worker evaluations use random capabilities scoped to one run.
 
 ## Owner account provisioning
 
@@ -168,6 +178,17 @@ Stage 5:
 20260929103127_stage5_build_diagnostics.sql
 20260929104732_stage5_terminal_transition_fix.sql
 20260929105127_stage5_qualification_cleanup.sql
+```
+
+Stage 6:
+
+```text
+20260929115518_stage6_worker_evaluation_framework.sql
+20260929120153_stage6_qualification_helper_security.sql
+20260929120901_stage6_evaluation_schema_consolidation.sql
+20260929120943_stage6_evaluation_runtime_consolidation.sql
+20260929121005_stage6_evaluation_invalidation_and_gate.sql
+20260929121027_stage6_generic_researcher_evaluation_catalog.sql
 ```
 
 Stage checkpoints are stored under `docs/checkpoints/`.

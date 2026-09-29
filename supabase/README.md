@@ -70,9 +70,23 @@ Agent Labs V2 uses the existing hosted Supabase project:
 
 `20260929105127_stage5_qualification_cleanup.sql` normalises the successful live evidence, marks all five model definitions live-qualified, removes the temporary fixture Businesses and drops the temporary qualification and diagnostic objects.
 
+### Stage 6
+
+`20260929115518_stage6_worker_evaluation_framework.sql` preserves the first hosted Stage 6 migration position. The final replayable definitions are consolidated by the migrations below.
+
+`20260929120153_stage6_qualification_helper_security.sql` restricts the authenticated qualification-status helper and removes anonymous execution.
+
+`20260929120901_stage6_evaluation_schema_consolidation.sql` creates the versioned evaluation-suite, case, run, result and Worker-promotion tables with read-only application access and RLS.
+
+`20260929120943_stage6_evaluation_runtime_consolidation.sql` installs the exact Worker and model-route fingerprint, owner evaluation reservation, capability-gated case recording, scoring and promotion runtime.
+
+`20260929121005_stage6_evaluation_invalidation_and_gate.sql` invalidates stale qualifications after relevant Worker Pack, route, model or model-qualification changes and blocks new Task Contracts for evaluated workers without a current passed evaluation.
+
+`20260929121027_stage6_generic_researcher_evaluation_catalog.sql` installs the 11 required Generic Researcher schema, role-boundary, mocked-capability, positive-example and negative-example cases.
+
 ## Security boundary
 
-Every exposed table has RLS enabled. Business-scoped records are available only to the authenticated Business owner. Pack, WorkflowDefinition, WorkerDefinition, model definition, qualification and route records are read-only to application clients. Evidence, Event and ActionReceipt records are append-only to application clients.
+Every exposed table has RLS enabled. Business-scoped records are available only to the authenticated Business owner. Pack, WorkflowDefinition, WorkerDefinition, model definition, qualification, route and Worker-evaluation catalog records are read-only to application clients. Evidence, Event and ActionReceipt records are append-only to application clients.
 
 Workflow runtimes use the project publishable key plus an unguessable capability scoped to one Workflow Run. They do not expose or depend on a Supabase secret key or service-role key.
 
@@ -80,6 +94,10 @@ Stage 4 and Stage 5 workers receive only a Task Contract and explicitly referenc
 
 The Stage 5 runtime's legacy implementation is not executable by API roles. The permanent public transition exposes only the capability-gated entry point required by the durable Workflow client.
 
+Stage 6 application users can read evaluation history but cannot directly create results or promotions. Case recording and completion require the high-entropy capability for one exact evaluation. Qualification is tied to a SHA-256 fingerprint of the Worker definition, Worker Pack, route, primary model, fallback model and current model-qualification evidence.
+
+A relevant Worker Pack or model change invalidates the passed result and conservatively returns the Worker to Experimental until the current suite passes again. PostgreSQL enforces this at Task Contract creation, so an evaluated Worker cannot execute merely because a UI still shows an old status.
+
 `OPENROUTER_API_KEY` remains a server-only Vercel environment variable and is not stored in Supabase application tables.
 
-Never commit secret or service-role keys. Browser, SSR and workflow clients use only the project URL and publishable key through the two `NEXT_PUBLIC_SUPABASE_*` environment variables.
+Never commit secret or service-role keys. Browser, SSR, workflow and evaluation clients use only the project URL and publishable key through the two `NEXT_PUBLIC_SUPABASE_*` environment variables.
