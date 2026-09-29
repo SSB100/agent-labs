@@ -53,6 +53,34 @@ export default function DashboardTemplate({ children }: DashboardTemplateProps) 
   return (
     <>
       {pathname === "/dashboard" ? (
+        <div
+          style={{
+            bottom: 24,
+            display: "flex",
+            gap: 10,
+            position: "fixed",
+            right: 24,
+            zIndex: 50,
+          }}
+        >
+          <Link className="compactButton" href="/dashboard/worker-proof">
+            Worker proof
+          </Link>
+          <Link className="compactButton" href="/dashboard/model-router">
+            Model router
+          </Link>
+        </div>
+      ) : null}
+      {pathname === "/dashboard/worker-proof" ? (
+        <Link
+          className="compactButton"
+          href="/dashboard/model-router"
+          style={{ bottom: 24, position: "fixed", right: 24, zIndex: 50 }}
+        >
+          Model router
+        </Link>
+      ) : null}
+      {pathname === "/dashboard/model-router" ? (
         <Link
           className="compactButton"
           href="/dashboard/worker-proof"

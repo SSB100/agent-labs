@@ -6,10 +6,11 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
+    "types": ["node"],
     "outDir": ".core-tests",
     "rootDir": "src",
     "noEmit": false,
     "incremental": false
   },
-  "include": ["src/core/**/*.ts", "src/workers/**/*.ts"]
+  "include": ["src/core/**/*.ts", "src/models/**/*.ts", "src/workers/**/*.ts"]
 }

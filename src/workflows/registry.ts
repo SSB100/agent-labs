@@ -1,4 +1,9 @@
 import {
+  MODEL_ROUTER_RUNTIME_WORKFLOW_DEFINITION_ID,
+  MODEL_ROUTER_RUNTIME_WORKFLOW_KEY,
+  modelRouterRuntimeWorkflow,
+} from "./model-router-runtime";
+import {
   SYNTHETIC_RUNTIME_WORKFLOW_DEFINITION_ID,
   SYNTHETIC_RUNTIME_WORKFLOW_KEY,
   syntheticCoreRuntimeWorkflow,
@@ -17,6 +22,10 @@ export const WORKFLOW_REGISTRY = {
   [WORKER_PACK_RUNTIME_WORKFLOW_KEY]: {
     definitionId: WORKER_PACK_RUNTIME_WORKFLOW_DEFINITION_ID,
     workflow: workerPackRuntimeWorkflow,
+  },
+  [MODEL_ROUTER_RUNTIME_WORKFLOW_KEY]: {
+    definitionId: MODEL_ROUTER_RUNTIME_WORKFLOW_DEFINITION_ID,
+    workflow: modelRouterRuntimeWorkflow,
   },
 } as const;
 

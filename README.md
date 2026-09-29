@@ -1,6 +1,6 @@
 # Agent Labs V2
 
-Agent Labs V2 is a clean, cloud-first rebuild of Agent Labs. The permanent Core hosts durable workflows, bounded specialist workers, connected accounts, evidence, business state and human intervention. Specialised expertise is installed through versioned packs.
+Agent Labs V2 is a clean, cloud-first rebuild of Agent Labs. The permanent Core hosts durable workflows, bounded specialist workers, model routing, connected accounts, evidence, business state and human intervention. Specialised expertise is installed through versioned packs.
 
 The repository has completed:
 
@@ -8,8 +8,9 @@ The repository has completed:
 - **Stage 2: Universal Core data contracts**
 - **Stage 3: Vercel Workflow runtime**
 - **Stage 4: Worker Pack runtime**
+- **Stage 5: Model Router**
 
-The next planned stage is **Stage 5: Model Router**. It has not been started.
+The next planned stage is **Stage 6: Worker evaluation framework**. It has not been started.
 
 ## Private application model
 
@@ -48,20 +49,30 @@ Implemented:
 - capability, knowledge, input, output and evidence validation
 - durable Worker Runs, classified failures, output Artifacts and worker receipts
 - an owner-visible Worker Proof page
+- provider-neutral model definitions and logical routes
+- OpenRouter structured-output and required tool-call support
+- Luna-class default routing
+- independent Claude reviewer routing
+- Sol-class high-power escalation routing
+- Gemini-class large-context and independent fallback routing
+- bounded retry and fallback with a maximum of two attempts
+- provider-safe schema projection followed by complete local validation
+- durable provider, model, token, cost and latency telemetry
+- an owner-visible Model Router page
+- live qualification of five models for structured output and tool use
 
 Not implemented yet:
 
-- live model invocation
-- model routing, fallback, escalation or provider telemetry
+- the Stage 6 Worker Pack evaluation and promotion framework
 - browser operation
-- provider connections
+- commerce provider connections
 - production capability, knowledge, worker or workflow packs
-- commerce execution
+- Etsy or other commerce execution
 
 ## Local setup
 
 1. Copy `.env.example` to `.env.local`.
-2. Replace the placeholder with the Agent Labs Supabase publishable key.
+2. Replace the placeholders with the Agent Labs Supabase publishable key and an OpenRouter key.
 3. Install dependencies with `npm install`.
 4. Run `npm run dev`.
 5. Open `http://localhost:3000`.
@@ -78,8 +89,15 @@ Create these variables in Development, Preview and Production:
 
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+- `OPENROUTER_API_KEY`
 
-The publishable key is designed for browser use. Do not add a Supabase secret key or service-role key to the client application. Durable runtime transitions use a random capability scoped to one Workflow Run.
+Optional OpenRouter attribution variables are:
+
+- `OPENROUTER_API_BASE_URL`
+- `OPENROUTER_APP_URL`
+- `OPENROUTER_APP_NAME`
+
+The Supabase publishable key is designed for browser use. `OPENROUTER_API_KEY` is server-only and must never use a `NEXT_PUBLIC_` prefix. Do not add a Supabase secret key or service-role key to the client application. Durable runtime transitions use a random capability scoped to one Workflow Run.
 
 ## Owner account provisioning
 
@@ -131,6 +149,25 @@ Stage 4:
 20260929060533_stage4_worker_runtime_transition.sql
 20260929063538_stage4_worker_runtime_consolidation.sql
 20260929063554_stage4_qualification_cleanup.sql
+```
+
+Stage 5:
+
+```text
+20260929074449_stage5_model_router_foundation.sql
+20260929074737_stage5_model_router_runtime.sql
+20260929081542_stage5_model_schema_consolidation.sql
+20260929081624_stage5_model_catalog.sql
+20260929081703_stage5_worker_route_contract.sql
+20260929081753_stage5_runtime_start_task.sql
+20260929081833_stage5_runtime_route_worker.sql
+20260929081929_stage5_runtime_invocations.sql
+20260929101714_stage5_openrouter_catalog_correction.sql
+20260929101810_stage5_live_qualification_recorder.sql
+20260929102028_stage5_live_qualification_outcomes.sql
+20260929103127_stage5_build_diagnostics.sql
+20260929104732_stage5_terminal_transition_fix.sql
+20260929105127_stage5_qualification_cleanup.sql
 ```
 
 Stage checkpoints are stored under `docs/checkpoints/`.
