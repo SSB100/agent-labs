@@ -163,6 +163,24 @@ export async function verifyReturnedControl(
   session: BrowserProviderSession,
 ): Promise<BrowserObservation> {
   return withSessionPage(session, async (page) => {
+    const beforeResume = await observePage(page);
+    if (beforeResume.ownerInteractionCount < 1) {
+      throw new BrowserProviderError(
+        "automation_failed",
+        "Return control was requested before the owner recorded a human interaction.",
+        false,
+        { ownerInteractionCount: beforeResume.ownerInteractionCount },
+      );
+    }
+    if (!beforeResume.uploadQualified) {
+      throw new BrowserProviderError(
+        "automation_failed",
+        "The qualification upload was not preserved through human takeover.",
+        false,
+        { uploadName: beforeResume.uploadName },
+      );
+    }
+
     await page.evaluate(() => {
       document.documentElement.dataset.agentLabsAutomationMarker =
         `returned-${Date.now()}`;
