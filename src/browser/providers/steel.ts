@@ -7,7 +7,6 @@ import { BrowserProviderError } from "../types";
 
 const DEFAULT_BASE_URL = "https://api.steel.dev";
 const DEFAULT_TIMEOUT_MS = 15_000;
-const SUPPORTED_REGION = "us-east";
 
 function trimTrailingSlash(value: string) {
   return value.replace(/\/+$/, "");
@@ -43,7 +42,7 @@ export function isSteelConfigured() {
 export type SteelConfig = {
   apiKey: string;
   baseUrl: string;
-  region: string;
+  region?: string | null;
 };
 
 export function getSteelConfig(): SteelConfig {
@@ -56,22 +55,12 @@ export function getSteelConfig(): SteelConfig {
     );
   }
 
-  const region = process.env.STEEL_REGION?.trim() || SUPPORTED_REGION;
-  if (region !== SUPPORTED_REGION) {
-    throw new BrowserProviderError(
-      "configuration_required",
-      `Steel managed sessions currently support only ${SUPPORTED_REGION}.`,
-      false,
-      { configuredRegion: region, supportedRegion: SUPPORTED_REGION },
-    );
-  }
-
   return {
     apiKey,
     baseUrl: trimTrailingSlash(
       process.env.STEEL_API_BASE_URL?.trim() || DEFAULT_BASE_URL,
     ),
-    region,
+    region: process.env.STEEL_REGION?.trim() || null,
   };
 }
 
@@ -174,7 +163,8 @@ export class SteelBrowserAdapter implements BrowserProviderAdapter {
       automationEndpoint: `${websocketUrl}${separator}apiKey=${encodeURIComponent(this.config.apiKey)}`,
       profileId: stringValue(record, "profileId"),
       status: normalizedStatus,
-      region: stringValue(record, "region") ?? this.config.region,
+      releaseReason: stringValue(record, "releaseReason"),
+      region: stringValue(record, "region") ?? this.config.region ?? null,
       browserMode: stringValue(record, "browserMode"),
     };
   }
@@ -194,14 +184,9 @@ export class SteelBrowserAdapter implements BrowserProviderAdapter {
             interactive: true,
             systemCursor: true,
           },
-          deviceConfig: { device: "desktop" },
-          dimensions: { width: 1440, height: 900 },
-          headless: false,
-          inactivityTimeout: Math.min(request.timeoutMs - 30_000, 600_000),
           persistProfile: true,
           profileId,
-          region: this.config.region,
-          sessionId: request.browserSessionId,
+          ...(this.config.region ? { region: this.config.region } : {}),
           timeout: request.timeoutMs,
         }),
       },
@@ -219,11 +204,21 @@ export class SteelBrowserAdapter implements BrowserProviderAdapter {
   }
 
   async releaseSession(providerSessionId: string) {
-    await this.request(
-      `/v1/sessions/${encodeURIComponent(providerSessionId)}/release`,
-      { method: "POST" },
-      30_000,
-    );
+    try {
+      await this.request(
+        `/v1/sessions/${encodeURIComponent(providerSessionId)}/release`,
+        { method: "POST" },
+        30_000,
+      );
+    } catch (error) {
+      if (
+        error instanceof BrowserProviderError &&
+        [404, 409].includes(Number(error.details.status ?? 0))
+      ) {
+        return;
+      }
+      throw error;
+    }
   }
 
   async fetchReplay(
