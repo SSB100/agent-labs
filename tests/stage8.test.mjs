@@ -93,9 +93,13 @@ test("Stage 8 workflow proves launch, live view, takeover, return control and re
   assert.match(runtime, /browserReturnControlHookToken/);
   assert.match(runtime, /launchAndObserveBrowser/);
   assert.match(runtime, /verifyBrowserAutomationReturned/);
-  assert.match(runtime, /releaseQualifiedBrowser/);
+  assert.match(runtime, /releaseBrowserProviderSession/);
+  assert.match(runtime, /inspectBrowserReplay/);
+  assert.match(runtime, /sleep\("5s"\)/);
+  assert.match(runtime, /completeQualifiedBrowser/);
   assert.match(steps, /"use step"/);
   assert.match(steps, /stage8_browser_runtime_transition/);
+  assert.match(steps, /replay_unavailable/);
   assert.match(workspace, /Live Browser/);
   assert.match(workspace, /Take Control/);
   assert.match(workspace, /Return Control/);
