@@ -5,9 +5,6 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
   serverExternalPackages: ["playwright-core"],
-  typescript: {
-    ignoreBuildErrors: true,
-  },
   async headers() {
     return [
       {
