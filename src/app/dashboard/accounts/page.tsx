@@ -28,6 +28,24 @@ type AccountsPageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
+type BrowserPlannerDefinitionRecord = {
+  id: string;
+  planner_key: string;
+  version: string;
+  name: string;
+  status: string;
+  model_route_key: string;
+  qualification: Record<string, unknown>;
+};
+
+type BrowserPlannerCaseRecord = {
+  id: string;
+  case_key: string;
+  level: string;
+  status: string;
+  score: number | string | null;
+};
+
 const messages: Record<string, string> = {
   "browser-workflow-started": "Browser provider qualification started.",
   "browser-planner-workflow-started": "Browser Planner qualification started.",
@@ -52,6 +70,12 @@ function rows<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
 }
 
+function record<T>(value: unknown): T | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as T)
+    : null;
+}
+
 export default async function AccountsPage({ searchParams }: AccountsPageProps) {
   const context = await requireOwnerUiContext();
   const query = await searchParams;
@@ -59,7 +83,7 @@ export default async function AccountsPage({ searchParams }: AccountsPageProps) 
   const error = errors[first(query.error) ?? ""];
   const browserConfigured = isDefaultBrowserProviderConfigured();
 
-  const [providerResult, sessionResult] = await Promise.all([
+  const [providerResult, sessionResult, plannerResult, plannerCaseResult] = await Promise.all([
     context.supabase
       .from("browser_provider_definitions")
       .select(
@@ -79,9 +103,22 @@ export default async function AccountsPage({ searchParams }: AccountsPageProps) 
           .order("created_at", { ascending: false })
           .limit(12)
       : Promise.resolve({ data: [], error: null }),
+    context.supabase
+      .from("browser_planner_definitions")
+      .select("id, planner_key, version, name, status, model_route_key, qualification")
+      .eq("planner_key", "browser.planner")
+      .eq("version", "1.0.0")
+      .maybeSingle(),
+    context.supabase
+      .from("browser_planner_qualification_cases")
+      .select("id, case_key, level, status, score")
+      .order("level"),
   ]);
   const providers = rows<BrowserProviderDefinitionRecord>(providerResult.data);
   const sessions = rows<BrowserSessionRecord>(sessionResult.data);
+  const planner = record<BrowserPlannerDefinitionRecord>(plannerResult.data);
+  const plannerCases = rows<BrowserPlannerCaseRecord>(plannerCaseResult.data);
+  const plannerPassed = plannerCases.filter((entry) => entry.status === "passed").length;
   const providerById = new Map(providers.map((provider) => [provider.id, provider]));
   const businessById = new Map(context.businesses.map((business) => [business.id, business]));
 
@@ -196,7 +233,7 @@ export default async function AccountsPage({ searchParams }: AccountsPageProps) 
       <section className="dashboardSection">
         <div className="sectionTitleRow">
           <div><p className="coreEyebrow">Stage 9 qualification</p><h2>Browser Planner</h2></div>
-          <StatusPill status="candidate" />
+          <StatusPill status={planner?.status ?? "candidate"} />
         </div>
         <div className="browserQualificationPanel">
           <div>
@@ -207,6 +244,9 @@ export default async function AccountsPage({ searchParams }: AccountsPageProps) 
               a real read-only site, and a controlled draft mutation. Every model
               decision selects exactly one observed stable element or stops.
             </p>
+            <small>
+              {plannerPassed}/{plannerCases.length || 4} required cases passed · Route {planner?.model_route_key ?? "standard.default"}
+            </small>
           </div>
           <div className="browserQualificationActions">
             {context.businesses.map((business) => (
@@ -219,7 +259,7 @@ export default async function AccountsPage({ searchParams }: AccountsPageProps) 
                   disabled={!browserConfigured || !isOpenRouterConfigured()}
                   type="submit"
                 >
-                  Qualify for {business.name}
+{planner?.status === "qualified" ? "Requalify" : "Qualify"} for {business.name}
                 </button>
               </form>
             ))}
