@@ -14,16 +14,16 @@ export const CLAUDE_HAIKU_REVIEW_MODEL_KEY = "claude.haiku.review";
 export const SOL_HIGH_POWER_MODEL_KEY = "sol.high-power";
 export const CLAUDE_SONNET_HIGH_POWER_MODEL_KEY = "claude.sonnet.high-power";
 
-const CATALOG_CHECKED_AT = "2026-09-29T00:00:00.000Z";
+const CATALOG_CHECKED_AT = "2026-09-29T10:20:00.000Z";
 const CATALOG_SOURCE = "openrouter_catalog_2026-09-29";
 
 export const MODEL_REGISTRY = {
   [LUNA_STANDARD_MODEL_KEY]: {
     modelKey: LUNA_STANDARD_MODEL_KEY,
-    displayName: "GPT-6 Luna",
+    displayName: "GPT-5.6 Luna",
     provider: "openrouter",
     providerFamily: "openai",
-    providerModelId: "openai/gpt-6-luna",
+    providerModelId: "openai/gpt-5.6-luna",
     tier: "standard",
     status: "qualified",
     contextWindowTokens: 1_050_000,
@@ -38,7 +38,7 @@ export const MODEL_REGISTRY = {
     ],
     pricing: {
       inputPerMillionUsd: 0.1,
-      outputPerMillionUsd: 0.5,
+      outputPerMillionUsd: 0.6,
       cacheReadPerMillionUsd: 0.01,
     },
     qualifications: {
@@ -50,10 +50,10 @@ export const MODEL_REGISTRY = {
   },
   [GEMINI_FLASH_MODEL_KEY]: {
     modelKey: GEMINI_FLASH_MODEL_KEY,
-    displayName: "Gemini 3.8 Flash",
+    displayName: "Gemini 3.6 Flash",
     provider: "openrouter",
     providerFamily: "google",
-    providerModelId: "google/gemini-3.8-flash",
+    providerModelId: "google/gemini-3.6-flash",
     tier: "large_context",
     status: "qualified",
     contextWindowTokens: 1_048_576,
@@ -67,9 +67,9 @@ export const MODEL_REGISTRY = {
       "files",
     ],
     pricing: {
-      inputPerMillionUsd: 0.75,
-      outputPerMillionUsd: 3.75,
-      cacheReadPerMillionUsd: 0.075,
+      inputPerMillionUsd: 1.5,
+      outputPerMillionUsd: 7.5,
+      cacheReadPerMillionUsd: 0.15,
     },
     qualifications: {
       structuredOutput: "qualified",
@@ -109,10 +109,10 @@ export const MODEL_REGISTRY = {
   },
   [SOL_HIGH_POWER_MODEL_KEY]: {
     modelKey: SOL_HIGH_POWER_MODEL_KEY,
-    displayName: "GPT-6 Sol",
+    displayName: "GPT-5.6 Sol",
     provider: "openrouter",
     providerFamily: "openai",
-    providerModelId: "openai/gpt-6-sol",
+    providerModelId: "openai/gpt-5.6-sol",
     tier: "high_power",
     status: "qualified",
     contextWindowTokens: 1_050_000,
@@ -126,9 +126,9 @@ export const MODEL_REGISTRY = {
       "files",
     ],
     pricing: {
-      inputPerMillionUsd: 2,
-      outputPerMillionUsd: 10,
-      cacheReadPerMillionUsd: 0.2,
+      inputPerMillionUsd: 2.5,
+      outputPerMillionUsd: 15,
+      cacheReadPerMillionUsd: 0.25,
     },
     qualifications: {
       structuredOutput: "qualified",
