@@ -3,11 +3,13 @@ import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 
 import automationModule from "../.core-tests/browser/automation.js";
+import steelModule from "../.core-tests/browser/providers/steel.js";
 import registryModule from "../.core-tests/browser/registry.js";
 import typesModule from "../.core-tests/browser/types.js";
 
 const read = (path) => readFileSync(path, "utf8");
 const { validateBrowserAction } = automationModule;
+const { SteelBrowserAdapter } = steelModule;
 const {
   BROWSER_PROVIDER_COMPARISON,
   DEFAULT_BROWSER_PROVIDER_KEY,
@@ -52,6 +54,40 @@ test("browser actions are denied unless the Task Contract exposes the exact capa
     () => validateBrowserAction({ type: "navigate", url: "file:///etc/passwd" }, ["browser.interact"]),
     /limited to HTTP and HTTPS/,
   );
+});
+
+test("Steel authentication is never forwarded to external replay resources", async () => {
+  const calls = [];
+  const fetcher = async (input, init = {}) => {
+    calls.push({
+      headers: new Headers(init.headers),
+      url: String(input),
+    });
+    return new Response("#EXTM3U\n#EXT-X-VERSION:3\n", {
+      status: 200,
+      headers: { "content-type": "application/vnd.apple.mpegurl" },
+    });
+  };
+  const adapter = new SteelBrowserAdapter({
+    config: {
+      apiKey: "steel-secret-test-key",
+      baseUrl: "https://api.steel.dev",
+      region: "us-east",
+    },
+    fetcher,
+  });
+
+  await adapter.fetchReplay(
+    "steel-session-1",
+    "https://recordings.example.test/session/segment.m3u8",
+  );
+  await adapter.fetchReplay("steel-session-1");
+
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].url, "https://recordings.example.test/session/segment.m3u8");
+  assert.equal(calls[0].headers.has("steel-api-key"), false);
+  assert.equal(calls[1].url, "https://api.steel.dev/v1/sessions/steel-session-1/hls");
+  assert.equal(calls[1].headers.get("steel-api-key"), "steel-secret-test-key");
 });
 
 test("Stage 8 stores provider URLs privately and keeps exposed browser records owner-scoped", () => {
@@ -135,6 +171,7 @@ test("Stage 8 qualifies Playwright, upload, persistent identity, isolation and r
   assert.match(steel, /profileId/);
   assert.match(steel, /debugConfig/);
   assert.match(steel, /SUPPORTED_REGION = "us-east"/);
+  assert.match(steel, /providerAuthenticated/);
   assert.match(steel, /\/hls/);
   assert.match(automation, /connectOverCDP/);
   assert.match(automation, /setInputFiles/);
