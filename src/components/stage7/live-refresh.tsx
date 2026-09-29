@@ -7,6 +7,10 @@ import { createClient } from "@/lib/supabase/client";
 
 const LIVE_TABLES = [
   "artifacts",
+  "browser_identities",
+  "browser_provider_definitions",
+  "browser_session_events",
+  "browser_sessions",
   "businesses",
   "events",
   "owner_interventions",
@@ -15,6 +19,17 @@ const LIVE_TABLES = [
   "workflow_runs",
   "workflow_stage_runs",
 ] as const;
+
+const WORKFLOW_FILTERED_TABLES = new Set([
+  "artifacts",
+  "browser_session_events",
+  "browser_sessions",
+  "events",
+  "owner_interventions",
+  "task_contracts",
+  "worker_runs",
+  "workflow_stage_runs",
+]);
 
 type LiveRefreshProps = {
   workflowRunId?: string;
@@ -46,9 +61,9 @@ export function LiveRefresh({ workflowRunId }: LiveRefreshProps) {
       const filter = workflowRunId
         ? table === "workflow_runs"
           ? `id=eq.${workflowRunId}`
-          : table === "businesses"
-            ? undefined
-            : `workflow_run_id=eq.${workflowRunId}`
+          : WORKFLOW_FILTERED_TABLES.has(table)
+            ? `workflow_run_id=eq.${workflowRunId}`
+            : undefined
         : undefined;
 
       channel.on(

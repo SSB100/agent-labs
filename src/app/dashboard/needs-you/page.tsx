@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { BrowserInterventionCard } from "@/components/stage8/browser-intervention";
 import { AppShell, EmptyPanel, PageHeader } from "@/components/stage7/app-shell";
 import { NeedsYouCard } from "@/components/stage7/workflow-visuals";
 import {
@@ -15,11 +16,16 @@ type NeedsYouPageProps = {
 };
 
 const messages: Record<string, string> = {
+  "browser-control-returned": "Control returned. Agent Labs is reconnecting automation.",
+  "browser-control-taken": "The live browser is now under your control.",
   "review-approved": "Decision recorded. The workflow is resuming.",
   "review-failed": "Failure decision recorded. The workflow is closing safely.",
 };
 
 const errors: Record<string, string> = {
+  "browser-control-not-open": "That browser-control request is no longer open.",
+  "browser-control-resume-failed": "The browser workflow could not resume.",
+  "invalid-browser-control": "The browser-control request was invalid.",
   "invalid-review-decision": "The review decision was invalid.",
   "review-not-open": "That decision is no longer open.",
   "review-resume-failed": "The workflow could not be resumed.",
@@ -80,14 +86,18 @@ export default async function NeedsYouPage({ searchParams }: NeedsYouPageProps) 
               const definition = run
                 ? definitionById.get(run.workflow_definition_id)
                 : undefined;
-              return (
-                <NeedsYouCard
-                  businessName={businessById.get(intervention.business_id)?.name}
-                  intervention={intervention}
-                  key={intervention.id}
-                  returnTo="/dashboard/needs-you"
-                  workflowName={definition?.name}
-                />
+              const props = {
+                businessName: businessById.get(intervention.business_id)?.name,
+                intervention,
+                returnTo: "/dashboard/needs-you",
+                workflowName: definition?.name,
+              };
+              return ["browser_takeover", "browser_return_control"].includes(
+                intervention.intervention_type,
+              ) ? (
+                <BrowserInterventionCard key={intervention.id} {...props} />
+              ) : (
+                <NeedsYouCard key={intervention.id} {...props} />
               );
             })}
           </div>

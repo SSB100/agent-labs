@@ -1,4 +1,9 @@
 import {
+  BROWSER_PROVIDER_RUNTIME_WORKFLOW_DEFINITION_ID,
+  BROWSER_PROVIDER_RUNTIME_WORKFLOW_KEY,
+  browserProviderRuntimeWorkflow,
+} from "./browser-provider-runtime";
+import {
   MODEL_ROUTER_RUNTIME_WORKFLOW_DEFINITION_ID,
   MODEL_ROUTER_RUNTIME_WORKFLOW_KEY,
   modelRouterRuntimeWorkflow,
@@ -26,6 +31,10 @@ export const WORKFLOW_REGISTRY = {
   [MODEL_ROUTER_RUNTIME_WORKFLOW_KEY]: {
     definitionId: MODEL_ROUTER_RUNTIME_WORKFLOW_DEFINITION_ID,
     workflow: modelRouterRuntimeWorkflow,
+  },
+  [BROWSER_PROVIDER_RUNTIME_WORKFLOW_KEY]: {
+    definitionId: BROWSER_PROVIDER_RUNTIME_WORKFLOW_DEFINITION_ID,
+    workflow: browserProviderRuntimeWorkflow,
   },
 } as const;
 

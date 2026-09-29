@@ -4,6 +4,10 @@ import { withWorkflow } from "workflow/next";
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
+  serverExternalPackages: ["playwright-core"],
+  outputFileTracingIncludes: {
+    "/*": ["./node_modules/playwright-core/**/*"],
+  },
   async headers() {
     return [
       {

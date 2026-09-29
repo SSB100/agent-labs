@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import type { BrowserSessionRecord } from "@/browser/ui";
+import { BrowserInterventionCard } from "@/components/stage8/browser-intervention";
 import {
   AppShell,
   PageHeader,
@@ -32,6 +34,8 @@ export const dynamic = "force-dynamic";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const BROWSER_SESSION_SELECT =
+  "id, business_id, workflow_run_id, provider_definition_id, browser_identity_id, provider_session_id, status, control_mode, live_view_status, replay_status, current_url, page_title, region, browser_mode, metadata, failure, started_at, released_at, created_at, updated_at";
 
 type WorkflowPageProps = {
   params: Promise<{ workflowRunId: string }>;
@@ -39,6 +43,10 @@ type WorkflowPageProps = {
 };
 
 const messages: Record<string, string> = {
+  "browser-control-returned": "Control returned. Agent Labs is reconnecting automation.",
+  "browser-control-taken": "Takeover approved. The live browser is now interactive.",
+  "browser-duplicate-prevented": "The existing browser qualification remains authoritative.",
+  "browser-workflow-started": "Remote browser qualification started.",
   "review-approved": "Decision recorded. The durable workflow is resuming.",
   "review-failed": "Failure decision recorded. The workflow is closing safely.",
   "workflow-duplicate-prevented": "The existing workflow remains authoritative.",
@@ -46,6 +54,10 @@ const messages: Record<string, string> = {
 };
 
 const errors: Record<string, string> = {
+  "browser-control-not-open": "That browser-control request is no longer open.",
+  "browser-control-resume-failed": "The browser workflow could not resume.",
+  "browser-launch-failed": "The remote browser workflow could not launch.",
+  "invalid-browser-control": "The browser-control request was invalid.",
   "invalid-review-decision": "The review decision was invalid.",
   "review-not-open": "That review is no longer open.",
   "review-resume-failed": "The workflow could not be resumed.",
@@ -55,12 +67,26 @@ function first(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
 }
 
+function record<T>(value: unknown): T | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as T)
+    : null;
+}
+
 export default async function WorkflowPage({ params, searchParams }: WorkflowPageProps) {
   const { workflowRunId } = await params;
   if (!UUID_PATTERN.test(workflowRunId)) notFound();
 
   const context = await requireOwnerUiContext();
-  const detail = await loadWorkflowDetail(context, workflowRunId);
+  const [detail, browserResult] = await Promise.all([
+    loadWorkflowDetail(context, workflowRunId),
+    context.supabase
+      .from("browser_sessions")
+      .select(BROWSER_SESSION_SELECT)
+      .eq("workflow_run_id", workflowRunId)
+      .maybeSingle(),
+  ]);
+  const browserSession = record<BrowserSessionRecord>(browserResult.data);
   const query = await searchParams;
   const message = messages[first(query.message) ?? ""];
   const error = errors[first(query.error) ?? ""];
@@ -73,9 +99,14 @@ export default async function WorkflowPage({ params, searchParams }: WorkflowPag
       ? detail.workerDefinitions.find((worker) => worker.id === task.worker_definition_id) ?? null
       : null;
   const intervention = openIntervention(detail.interventions);
+  const browserIntervention =
+    intervention && ["browser_takeover", "browser_return_control"].includes(intervention.intervention_type)
+      ? intervention
+      : null;
   const event = latestEvent(detail.events);
   const workflowName = detail.definition?.name ?? "Workflow";
   const businessName = detail.business?.name ?? "Business";
+  const returnTo = `/dashboard/workflows/${detail.run.id}`;
 
   return (
     <AppShell
@@ -137,17 +168,31 @@ export default async function WorkflowPage({ params, searchParams }: WorkflowPag
 
       {intervention ? (
         <section className="workflowNeedsYou">
-          <NeedsYouCard
-            businessName={businessName}
-            intervention={intervention}
-            returnTo={`/dashboard/workflows/${detail.run.id}`}
-            workflowName={workflowName}
-          />
+          {browserIntervention ? (
+            <BrowserInterventionCard
+              businessName={businessName}
+              intervention={browserIntervention}
+              returnTo={returnTo}
+              workflowName={workflowName}
+            />
+          ) : (
+            <NeedsYouCard
+              businessName={businessName}
+              intervention={intervention}
+              returnTo={returnTo}
+              workflowName={workflowName}
+            />
+          )}
         </section>
       ) : null}
 
       <div className="workflowWorkspaceGrid">
-        <WorkflowWorkspace artifacts={detail.artifacts} />
+        <WorkflowWorkspace
+          artifacts={detail.artifacts}
+          browserIntervention={browserIntervention}
+          browserSession={browserSession}
+          returnTo={returnTo}
+        />
         <ActivityFeed events={detail.events} />
       </div>
 
@@ -158,16 +203,16 @@ export default async function WorkflowPage({ params, searchParams }: WorkflowPag
             <CoreIcon name="workflow" />
           </div>
           <dl className="detailList">
-            <div><dt>Worker</dt><dd>{workerDefinition?.name ?? "Workflow runtime"}</dd></div>
-            <div><dt>Worker status</dt><dd>{workerRun ? statusLabel(workerRun.status) : "No Worker Run"}</dd></div>
-            <div><dt>Task</dt><dd>{task?.objective ?? "No Task Contract for this stage"}</dd></div>
+            <div><dt>Worker</dt><dd>{workerDefinition?.name ?? (browserSession ? "Browser runtime" : "Workflow runtime")}</dd></div>
+            <div><dt>Worker status</dt><dd>{workerRun ? statusLabel(workerRun.status) : browserSession ? humanize(browserSession.status) : "No Worker Run"}</dd></div>
+            <div><dt>Task</dt><dd>{task?.objective ?? (browserSession ? "Qualify the remote browser provider boundary" : "No Task Contract for this stage")}</dd></div>
             <div>
               <dt>Capabilities</dt>
-              <dd>{task?.permitted_capabilities.length ? task.permitted_capabilities.join(", ") : "None exposed"}</dd>
+              <dd>{task?.permitted_capabilities.length ? task.permitted_capabilities.join(", ") : browserSession ? "browser.observe, browser.interact, browser.upload, browser.takeover" : "None exposed"}</dd>
             </div>
             <div>
-              <dt>Knowledge</dt>
-              <dd>{task?.required_knowledge.length ? task.required_knowledge.join(", ") : "No knowledge requested"}</dd>
+              <dt>Browser identity</dt>
+              <dd>{browserSession ? browserSession.browser_identity_id : "Not attached"}</dd>
             </div>
           </dl>
         </article>
@@ -181,8 +226,8 @@ export default async function WorkflowPage({ params, searchParams }: WorkflowPag
             <div><dt>Business</dt><dd>{businessName}</dd></div>
             <div><dt>Runtime</dt><dd>{detail.run.runtime_provider ?? "Pending"}</dd></div>
             <div><dt>Runtime run</dt><dd><code>{detail.run.runtime_run_id ?? "Not assigned"}</code></dd></div>
+            <div><dt>Browser session</dt><dd><code>{browserSession?.provider_session_id ?? "Not attached"}</code></dd></div>
             <div><dt>Started</dt><dd>{formatDateTime(detail.run.started_at ?? detail.run.created_at)}</dd></div>
-            <div><dt>Updated</dt><dd>{formatDateTime(detail.run.updated_at)}</dd></div>
             <div><dt>Completed</dt><dd>{formatDateTime(detail.run.completed_at)}</dd></div>
           </dl>
         </article>
