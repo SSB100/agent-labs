@@ -1,0 +1,96 @@
+name: Stage 8 live Steel qualification
+
+on:
+  push:
+    branches:
+      - stage-8/browser-provider-qualification
+    paths:
+      - .github/workflows/stage8-live-qualification.yml
+      - scripts/stage8-live-ui-test.mjs
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  live-qualification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      STAGE8_BASE_URL: https://agent-labs-e965x5w7b-haakers-projects.vercel.app/?_vercel_share=j2NB18Wau8sY6nkPvy0YAQoT4SabyMVW
+      STAGE8_ACCOUNT_ENDPOINT: https://tfdareuwrshjuevuiwvn.supabase.co/functions/v1/stage8-test-account
+      STAGE8_OIDC_AUDIENCE: agent-labs-stage8-qualification
+    steps:
+      - name: Check out qualification source
+        uses: actions/checkout@v4
+
+      - name: Use repository Node version
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Create disposable qualification owner
+        shell: bash
+        run: |
+          set -euo pipefail
+          oidc_response="$(curl --fail-with-body --silent --show-error \
+            -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${STAGE8_OIDC_AUDIENCE}")"
+          oidc_token="$(jq -r '.value' <<<"${oidc_response}")"
+          account_response="$(curl --fail-with-body --silent --show-error \
+            -X POST "${STAGE8_ACCOUNT_ENDPOINT}" \
+            -H "Authorization: Bearer ${oidc_token}" \
+            -H "Content-Type: application/json" \
+            --data '{"action":"create"}')"
+          email="$(jq -r '.email' <<<"${account_response}")"
+          password="$(jq -r '.password' <<<"${account_response}")"
+          user_id="$(jq -r '.userId' <<<"${account_response}")"
+          business_id="$(jq -r '.businessId' <<<"${account_response}")"
+          test -n "${email}" && test "${email}" != "null"
+          test -n "${password}" && test "${password}" != "null"
+          test -n "${user_id}" && test "${user_id}" != "null"
+          echo "::add-mask::${email}"
+          echo "::add-mask::${password}"
+          echo "::add-mask::${user_id}"
+          echo "STAGE8_TEST_EMAIL=${email}" >> "${GITHUB_ENV}"
+          echo "STAGE8_TEST_PASSWORD=${password}" >> "${GITHUB_ENV}"
+          echo "STAGE8_TEST_USER_ID=${user_id}" >> "${GITHUB_ENV}"
+          echo "STAGE8_TEST_BUSINESS_ID=${business_id}" >> "${GITHUB_ENV}"
+
+      - name: Install application dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Install Playwright browser runner
+        run: |
+          npm install --no-save playwright@1.63.0
+          npx playwright install --with-deps chromium
+
+      - name: Run end-to-end Steel qualification
+        run: node scripts/stage8-live-ui-test.mjs
+
+      - name: Preserve failure screenshot
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage8-live-qualification-failure
+          path: stage8-live-qualification-failure.png
+          if-no-files-found: ignore
+          retention-days: 3
+
+      - name: Remove disposable qualification owner
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          if [[ -z "${STAGE8_TEST_USER_ID:-}" ]]; then
+            exit 0
+          fi
+          oidc_response="$(curl --fail-with-body --silent --show-error \
+            -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${STAGE8_OIDC_AUDIENCE}")"
+          oidc_token="$(jq -r '.value' <<<"${oidc_response}")"
+          curl --fail-with-body --silent --show-error \
+            -X POST "${STAGE8_ACCOUNT_ENDPOINT}" \
+            -H "Authorization: Bearer ${oidc_token}" \
+            -H "Content-Type: application/json" \
+            --data "{\"action\":\"cleanup\",\"userId\":\"${STAGE8_TEST_USER_ID}\"}"
