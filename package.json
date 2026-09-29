@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "next dev",
     "quality": "npm run lint && npm run typecheck && npm test",
-    "build": "mkdir -p public && (npm run lint > public/stage8-lint.txt 2>&1 || true) && (npm run typecheck > public/stage8-typecheck.txt 2>&1 || true) && (npm test > public/stage8-tests.txt 2>&1 || true) && next build",
+    "build": "npm run quality && next build",
     "start": "next start",
     "lint": "eslint . --max-warnings=0",
     "lint:fix": "eslint . --fix",
