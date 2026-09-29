@@ -135,11 +135,6 @@ export async function startSyntheticWorkflow(formData: FormData) {
 
   try {
     const runtimeRun = await start(registered.workflow, [workflowInput], {
-      attributes: {
-        businessId,
-        coreWorkflowRunId: launch.workflow_run_id,
-        workflowKey: SYNTHETIC_WORKFLOW_KEY,
-      },
       region: "syd1",
     });
 
