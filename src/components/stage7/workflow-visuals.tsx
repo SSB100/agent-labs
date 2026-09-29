@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { resumeSyntheticReview } from "@/app/dashboard/actions";
+import { resumeBrowserControl } from "@/app/dashboard/browser-actions";
 import type {
   BusinessRecord,
   OwnerInterventionRecord,
@@ -103,11 +104,20 @@ export function NeedsYouCard({
   returnTo,
   workflowName,
 }: NeedsYouCardProps) {
+  const browserDecision =
+    intervention.intervention_type === "browser_takeover"
+      ? "take_control"
+      : intervention.intervention_type === "browser_return_control"
+        ? "return_control"
+        : null;
+
   return (
-    <article className="needsYouCard">
-      <span className="needsYouIcon"><CoreIcon name="needs-you" /></span>
+    <article className={`needsYouCard ${browserDecision ? "browserInterventionCard" : ""}`}>
+      <span className="needsYouIcon">
+        <CoreIcon name={browserDecision ? "browser" : "needs-you"} />
+      </span>
       <div className="needsYouCopy">
-        <p className="coreEyebrow">Needs your decision</p>
+        <p className="coreEyebrow">{browserDecision ? "Browser control" : "Needs your decision"}</p>
         <h3>{intervention.title}</h3>
         <p>{intervention.description}</p>
         <small>
@@ -116,16 +126,26 @@ export function NeedsYouCard({
             .join(" · ")}
         </small>
       </div>
-      <form action={resumeSyntheticReview} className="needsYouActions">
-        <input name="interventionId" type="hidden" value={intervention.id} />
-        <input name="returnTo" type="hidden" value={returnTo} />
-        <button className="coreButton coreButton-primary" name="decision" type="submit" value="approve">
-          Approve and complete
-        </button>
-        <button className="coreButton coreButton-danger" name="decision" type="submit" value="fail">
-          Fail workflow
-        </button>
-      </form>
+      {browserDecision ? (
+        <form action={resumeBrowserControl} className="needsYouActions">
+          <input name="interventionId" type="hidden" value={intervention.id} />
+          <input name="returnTo" type="hidden" value={returnTo} />
+          <button className="coreButton coreButton-primary" name="decision" type="submit" value={browserDecision}>
+            {browserDecision === "take_control" ? "Take Control" : "Return Control"}
+          </button>
+        </form>
+      ) : (
+        <form action={resumeSyntheticReview} className="needsYouActions">
+          <input name="interventionId" type="hidden" value={intervention.id} />
+          <input name="returnTo" type="hidden" value={returnTo} />
+          <button className="coreButton coreButton-primary" name="decision" type="submit" value="approve">
+            Approve and complete
+          </button>
+          <button className="coreButton coreButton-danger" name="decision" type="submit" value="fail">
+            Fail workflow
+          </button>
+        </form>
+      )}
     </article>
   );
 }
