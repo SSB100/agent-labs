@@ -36,6 +36,9 @@ test("Stage 8 runtime covers launch, observation, takeover, return, replay and f
   const accessMigration = read(
     "supabase/migrations/20260929194718_stage8_browser_runtime_access_and_replay.sql",
   );
+  const optionsFix = read(
+    "supabase/migrations/20260929200324_stage8_browser_intervention_options_fix.sql",
+  );
   const workflow = read("src/workflows/browser-provider-runtime.ts");
   const steps = read("src/workflows/browser-provider-runtime-steps.ts");
 
@@ -58,6 +61,8 @@ test("Stage 8 runtime covers launch, observation, takeover, return, replay and f
   assert.match(accessMigration, /stage8_browser_store_replay/);
   assert.match(accessMigration, /p_interactive and v_control_mode = 'human'/);
   assert.match(accessMigration, /get_browser_session_replay/);
+  assert.match(optionsFix, /jsonb_build_array\(new\.options\)/);
+  assert.match(optionsFix, /revoke execute on function public\.begin_browser_qualification_run/);
 
   assert.match(workflow, /createHook<BrowserControlDecision>/);
   assert.match(workflow, /browserTakeoverHookToken/);
@@ -112,6 +117,7 @@ test("Stage 8 migration history is present and Stage 9 has not started", () => {
     "20260929194440_stage8_browser_workflow_runtime.sql",
     "20260929194718_stage8_browser_runtime_access_and_replay.sql",
     "20260929195831_stage8_browser_schema_consolidation.sql",
+    "20260929200324_stage8_browser_intervention_options_fix.sql",
   ]) {
     assert.ok(migrations.includes(required), `${required} is missing`);
   }
