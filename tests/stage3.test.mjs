@@ -84,6 +84,20 @@ test("Synthetic runtime proves workflow, step, wait, retry and human resume boun
   assert.match(registry, /WORKFLOW_REGISTRY/);
 });
 
+test("Active workflows refresh the control centre until Needs You is visible", async () => {
+  const template = await readProjectFile("src/app/dashboard/template.tsx");
+
+  assert.match(template, /"use client"/);
+  assert.match(template, /REFRESH_INTERVAL_MS = 2_000/);
+  assert.match(template, /workflowStatus\.status-needs_owner/);
+  assert.match(template, /workflowStatus\.status-waiting/);
+  assert.match(template, /document\.visibilityState === "visible"/);
+  assert.match(template, /hasActiveWorkflow\(\)/);
+  assert.match(template, /router\.refresh\(\)/);
+  assert.match(template, /window\.clearInterval/);
+  assert.match(template, /window\.addEventListener\("focus"/);
+});
+
 test("Stage 3 uses a one-run capability rather than a broad database secret", async () => {
   const env = await readProjectFile(".env.example");
   const runtime = await readProjectFile("src/lib/supabase/runtime.ts");
@@ -111,6 +125,7 @@ test("Temporary Stage 3 qualification access is removed after live proof", async
   assert.match(checkpoint, /deployment boundary/);
   assert.match(checkpoint, /Duplicate launches are prevented/);
   assert.match(checkpoint, /temporary token-gated qualification route was removed/);
+  assert.match(checkpoint, /automatic dashboard refresh/);
 });
 
 test("Stage 3 remains a synthetic runtime proof without worker or model execution", async () => {
