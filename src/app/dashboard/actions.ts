@@ -16,8 +16,16 @@ import {
 import { getRegisteredWorkflow } from "@/workflows/registry";
 
 const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const WORKFLOW_DETAIL_PATTERN =
+  /^\/dashboard\/workflows\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SYNTHETIC_WORKFLOW_KEY = "synthetic.core.runtime-proof" as const;
+const SAFE_RETURN_PATHS = new Set([
+  "/dashboard",
+  "/dashboard/history",
+  "/dashboard/needs-you",
+  "/dashboard/workflows",
+]);
 
 type LaunchResult = {
   runtime_launch_status: string;
@@ -34,8 +42,29 @@ function isUuid(value: string) {
   return UUID_PATTERN.test(value);
 }
 
+function safeReturnPath(formData: FormData) {
+  const requested = formText(formData, "returnTo");
+  if (SAFE_RETURN_PATHS.has(requested) || WORKFLOW_DETAIL_PATTERN.test(requested)) {
+    return requested;
+  }
+  return "/dashboard";
+}
+
+function redirectWith(path: string, kind: "error" | "message", code: string): never {
+  const separator = path.includes("?") ? "&" : "?";
+  redirect(`${path}${separator}${kind}=${encodeURIComponent(code)}`);
+}
+
 function dashboardRedirect(kind: "error" | "message", code: string): never {
-  redirect(`/dashboard?${kind}=${encodeURIComponent(code)}#workflows`);
+  redirectWith("/dashboard", kind, code);
+}
+
+function workflowRedirect(
+  workflowRunId: string,
+  kind: "error" | "message",
+  code: string,
+): never {
+  redirectWith(`/dashboard/workflows/${workflowRunId}`, kind, code);
 }
 
 async function requireOwnerSession() {
@@ -43,16 +72,12 @@ async function requireOwnerSession() {
   const { data, error } = await supabase.auth.getClaims();
   const userId = data?.claims?.sub;
 
-  if (error || !userId) {
-    redirect("/login?error=session-required");
-  }
-
+  if (error || !userId) redirect("/login?error=session-required");
   return { supabase, userId };
 }
 
 export async function createBusiness(formData: FormData) {
   const name = formText(formData, "name");
-
   if (name.length < 1 || name.length > 120) {
     redirect("/dashboard?error=invalid-business-name");
   }
@@ -63,11 +88,10 @@ export async function createBusiness(formData: FormData) {
     owner_user_id: userId,
   });
 
-  if (error) {
-    redirect("/dashboard?error=business-create-failed");
-  }
+  if (error) redirect("/dashboard?error=business-create-failed");
 
   revalidatePath("/dashboard");
+  revalidatePath("/dashboard/settings");
   redirect("/dashboard?message=business-created");
 }
 
@@ -97,9 +121,7 @@ export async function startSyntheticWorkflow(formData: FormData) {
     .eq("owner_user_id", userId)
     .maybeSingle();
 
-  if (businessError || !business) {
-    dashboardRedirect("error", "business-not-found");
-  }
+  if (businessError || !business) dashboardRedirect("error", "business-not-found");
 
   const runtimeCapability = `${randomUUID()}${randomUUID()}`;
   const input = {
@@ -118,14 +140,17 @@ export async function startSyntheticWorkflow(formData: FormData) {
   );
 
   const launch = (Array.isArray(data) ? data[0] : data) as LaunchResult | null;
-
   if (reserveError || !launch?.workflow_run_id) {
     console.error("Unable to reserve synthetic workflow", reserveError);
     dashboardRedirect("error", "workflow-reservation-failed");
   }
 
   if (!launch.should_start) {
-    dashboardRedirect("message", "workflow-duplicate-prevented");
+    workflowRedirect(
+      launch.workflow_run_id,
+      "message",
+      "workflow-duplicate-prevented",
+    );
   }
 
   const workflowInput: SyntheticRuntimeInput = {
@@ -137,7 +162,6 @@ export async function startSyntheticWorkflow(formData: FormData) {
 
   try {
     const runtimeRun = await start(registered.workflow, [workflowInput]);
-
     const { error: confirmError } = await supabase
       .from("workflow_runs")
       .update({
@@ -165,19 +189,22 @@ export async function startSyntheticWorkflow(formData: FormData) {
       .eq("business_id", businessId)
       .eq("runtime_launch_nonce", launchNonce);
 
-    dashboardRedirect("error", "workflow-launch-failed");
+    workflowRedirect(launch.workflow_run_id, "error", "workflow-launch-failed");
   }
 
   revalidatePath("/dashboard");
-  dashboardRedirect("message", "workflow-started");
+  revalidatePath("/dashboard/workflows");
+  revalidatePath(`/dashboard/workflows/${launch.workflow_run_id}`);
+  workflowRedirect(launch.workflow_run_id, "message", "workflow-started");
 }
 
 export async function resumeSyntheticReview(formData: FormData) {
   const interventionId = formText(formData, "interventionId");
   const decisionValue = formText(formData, "decision");
+  const returnTo = safeReturnPath(formData);
 
   if (!isUuid(interventionId) || !["approve", "fail"].includes(decisionValue)) {
-    dashboardRedirect("error", "invalid-review-decision");
+    redirectWith(returnTo, "error", "invalid-review-decision");
   }
 
   const decision = decisionValue as SyntheticReviewDecision["decision"];
@@ -194,7 +221,7 @@ export async function resumeSyntheticReview(formData: FormData) {
     intervention.status !== "open" ||
     !intervention.workflow_run_id
   ) {
-    dashboardRedirect("error", "review-not-open");
+    redirectWith(returnTo, "error", "review-not-open");
   }
 
   try {
@@ -205,9 +232,17 @@ export async function resumeSyntheticReview(formData: FormData) {
     } satisfies SyntheticReviewDecision);
   } catch (resumeError) {
     console.error("Unable to resume synthetic review", resumeError);
-    dashboardRedirect("error", "review-resume-failed");
+    redirectWith(returnTo, "error", "review-resume-failed");
   }
 
   revalidatePath("/dashboard");
-  dashboardRedirect("message", decision === "approve" ? "review-approved" : "review-failed");
+  revalidatePath("/dashboard/needs-you");
+  revalidatePath("/dashboard/workflows");
+  revalidatePath("/dashboard/history");
+  revalidatePath(`/dashboard/workflows/${intervention.workflow_run_id}`);
+  redirectWith(
+    returnTo,
+    "message",
+    decision === "approve" ? "review-approved" : "review-failed",
+  );
 }

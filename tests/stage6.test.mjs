@@ -13,7 +13,7 @@ test("Stage 6 keeps only the permanent Worker evaluation runtime", () => {
   assert.equal(existsSync("src/app/api/stage6/qualification/route.ts"), false);
   assert.equal(existsSync("src/app/dashboard/worker-evaluations/page.tsx"), true);
   assert.equal(existsSync("src/app/dashboard/worker-evaluations/layout.tsx"), true);
-  assert.equal(existsSync("docs/checkpoints/STAGE_7_CORE_UI.md"), false);
+  assert.equal(existsSync("docs/checkpoints/STAGE_8_BROWSER_PROVIDER.md"), false);
 });
 
 test("Stage 6 migration history is replayable and RLS-protected", () => {
@@ -77,7 +77,7 @@ test("Stage 6 migration history is replayable and RLS-protected", () => {
 test("Stage 6 suite covers schema, role, capability and both live model targets", () => {
   const suite = read("src/evaluations/generic-researcher-suite.ts");
   const runner = read("src/evaluations/runner.ts");
-  const template = read("src/app/dashboard/template.tsx");
+  const shell = read("src/components/stage7/app-shell.tsx");
 
   for (const category of [
     "schema",
@@ -103,7 +103,7 @@ test("Stage 6 suite covers schema, role, capability and both live model targets"
   assert.match(runner, /scoreWorkerEvaluationResults/);
   assert.match(runner, /uncoveredPositive/);
   assert.match(runner, /uncoveredNegative/);
-  assert.match(template, /\/dashboard\/worker-evaluations/);
+  assert.match(shell, /\/dashboard\/worker-evaluations/);
 });
 
 test("one failed required case blocks qualification in the executable regression suite", () => {

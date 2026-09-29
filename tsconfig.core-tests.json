@@ -15,6 +15,7 @@
   "include": [
     "src/core/**/*.ts",
     "src/evaluations/**/*.ts",
+    "src/lib/core-ui/workflows.ts",
     "src/models/**/*.ts",
     "src/workers/**/*.ts"
   ]

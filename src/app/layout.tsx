@@ -4,6 +4,8 @@ import type { ReactNode } from "react";
 import "./globals.css";
 import "./stage1.css";
 import "./stage3.css";
+import "./stage7.css";
+import "./stage7-mobile.css";
 
 export const metadata: Metadata = {
   title: "Agent Labs",

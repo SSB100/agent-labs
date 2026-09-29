@@ -84,6 +84,21 @@ Agent Labs V2 uses the existing hosted Supabase project:
 
 `20260929121027_stage6_generic_researcher_evaluation_catalog.sql` installs the 11 required Generic Researcher schema, role-boundary, mocked-capability, positive-example and negative-example cases.
 
+### Stage 7
+
+`20260929125855_stage7_core_ui_realtime_publication.sql` publishes the owner-scoped Core activity tables required by the private live interface through the existing `supabase_realtime` publication:
+
+- `artifacts`
+- `businesses`
+- `events`
+- `owner_interventions`
+- `task_contracts`
+- `worker_runs`
+- `workflow_runs`
+- `workflow_stage_runs`
+
+The Stage 7 browser client subscribes with the signed-in owner session. PostgreSQL RLS therefore remains the source of truth for which live rows can be delivered.
+
 ## Security boundary
 
 Every exposed table has RLS enabled. Business-scoped records are available only to the authenticated Business owner. Pack, WorkflowDefinition, WorkerDefinition, model definition, qualification, route and Worker-evaluation catalog records are read-only to application clients. Evidence, Event and ActionReceipt records are append-only to application clients.
@@ -97,6 +112,8 @@ The Stage 5 runtime's legacy implementation is not executable by API roles. The 
 Stage 6 application users can read evaluation history but cannot directly create results or promotions. Case recording and completion require the high-entropy capability for one exact evaluation. Qualification is tied to a SHA-256 fingerprint of the Worker definition, Worker Pack, route, primary model, fallback model and current model-qualification evidence.
 
 A relevant Worker Pack or model change invalidates the passed result and conservatively returns the Worker to Experimental until the current suite passes again. PostgreSQL enforces this at Task Contract creation, so an evaluated Worker cannot execute merely because a UI still shows an old status.
+
+Stage 7 Realtime does not add public read access. The published tables retain their existing RLS policies, and the second authenticated test owner sees zero of the primary owner's Businesses, workflow runs, stages, events, interventions and Artifacts.
 
 `OPENROUTER_API_KEY` remains a server-only Vercel environment variable and is not stored in Supabase application tables.
 
