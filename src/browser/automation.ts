@@ -1,4 +1,9 @@
-import { chromium, type Browser, type Page } from "playwright-core";
+import {
+  chromium,
+  type Browser,
+  type BrowserContext,
+  type Page,
+} from "playwright-core";
 
 import type {
   BrowserAction,
@@ -15,15 +20,76 @@ const ACTION_CAPABILITIES: Record<BrowserAction["type"], string> = {
   upload: "browser.upload",
 };
 
+const CDP_CONNECT_ATTEMPTS = 5;
+const CDP_CONTEXT_WAIT_ATTEMPTS = 50;
+
 type DisconnectableBrowser = Browser & {
   _connection?: {
     close(): Promise<void> | void;
   };
 };
 
+function delay(milliseconds: number) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
 async function disconnect(browser: Browser) {
   const connection = (browser as DisconnectableBrowser)._connection;
   if (connection) await connection.close();
+}
+
+async function waitForDefaultContext(browser: Browser) {
+  for (let attempt = 1; attempt <= CDP_CONTEXT_WAIT_ATTEMPTS; attempt += 1) {
+    if (!browser.isConnected()) return null;
+    const context = browser.contexts()[0];
+    if (context) return context;
+    await delay(100);
+  }
+  return null;
+}
+
+async function connectRemoteBrowser(
+  session: BrowserProviderSession,
+): Promise<{ browser: Browser; context: BrowserContext; attempt: number }> {
+  let lastError: unknown = null;
+
+  for (let attempt = 1; attempt <= CDP_CONNECT_ATTEMPTS; attempt += 1) {
+    let browser: Browser | null = null;
+    try {
+      browser = await chromium.connectOverCDP(session.automationEndpoint, {
+        timeout: 30_000,
+      });
+      const context = await waitForDefaultContext(browser);
+      if (!context) {
+        throw new Error(
+          browser.isConnected()
+            ? "Steel did not expose its default browser context in time."
+            : "Steel closed the CDP connection before exposing a browser context.",
+        );
+      }
+      return { browser, context, attempt };
+    } catch (error) {
+      lastError = error;
+      if (browser) await disconnect(browser).catch(() => undefined);
+      if (attempt < CDP_CONNECT_ATTEMPTS) {
+        await delay(attempt * 1_000);
+      }
+    }
+  }
+
+  throw new BrowserProviderError(
+    "automation_failed",
+    `Playwright could not attach to the live Steel session after ${CDP_CONNECT_ATTEMPTS} attempts: ${errorMessage(lastError)}`,
+    true,
+    {
+      attempts: CDP_CONNECT_ATTEMPTS,
+      providerSessionSuffix: session.providerSessionId.slice(-8),
+    },
+  );
 }
 
 export function validateBrowserAction(
@@ -82,25 +148,15 @@ async function observePage(page: Page): Promise<BrowserObservation> {
   };
 }
 
-async function withSessionPage<T>(
+export async function withBrowserSessionPage<T>(
   session: BrowserProviderSession,
-  operation: (page: Page) => Promise<T>,
+  operation: (page: Page, connectionAttempt: number) => Promise<T>,
 ) {
-  const browser = await chromium.connectOverCDP(session.automationEndpoint, {
-    timeout: 30_000,
-  });
+  const { browser, context, attempt } = await connectRemoteBrowser(session);
 
   try {
-    const context = browser.contexts()[0];
-    if (!context) {
-      throw new BrowserProviderError(
-        "automation_failed",
-        "The remote browser did not expose a Playwright context.",
-        true,
-      );
-    }
     const page = context.pages()[0] ?? (await context.newPage());
-    return await operation(page);
+    return await operation(page, attempt);
   } finally {
     await disconnect(browser);
   }
@@ -109,7 +165,7 @@ async function withSessionPage<T>(
 export async function prepareQualificationPage(
   session: BrowserProviderSession,
 ): Promise<BrowserObservation> {
-  return withSessionPage(session, async (page) => {
+  return withBrowserSessionPage(session, async (page) => {
     const permitted = [
       "browser.observe",
       "browser.interact",
@@ -130,6 +186,8 @@ export async function prepareQualificationPage(
     await page.evaluate(() => {
       document.title = "Agent Labs Stage 8 Browser Qualification";
       document.documentElement.dataset.agentLabsOwnerInteractions = "0";
+      const existing = document.querySelector("#agent-labs-stage8-panel");
+      existing?.remove();
       const panel = document.createElement("section");
       panel.id = "agent-labs-stage8-panel";
       panel.style.cssText =
@@ -178,7 +236,7 @@ export async function prepareQualificationPage(
 export async function verifyReturnedControl(
   session: BrowserProviderSession,
 ): Promise<BrowserObservation> {
-  return withSessionPage(session, async (page) => {
+  return withBrowserSessionPage(session, async (page) => {
     const beforeResume = await observePage(page);
     if (beforeResume.ownerInteractionCount < 1) {
       throw new BrowserProviderError(
@@ -205,6 +263,8 @@ export async function verifyReturnedControl(
       );
       if (panel) {
         panel.style.borderColor = "#2563eb";
+        const previous = document.querySelector("#agent-labs-stage8-returned");
+        previous?.remove();
         const status = document.createElement("p");
         status.id = "agent-labs-stage8-returned";
         status.textContent = "Control returned to Agent Labs automation.";
