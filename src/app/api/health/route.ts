@@ -1,12 +1,20 @@
-import { isSupabaseConfigured } from "@/lib/supabase/env";
+import {
+  isSupabaseAdminConfigured,
+  isSupabaseConfigured,
+} from "@/lib/supabase/env";
 
 export const dynamic = "force-dynamic";
 
-const unavailableResponse = (supabaseStatus: string, status = 503) =>
+const unavailableResponse = (
+  supabaseStatus: string,
+  workflowRuntimeStatus: string,
+  status = 503,
+) =>
   Response.json(
     {
       checks: {
         supabase: supabaseStatus,
+        workflowRuntime: workflowRuntimeStatus,
       },
       environment: process.env.VERCEL_ENV ?? process.env.NODE_ENV,
       service: "agent-labs",
@@ -16,8 +24,12 @@ const unavailableResponse = (supabaseStatus: string, status = 503) =>
   );
 
 export async function GET() {
+  const workflowRuntimeStatus = isSupabaseAdminConfigured()
+    ? "configured"
+    : "not_configured";
+
   if (!isSupabaseConfigured()) {
-    return unavailableResponse("not_configured");
+    return unavailableResponse("not_configured", workflowRuntimeStatus);
   }
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -33,18 +45,23 @@ export async function GET() {
     });
 
     if (!response.ok) {
-      return unavailableResponse("unreachable");
+      return unavailableResponse("unreachable", workflowRuntimeStatus);
+    }
+
+    if (!isSupabaseAdminConfigured()) {
+      return unavailableResponse("connected", workflowRuntimeStatus);
     }
 
     return Response.json({
       checks: {
         supabase: "connected",
+        workflowRuntime: "configured",
       },
       environment: process.env.VERCEL_ENV ?? process.env.NODE_ENV,
       service: "agent-labs",
       status: "ok",
     });
   } catch {
-    return unavailableResponse("unreachable");
+    return unavailableResponse("unreachable", workflowRuntimeStatus);
   }
 }

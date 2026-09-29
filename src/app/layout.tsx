@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 
 import "./globals.css";
 import "./stage1.css";
+import "./stage3.css";
 
 export const metadata: Metadata = {
   title: "Agent Labs",
