@@ -17,6 +17,12 @@ type FailureSummary = {
   name: string;
 };
 
+export type BrowserReplayProof = {
+  available: boolean;
+  bytes: number;
+  contentType: string;
+};
+
 function errorMessage(error: unknown) {
   return error && typeof error === "object" && "message" in error
     ? String(error.message)
@@ -118,7 +124,7 @@ export async function verifyBrowserAutomationReturned(
   });
 }
 
-export async function releaseQualifiedBrowser(
+export async function releaseBrowserProviderSession(
   input: BrowserProviderRuntimeInput,
   providerSessionId: string,
 ) {
@@ -126,7 +132,58 @@ export async function releaseQualifiedBrowser(
 
   const adapter = createBrowserProviderAdapter(input.providerKey);
   await adapter.releaseSession(providerSessionId);
-  await transition(input, "session_released", { replayReady: true });
+}
+
+export async function inspectBrowserReplay(
+  input: BrowserProviderRuntimeInput,
+  providerSessionId: string,
+): Promise<BrowserReplayProof> {
+  "use step";
+
+  const adapter = createBrowserProviderAdapter(input.providerKey);
+  try {
+    const response = await adapter.fetchReplay(providerSessionId);
+    const contentType = response.headers.get("content-type") ?? "";
+    const body = await response.text();
+    return {
+      available:
+        body.includes("#EXTM3U") ||
+        contentType.includes("mpegurl") ||
+        contentType.includes("video/"),
+      bytes: body.length,
+      contentType,
+    };
+  } catch (error) {
+    if (error instanceof BrowserProviderError) {
+      const status = Number(error.details.status ?? 0);
+      if ([404, 409, 425].includes(status)) {
+        return { available: false, bytes: 0, contentType: "" };
+      }
+    }
+    throw error;
+  }
+}
+
+export async function completeQualifiedBrowser(
+  input: BrowserProviderRuntimeInput,
+  replay: BrowserReplayProof,
+) {
+  "use step";
+
+  if (!replay.available) {
+    throw new BrowserProviderError(
+      "replay_unavailable",
+      "Steel did not produce an accessible replay within the qualification window.",
+      false,
+      { attemptsExhausted: true },
+    );
+  }
+
+  await transition(input, "session_released", {
+    replayBytes: replay.bytes,
+    replayContentType: replay.contentType,
+    replayReady: true,
+  });
 }
 
 export async function recordBrowserWorkflowFailure(
