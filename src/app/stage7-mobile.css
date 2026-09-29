@@ -1,0 +1,79 @@
+.coreMobileNav {
+  display: none;
+}
+
+@media (max-width: 920px) {
+  .coreShell {
+    padding-top: 128px;
+  }
+
+  .coreMobileNav {
+    position: fixed;
+    inset: 70px 0 auto;
+    z-index: 69;
+    display: flex;
+    overflow-x: auto;
+    gap: 6px;
+    padding: 8px 12px 10px;
+    border-bottom: 1px solid var(--core-border);
+    background: rgba(6, 16, 12, 0.96);
+    scrollbar-width: none;
+    backdrop-filter: blur(20px);
+  }
+
+  .coreMobileNav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .coreMobileNavLink {
+    position: relative;
+    display: inline-flex;
+    min-width: max-content;
+    min-height: 38px;
+    gap: 7px;
+    align-items: center;
+    padding: 0 11px;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    color: var(--core-muted);
+    font-size: 0.65rem;
+    font-weight: 760;
+  }
+
+  .coreMobileNavLink svg {
+    width: 15px;
+    height: 15px;
+  }
+
+  .coreMobileNavLink strong {
+    display: grid;
+    min-width: 18px;
+    height: 18px;
+    place-items: center;
+    border-radius: 999px;
+    color: #1c1300;
+    background: var(--core-yellow);
+    font-size: 0.55rem;
+  }
+
+  .coreMobileNavLink-active {
+    border-color: rgba(121, 226, 167, 0.2);
+    color: var(--core-text);
+    background: rgba(121, 226, 167, 0.09);
+  }
+}
+
+@media (max-width: 520px) {
+  .coreShell {
+    padding-top: 124px;
+  }
+
+  .coreMobileNav {
+    padding-inline: 9px;
+  }
+
+  .coreMobileNavLink {
+    min-height: 35px;
+    padding-inline: 9px;
+  }
+}

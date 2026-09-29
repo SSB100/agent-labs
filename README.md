@@ -10,8 +10,9 @@ The repository has completed:
 - **Stage 4: Worker Pack runtime**
 - **Stage 5: Model Router**
 - **Stage 6: Worker evaluation framework**
+- **Stage 7: Core UI and live activity**
 
-The next planned stage is **Stage 7: Core UI and live activity**. It has not been started.
+The next planned stage is **Stage 8: Browser provider**. It has not been started.
 
 ## Private application model
 
@@ -44,12 +45,10 @@ Implemented:
 - one-run scoped runtime capabilities rather than a broad database secret
 - idempotent workflow launch reservation and duplicate prevention
 - durable workflow state, stage history and business-readable events in Supabase
-- workflow history and Needs You controls in the private control centre
 - a complete versioned Generic Researcher Worker Pack fixture
 - Task Contract-only worker context enforcement
 - capability, knowledge, input, output and evidence validation
 - durable Worker Runs, classified failures, output Artifacts and worker receipts
-- an owner-visible Worker Proof page
 - provider-neutral model definitions and logical routes
 - OpenRouter structured-output and required tool-call support
 - Luna-class default routing
@@ -59,7 +58,6 @@ Implemented:
 - bounded retry and fallback with a maximum of two attempts
 - provider-safe schema projection followed by complete local validation
 - durable provider, model, token, cost and latency telemetry
-- an owner-visible Model Router page
 - live qualification of five models for structured output and tool use
 - versioned Worker evaluation suites and case fixtures
 - schema, role-boundary, mocked-capability, positive-example and negative-example evaluations
@@ -68,13 +66,27 @@ Implemented:
 - Experimental, Qualified, Assisted and Autonomous Worker maturity states
 - automatic qualification invalidation after relevant Worker Pack, route, model or model-qualification changes
 - a database-enforced Task Contract gate for evaluated workers
-- an owner-visible Worker evaluations page
 - live promotion of the Generic Researcher from Experimental to Qualified after an 11-of-11, 100-point evaluation
+- a private Stage 7 operating shell with Dashboard, Workflows, Needs You, History, Accounts and Settings
+- workflow-detail screens with visual stage timelines
+- current worker, current task, current action and next-step summaries
+- business-readable Activity Feed entries derived from durable events
+- reusable Workspace tabs for Live Browser, Products, Metrics and Artifacts
+- responsive desktop and mobile navigation
+- authenticated Supabase Realtime subscriptions for workflow, stage, intervention, task, worker, artifact and Business changes
+- a bounded 30-second refresh fallback if the live channel is unavailable
+- preserved owner-scoped RLS isolation for every live UI source
+
+Qualification tools remain available from the private shell:
+
+- Worker proof
+- Model Router
+- Worker evaluations
 
 Not implemented yet:
 
-- the Stage 7 Core UI and live-activity workspace
-- browser operation
+- browser operation or a remote browser provider
+- browser takeover, return control, replay or session recording
 - commerce provider connections
 - production capability, knowledge, worker or workflow packs
 - Etsy or other commerce execution
@@ -189,6 +201,12 @@ Stage 6:
 20260929120943_stage6_evaluation_runtime_consolidation.sql
 20260929121005_stage6_evaluation_invalidation_and_gate.sql
 20260929121027_stage6_generic_researcher_evaluation_catalog.sql
+```
+
+Stage 7:
+
+```text
+20260929125855_stage7_core_ui_realtime_publication.sql
 ```
 
 Stage checkpoints are stored under `docs/checkpoints/`.

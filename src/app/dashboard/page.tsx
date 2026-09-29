@@ -1,14 +1,31 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
-
-import { isSupabaseAdminConfigured } from "@/lib/supabase/env";
-import { createClient } from "@/lib/supabase/server";
 
 import {
-  createBusiness,
-  resumeSyntheticReview,
-  startSyntheticWorkflow,
-} from "./actions";
+  AppShell,
+  EmptyPanel,
+  PageHeader,
+} from "@/components/stage7/app-shell";
+import {
+  ActivityFeed,
+  HistoryRow,
+  NeedsYouCard,
+  WorkflowListCard,
+} from "@/components/stage7/workflow-visuals";
+import { CoreIcon } from "@/components/stage7/icons";
+import {
+  loadWorkflowCollection,
+  requireOwnerUiContext,
+} from "@/lib/core-ui/data";
+import {
+  ACTIVE_WORKFLOW_STATUSES,
+  currentTask,
+  currentWorkerRun,
+  formatRelativeTime,
+  openIntervention,
+} from "@/lib/core-ui/workflows";
+import { isSupabaseAdminConfigured } from "@/lib/supabase/env";
+
+import { createBusiness, startSyntheticWorkflow } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -16,75 +33,17 @@ type DashboardPageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
-type Business = {
-  created_at: string;
-  id: string;
-  name: string;
-  updated_at: string;
-};
-
-type WorkflowRun = {
-  business_id: string;
-  completed_at: string | null;
-  created_at: string;
-  current_stage_key: string | null;
-  id: string;
-  runtime_run_id: string | null;
-  started_at: string | null;
-  status: string;
-  updated_at: string;
-};
-
-type StageRun = {
-  attempt: number;
-  completed_at: string | null;
-  id: string;
-  sequence: number;
-  stage_key: string;
-  started_at: string | null;
-  status: string;
-  workflow_run_id: string;
-};
-
-type WorkflowEvent = {
-  event_type: string;
-  id: string;
-  occurred_at: string;
-  payload: Record<string, unknown>;
-  workflow_run_id: string | null;
-};
-
-type OwnerIntervention = {
-  business_id: string;
-  description: string;
-  id: string;
-  requested_at: string;
-  status: string;
-  title: string;
-  workflow_run_id: string | null;
-};
-
-const activeStatuses = new Set(["needs_owner", "queued", "review", "running", "waiting"]);
-
-const navigation = [
-  { active: true, href: "/dashboard", label: "Control centre" },
-  { href: "#workflows", label: "Workflows" },
-  { href: "#needs-you", label: "Needs you" },
-  { label: "Accounts" },
-  { label: "Settings" },
-];
-
 const messages: Record<string, string> = {
   "business-created": "Business created.",
-  "review-approved": "Review approved. The durable workflow is resuming.",
-  "review-failed": "Failure decision delivered. The workflow is closing its failure path.",
+  "review-approved": "Decision recorded. The workflow is resuming.",
+  "review-failed": "Failure decision recorded. The workflow is closing safely.",
   "workflow-duplicate-prevented":
     "A duplicate launch was prevented. The existing workflow remains authoritative.",
-  "workflow-started": "Synthetic durable workflow started.",
+  "workflow-started": "Durable workflow started.",
 };
 
 const errors: Record<string, string> = {
-  "business-create-failed": "The Business could not be created. Try again.",
+  "business-create-failed": "The Business could not be created.",
   "business-not-found": "The selected Business is unavailable.",
   "invalid-business-name": "Use a Business name between 1 and 120 characters.",
   "invalid-review-decision": "The review decision was invalid.",
@@ -93,444 +52,270 @@ const errors: Record<string, string> = {
   "review-resume-failed": "The workflow could not be resumed.",
   "workflow-launch-failed": "The durable workflow could not be launched.",
   "workflow-reservation-failed": "The workflow launch could not be reserved.",
-  "workflow-runtime-not-configured":
-    "The trusted Supabase runtime key is not configured for workflow execution.",
+  "workflow-runtime-not-configured": "The durable workflow runtime is not configured.",
 };
 
-function firstValue(value: string | string[] | undefined) {
+function first(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
 }
 
-function formatDate(value: string | null) {
-  if (!value) {
-    return "Not yet";
-  }
-
-  return new Intl.DateTimeFormat("en-NZ", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
-}
-
-function humanize(value: string | null) {
-  if (!value) {
-    return "Queued";
-  }
-
-  return value
-    .split(/[._-]/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
 export default async function DashboardPage({ searchParams }: DashboardPageProps) {
-  const supabase = await createClient();
-  const { data: claimsData, error: claimsError } = await supabase.auth.getClaims();
-  const claims = claimsData?.claims;
-  const userId = claims?.sub;
+  const context = await requireOwnerUiContext();
+  const collection = await loadWorkflowCollection(context, { limit: 50 });
+  const query = await searchParams;
+  const message = messages[first(query.message) ?? ""];
+  const error = errors[first(query.error) ?? ""];
+  const runtimeReady = isSupabaseAdminConfigured();
 
-  if (claimsError || !userId) {
-    redirect("/login?error=session-required");
-  }
+  const businessById = new Map(context.businesses.map((business) => [business.id, business]));
+  const definitionById = new Map(
+    collection.definitions.map((definition) => [definition.id, definition]),
+  );
+  const workerDefinitionById = new Map(
+    collection.workerDefinitions.map((worker) => [worker.id, worker]),
+  );
 
-  const [{ data: businessData, error: businessError }, { data: profileData }] =
-    await Promise.all([
-      supabase
-        .from("businesses")
-        .select("id, name, created_at, updated_at")
-        .eq("owner_user_id", userId)
-        .order("created_at", { ascending: false }),
-      supabase.from("profiles").select("display_name").eq("id", userId).maybeSingle(),
-    ]);
+  const stagesByRun = new Map<string, typeof collection.stages>();
+  const eventsByRun = new Map<string, typeof collection.events>();
+  const interventionsByRun = new Map<string, typeof collection.interventions>();
+  const tasksByRun = new Map<string, typeof collection.tasks>();
+  const workerRunsByRun = new Map<string, typeof collection.workerRuns>();
+  const artifactsByRun = new Map<string, typeof collection.artifacts>();
 
-  const businesses = (businessData ?? []) as Business[];
-  const businessIds = businesses.map((business) => business.id);
-  let workflowRuns: WorkflowRun[] = [];
-  let stageRuns: StageRun[] = [];
-  let workflowEvents: WorkflowEvent[] = [];
-  let interventions: OwnerIntervention[] = [];
-  let workflowHistoryError = false;
-
-  if (businessIds.length > 0) {
-    const { data: runData, error: runError } = await supabase
-      .from("workflow_runs")
-      .select(
-        "id, business_id, status, current_stage_key, runtime_run_id, started_at, completed_at, created_at, updated_at",
-      )
-      .in("business_id", businessIds)
-      .order("created_at", { ascending: false })
-      .limit(30);
-
-    workflowRuns = (runData ?? []) as WorkflowRun[];
-    workflowHistoryError = Boolean(runError);
-
-    const workflowRunIds = workflowRuns.map((run) => run.id);
-    if (workflowRunIds.length > 0) {
-      const [stageResult, eventResult, interventionResult] = await Promise.all([
-        supabase
-          .from("workflow_stage_runs")
-          .select(
-            "id, workflow_run_id, stage_key, sequence, attempt, status, started_at, completed_at",
-          )
-          .in("workflow_run_id", workflowRunIds)
-          .order("sequence", { ascending: true })
-          .order("attempt", { ascending: true }),
-        supabase
-          .from("events")
-          .select("id, workflow_run_id, event_type, payload, occurred_at")
-          .in("workflow_run_id", workflowRunIds)
-          .order("occurred_at", { ascending: false })
-          .limit(100),
-        supabase
-          .from("owner_interventions")
-          .select(
-            "id, business_id, workflow_run_id, status, title, description, requested_at",
-          )
-          .in("workflow_run_id", workflowRunIds)
-          .order("requested_at", { ascending: false }),
-      ]);
-
-      stageRuns = (stageResult.data ?? []) as StageRun[];
-      workflowEvents = (eventResult.data ?? []) as WorkflowEvent[];
-      interventions = (interventionResult.data ?? []) as OwnerIntervention[];
-      workflowHistoryError ||= Boolean(
-        stageResult.error || eventResult.error || interventionResult.error,
-      );
-    }
-  }
-
-  const stagesByRun = new Map<string, StageRun[]>();
-  for (const stage of stageRuns) {
+  for (const stage of collection.stages) {
     const entries = stagesByRun.get(stage.workflow_run_id) ?? [];
     entries.push(stage);
     stagesByRun.set(stage.workflow_run_id, entries);
   }
-
-  const eventsByRun = new Map<string, WorkflowEvent[]>();
-  for (const event of workflowEvents) {
-    if (!event.workflow_run_id) {
-      continue;
-    }
+  for (const event of collection.events) {
+    if (!event.workflow_run_id) continue;
     const entries = eventsByRun.get(event.workflow_run_id) ?? [];
     entries.push(event);
     eventsByRun.set(event.workflow_run_id, entries);
   }
-
-  const openInterventionByRun = new Map<string, OwnerIntervention>();
-  for (const intervention of interventions) {
-    if (intervention.status === "open" && intervention.workflow_run_id) {
-      openInterventionByRun.set(intervention.workflow_run_id, intervention);
-    }
+  for (const intervention of collection.interventions) {
+    if (!intervention.workflow_run_id) continue;
+    const entries = interventionsByRun.get(intervention.workflow_run_id) ?? [];
+    entries.push(intervention);
+    interventionsByRun.set(intervention.workflow_run_id, entries);
+  }
+  for (const task of collection.tasks) {
+    const entries = tasksByRun.get(task.workflow_run_id) ?? [];
+    entries.push(task);
+    tasksByRun.set(task.workflow_run_id, entries);
+  }
+  for (const workerRun of collection.workerRuns) {
+    const entries = workerRunsByRun.get(workerRun.workflow_run_id) ?? [];
+    entries.push(workerRun);
+    workerRunsByRun.set(workerRun.workflow_run_id, entries);
+  }
+  for (const artifact of collection.artifacts) {
+    if (!artifact.workflow_run_id) continue;
+    const entries = artifactsByRun.get(artifact.workflow_run_id) ?? [];
+    entries.push(artifact);
+    artifactsByRun.set(artifact.workflow_run_id, entries);
   }
 
-  const businessById = new Map(businesses.map((business) => [business.id, business]));
-  const email = typeof claims.email === "string" ? claims.email : "Owner";
-  const displayName =
-    typeof profileData?.display_name === "string" && profileData.display_name.trim()
-      ? profileData.display_name
-      : email;
-  const query = await searchParams;
-  const message = messages[firstValue(query.message) ?? ""];
-  const error = errors[firstValue(query.error) ?? ""];
-  const activeWorkflowCount = workflowRuns.filter((run) => activeStatuses.has(run.status)).length;
-  const needsOwnerCount = workflowRuns.filter((run) => run.status === "needs_owner").length;
-  const workflowRuntimeConfigured = isSupabaseAdminConfigured();
-  const summary = [
-    { label: "Businesses", value: businesses.length.toString() },
-    { label: "Active workflows", value: activeWorkflowCount.toString() },
-    { label: "Needs you", value: needsOwnerCount.toString() },
-    { label: "Connected accounts", value: "0" },
-  ];
+  const activeRuns = collection.runs.filter((run) => ACTIVE_WORKFLOW_STATUSES.has(run.status));
+  const completedRuns = collection.runs.filter((run) => run.status === "completed");
+  const openInterventions = collection.interventions.filter(
+    (intervention) => intervention.status === "open" && intervention.workflow_run_id,
+  );
+  const latestRuns = activeRuns.length ? activeRuns.slice(0, 3) : collection.runs.slice(0, 3);
+  const latestEvents = collection.events.slice(0, 8);
 
   return (
-    <div className="appFrame">
-      <aside className="appSidebar">
-        <Link className="appBrand" href="/dashboard" aria-label="Agent Labs control centre">
-          <span className="brandMark" aria-hidden="true">
-            AL
-          </span>
-          <span>
-            <strong>Agent Labs</strong>
-            <small>Control centre</small>
-          </span>
-        </Link>
+    <AppShell active="dashboard" context={context}>
+      <PageHeader
+        actions={
+          <Link className="coreButton coreButton-secondary" href="/dashboard/workflows">
+            View all workflows
+          </Link>
+        }
+        description="See what Agent Labs is doing, what changed, and whether anything needs your decision."
+        eyebrow="Overview"
+        title="Control centre"
+      />
 
-        <nav className="appNav" aria-label="Agent Labs sections">
-          {navigation.map((item) =>
-            item.href ? (
-              <Link
-                className={item.active ? "navItem active" : "navItem"}
-                href={item.href}
-                key={item.label}
-              >
-                {item.label}
-              </Link>
-            ) : (
-              <span aria-disabled="true" className="navItem disabled" key={item.label}>
-                <span>{item.label}</span>
-                <small>Soon</small>
-              </span>
-            ),
-          )}
-        </nav>
+      {message ? <p className="coreNotice coreNotice-success" role="status">{message}</p> : null}
+      {error ? <p className="coreNotice coreNotice-danger" role="alert">{error}</p> : null}
+      {collection.errors.length ? (
+        <p className="coreNotice coreNotice-danger" role="alert">
+          Some durable workflow records could not be loaded.
+        </p>
+      ) : null}
 
-        <div className="sidebarFoot">
-          <span>Signed in</span>
-          <p>{email}</p>
+      <section className="overviewHero">
+        <div>
+          <p className="coreEyebrow">Private owner workspace</p>
+          <h2>
+            {context.needsYouCount
+              ? `${context.needsYouCount} decision${context.needsYouCount === 1 ? "" : "s"} need your attention.`
+              : activeRuns.length
+                ? `${activeRuns.length} workflow${activeRuns.length === 1 ? " is" : "s are"} moving.`
+                : "Agent Labs is ready for the next workflow."}
+          </h2>
+          <p>
+            {activeRuns.length
+              ? `The latest durable activity was ${formatRelativeTime(collection.events[0]?.occurred_at)}.`
+              : "Start the durable synthetic workflow to watch state, worker activity, waiting, and owner review update live."}
+          </p>
         </div>
-      </aside>
-
-      <main className="appMain">
-        <header className="workspaceHeader">
-          <div className="workspaceTitle">
-            <p>Agent Labs</p>
-            <h1>Control centre</h1>
+        <div className="overviewHeroStatus">
+          <span className={runtimeReady ? "systemPulse systemPulse-ready" : "systemPulse"} />
+          <div>
+            <strong>{runtimeReady ? "Core runtime ready" : "Runtime needs configuration"}</strong>
+            <small>Vercel Workflow · Supabase · OpenRouter</small>
           </div>
-          <div className="workspaceAccount">
-            <span>{displayName}</span>
-            <form action="/auth/signout" method="post">
-              <button className="ghostButton" type="submit">
-                Sign out
-              </button>
-            </form>
+        </div>
+      </section>
+
+      <section className="coreMetricGrid" aria-label="Agent Labs summary">
+        {[
+          ["Active workflows", activeRuns.length, "workflow"],
+          ["Needs You", context.needsYouCount, "needs-you"],
+          ["Completed", completedRuns.length, "history"],
+          ["Artifacts", collection.artifacts.length, "artifacts"],
+        ].map(([label, value, icon]) => (
+          <article className="coreMetricCard" key={String(label)}>
+            <span><CoreIcon name={icon as "workflow" | "needs-you" | "history" | "artifacts"} /></span>
+            <div><small>{label}</small><strong>{value}</strong></div>
+          </article>
+        ))}
+      </section>
+
+      {openInterventions.length ? (
+        <section className="dashboardSection dashboardSection-attention">
+          <div className="sectionTitleRow">
+            <div><p className="coreEyebrow">Needs You</p><h2>Waiting for your decision</h2></div>
+            <Link href="/dashboard/needs-you">Open queue →</Link>
           </div>
-        </header>
+          <div className="needsYouStack">
+            {openInterventions.slice(0, 2).map((intervention) => {
+              const run = collection.runs.find((entry) => entry.id === intervention.workflow_run_id);
+              const definition = run ? definitionById.get(run.workflow_definition_id) : undefined;
+              return (
+                <NeedsYouCard
+                  businessName={businessById.get(intervention.business_id)?.name}
+                  intervention={intervention}
+                  key={intervention.id}
+                  returnTo="/dashboard"
+                  workflowName={definition?.name}
+                />
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
 
-        {message ? (
-          <p className="notice success" role="status">
-            {message}
-          </p>
-        ) : null}
-        {error ? (
-          <p className="notice error" role="alert">
-            {error}
-          </p>
-        ) : null}
-        {businessError ? (
-          <p className="notice error" role="alert">
-            Business records could not be loaded.
-          </p>
-        ) : null}
-        {workflowHistoryError ? (
-          <p className="notice error" role="alert">
-            Some workflow history could not be loaded.
-          </p>
-        ) : null}
+      <div className="dashboardColumns">
+        <section className="dashboardSection">
+          <div className="sectionTitleRow">
+            <div>
+              <p className="coreEyebrow">Current work</p>
+              <h2>{activeRuns.length ? "Active workflows" : "Latest workflows"}</h2>
+            </div>
+            <Link href="/dashboard/workflows">All workflows →</Link>
+          </div>
 
-        <section className="summaryGrid" aria-label="Control centre summary">
-          {summary.map((item) => (
-            <article className="summaryCard" key={item.label}>
-              <span className="summaryLabel">{item.label}</span>
-              <strong className="summaryValue">{item.value}</strong>
-            </article>
-          ))}
+          {latestRuns.length ? (
+            <div className="workflowCardStack">
+              {latestRuns.map((run) => {
+                const workerRun = currentWorkerRun(workerRunsByRun.get(run.id) ?? []);
+                return (
+                  <WorkflowListCard
+                    artifactCount={(artifactsByRun.get(run.id) ?? []).length}
+                    business={businessById.get(run.business_id)}
+                    definition={definitionById.get(run.workflow_definition_id)}
+                    events={eventsByRun.get(run.id) ?? []}
+                    intervention={openIntervention(interventionsByRun.get(run.id) ?? [])}
+                    key={run.id}
+                    run={run}
+                    stages={stagesByRun.get(run.id) ?? []}
+                    task={currentTask(tasksByRun.get(run.id) ?? [])}
+                    workerDefinition={
+                      workerRun ? workerDefinitionById.get(workerRun.worker_definition_id) : null
+                    }
+                  />
+                );
+              })}
+            </div>
+          ) : (
+            <EmptyPanel icon="workflow" title="No workflow activity yet">
+              <p>Start a durable workflow from a Business below to see its state update live.</p>
+            </EmptyPanel>
+          )}
         </section>
 
-        <section className="dashboardGrid">
-          <article className="businessPanel" aria-labelledby="businesses-heading">
-            <div className="panelHeading">
-              <div>
-                <p className="panelLabel">Workspaces</p>
-                <h2 id="businesses-heading">Businesses</h2>
-              </div>
-              <span className="countBadge">{businesses.length}</span>
-            </div>
+        <ActivityFeed events={latestEvents} />
+      </div>
 
-            {businesses.length ? (
-              <div className="businessList">
-                {businesses.map((business) => (
-                  <article className="businessCard stage3BusinessCard" key={business.id}>
+      <div className="dashboardColumns dashboardColumns-lower">
+        <section className="dashboardSection">
+          <div className="sectionTitleRow">
+            <div><p className="coreEyebrow">Businesses</p><h2>Workspaces</h2></div>
+            <span className="coreCount">{context.businesses.length}</span>
+          </div>
+          {context.businesses.length ? (
+            <div className="businessWorkspaceList">
+              {context.businesses.map((business) => {
+                const businessRuns = collection.runs.filter((run) => run.business_id === business.id);
+                const activeCount = businessRuns.filter((run) => ACTIVE_WORKFLOW_STATUSES.has(run.status)).length;
+                return (
+                  <article key={business.id}>
+                    <span className="businessGlyph"><CoreIcon name="building" /></span>
                     <div>
                       <h3>{business.name}</h3>
-                      <p>Created {formatDate(business.created_at)}</p>
+                      <p>{activeCount} active · {businessRuns.length} total workflows</p>
                     </div>
-                    <div className="businessActions">
-                      <span>Owner</span>
-                      <form action={startSyntheticWorkflow}>
-                        <input name="businessId" type="hidden" value={business.id} />
-                        <input
-                          name="idempotencyKey"
-                          type="hidden"
-                          value={`stage3:${crypto.randomUUID()}`}
-                        />
-                        <input
-                          name="launchNonce"
-                          type="hidden"
-                          value={crypto.randomUUID()}
-                        />
-                        <button
-                          className="compactButton"
-                          disabled={!workflowRuntimeConfigured}
-                          type="submit"
-                        >
-                          Run durable proof
-                        </button>
-                      </form>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            ) : (
-              <div className="emptyState">
-                <h3>No Businesses yet</h3>
-                <p>Create the first Business to begin setting up Agent Labs.</p>
-              </div>
-            )}
-          </article>
-
-          <aside className="createPanel" aria-labelledby="create-business-heading">
-            <p className="panelLabel">New workspace</p>
-            <h2 id="create-business-heading">Create a Business</h2>
-            <form action={createBusiness} className="formStack compact">
-              <label className="formField" htmlFor="business-name">
-                <span>Business name</span>
-                <input
-                  id="business-name"
-                  maxLength={120}
-                  name="name"
-                  placeholder="Business name"
-                  required
-                  type="text"
-                />
-              </label>
-              <button className="primaryButton" type="submit">
-                Create Business
-              </button>
-            </form>
-            <div className="runtimeReadiness">
-              <span className={workflowRuntimeConfigured ? "runtimeDot ready" : "runtimeDot"} />
-              <p>
-                Durable runtime {workflowRuntimeConfigured ? "ready" : "configuration needed"}
-              </p>
-            </div>
-          </aside>
-        </section>
-
-        <section className="operationsPanel" id="workflows" aria-labelledby="workflows-heading">
-          <div className="panelHeading workflowHeading">
-            <div>
-              <p className="panelLabel">Durable execution</p>
-              <h2 id="workflows-heading">Workflow history</h2>
-            </div>
-            <span className="countBadge">{workflowRuns.length}</span>
-          </div>
-
-          {workflowRuns.length ? (
-            <div className="workflowList">
-              {workflowRuns.map((run) => {
-                const business = businessById.get(run.business_id);
-                const stages = stagesByRun.get(run.id) ?? [];
-                const events = (eventsByRun.get(run.id) ?? []).slice(0, 6);
-                const intervention = openInterventionByRun.get(run.id);
-
-                return (
-                  <article className="workflowCard" key={run.id}>
-                    <div className="workflowCardHeader">
-                      <div>
-                        <p className="workflowBusiness">{business?.name ?? "Business"}</p>
-                        <h3>Synthetic durable runtime proof</h3>
-                        <p>
-                          Started {formatDate(run.started_at ?? run.created_at)} · Current stage{" "}
-                          {humanize(run.current_stage_key)}
-                        </p>
-                      </div>
-                      <span className={`workflowStatus status-${run.status}`}>
-                        {humanize(run.status)}
-                      </span>
-                    </div>
-
-                    <ol className="stageTimeline" aria-label="Workflow stages">
-                      {stages.length ? (
-                        stages.map((stage) => (
-                          <li className={`stageState stage-${stage.status}`} key={stage.id}>
-                            <span className="stageMarker" aria-hidden="true" />
-                            <div>
-                              <strong>{humanize(stage.stage_key)}</strong>
-                              <small>
-                                {humanize(stage.status)}
-                                {stage.attempt > 1 ? ` · attempt ${stage.attempt}` : ""}
-                              </small>
-                            </div>
-                          </li>
-                        ))
-                      ) : (
-                        <li className="stageState stage-pending">
-                          <span className="stageMarker" aria-hidden="true" />
-                          <div>
-                            <strong>Launch reserved</strong>
-                            <small>Waiting for the durable runtime</small>
-                          </div>
-                        </li>
-                      )}
-                    </ol>
-
-                    {intervention ? (
-                      <section className="interventionCard" id="needs-you">
-                        <div>
-                          <p className="panelLabel">Needs you</p>
-                          <h4>{intervention.title}</h4>
-                          <p>{intervention.description}</p>
-                        </div>
-                        <form action={resumeSyntheticReview} className="interventionActions">
-                          <input name="interventionId" type="hidden" value={intervention.id} />
-                          <button
-                            className="primaryButton"
-                            name="decision"
-                            type="submit"
-                            value="approve"
-                          >
-                            Approve and complete
-                          </button>
-                          <button
-                            className="dangerButton"
-                            name="decision"
-                            type="submit"
-                            value="fail"
-                          >
-                            Fail workflow
-                          </button>
-                        </form>
-                      </section>
-                    ) : null}
-
-                    <div className="eventHistory">
-                      <div className="eventHistoryHeader">
-                        <strong>History</strong>
-                        <small>
-                          {run.runtime_run_id
-                            ? `Runtime ${run.runtime_run_id.slice(0, 18)}…`
-                            : "Runtime pending"}
-                        </small>
-                      </div>
-                      {events.length ? (
-                        <ul>
-                          {events.map((event) => (
-                            <li key={event.id}>
-                              <time>{formatDate(event.occurred_at)}</time>
-                              <span>{humanize(event.event_type)}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <p>No durable events recorded yet.</p>
-                      )}
-                    </div>
+                    <form action={startSyntheticWorkflow}>
+                      <input name="businessId" type="hidden" value={business.id} />
+                      <input name="idempotencyKey" type="hidden" value={`stage7:${crypto.randomUUID()}`} />
+                      <input name="launchNonce" type="hidden" value={crypto.randomUUID()} />
+                      <button className="coreButton coreButton-secondary coreButton-small" disabled={!runtimeReady} type="submit">
+                        Run workflow proof
+                      </button>
+                    </form>
                   </article>
                 );
               })}
             </div>
           ) : (
-            <div className="operationEmpty">
-              <strong>No workflows have run yet.</strong>
-              <span>
-                Start the Stage 3 durable proof from a Business above. It will retry once,
-                wait without consuming compute, and pause for your review.
-              </span>
-            </div>
+            <EmptyPanel icon="building" title="No Business yet">
+              <p>Create your first private workspace.</p>
+            </EmptyPanel>
           )}
         </section>
-      </main>
-    </div>
+
+        <section className="dashboardSection createBusinessPanel">
+          <div><p className="coreEyebrow">New workspace</p><h2>Create a Business</h2></div>
+          <p>Businesses keep workflows, artifacts, accounts, and future packs separated.</p>
+          <form action={createBusiness} className="coreForm">
+            <label htmlFor="business-name">Business name</label>
+            <input id="business-name" maxLength={120} name="name" placeholder="Business name" required type="text" />
+            <button className="coreButton coreButton-primary" type="submit">Create Business</button>
+          </form>
+        </section>
+      </div>
+
+      {completedRuns.length ? (
+        <section className="dashboardSection dashboardHistoryPreview">
+          <div className="sectionTitleRow">
+            <div><p className="coreEyebrow">Recent outcomes</p><h2>History</h2></div>
+            <Link href="/dashboard/history">Full history →</Link>
+          </div>
+          <div className="historyList">
+            {completedRuns.slice(0, 4).map((run) => (
+              <HistoryRow
+                business={businessById.get(run.business_id)}
+                definition={definitionById.get(run.workflow_definition_id)}
+                key={run.id}
+                run={run}
+              />
+            ))}
+          </div>
+        </section>
+      ) : null}
+    </AppShell>
   );
 }

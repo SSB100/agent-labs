@@ -84,18 +84,25 @@ test("Synthetic runtime proves workflow, step, wait, retry and human resume boun
   assert.match(registry, /WORKFLOW_REGISTRY/);
 });
 
-test("Active workflows refresh the control centre until Needs You is visible", async () => {
+test("Active workflows use authenticated Realtime with a bounded refresh fallback", async () => {
+  const liveRefresh = await readProjectFile(
+    "src/components/stage7/live-refresh.tsx",
+  );
   const template = await readProjectFile("src/app/dashboard/template.tsx");
+  const migration = await readProjectFile(
+    "supabase/migrations/20260929125855_stage7_core_ui_realtime_publication.sql",
+  );
 
-  assert.match(template, /"use client"/);
-  assert.match(template, /REFRESH_INTERVAL_MS = 2_000/);
-  assert.match(template, /workflowStatus\.status-needs_owner/);
-  assert.match(template, /workflowStatus\.status-waiting/);
-  assert.match(template, /document\.visibilityState === "visible"/);
-  assert.match(template, /hasActiveWorkflow\(\)/);
-  assert.match(template, /router\.refresh\(\)/);
-  assert.match(template, /window\.clearInterval/);
-  assert.match(template, /window\.addEventListener\("focus"/);
+  assert.match(liveRefresh, /postgres_changes/);
+  assert.match(liveRefresh, /owner_interventions/);
+  assert.match(liveRefresh, /workflow_runs/);
+  assert.match(liveRefresh, /workflow_stage_runs/);
+  assert.match(liveRefresh, /document\.visibilityState !== "visible"/);
+  assert.match(liveRefresh, /router\.refresh\(\)/);
+  assert.match(liveRefresh, /30_000/);
+  assert.match(liveRefresh, /window\.addEventListener\("focus"/);
+  assert.match(migration, /alter publication supabase_realtime add table/);
+  assert.doesNotMatch(template, /REFRESH_INTERVAL_MS = 2_000|setInterval/);
 });
 
 test("Stage 3 uses a one-run capability rather than a broad database secret", async () => {

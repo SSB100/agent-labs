@@ -30,16 +30,16 @@ test("Stage 1 migration creates the three planned tables with RLS", async () => 
 });
 
 test("server authorization validates claims rather than trusting a stored session", async () => {
-  const dashboard = await readProjectFile("src/app/dashboard/page.tsx");
+  const dataLoader = await readProjectFile("src/lib/core-ui/data.ts");
   const action = await readProjectFile("src/app/dashboard/actions.ts");
   const proxy = await readProjectFile("src/lib/supabase/proxy.ts");
-  const combined = `${dashboard}\n${action}\n${proxy}`;
+  const combined = `${dataLoader}\n${action}\n${proxy}`;
 
-  assert.match(dashboard, /auth\.getClaims\(\)/);
+  assert.match(dataLoader, /auth\.getClaims\(\)/);
   assert.match(action, /auth\.getClaims\(\)/);
   assert.match(proxy, /auth\.getClaims\(\)/);
   assert.doesNotMatch(combined, /auth\.getSession\(\)/);
-  assert.match(dashboard, /\.eq\("owner_user_id", userId\)/);
+  assert.match(dataLoader, /\.eq\("owner_user_id", userId\)/);
   assert.match(action, /owner_user_id: userId/);
 });
 
@@ -54,7 +54,7 @@ test("the application opens as a private login-first control centre", async () =
   assert.match(rootPage, /redirect\("\/login"\)/);
   assert.match(rootPage, /redirect\("\/dashboard"\)/);
   assert.match(loginPage, /Owner access only\./);
-  assert.match(dashboard, />Control centre</);
+  assert.match(dashboard, /title="Control centre"/);
   assert.doesNotMatch(loginPage, /create account|new owner|sign up/i);
   assert.doesNotMatch(loginActions, /signUp|signup/);
   assert.match(layout, /index:\s*false/);
