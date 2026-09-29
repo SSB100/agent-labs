@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 import { createBrowserProviderAdapter } from "./registry";
+import { rewriteHlsManifest } from "./replay";
 import type { BrowserProviderDefinitionRecord, BrowserSessionRecord } from "./ui";
 import { createClient } from "@/lib/supabase/server";
 
@@ -81,15 +82,9 @@ export function rewriteReplayManifest(
   origin: string,
   browserSessionId: string,
 ) {
-  return manifest
-    .split(/\r?\n/)
-    .map((line) => {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith("#")) return line;
-      const absolute = new URL(trimmed, manifestUrl).toString();
-      return replayProxyUrl(origin, browserSessionId, absolute);
-    })
-    .join("\n");
+  return rewriteHlsManifest(manifest, manifestUrl, (absoluteResourceUrl) =>
+    replayProxyUrl(origin, browserSessionId, absoluteResourceUrl),
+  );
 }
 
 export async function fetchBrowserReplay(
