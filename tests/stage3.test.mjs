@@ -37,6 +37,9 @@ test("Stage 3 migrations match hosted versions and create a scoped runtime", asy
   const cleanupMigration = await readProjectFile(
     "supabase/migrations/20260929043635_stage3_qualification_cleanup.sql",
   );
+  const tighteningMigration = await readProjectFile(
+    "supabase/migrations/20260929044045_stage3_runtime_grant_tightening.sql",
+  );
 
   assert.match(baseMigration, /synthetic\.core\.runtime-proof/);
   for (const stage of ["start", "worker-task", "wait", "review", "complete"]) {
@@ -53,6 +56,7 @@ test("Stage 3 migrations match hosted versions and create a scoped runtime", asy
   assert.match(cleanupMigration, /drop function if exists public\.claim_stage3_qualification_action/);
   assert.match(cleanupMigration, /drop table if exists private\.stage3_qualification_claims/);
   assert.match(cleanupMigration, /00000000-0000-4000-8000-000000003306/);
+  assert.match(tighteningMigration, /revoke execute[^;]+from authenticated/s);
   assert.doesNotMatch(
     `${baseMigration}\n${capabilityMigration}\n${helperMigration}`,
     /etsy|printful|shopify/i,

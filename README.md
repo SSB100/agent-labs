@@ -116,6 +116,7 @@ Stage 3:
 20260929033834_stage3_scoped_runtime_capability.sql
 20260929034351_stage3_capability_helper_permission.sql
 20260929043635_stage3_qualification_cleanup.sql
+20260929044045_stage3_runtime_grant_tightening.sql
 ```
 
 Stage checkpoints are stored under `docs/checkpoints/`.

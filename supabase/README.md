@@ -45,6 +45,8 @@ Agent Labs V2 uses the existing hosted Supabase project:
 
 `20260929043635_stage3_qualification_cleanup.sql` removes the temporary qualification endpoint support functions, claim table and test Businesses after live durability evidence was recorded.
 
+`20260929044045_stage3_runtime_grant_tightening.sql` revokes the unnecessary signed-in-user grant from the runtime transition function. The unauthenticated Workflow client retains only the capability-gated RPC needed for its single run.
+
 Every exposed table has RLS enabled. Business-scoped records are available only to the authenticated Business owner. Pack, WorkflowDefinition and WorkerDefinition records are read-only to application clients. Evidence, Event and ActionReceipt records are append-only to application clients.
 
 The Stage 3 runtime uses the project publishable key plus an unguessable one-run capability. It does not expose or depend on a Supabase secret key or service-role key in the application runtime.

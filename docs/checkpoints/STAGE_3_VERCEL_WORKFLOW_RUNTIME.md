@@ -46,6 +46,8 @@ An authenticated owner reserves a Workflow Run through `begin_synthetic_workflow
 
 Each new run receives a random runtime capability. Only its SHA-256 hash is stored. Workflow steps use the original capability to invoke `stage3_runtime_transition` for that run and Business. The workflow runtime therefore does not receive a broad Supabase secret or service-role key.
 
+The transition RPC is executable only by the anonymous Workflow client. Its `SECURITY DEFINER` privileges are bounded by the required high-entropy capability, exact Workflow Run ID and exact Business ID. Signed-in application users do not receive execute permission.
+
 Duplicate launches are prevented by the unique Business and idempotency-key constraint. The database remains authoritative if a client submits the same launch again.
 
 ## Live qualification
@@ -97,6 +99,7 @@ The durable database history recorded:
 20260929033834_stage3_scoped_runtime_capability
 20260929034351_stage3_capability_helper_permission
 20260929043635_stage3_qualification_cleanup
+20260929044045_stage3_runtime_grant_tightening
 ```
 
 The repository filenames match the hosted migration versions.
@@ -109,7 +112,8 @@ After the evidence above was captured:
 - temporary qualification-only functions were dropped
 - the private qualification-claim table was dropped
 - six temporary qualification Businesses and their cascading history were deleted
-- the permanent workflow definition and runtime functions were retained
+- signed-in-user execution of the runtime transition RPC was revoked
+- the permanent workflow definition and capability-gated runtime functions were retained
 - no runtime capability or qualification token was preserved in source or documentation
 
 ## Verification
@@ -131,6 +135,8 @@ Stage 3 passed:
 - current state and history rendering in the control centre
 - removal of temporary qualification access and data
 - production health check with Supabase and workflow runtime configured
+
+Supabase Security Advisor intentionally reports that the anonymous role can execute `stage3_runtime_transition`. That is the required Workflow client entry point and it performs no action without the matching one-run capability, Workflow Run ID and Business ID. The separate leaked-password-protection warning is an Auth project setting rather than a Stage 3 schema finding.
 
 The separate GitHub Actions job is still not receiving a hosted runner and records zero executed steps. The complete repository gate runs successfully inside each Vercel build before deployment.
 
