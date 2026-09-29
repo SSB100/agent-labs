@@ -45,7 +45,11 @@ export interface BrowserProviderAdapter {
   createSession(request: BrowserSessionCreateRequest): Promise<BrowserProviderSession>;
   retrieveSession(providerSessionId: string): Promise<BrowserProviderSession>;
   releaseSession(providerSessionId: string): Promise<void>;
-  fetchReplay(providerSessionId: string, resourceUrl?: string): Promise<Response>;
+  fetchReplay(
+    providerSessionId: string,
+    resourceUrl?: string,
+    requestHeaders?: HeadersInit,
+  ): Promise<Response>;
 }
 
 export const BROWSER_PROVIDER_FAILURE_CATEGORIES = [
