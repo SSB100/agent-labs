@@ -39,6 +39,7 @@ The runtime supports:
 - business-readable event emission
 - workflow and stage history in Supabase
 - current state, history and Needs You actions in the private control centre
+- automatic dashboard refresh while a workflow remains active
 
 ## Launch and authority model
 
@@ -92,6 +93,21 @@ The durable database history recorded:
 - owner approval or rejection
 - `workflow.completed` or bounded `workflow.failed`
 
+## Control-centre freshness
+
+The initial Stage 3 interface was server-rendered and displayed the correct state only after a manual reload or navigation. A production owner test showed that the durable review intervention existed in Supabase several minutes before the browser requested a fresh dashboard render.
+
+The Stage 3 corrective patch adds lightweight polling at the dashboard template boundary:
+
+- the browser checks every two seconds while the rendered page contains an active workflow
+- `router.refresh()` requests fresh server-rendered state without a full page reload
+- queued, running, waiting, review and Needs You states keep refreshing
+- completed, failed and cancelled workflows generate no polling requests
+- hidden tabs skip refresh requests
+- returning focus or making the tab visible requests current state immediately
+
+This keeps the database authoritative while making owner-intervention buttons appear within a few seconds of the durable intervention being created.
+
 ## Hosted migrations
 
 ```text
@@ -133,6 +149,7 @@ Stage 3 passed:
 - one-run scoped runtime authority
 - deployment-boundary survival
 - current state and history rendering in the control centre
+- active-only automatic refresh for timely Needs You controls
 - removal of temporary qualification access and data
 - production health check with Supabase and workflow runtime configured
 
