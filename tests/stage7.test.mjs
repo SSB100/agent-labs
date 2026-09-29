@@ -31,7 +31,7 @@ test("Stage 7 exposes the complete private Core navigation on desktop and mobile
   assert.match(mobileStyles, /overflow-x: auto/);
 });
 
-test("Stage 7 workflow screen makes execution understandable", () => {
+test("Stage 7 workflow screen remains understandable as capabilities are added", () => {
   const workflowPage = read(
     "src/app/dashboard/workflows/[workflowRunId]/page.tsx",
   );
@@ -82,7 +82,7 @@ test("Stage 7 uses Supabase Realtime with an explicit low-frequency fallback", (
   assert.match(migration, /alter publication supabase_realtime add table/);
 });
 
-test("Stage 7 implements every planned Core surface without starting Stage 8", () => {
+test("Stage 7 Core surfaces remain intact before Stage 9 planning", () => {
   for (const route of [
     "src/app/dashboard/workflows/page.tsx",
     "src/app/dashboard/workflows/[workflowRunId]/page.tsx",
@@ -94,13 +94,12 @@ test("Stage 7 implements every planned Core surface without starting Stage 8", (
     assert.equal(existsSync(route), true, `${route} is missing`);
   }
 
-  assert.equal(existsSync("docs/checkpoints/STAGE_8_BROWSER_PROVIDER.md"), false);
-  assert.equal(existsSync("src/app/dashboard/browser/page.tsx"), false);
+  assert.equal(existsSync("src/browser/planner.ts"), false);
+  assert.equal(existsSync("docs/checkpoints/STAGE_9_BROWSER_PLANNER.md"), false);
 
   const accounts = read("src/app/dashboard/accounts/page.tsx");
   assert.match(accounts, /No external accounts connected/);
   assert.match(accounts, /Browser provider/);
-  assert.doesNotMatch(accounts, /Browserbase|Steel/);
 });
 
 test("Stage 7 keeps owner decisions visually prominent and safely routed", () => {

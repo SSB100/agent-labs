@@ -8,6 +8,7 @@ import { LiveRefresh } from "./live-refresh";
 
 export type CoreSection =
   | "accounts"
+  | "browser"
   | "dashboard"
   | "history"
   | "needs-you"
@@ -31,6 +32,7 @@ type NavItem = {
 const primaryNavigation: NavItem[] = [
   { href: "/dashboard", icon: "dashboard", key: "dashboard", label: "Dashboard" },
   { href: "/dashboard/workflows", icon: "workflow", key: "workflows", label: "Workflows" },
+  { href: "/dashboard/browser", icon: "browser", key: "browser", label: "Browser" },
   { href: "/dashboard/needs-you", icon: "needs-you", key: "needs-you", label: "Needs You" },
   { href: "/dashboard/history", icon: "history", key: "history", label: "History" },
 ];
@@ -185,13 +187,26 @@ export function PageHeader({
 
 export function StatusPill({ status }: { status: string }) {
   const tone =
-    status === "completed" || status === "qualified" || status === "connected"
+    status === "completed" ||
+    status === "qualified" ||
+    status === "connected" ||
+    status === "selected" ||
+    status === "released"
       ? "success"
-      : status === "needs_owner" || status === "review"
+      : status === "needs_owner" ||
+          status === "review" ||
+          status === "human_control"
         ? "attention"
-        : status === "failed" || status === "cancelled" || status === "not_configured"
+        : status === "failed" ||
+            status === "cancelled" ||
+            status === "not_configured"
           ? "danger"
-          : status === "running" || status === "waiting" || status === "queued"
+          : status === "running" ||
+              status === "waiting" ||
+              status === "queued" ||
+              status === "live" ||
+              status === "launching" ||
+              status === "returning"
             ? "live"
             : "neutral";
   const label = status

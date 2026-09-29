@@ -13,6 +13,7 @@
     "incremental": false
   },
   "include": [
+    "src/browser/**/*.ts",
     "src/core/**/*.ts",
     "src/evaluations/**/*.ts",
     "src/lib/core-ui/workflows.ts",

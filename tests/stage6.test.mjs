@@ -13,7 +13,7 @@ test("Stage 6 keeps only the permanent Worker evaluation runtime", () => {
   assert.equal(existsSync("src/app/api/stage6/qualification/route.ts"), false);
   assert.equal(existsSync("src/app/dashboard/worker-evaluations/page.tsx"), true);
   assert.equal(existsSync("src/app/dashboard/worker-evaluations/layout.tsx"), true);
-  assert.equal(existsSync("docs/checkpoints/STAGE_8_BROWSER_PROVIDER.md"), false);
+  assert.equal(existsSync("docs/checkpoints/STAGE_9_BROWSER_PLANNER.md"), false);
 });
 
 test("Stage 6 migration history is replayable and RLS-protected", () => {

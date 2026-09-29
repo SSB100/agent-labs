@@ -1,0 +1,328 @@
+.browserProviderHero {
+  display: flex;
+  gap: 28px;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 24px;
+  padding: 28px;
+  border: 1px solid rgba(121, 226, 167, 0.22);
+  border-radius: 21px;
+  background:
+    linear-gradient(130deg, rgba(31, 72, 53, 0.78), rgba(9, 25, 18, 0.9)),
+    var(--core-panel);
+  box-shadow: var(--core-shadow);
+}
+
+.browserProviderHero h2 {
+  margin: 0;
+  font-size: clamp(2rem, 4vw, 3.6rem);
+  letter-spacing: -0.05em;
+}
+
+.browserProviderHero > div:first-child > p:last-child {
+  max-width: 760px;
+  margin: 12px 0 0;
+  color: var(--core-muted);
+  font-size: 0.8rem;
+  line-height: 1.65;
+}
+
+.browserProviderReadiness {
+  display: flex;
+  min-width: 245px;
+  gap: 12px;
+  align-items: center;
+  padding: 15px 17px;
+  border: 1px solid var(--core-border);
+  border-radius: 14px;
+  background: rgba(2, 10, 7, 0.34);
+}
+
+.browserProviderReadiness strong,
+.browserProviderReadiness small {
+  display: block;
+}
+
+.browserProviderReadiness strong {
+  font-size: 0.76rem;
+}
+
+.browserProviderReadiness small {
+  margin-top: 4px;
+  color: var(--core-muted);
+  font-size: 0.61rem;
+}
+
+.browserProviderGrid {
+  margin-top: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.browserProviderCard-selected {
+  border-color: rgba(121, 226, 167, 0.32);
+  box-shadow: inset 0 0 0 1px rgba(121, 226, 167, 0.08);
+}
+
+.browserProviderFacts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 18px 0 0;
+}
+
+.browserProviderFacts div {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid var(--core-border);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.browserProviderFacts dt {
+  color: var(--core-faint);
+  font-size: 0.56rem;
+}
+
+.browserProviderFacts dd {
+  margin: 0;
+  font-size: 0.67rem;
+  font-weight: 750;
+}
+
+.browserLaunchColumns {
+  margin-top: 0;
+}
+
+.browserSectionCopy {
+  max-width: 760px;
+  margin: 12px 0 0;
+  color: var(--core-muted);
+  font-size: 0.72rem;
+  line-height: 1.6;
+}
+
+.browserBusinessList {
+  margin-top: 20px;
+}
+
+.browserSecurityPrinciples {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.browserSessionList {
+  display: grid;
+  gap: 9px;
+  margin-top: 20px;
+}
+
+.browserSessionList > a {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+  gap: 13px;
+  align-items: center;
+  min-height: 68px;
+  padding: 12px 14px;
+  border: 1px solid var(--core-border);
+  border-radius: 12px;
+  background: rgba(2, 10, 7, 0.32);
+  transition: border-color 160ms ease, transform 160ms ease;
+}
+
+.browserSessionList > a:hover {
+  border-color: var(--core-border-strong);
+  transform: translateY(-1px);
+}
+
+.browserSessionList > a > span:nth-child(2),
+.browserSessionList > a > span:last-child {
+  display: grid;
+  gap: 4px;
+}
+
+.browserSessionList strong {
+  font-size: 0.72rem;
+}
+
+.browserSessionList small {
+  color: var(--core-muted);
+  font-size: 0.59rem;
+}
+
+.browserSessionList > a > span:last-child {
+  justify-items: end;
+}
+
+.browserSessionDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--core-faint);
+}
+
+.browserSessionDot-live,
+.browserSessionDot-human_control,
+.browserSessionDot-returning,
+.browserSessionDot-launching {
+  background: var(--core-blue);
+  box-shadow: 0 0 0 4px rgba(139, 188, 255, 0.08);
+}
+
+.browserSessionDot-released {
+  background: var(--core-accent);
+}
+
+.browserSessionDot-failed {
+  background: var(--core-red);
+}
+
+.browserWorkspacePanel {
+  display: grid;
+  gap: 14px;
+}
+
+.browserWorkspaceHeader {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.browserWorkspaceHeader h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.browserWorkspaceHeader > div > p:last-child {
+  max-width: 780px;
+  margin: 7px 0 0;
+  color: var(--core-muted);
+  font-size: 0.64rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.browserControlBar {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 13px 14px;
+  border: 1px solid rgba(240, 207, 126, 0.28);
+  border-radius: 12px;
+  background: rgba(240, 207, 126, 0.07);
+}
+
+.browserControlBar > div {
+  display: grid;
+  gap: 4px;
+}
+
+.browserControlBar strong {
+  font-size: 0.7rem;
+}
+
+.browserControlBar span {
+  color: var(--core-muted);
+  font-size: 0.6rem;
+  line-height: 1.45;
+}
+
+.browserViewport {
+  position: relative;
+  overflow: hidden;
+  min-height: 600px;
+  border: 1px solid var(--core-border);
+  border-radius: 14px;
+  background: #030806;
+}
+
+.browserViewport-interactive {
+  border-color: rgba(240, 207, 126, 0.46);
+  box-shadow: 0 0 0 3px rgba(240, 207, 126, 0.06);
+}
+
+.browserViewport iframe {
+  display: block;
+  width: 100%;
+  min-height: 600px;
+  border: 0;
+  background: #050806;
+}
+
+.browserViewportLabel {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  padding: 7px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  color: #dfe9e2;
+  background: rgba(2, 8, 5, 0.8);
+  font-size: 0.58rem;
+  backdrop-filter: blur(10px);
+}
+
+.browserWorkspaceFooter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  padding-top: 12px;
+  border-top: 1px solid var(--core-border);
+  color: var(--core-faint);
+  font-size: 0.57rem;
+}
+
+@media (max-width: 900px) {
+  .browserProviderHero,
+  .browserWorkspaceHeader,
+  .browserControlBar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .browserProviderHero {
+    display: flex;
+  }
+
+  .browserProviderReadiness {
+    min-width: 0;
+  }
+
+  .browserControlBar {
+    display: flex;
+  }
+
+  .browserControlBar .coreButton {
+    width: 100%;
+  }
+}
+
+@media (max-width: 720px) {
+  .browserProviderGrid,
+  .browserProviderFacts,
+  .browserSecurityPrinciples {
+    grid-template-columns: 1fr;
+  }
+
+  .browserViewport,
+  .browserViewport iframe {
+    min-height: 470px;
+  }
+
+  .browserSessionList > a {
+    grid-template-columns: 10px minmax(0, 1fr);
+  }
+
+  .browserSessionList > a > span:last-child {
+    grid-column: 2;
+    justify-items: start;
+  }
+}
+
+@media (max-width: 520px) {
+  .browserViewport,
+  .browserViewport iframe {
+    min-height: 400px;
+  }
+}

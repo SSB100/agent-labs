@@ -2,10 +2,19 @@
 
 import { useState } from "react";
 
-import type { ArtifactRecord } from "@/lib/core-ui/workflows";
-import { formatDateTime, humanize } from "@/lib/core-ui/workflows";
+import { resumeBrowserControl } from "@/app/dashboard/browser/actions";
+import type { BrowserSessionRecord } from "@/lib/core-ui/browser";
+import type {
+  ArtifactRecord,
+  OwnerInterventionRecord,
+} from "@/lib/core-ui/workflows";
+import {
+  formatDateTime,
+  humanize,
+} from "@/lib/core-ui/workflows";
 
 import { CoreIcon, type CoreIconName } from "./icons";
+import { StatusPill } from "./app-shell";
 
 const tabs = [
   { key: "browser", label: "Live Browser", icon: "browser" },
@@ -20,8 +29,18 @@ const tabs = [
 
 type WorkspaceTab = (typeof tabs)[number]["key"];
 
+type BrowserWorkspaceState = {
+  session: BrowserSessionRecord;
+  providerName: string;
+  liveViewUrl: string | null;
+  replayUrl: string | null;
+  intervention: OwnerInterventionRecord | null;
+  workflowRunId: string;
+};
+
 type WorkflowWorkspaceProps = {
   artifacts: ArtifactRecord[];
+  browser?: BrowserWorkspaceState | null;
 };
 
 function Placeholder({
@@ -42,9 +61,109 @@ function Placeholder({
   );
 }
 
-export function WorkflowWorkspace({ artifacts }: WorkflowWorkspaceProps) {
+function BrowserControl({ browser }: { browser: BrowserWorkspaceState }) {
+  const { session, intervention } = browser;
+  const isTakeover = intervention?.intervention_type === "browser_takeover";
+  const isReturn = intervention?.intervention_type === "browser_return_control";
+
+  if (!intervention || (!isTakeover && !isReturn)) return null;
+
+  return (
+    <form action={resumeBrowserControl} className="browserControlBar">
+      <input name="browserSessionId" type="hidden" value={session.id} />
+      <input name="interventionId" type="hidden" value={intervention.id} />
+      <input
+        name="returnTo"
+        type="hidden"
+        value={`/dashboard/workflows/${browser.workflowRunId}`}
+      />
+      <input
+        name="decision"
+        type="hidden"
+        value={isTakeover ? "take_control" : "return_control"}
+      />
+      <div>
+        <strong>{intervention.title}</strong>
+        <span>{intervention.description}</span>
+      </div>
+      <button className="coreButton coreButton-primary" type="submit">
+        {isTakeover ? "Take Control" : "Return Control"}
+      </button>
+    </form>
+  );
+}
+
+function BrowserPanel({ browser }: { browser: BrowserWorkspaceState | null }) {
+  if (!browser) {
+    return (
+      <Placeholder icon="browser" title="No browser session attached">
+        A remote browser appears here when a workflow creates an isolated provider session.
+      </Placeholder>
+    );
+  }
+
+  const { session, providerName, liveViewUrl, replayUrl } = browser;
+  const released = session.status === "released";
+  const displayUrl = released ? replayUrl : liveViewUrl;
+
+  return (
+    <div className="browserWorkspacePanel">
+      <div className="browserWorkspaceHeader">
+        <div>
+          <p className="coreEyebrow">{released ? "Session replay" : "Remote Chromium"}</p>
+          <h3>{session.page_title ?? humanize(session.status)}</h3>
+          <p>
+            {providerName} · {humanize(session.control_mode)} control
+            {session.current_url ? ` · ${session.current_url}` : ""}
+          </p>
+        </div>
+        <StatusPill status={session.status} />
+      </div>
+
+      <BrowserControl browser={browser} />
+
+      {displayUrl ? (
+        <div className={session.control_mode === "human" ? "browserViewport browserViewport-interactive" : "browserViewport"}>
+          <iframe
+            allow="clipboard-read; clipboard-write"
+            referrerPolicy="no-referrer"
+            src={displayUrl}
+            title={released ? "Browser session replay" : "Live remote browser"}
+          />
+          {!released ? (
+            <div className="browserViewportLabel">
+              {session.control_mode === "human"
+                ? "Human input enabled"
+                : "Read-only while Agent Labs owns control"}
+            </div>
+          ) : null}
+        </div>
+      ) : session.status === "failed" ? (
+        <Placeholder icon="browser" title="Browser session failed">
+          The provider failure is preserved in the Workflow activity and session record.
+        </Placeholder>
+      ) : released ? (
+        <Placeholder icon="history" title="Replay is not available yet">
+          The released session is durable, but the provider recording is still processing or unavailable.
+        </Placeholder>
+      ) : (
+        <Placeholder icon="browser" title="Browser is starting">
+          Agent Labs is waiting for the provider to return the live viewer and Playwright connection.
+        </Placeholder>
+      )}
+
+      <footer className="browserWorkspaceFooter">
+        <span>Session {session.id.slice(0, 8)}</span>
+        <span>Started {formatDateTime(session.started_at ?? session.created_at)}</span>
+        <span>Replay {humanize(session.replay_status)}</span>
+      </footer>
+    </div>
+  );
+}
+
+export function WorkflowWorkspace({ artifacts, browser = null }: WorkflowWorkspaceProps) {
   const [activeTab, setActiveTab] = useState<WorkspaceTab>(
-    artifacts.length ? "artifacts" : "browser",
+    browser ? "browser" : artifacts.length ? "artifacts" : "browser",
   );
 
   return (
@@ -54,7 +173,9 @@ export function WorkflowWorkspace({ artifacts }: WorkflowWorkspaceProps) {
           <p className="coreEyebrow">Workspace</p>
           <h2 id="workspace-heading">Current output</h2>
         </div>
-        <span>{artifacts.length} artifact{artifacts.length === 1 ? "" : "s"}</span>
+        <span>
+          {browser ? "1 browser" : `${artifacts.length} artifact${artifacts.length === 1 ? "" : "s"}`}
+        </span>
       </div>
 
       <div className="workspaceTabs" role="tablist" aria-label="Workflow workspace">
@@ -69,17 +190,14 @@ export function WorkflowWorkspace({ artifacts }: WorkflowWorkspaceProps) {
           >
             <CoreIcon name={tab.icon} />
             <span>{tab.label}</span>
+            {tab.key === "browser" && browser ? <strong>1</strong> : null}
             {tab.key === "artifacts" && artifacts.length ? <strong>{artifacts.length}</strong> : null}
           </button>
         ))}
       </div>
 
       <div className="workspaceContent" role="tabpanel">
-        {activeTab === "browser" ? (
-          <Placeholder icon="browser" title="No browser session attached">
-            Live Browser becomes available when the Browser capability is qualified. Workflow state and activity remain fully visible here in the meantime.
-          </Placeholder>
-        ) : null}
+        {activeTab === "browser" ? <BrowserPanel browser={browser} /> : null}
 
         {activeTab === "products" ? (
           <Placeholder icon="products" title="No product workspace yet">
@@ -89,7 +207,7 @@ export function WorkflowWorkspace({ artifacts }: WorkflowWorkspaceProps) {
 
         {activeTab === "metrics" ? (
           <Placeholder icon="metrics" title="No workflow metrics yet">
-            Measurements, outcome signals, model usage, and financial performance will share this reusable workspace as packs add them.
+            Measurements, outcome signals, model usage, browser session cost, and financial performance will share this reusable workspace as packs add them.
           </Placeholder>
         ) : null}
 

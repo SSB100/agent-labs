@@ -7,6 +7,8 @@ import { createClient } from "@/lib/supabase/client";
 
 const LIVE_TABLES = [
   "artifacts",
+  "browser_session_events",
+  "browser_sessions",
   "businesses",
   "events",
   "owner_interventions",
