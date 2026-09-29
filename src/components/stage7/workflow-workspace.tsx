@@ -2,7 +2,13 @@
 
 import { useState } from "react";
 
-import type { ArtifactRecord } from "@/lib/core-ui/workflows";
+import { resumeBrowserControl } from "@/app/dashboard/browser-actions";
+import { BrowserReplay } from "@/components/stage8/browser-replay";
+import type { BrowserSessionRecord } from "@/browser/ui";
+import type {
+  ArtifactRecord,
+  OwnerInterventionRecord,
+} from "@/lib/core-ui/workflows";
 import { formatDateTime, humanize } from "@/lib/core-ui/workflows";
 
 import { CoreIcon, type CoreIconName } from "./icons";
@@ -22,6 +28,9 @@ type WorkspaceTab = (typeof tabs)[number]["key"];
 
 type WorkflowWorkspaceProps = {
   artifacts: ArtifactRecord[];
+  browserIntervention?: OwnerInterventionRecord | null;
+  browserSession?: BrowserSessionRecord | null;
+  returnTo: string;
 };
 
 function Placeholder({
@@ -42,9 +51,107 @@ function Placeholder({
   );
 }
 
-export function WorkflowWorkspace({ artifacts }: WorkflowWorkspaceProps) {
+function BrowserWorkspace({
+  intervention,
+  returnTo,
+  session,
+}: {
+  intervention?: OwnerInterventionRecord | null;
+  returnTo: string;
+  session: BrowserSessionRecord | null;
+}) {
+  if (!session) {
+    return (
+      <Placeholder icon="browser" title="No browser session attached">
+        A live remote browser appears here when a browser-enabled workflow launches one.
+      </Placeholder>
+    );
+  }
+
+  const isLive = ["launching", "live", "human_control", "returning"].includes(
+    session.status,
+  );
+  const takeControl = intervention?.intervention_type === "browser_takeover";
+
+  return (
+    <div className="browserWorkspace">
+      <div className="browserWorkspaceHeader">
+        <div>
+          <span className={`browserControlDot browserControlDot-${session.control_mode}`} />
+          <div>
+            <strong>{session.page_title ?? "Remote Chromium"}</strong>
+            <small>{session.current_url ?? "Session starting"}</small>
+          </div>
+        </div>
+        <div className="browserWorkspaceMeta">
+          <span>{humanize(session.status)}</span>
+          <span>{humanize(session.control_mode)} control</span>
+          {session.region ? <span>{session.region}</span> : null}
+        </div>
+      </div>
+
+      {isLive && session.live_view_status === "ready" ? (
+        <div className="browserLiveFrame">
+          <iframe
+            allow="clipboard-read; clipboard-write"
+            key={`${session.id}:${session.control_mode}`}
+            referrerPolicy="no-referrer"
+            src={`/api/browser/sessions/${session.id}/live`}
+            title="Agent Labs live remote browser"
+          />
+        </div>
+      ) : session.status === "released" && session.replay_status === "ready" ? (
+        <BrowserReplay browserSessionId={session.id} />
+      ) : (
+        <Placeholder icon="browser" title="Browser session is changing state">
+          Agent Labs is launching, reconnecting, releasing, or preparing the recorded replay.
+        </Placeholder>
+      )}
+
+      <div className="browserWorkspaceFooter">
+        <div>
+          <strong>
+            {session.control_mode === "human"
+              ? "You currently control the browser"
+              : session.status === "released"
+                ? "Recorded session"
+                : "Agent Labs automation controls the browser"}
+          </strong>
+          <small>
+            {session.control_mode === "human"
+              ? "Click Record human interaction in the live page, then return control."
+              : session.status === "released"
+                ? "The provider session is released and no browser time is being consumed."
+                : "The live view is read-only until Take Control is approved."}
+          </small>
+        </div>
+        {intervention && ["browser_takeover", "browser_return_control"].includes(intervention.intervention_type) ? (
+          <form action={resumeBrowserControl}>
+            <input name="interventionId" type="hidden" value={intervention.id} />
+            <input name="returnTo" type="hidden" value={returnTo} />
+            <button
+              className="coreButton coreButton-primary"
+              name="decision"
+              type="submit"
+              value={takeControl ? "take_control" : "return_control"}
+            >
+              {takeControl ? "Take Control" : "Return Control"}
+            </button>
+          </form>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+export function WorkflowWorkspace({
+  artifacts,
+  browserIntervention,
+  browserSession = null,
+  returnTo,
+}: WorkflowWorkspaceProps) {
   const [activeTab, setActiveTab] = useState<WorkspaceTab>(
-    artifacts.length ? "artifacts" : "browser",
+    browserSession ? "browser" : artifacts.length ? "artifacts" : "browser",
   );
 
   return (
@@ -54,7 +161,9 @@ export function WorkflowWorkspace({ artifacts }: WorkflowWorkspaceProps) {
           <p className="coreEyebrow">Workspace</p>
           <h2 id="workspace-heading">Current output</h2>
         </div>
-        <span>{artifacts.length} artifact{artifacts.length === 1 ? "" : "s"}</span>
+        <span>
+          {browserSession ? "1 browser" : `${artifacts.length} artifact${artifacts.length === 1 ? "" : "s"}`}
+        </span>
       </div>
 
       <div className="workspaceTabs" role="tablist" aria-label="Workflow workspace">
@@ -69,6 +178,7 @@ export function WorkflowWorkspace({ artifacts }: WorkflowWorkspaceProps) {
           >
             <CoreIcon name={tab.icon} />
             <span>{tab.label}</span>
+            {tab.key === "browser" && browserSession ? <strong>1</strong> : null}
             {tab.key === "artifacts" && artifacts.length ? <strong>{artifacts.length}</strong> : null}
           </button>
         ))}
@@ -76,9 +186,11 @@ export function WorkflowWorkspace({ artifacts }: WorkflowWorkspaceProps) {
 
       <div className="workspaceContent" role="tabpanel">
         {activeTab === "browser" ? (
-          <Placeholder icon="browser" title="No browser session attached">
-            Live Browser becomes available when the Browser capability is qualified. Workflow state and activity remain fully visible here in the meantime.
-          </Placeholder>
+          <BrowserWorkspace
+            intervention={browserIntervention}
+            returnTo={returnTo}
+            session={browserSession}
+          />
         ) : null}
 
         {activeTab === "products" ? (
