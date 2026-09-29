@@ -121,6 +121,7 @@ test("Stage 8 workflow proves launch, live view, takeover, return control and re
 test("Stage 8 qualifies Playwright, upload, persistent identity, isolation and replay without Stage 9", () => {
   const steel = read("src/browser/providers/steel.ts");
   const automation = read("src/browser/automation.ts");
+  const nextConfig = read("next.config.ts");
   const replayManifest = read(
     "src/app/api/browser/sessions/[browserSessionId]/replay/manifest/route.ts",
   );
@@ -133,6 +134,9 @@ test("Stage 8 qualifies Playwright, upload, persistent identity, isolation and r
   assert.match(automation, /connectOverCDP/);
   assert.match(automation, /setInputFiles/);
   assert.match(automation, /stage8-browser-proof\.txt/);
+  assert.match(automation, /await disconnect\(browser\)/);
+  assert.match(nextConfig, /serverExternalPackages: \["playwright-core"\]/);
+  assert.match(nextConfig, /node_modules\/playwright-core\/\*\*\/\*/);
   assert.match(replayManifest, /rewriteReplayManifest/);
   assert.match(env, /STEEL_API_KEY/);
   assert.doesNotMatch(env, /NEXT_PUBLIC_STEEL_API_KEY/);
