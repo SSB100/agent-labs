@@ -185,7 +185,7 @@ test("OpenRouter structured requests require the JSON schema and expose usage co
     return new Response(
       JSON.stringify({
         id: "or-request-1",
-        model: "openai/gpt-6-luna",
+        model: "openai/gpt-5.6-luna",
         provider: "OpenAI",
         choices: [
           {
@@ -232,14 +232,14 @@ test("OpenRouter structured requests require the JSON schema and expose usage co
   assert.equal(response.output.decision, "complete");
 });
 
-test("OpenRouter tool qualification verifies a forced structured tool call", async () => {
+test("OpenRouter tool qualification requires the only supplied tool", async () => {
   let requestBody;
   const fetcher = async (_url, init) => {
     requestBody = JSON.parse(init.body);
     return new Response(
       JSON.stringify({
         id: "or-tool-1",
-        model: "openai/gpt-6-luna",
+        model: "openai/gpt-5.6-luna",
         provider: "OpenAI",
         choices: [
           {
@@ -285,8 +285,9 @@ test("OpenRouter tool qualification verifies a forced structured tool call", asy
     requestMetadata: {},
   });
 
-  assert.equal(requestBody.tool_choice.function.name, "stage5_tool_probe");
-  assert.equal(requestBody.parallel_tool_calls, false);
+  assert.equal(requestBody.tool_choice, "required");
+  assert.equal(requestBody.parallel_tool_calls, undefined);
+  assert.equal(requestBody.provider.allow_fallbacks, true);
   assert.equal(result.toolName, "stage5_tool_probe");
   assert.equal(result.arguments.token, "proof-token");
 });
