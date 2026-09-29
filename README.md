@@ -1,8 +1,13 @@
 # Agent Labs V2
 
-Agent Labs V2 is a clean, cloud-first rebuild of Agent Labs. The permanent Core will host durable workflows, bounded specialist workers, connected accounts, evidence, business state and human intervention. Specialised expertise will be installed through versioned packs.
+Agent Labs V2 is a clean, cloud-first rebuild of Agent Labs. The permanent Core hosts durable workflows, bounded specialist workers, connected accounts, evidence, business state and human intervention. Specialised expertise is installed through versioned packs.
 
-The repository has completed **Stage 1: Cloud application scaffold** from `docs/AGENT_LABS_V2_IMPLEMENTATION_PLAN.md`.
+The repository has completed:
+
+- **Stage 1: Cloud application scaffold**
+- **Stage 2: Universal Core data contracts**
+
+The next planned stage is the Vercel Workflow runtime. It has not been started.
 
 ## Private application model
 
@@ -14,23 +19,32 @@ Agent Labs is an owner-operated control centre, not a public product website.
 - the application is marked `noindex` and `nofollow`
 - owner accounts are provisioned administratively through Supabase Auth
 
-## Stage 1 foundation
+## Current foundation
 
 Implemented:
 
 - Next.js App Router with TypeScript
 - Supabase browser, server and session-refresh clients
-- private email/password authentication shell
-- authenticated control-centre dashboard and navigation skeleton
+- private email/password authentication
+- authenticated control-centre dashboard
 - owner-scoped Business creation and reading
-- initial `profiles`, `businesses` and `business_members` migration
-- Row Level Security for every exposed Stage 1 table
+- Row Level Security for all exposed tables
 - runtime health endpoint at `/api/health`
-- Vercel configuration for the Sydney function region
-- lint, typecheck, test and build gates on every Vercel build
-- GitHub Actions CI
+- Sydney Vercel functions and Sydney Supabase database
+- lint, typecheck, test and build gates on every deployment
+- universal Core contracts for Goals, packs, workflows, stages, Task Contracts, workers, artifacts, evidence, events, external resources, action intents, receipts and owner interventions
+- generic repository and service interfaces
+- runtime contract validation
+- generic synthetic definitions for deterministic Stage 2 verification
 
-No workflow, worker, provider, pack or commerce logic has been implemented in the Stage 1 application.
+Not implemented yet:
+
+- durable workflow execution
+- worker or model invocation
+- browser operation
+- provider connections
+- production capability, knowledge, worker or workflow packs
+- commerce execution
 
 ## Local setup
 
@@ -57,9 +71,9 @@ The publishable key is designed for browser use. Do not add a Supabase secret ke
 
 ## Owner account provisioning
 
-Create the owner account through Supabase Dashboard under Authentication and Users. The application itself intentionally provides sign-in only.
+Create owner accounts through Supabase Dashboard under Authentication and Users. The application intentionally provides sign-in only.
 
-The hosted Supabase project should use the production application as its Site URL:
+The hosted Supabase project should use this Site URL:
 
 ```text
 https://agent-labs-two.vercel.app
@@ -72,12 +86,20 @@ http://localhost:3000/auth/confirm
 https://agent-labs-two.vercel.app/auth/confirm
 ```
 
-## Supabase migration
+## Migrations
 
-The Stage 1 hosted migration is:
+Stage 1:
 
 ```text
 20260929003530_initial_identity_business.sql
 ```
 
-It creates `profiles`, `businesses` and `business_members`, enables RLS, grants only the required authenticated access, creates profile and owner-membership triggers, and keeps privileged trigger functions in the unexposed `private` schema.
+Stage 2:
+
+```text
+20260929011830_universal_core_contracts.sql
+20260929011903_core_contract_optional_fk_delete_semantics.sql
+20260929021058_core_contract_relationship_integrity.sql
+```
+
+The Stage 2 checkpoint is documented at `docs/checkpoints/STAGE_2_UNIVERSAL_CORE_CONTRACTS.md`.
