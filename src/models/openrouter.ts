@@ -28,16 +28,14 @@ type OpenRouterAdapterOptions = {
   timeoutMs?: number;
 };
 
+type ProviderEnvelope = {
+  body: Record<string, unknown>;
+  latencyMs: number;
+  requestId: string | null;
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function jsonObject(value: unknown): value is JsonObject {
-  if (!isRecord(value)) {
-    return false;
-  }
-
-  return Object.values(value).every((entry) => isJsonValue(entry));
 }
 
 function isJsonValue(value: unknown, seen = new WeakSet<object>()): value is JsonValue {
@@ -63,6 +61,10 @@ function isJsonValue(value: unknown, seen = new WeakSet<object>()): value is Jso
       );
   seen.delete(value);
   return valid;
+}
+
+function jsonObject(value: unknown): value is JsonObject {
+  return isRecord(value) && Object.values(value).every((entry) => isJsonValue(entry));
 }
 
 function optionalNumber(value: unknown): number | null {
@@ -105,8 +107,8 @@ function contentText(content: unknown): string | null {
 }
 
 function parseJsonObject(content: string): JsonObject {
-  const trimmed = content.trim();
-  const withoutFence = trimmed
+  const withoutFence = content
+    .trim()
     .replace(/^```(?:json)?\s*/i, "")
     .replace(/\s*```$/, "")
     .trim();
@@ -148,14 +150,13 @@ function estimateCost(model: ModelDefinition, usage: Record<string, unknown>): n
     nonNegativeInteger(promptDetails.cached_tokens),
   );
   const uncachedTokens = Math.max(0, inputTokens - cachedTokens);
-  const inputCost =
-    (uncachedTokens / 1_000_000) * model.pricing.inputPerMillionUsd;
-  const cacheCost =
+
+  return (
+    (uncachedTokens / 1_000_000) * model.pricing.inputPerMillionUsd +
     (cachedTokens / 1_000_000) *
-    (model.pricing.cacheReadPerMillionUsd ?? model.pricing.inputPerMillionUsd);
-  const outputCost =
-    (outputTokens / 1_000_000) * model.pricing.outputPerMillionUsd;
-  return inputCost + cacheCost + outputCost;
+      (model.pricing.cacheReadPerMillionUsd ?? model.pricing.inputPerMillionUsd) +
+    (outputTokens / 1_000_000) * model.pricing.outputPerMillionUsd
+  );
 }
 
 function readUsage(model: ModelDefinition, body: Record<string, unknown>): ModelUsage {
@@ -181,7 +182,10 @@ function readUsage(model: ModelDefinition, body: Record<string, unknown>): Model
 }
 
 function classifyStatus(status: number, message: string): ModelProviderError {
-  const details = { httpStatus: status, providerMessage: message.slice(0, 500) };
+  const details = {
+    httpStatus: status,
+    providerMessage: message.slice(0, 500),
+  };
 
   if (status === 401 || status === 403) {
     return new ModelProviderError(
@@ -272,7 +276,7 @@ export class OpenRouterAdapter implements ModelProviderAdapter {
     this.timeoutMs = options.timeoutMs ?? REQUEST_TIMEOUT_MS;
   }
 
-  private async post(body: JsonObject) {
+  private async post(body: JsonObject): Promise<ProviderEnvelope> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     const startedAt = Date.now();
@@ -374,6 +378,7 @@ export class OpenRouterAdapter implements ModelProviderAdapter {
     const firstChoice = isRecord(choices[0]) ? choices[0] : {};
     const message = isRecord(firstChoice.message) ? firstChoice.message : {};
     const content = contentText(message.content);
+
     if (!content) {
       throw new ModelProviderError(
         "malformed_model_output",
@@ -421,7 +426,7 @@ export class OpenRouterAdapter implements ModelProviderAdapter {
         {
           role: "system",
           content:
-            "You are qualifying a model tool-call interface. Request the named tool exactly once and do not answer directly.",
+            "You are qualifying a model tool-call interface. Request the only supplied tool exactly once and do not answer directly.",
         },
         {
           role: "user",
@@ -445,14 +450,9 @@ export class OpenRouterAdapter implements ModelProviderAdapter {
           },
         },
       ],
-      tool_choice: {
-        type: "function",
-        function: { name: toolName },
-      },
-      parallel_tool_calls: false,
+      tool_choice: "required",
       provider: {
         allow_fallbacks: true,
-        require_parameters: true,
       },
       stream: false,
     });
@@ -466,12 +466,15 @@ export class OpenRouterAdapter implements ModelProviderAdapter {
     const toolCall = isRecord(toolCalls[0]) ? toolCalls[0] : {};
     const fn = isRecord(toolCall.function) ? toolCall.function : {};
 
-    if (fn.name !== toolName || typeof fn.arguments !== "string") {
+    if (toolCalls.length !== 1 || fn.name !== toolName || typeof fn.arguments !== "string") {
       throw new ModelProviderError(
         "tool_qualification_failed",
-        "The model did not return the required tool call.",
+        "The model did not return exactly one required tool call.",
         false,
-        { modelKey: request.model.modelKey },
+        {
+          modelKey: request.model.modelKey,
+          finishReason: String(firstChoice.finish_reason ?? "unknown"),
+        },
       );
     }
 
