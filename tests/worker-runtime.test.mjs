@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import genericModule from "../.worker-tests/workers/generic-researcher.js";
-import runtimeModule from "../.worker-tests/workers/runtime.js";
-import typesModule from "../.worker-tests/workers/types.js";
+import genericModule from "../.core-tests/workers/generic-researcher.js";
+import runtimeModule from "../.core-tests/workers/runtime.js";
+import typesModule from "../.core-tests/workers/types.js";
 
 const {
   GENERIC_RESEARCHER_MANIFEST,

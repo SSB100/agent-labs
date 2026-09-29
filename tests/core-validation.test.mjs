@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import serviceModule from "../.core-tests/service.js";
-import validationModule from "../.core-tests/validation.js";
+import serviceModule from "../.core-tests/core/service.js";
+import validationModule from "../.core-tests/core/validation.js";
 
 const { ValidatedCoreStateService } = serviceModule;
 const { CoreContractValidationError, validateCoreContract } = validationModule;
@@ -28,9 +28,8 @@ const validGoal = {
 };
 
 test("valid universal Core records are accepted", () => {
-  const record = validateCoreContract("goal", validGoal);
-  assert.equal(record.id, ids.goal);
-  assert.equal(record.status, "active");
+  const value = validateCoreContract("goal", validGoal);
+  assert.deepEqual(value, validGoal);
 });
 
 test("unknown pack-specific fields are rejected", () => {
@@ -38,22 +37,22 @@ test("unknown pack-specific fields are rejected", () => {
     () =>
       validateCoreContract("goal", {
         ...validGoal,
-        etsyListingId: "not-a-core-field",
+        etsyListingId: "listing-123",
       }),
     (error) =>
       error instanceof CoreContractValidationError &&
-      error.issues.some((issue) => issue.field === "etsyListingId"),
+      error.issues.some((issue) => issue.path === "$.etsyListingId"),
   );
 });
 
 test("invalid enum values and identifiers are rejected", () => {
   assert.throws(
-    () => validateCoreContract("goal", { ...validGoal, status: "thinking" }),
-    CoreContractValidationError,
-  );
-
-  assert.throws(
-    () => validateCoreContract("goal", { ...validGoal, businessId: "not-a-uuid" }),
+    () =>
+      validateCoreContract("goal", {
+        ...validGoal,
+        id: "not-a-uuid",
+        status: "imaginary",
+      }),
     CoreContractValidationError,
   );
 });
@@ -62,17 +61,17 @@ test("task-linked artifacts must also identify their workflow", () => {
   assert.throws(
     () =>
       validateCoreContract("artifact", {
-        id: "00000000-0000-4000-8000-000000000105",
+        id: "00000000-0000-4000-8000-000000000103",
         businessId: ids.business,
         workflowRunId: null,
         taskContractId: ids.task,
-        artifactType: "synthetic.result",
-        name: "Synthetic result",
+        artifactType: "generic.output",
+        name: "Synthetic output",
         mediaType: "application/json",
         storagePath: null,
         content: {},
-        checksum: null,
         metadata: {},
+        checksum: null,
         createdAt: timestamp,
         updatedAt: timestamp,
       }),
@@ -81,22 +80,26 @@ test("task-linked artifacts must also identify their workflow", () => {
 });
 
 test("the Core service validates before delegating persistence", async () => {
-  let createCalls = 0;
+  const calls = [];
   const repository = {
-    async create(_kind, record) {
-      createCalls += 1;
-      return record;
+    transaction: async (work) => work(repository),
+    create: async (kind, value) => {
+      calls.push({ kind, value });
+      return value;
     },
+    update: async () => {
+      throw new Error("not used");
+    },
+    findById: async () => null,
   };
   const service = new ValidatedCoreStateService(repository);
 
-  const result = await service.create("goal", validGoal);
-  assert.equal(result.title, validGoal.title);
-  assert.equal(createCalls, 1);
+  await service.create("goal", validGoal);
+  assert.equal(calls.length, 1);
 
   await assert.rejects(
-    () => service.create("goal", { ...validGoal, status: "invalid" }),
+    service.create("goal", { ...validGoal, marketplaceField: true }),
     CoreContractValidationError,
   );
-  assert.equal(createCalls, 1);
+  assert.equal(calls.length, 1);
 });

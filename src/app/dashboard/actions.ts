@@ -13,14 +13,11 @@ import {
   type SyntheticReviewDecision,
   type SyntheticRuntimeInput,
 } from "@/workflows/synthetic-runtime";
-import {
-  getRegisteredWorkflow,
-  type RegisteredWorkflowKey,
-} from "@/workflows/registry";
+import { getRegisteredWorkflow } from "@/workflows/registry";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const SYNTHETIC_WORKFLOW_KEY: RegisteredWorkflowKey = "synthetic.core.runtime-proof";
+const SYNTHETIC_WORKFLOW_KEY = "synthetic.core.runtime-proof" as const;
 
 type LaunchResult = {
   runtime_launch_status: string;
