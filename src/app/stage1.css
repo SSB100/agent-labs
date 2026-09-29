@@ -1,0 +1,528 @@
+button,
+input {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+.authShell {
+  width: min(1180px, calc(100% - 40px));
+  min-height: 100vh;
+  margin: 0 auto;
+}
+
+.authTopbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 88px;
+  border-bottom: 1px solid var(--border);
+}
+
+.appBrand {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.appBrand > span:last-child {
+  display: grid;
+  gap: 2px;
+}
+
+.appBrand strong {
+  font-size: 0.95rem;
+}
+
+.appBrand small {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.primaryButton,
+.secondaryButton,
+.ghostButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  padding: 0 19px;
+  border-radius: 12px;
+  font-size: 0.9rem;
+  font-weight: 750;
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.primaryButton {
+  border: 1px solid var(--accent);
+  color: #06100c;
+  background: var(--accent);
+}
+
+.secondaryButton,
+.ghostButton {
+  border: 1px solid var(--border);
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.primaryButton:hover,
+.secondaryButton:hover,
+.ghostButton:hover {
+  transform: translateY(-2px);
+}
+
+.secondaryButton:hover,
+.ghostButton:hover {
+  border-color: rgba(121, 226, 167, 0.4);
+  background: rgba(121, 226, 167, 0.06);
+}
+
+.serviceGrid.fourColumns {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.authPanel {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.7fr) minmax(0, 1.4fr);
+  gap: clamp(32px, 7vw, 90px);
+  align-items: start;
+  padding: 84px 0;
+}
+
+.authIntro {
+  position: sticky;
+  top: 40px;
+}
+
+.authIntro h1,
+.simpleState h1 {
+  font-size: clamp(3rem, 7vw, 5.8rem);
+}
+
+.authIntro > p:not(.eyebrow),
+.simpleState > p:not(.eyebrow) {
+  margin: 28px 0 0;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.textLink {
+  display: inline-block;
+  margin-top: 24px;
+  color: var(--accent-strong);
+  font-size: 0.86rem;
+  font-weight: 750;
+}
+
+.authCard,
+.businessPanel,
+.createPanel,
+.foundationStrip {
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  background: var(--panel);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(18px);
+}
+
+.authCard {
+  padding: 26px;
+}
+
+.authGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.authCard h2,
+.panelHeading h2,
+.createPanel h2,
+.foundationStrip h2 {
+  margin: 0;
+  letter-spacing: -0.04em;
+}
+
+.formStack {
+  display: grid;
+  gap: 18px;
+  align-content: start;
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: rgba(4, 13, 10, 0.34);
+}
+
+.formStack.compact {
+  margin-top: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.formField {
+  display: grid;
+  gap: 8px;
+}
+
+.formField span {
+  color: #dce9e1;
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.formField input {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  outline: none;
+  color: var(--text);
+  background: rgba(2, 8, 6, 0.64);
+}
+
+.formField input:focus {
+  border-color: rgba(121, 226, 167, 0.68);
+  box-shadow: 0 0 0 3px rgba(121, 226, 167, 0.1);
+}
+
+.notice {
+  margin: 0 0 18px;
+  padding: 13px 15px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.notice.success {
+  color: var(--accent-strong);
+  background: rgba(121, 226, 167, 0.08);
+}
+
+.notice.error {
+  color: #ffaaa8;
+  background: rgba(255, 110, 110, 0.08);
+}
+
+.simpleState {
+  max-width: 790px;
+  padding: 110px 0;
+}
+
+.simpleState .primaryAction {
+  margin-top: 30px;
+}
+
+.appFrame {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.appSidebar {
+  position: sticky;
+  top: 0;
+  display: flex;
+  height: 100vh;
+  flex-direction: column;
+  padding: 28px 20px;
+  border-right: 1px solid var(--border);
+  background: rgba(5, 14, 11, 0.86);
+  backdrop-filter: blur(18px);
+}
+
+.appBrand {
+  padding: 0 8px 26px;
+}
+
+.appNav {
+  display: grid;
+  gap: 7px;
+  margin-top: 22px;
+}
+
+.navItem {
+  display: flex;
+  min-height: 46px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.navItem small {
+  font-size: 0.62rem;
+}
+
+.navItem.active {
+  border-color: rgba(121, 226, 167, 0.18);
+  color: var(--text);
+  background: rgba(121, 226, 167, 0.09);
+}
+
+.navItem.disabled {
+  cursor: not-allowed;
+  opacity: 0.54;
+}
+
+.sidebarFoot {
+  margin-top: auto;
+  padding: 18px 12px 0;
+  border-top: 1px solid var(--border);
+}
+
+.sidebarFoot span {
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.sidebarFoot p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 0.74rem;
+  line-height: 1.5;
+}
+
+.appMain {
+  width: min(1180px, calc(100% - 64px));
+  margin: 0 auto;
+  padding: 42px 0 70px;
+}
+
+.workspaceHeader {
+  display: flex;
+  gap: 30px;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 34px;
+  border-bottom: 1px solid var(--border);
+}
+
+.workspaceHeader h1 {
+  font-size: clamp(2.7rem, 6vw, 5.3rem);
+}
+
+.workspaceHeader + .notice {
+  margin-top: 22px;
+}
+
+.dashboardGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(300px, 0.7fr);
+  gap: 18px;
+  margin-top: 30px;
+}
+
+.businessPanel,
+.createPanel {
+  padding: 26px;
+}
+
+.panelHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.panelHeading h2,
+.createPanel h2,
+.foundationStrip h2 {
+  font-size: clamp(1.7rem, 4vw, 2.6rem);
+}
+
+.countBadge {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  padding: 0 11px;
+  border-radius: 999px;
+  color: var(--accent-strong);
+  background: rgba(121, 226, 167, 0.1);
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
+.businessList {
+  display: grid;
+  gap: 11px;
+  margin-top: 26px;
+}
+
+.businessCard {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: rgba(3, 11, 8, 0.4);
+}
+
+.businessCard h3,
+.emptyState h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.businessCard p,
+.emptyState p,
+.createPanel > p {
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
+.businessCard > span {
+  padding: 6px 9px;
+  border-radius: 999px;
+  color: var(--accent-strong);
+  background: rgba(121, 226, 167, 0.08);
+  font-size: 0.65rem;
+  font-weight: 750;
+}
+
+.emptyState {
+  margin-top: 26px;
+  padding: 34px 22px;
+  border: 1px dashed rgba(185, 232, 203, 0.2);
+  border-radius: 14px;
+  text-align: center;
+}
+
+.foundationStrip {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(300px, 1fr);
+  gap: 40px;
+  margin-top: 18px;
+  padding: 28px;
+}
+
+.foundationStrip ul {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.55;
+  list-style: none;
+}
+
+.foundationStrip li {
+  position: relative;
+  padding-left: 20px;
+}
+
+.foundationStrip li::before {
+  position: absolute;
+  top: 0.55em;
+  left: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  content: "";
+}
+
+@media (max-width: 1080px) {
+  .serviceGrid.fourColumns {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dashboardGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 880px) {
+  .authPanel {
+    grid-template-columns: 1fr;
+  }
+
+  .authIntro {
+    position: static;
+  }
+
+  .authGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .appFrame {
+    grid-template-columns: 1fr;
+  }
+
+  .appSidebar {
+    position: static;
+    height: auto;
+    padding: 18px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .appNav {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-top: 8px;
+  }
+
+  .sidebarFoot {
+    display: none;
+  }
+}
+
+@media (max-width: 620px) {
+  .authShell {
+    width: min(100% - 28px, 1180px);
+  }
+
+  .authTopbar {
+    min-height: 74px;
+  }
+
+  .authPanel {
+    gap: 46px;
+    padding: 56px 0 64px;
+  }
+
+  .authIntro h1,
+  .simpleState h1 {
+    font-size: clamp(3.1rem, 17vw, 5rem);
+  }
+
+  .workspaceHeader,
+  .foundationStrip {
+    display: grid;
+    align-items: start;
+  }
+
+  .serviceGrid.fourColumns,
+  .appNav {
+    grid-template-columns: 1fr;
+  }
+
+  .appMain {
+    width: min(100% - 28px, 1180px);
+    padding-top: 30px;
+  }
+
+  .authCard,
+  .businessPanel,
+  .createPanel,
+  .foundationStrip {
+    padding: 20px;
+  }
+
+  .formStack {
+    padding: 18px;
+  }
+}

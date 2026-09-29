@@ -2,16 +2,25 @@
 
 Agent Labs V2 is a clean, cloud-first rebuild of Agent Labs. The permanent Core will host durable workflows, bounded specialist workers, connected accounts, evidence, business state and human intervention. Specialised expertise will be installed through versioned packs.
 
-This repository currently contains the first Stage 1 foundation only:
+The repository is currently implementing **Stage 1: Cloud application scaffold** from `docs/AGENT_LABS_V2_IMPLEMENTATION_PLAN.md`.
+
+## Stage 1 foundation
+
+Implemented:
 
 - Next.js App Router with TypeScript
 - Supabase browser, server and session-refresh clients
-- a non-secret environment contract for the existing Agent Labs Supabase project
-- a runtime health endpoint at `/api/health`
+- email/password authentication shell
+- authenticated dashboard and navigation skeleton
+- owner-scoped Business creation and reading
+- initial `profiles`, `businesses` and `business_members` migration
+- Row Level Security for every exposed Stage 1 table
+- runtime health endpoint at `/api/health`
 - Vercel configuration for the Sydney function region
-- lint, typecheck, test and build commands
+- lint, typecheck, test and build gates on every Vercel build
+- GitHub Actions CI
 
-No workflow, worker, provider or commerce logic has been implemented yet.
+No workflow, worker, provider, pack or commerce logic has been implemented yet.
 
 ## Local setup
 
@@ -36,6 +45,29 @@ Create these variables in Development, Preview and Production:
 
 The publishable key is designed for browser use. Do not add a Supabase secret key or service-role key to the client application.
 
-## Supabase
+## Supabase Auth URLs
 
-The intended backend is the existing Agent Labs project in Sydney, project reference `tfdareuwrshjuevuiwvn`. The first database migrations will be added in the next Stage 1 slice after deployment connectivity is verified.
+The hosted Supabase project should use the production application as its Site URL:
+
+```text
+https://agent-labs-two.vercel.app
+```
+
+Allow these redirect URLs while Stage 1 is under development:
+
+```text
+http://localhost:3000/auth/confirm
+https://agent-labs-two.vercel.app/auth/confirm
+```
+
+Add specific Vercel Preview redirect URLs only when a preview needs an end-to-end email-confirmation test.
+
+## Supabase migration
+
+The first hosted migration is:
+
+```text
+20260929003530_initial_identity_business.sql
+```
+
+It creates `profiles`, `businesses` and `business_members`, enables RLS, grants only the required authenticated access, creates profile and owner-membership triggers, and keeps privileged trigger functions in the unexposed `private` schema.

@@ -8,13 +8,14 @@
   },
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "quality": "npm run lint && npm run typecheck && npm test",
+    "build": "npm run quality && next build",
     "start": "next start",
     "lint": "eslint . --max-warnings=0",
     "lint:fix": "eslint . --fix",
     "typecheck": "tsc --noEmit",
     "test": "node --test tests/*.test.mjs",
-    "check": "npm run lint && npm run typecheck && npm test && npm run build"
+    "check": "npm run build"
   },
   "dependencies": {
     "@supabase/ssr": "0.12.3",
@@ -29,6 +30,6 @@
     "@types/react-dom": "19.3.0",
     "eslint": "9.39.4",
     "eslint-config-next": "16.3.0",
-    "typescript": "7.0.2"
+    "typescript": "6.0.2"
   }
 }

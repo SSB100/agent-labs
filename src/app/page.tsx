@@ -1,9 +1,11 @@
+import Link from "next/link";
+
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 
 const stageItems = [
   "Cloud application scaffold",
-  "Supabase connection",
-  "Vercel deployment foundation",
+  "Supabase and Vercel connection",
+  "Identity and Business foundation",
 ];
 
 export default function HomePage() {
@@ -26,11 +28,17 @@ export default function HomePage() {
       ready: supabaseConfigured,
     },
     {
+      label: "Identity",
+      detail: "Email/password auth with owner-scoped Business records",
+      state: "Foundation ready",
+      ready: true,
+    },
+    {
       label: "Vercel",
       detail: vercelEnvironment
         ? `${vercelEnvironment} deployment`
         : "Local or GitHub scaffold",
-      state: vercelEnvironment ? "Deployed" : "Ready to import",
+      state: vercelEnvironment ? "Deployed" : "Ready to deploy",
       ready: Boolean(vercelEnvironment),
     },
   ];
@@ -55,21 +63,19 @@ export default function HomePage() {
           <p className="eyebrow">Cloud foundation</p>
           <h1>Build specialised AI workforces on a dependable core.</h1>
           <p className="intro">
-            The first deployable Agent Labs V2 shell is in place. This foundation keeps
-            application hosting, identity and durable data separate from the workflow
-            packs that will be added later.
+            Agent Labs V2 now has its first secure owner workspace. Authentication,
+            durable Business records and row-level isolation are in place before any
+            workflow or worker logic is introduced.
           </p>
           <div className="actions">
-            <a className="primaryAction" href="/api/health">
+            <Link className="primaryAction" href="/login">
+              Sign in or create account
+            </Link>
+            <Link className="secondaryAction" href="/dashboard">
+              Open dashboard
+            </Link>
+            <a className="secondaryAction" href="/api/health">
               View health check
-            </a>
-            <a
-              className="secondaryAction"
-              href="https://github.com/SSB100/agent-labs"
-              rel="noreferrer"
-              target="_blank"
-            >
-              Open repository
             </a>
           </div>
         </div>
@@ -94,10 +100,10 @@ export default function HomePage() {
             <p className="eyebrow">Infrastructure status</p>
             <h2 id="status-heading">Foundation services</h2>
           </div>
-          <p>Configuration is checked at runtime without exposing keys.</p>
+          <p>Configuration is checked at runtime without exposing secrets.</p>
         </div>
 
-        <div className="serviceGrid">
+        <div className="serviceGrid fourColumns">
           {services.map((service) => (
             <article className="serviceCard" key={service.label}>
               <div className="serviceHeader">
