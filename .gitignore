@@ -8,6 +8,7 @@ out/
 # Build and coverage
 build/
 coverage/
+.core-tests/
 *.tsbuildinfo
 
 # Local environment files
