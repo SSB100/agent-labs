@@ -6,8 +6,9 @@ The repository has completed:
 
 - **Stage 1: Cloud application scaffold**
 - **Stage 2: Universal Core data contracts**
+- **Stage 3: Vercel Workflow runtime**
 
-The next planned stage is the Vercel Workflow runtime. It has not been started.
+The next planned stage is **Stage 4: Worker Pack runtime**. It has not been started.
 
 ## Private application model
 
@@ -35,12 +36,18 @@ Implemented:
 - universal Core contracts for Goals, packs, workflows, stages, Task Contracts, workers, artifacts, evidence, events, external resources, action intents, receipts and owner interventions
 - generic repository and service interfaces
 - runtime contract validation
-- generic synthetic definitions for deterministic Stage 2 verification
+- Workflow DevKit integration and a versioned workflow registry
+- durable stage transitions, retry, wait, failure, completion and owner-intervention handling
+- one-run scoped runtime capabilities rather than a broad database secret
+- idempotent workflow launch reservation and duplicate prevention
+- durable workflow state, stage history and business-readable events in Supabase
+- workflow history and Needs You controls in the private control centre
+- a synthetic Start → Worker Task → Wait → Review → Complete qualification workflow
 
 Not implemented yet:
 
-- durable workflow execution
-- worker or model invocation
+- a real specialist worker or model invocation
+- model routing
 - browser operation
 - provider connections
 - production capability, knowledge, worker or workflow packs
@@ -67,7 +74,7 @@ Create these variables in Development, Preview and Production:
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
 
-The publishable key is designed for browser use. Do not add a Supabase secret key or service-role key to the client application.
+The publishable key is designed for browser use. Do not add a Supabase secret key or service-role key to the client application. Stage 3 runtime transitions use a randomly generated capability scoped to one Workflow Run.
 
 ## Owner account provisioning
 
@@ -102,4 +109,14 @@ Stage 2:
 20260929021058_core_contract_relationship_integrity.sql
 ```
 
-The Stage 2 checkpoint is documented at `docs/checkpoints/STAGE_2_UNIVERSAL_CORE_CONTRACTS.md`.
+Stage 3:
+
+```text
+20260929030033_stage3_vercel_workflow_runtime.sql
+20260929033834_stage3_scoped_runtime_capability.sql
+20260929034351_stage3_capability_helper_permission.sql
+20260929043635_stage3_qualification_cleanup.sql
+20260929044045_stage3_runtime_grant_tightening.sql
+```
+
+Stage checkpoints are stored under `docs/checkpoints/`.

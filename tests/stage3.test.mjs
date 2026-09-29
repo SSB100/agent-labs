@@ -5,6 +5,8 @@ import test from "node:test";
 const readProjectFile = (path) =>
   readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
+const isMissingFile = (error) => error?.code === "ENOENT";
+
 test("Workflow SDK is configured for Next.js without intercepting internal routes", async () => {
   const packageJson = JSON.parse(await readProjectFile("package.json"));
   const nextConfig = await readProjectFile("next.config.ts");
@@ -22,12 +24,21 @@ test("Workflow SDK is configured for Next.js without intercepting internal route
   assert.deepEqual(vercelConfig.regions, ["syd1"]);
 });
 
-test("Stage 3 migrations create a versioned workflow and scoped runtime capability", async () => {
+test("Stage 3 migrations match hosted versions and create a scoped runtime", async () => {
   const baseMigration = await readProjectFile(
-    "supabase/migrations/20260929033000_stage3_vercel_workflow_runtime.sql",
+    "supabase/migrations/20260929030033_stage3_vercel_workflow_runtime.sql",
   );
   const capabilityMigration = await readProjectFile(
-    "supabase/migrations/20260929034200_stage3_scoped_runtime_capability.sql",
+    "supabase/migrations/20260929033834_stage3_scoped_runtime_capability.sql",
+  );
+  const helperMigration = await readProjectFile(
+    "supabase/migrations/20260929034351_stage3_capability_helper_permission.sql",
+  );
+  const cleanupMigration = await readProjectFile(
+    "supabase/migrations/20260929043635_stage3_qualification_cleanup.sql",
+  );
+  const tighteningMigration = await readProjectFile(
+    "supabase/migrations/20260929044045_stage3_runtime_grant_tightening.sql",
   );
 
   assert.match(baseMigration, /synthetic\.core\.runtime-proof/);
@@ -41,7 +52,15 @@ test("Stage 3 migrations create a versioned workflow and scoped runtime capabili
   assert.match(capabilityMigration, /stage3_runtime_transition/);
   assert.match(capabilityMigration, /grant execute[^;]+to anon, authenticated/s);
   assert.match(capabilityMigration, /drop function if exists public\.stage3_claim/);
-  assert.doesNotMatch(`${baseMigration}\n${capabilityMigration}`, /etsy|printful|shopify/i);
+  assert.match(helperMigration, /stage3_deterministic_uuid/);
+  assert.match(cleanupMigration, /drop function if exists public\.claim_stage3_qualification_action/);
+  assert.match(cleanupMigration, /drop table if exists private\.stage3_qualification_claims/);
+  assert.match(cleanupMigration, /00000000-0000-4000-8000-000000003306/);
+  assert.match(tighteningMigration, /revoke execute[^;]+from authenticated/s);
+  assert.doesNotMatch(
+    `${baseMigration}\n${capabilityMigration}\n${helperMigration}`,
+    /etsy|printful|shopify/i,
+  );
 });
 
 test("Synthetic runtime proves workflow, step, wait, retry and human resume boundaries", async () => {
@@ -74,6 +93,24 @@ test("Stage 3 uses a one-run capability rather than a broad database secret", as
   assert.match(runtime, /getSupabasePublicConfig/);
   assert.match(steps, /p_runtime_capability: input\.runtimeCapability/);
   assert.doesNotMatch(steps, /service_role|secretKey|createAdminClient/i);
+});
+
+test("Temporary Stage 3 qualification access is removed after live proof", async () => {
+  await assert.rejects(
+    readProjectFile("src/app/api/stage3/qualification/route.ts"),
+    isMissingFile,
+  );
+  await assert.rejects(
+    readProjectFile("docs/qualification/STAGE_3_REDEPLOY_MARKER.md"),
+    isMissingFile,
+  );
+
+  const checkpoint = await readProjectFile(
+    "docs/checkpoints/STAGE_3_VERCEL_WORKFLOW_RUNTIME.md",
+  );
+  assert.match(checkpoint, /deployment boundary/);
+  assert.match(checkpoint, /Duplicate launches are prevented/);
+  assert.match(checkpoint, /temporary token-gated qualification route was removed/);
 });
 
 test("Stage 3 remains a synthetic runtime proof without worker or model execution", async () => {
