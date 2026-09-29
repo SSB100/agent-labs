@@ -1,11 +1,13 @@
-import { createHook, FatalError, getWorkflowMetadata } from "workflow";
+import { createHook, FatalError, getWorkflowMetadata, sleep } from "workflow";
 
 import {
+  completeQualifiedBrowser,
+  inspectBrowserReplay,
   launchAndObserveBrowser,
   recordBrowserControlReturned,
   recordBrowserControlTaken,
   recordBrowserWorkflowFailure,
-  releaseQualifiedBrowser,
+  releaseBrowserProviderSession,
   startBrowserWorkflow,
   verifyBrowserAutomationReturned,
 } from "./browser-provider-runtime-steps";
@@ -92,7 +94,13 @@ export async function browserProviderRuntimeWorkflow(
     await verifyBrowserAutomationReturned(input, providerSessionId);
 
     currentStage = "replay";
-    await releaseQualifiedBrowser(input, providerSessionId);
+    await releaseBrowserProviderSession(input, providerSessionId);
+    let replay = await inspectBrowserReplay(input, providerSessionId);
+    for (let attempt = 1; attempt < 18 && !replay.available; attempt += 1) {
+      await sleep("5s");
+      replay = await inspectBrowserReplay(input, providerSessionId);
+    }
+    await completeQualifiedBrowser(input, replay);
 
     return {
       browserSessionId: input.browserSessionId,
