@@ -43,6 +43,25 @@ test("server authorization validates claims rather than trusting a stored sessio
   assert.match(action, /owner_user_id: userId/);
 });
 
+test("the application opens as a private login-first control centre", async () => {
+  const rootPage = await readProjectFile("src/app/page.tsx");
+  const loginPage = await readProjectFile("src/app/login/page.tsx");
+  const loginActions = await readProjectFile("src/app/login/actions.ts");
+  const dashboard = await readProjectFile("src/app/dashboard/page.tsx");
+  const layout = await readProjectFile("src/app/layout.tsx");
+  const robots = await readProjectFile("src/app/robots.ts");
+
+  assert.match(rootPage, /redirect\("\/login"\)/);
+  assert.match(rootPage, /redirect\("\/dashboard"\)/);
+  assert.match(loginPage, /Owner access only\./);
+  assert.match(dashboard, />Control centre</);
+  assert.doesNotMatch(loginPage, /create account|new owner|sign up/i);
+  assert.doesNotMatch(loginActions, /signUp|signup/);
+  assert.match(layout, /index:\s*false/);
+  assert.match(layout, /follow:\s*false/);
+  assert.match(robots, /disallow:\s*"\/"/);
+});
+
 test("email confirmation supports token hashes and PKCE codes", async () => {
   const confirmRoute = await readProjectFile("src/app/auth/confirm/route.ts");
 

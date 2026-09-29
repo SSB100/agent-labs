@@ -19,15 +19,15 @@ type Business = {
 };
 
 const navigation = [
-  { label: "Dashboard", stage: "Now", active: true },
-  { label: "Workflows", stage: "Stage 3" },
-  { label: "Needs You", stage: "Stage 7" },
-  { label: "Accounts", stage: "Later" },
-  { label: "Settings", stage: "Later" },
+  { label: "Control centre", active: true },
+  { label: "Workflows" },
+  { label: "Needs you" },
+  { label: "Accounts" },
+  { label: "Settings" },
 ];
 
 const messages: Record<string, string> = {
-  "business-created": "Business created and owner membership recorded.",
+  "business-created": "Business created.",
 };
 
 const errors: Record<string, string> = {
@@ -66,26 +66,31 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     ]);
 
   const businesses = (businessData ?? []) as Business[];
+  const email = typeof claims.email === "string" ? claims.email : "Owner";
   const displayName =
     typeof profileData?.display_name === "string" && profileData.display_name.trim()
       ? profileData.display_name
-      : typeof claims.email === "string"
-        ? claims.email
-        : "Owner";
+      : email;
   const query = await searchParams;
   const message = messages[firstValue(query.message) ?? ""];
   const error = errors[firstValue(query.error) ?? ""];
+  const summary = [
+    { label: "Businesses", value: businesses.length.toString() },
+    { label: "Active workflows", value: "0" },
+    { label: "Needs you", value: "0" },
+    { label: "Connected accounts", value: "0" },
+  ];
 
   return (
     <div className="appFrame">
       <aside className="appSidebar">
-        <Link className="appBrand" href="/dashboard" aria-label="Agent Labs dashboard">
+        <Link className="appBrand" href="/dashboard" aria-label="Agent Labs control centre">
           <span className="brandMark" aria-hidden="true">
             AL
           </span>
           <span>
             <strong>Agent Labs</strong>
-            <small>V2 Core</small>
+            <small>Control centre</small>
           </span>
         </Link>
 
@@ -93,35 +98,37 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           {navigation.map((item) =>
             item.active ? (
               <Link className="navItem active" href="/dashboard" key={item.label}>
-                <span>{item.label}</span>
-                <small>{item.stage}</small>
+                {item.label}
               </Link>
             ) : (
               <span aria-disabled="true" className="navItem disabled" key={item.label}>
                 <span>{item.label}</span>
-                <small>{item.stage}</small>
+                <small>Soon</small>
               </span>
             ),
           )}
         </nav>
 
         <div className="sidebarFoot">
-          <span>Stage 1</span>
-          <p>Identity and Business foundation only.</p>
+          <span>Signed in</span>
+          <p>{email}</p>
         </div>
       </aside>
 
       <main className="appMain">
         <header className="workspaceHeader">
-          <div>
-            <p className="eyebrow">Owner workspace</p>
-            <h1>Welcome, {displayName}.</h1>
+          <div className="workspaceTitle">
+            <p>Agent Labs</p>
+            <h1>Control centre</h1>
           </div>
-          <form action="/auth/signout" method="post">
-            <button className="ghostButton" type="submit">
-              Sign out
-            </button>
-          </form>
+          <div className="workspaceAccount">
+            <span>{displayName}</span>
+            <form action="/auth/signout" method="post">
+              <button className="ghostButton" type="submit">
+                Sign out
+              </button>
+            </form>
+          </div>
         </header>
 
         {message ? (
@@ -140,11 +147,20 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           </p>
         ) : null}
 
+        <section className="summaryGrid" aria-label="Control centre summary">
+          {summary.map((item) => (
+            <article className="summaryCard" key={item.label}>
+              <span className="summaryLabel">{item.label}</span>
+              <strong className="summaryValue">{item.value}</strong>
+            </article>
+          ))}
+        </section>
+
         <section className="dashboardGrid">
           <article className="businessPanel" aria-labelledby="businesses-heading">
             <div className="panelHeading">
               <div>
-                <p className="panelLabel">Durable containers</p>
+                <p className="panelLabel">Workspaces</p>
                 <h2 id="businesses-heading">Businesses</h2>
               </div>
               <span className="countBadge">{businesses.length}</span>
@@ -165,18 +181,14 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
             ) : (
               <div className="emptyState">
                 <h3>No Businesses yet</h3>
-                <p>Create the first durable Business container for future packs and workflows.</p>
+                <p>Create the first Business to begin setting up Agent Labs.</p>
               </div>
             )}
           </article>
 
           <aside className="createPanel" aria-labelledby="create-business-heading">
-            <p className="panelLabel">Stage 1 action</p>
+            <p className="panelLabel">New workspace</p>
             <h2 id="create-business-heading">Create a Business</h2>
-            <p>
-              A Business will become the durable home for goals, installed packs, connected
-              accounts, products and workflow history in later stages.
-            </p>
             <form action={createBusiness} className="formStack compact">
               <label className="formField" htmlFor="business-name">
                 <span>Business name</span>
@@ -184,7 +196,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                   id="business-name"
                   maxLength={120}
                   name="name"
-                  placeholder="Example: North Star Studio"
+                  placeholder="Business name"
                   required
                   type="text"
                 />
@@ -196,16 +208,17 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           </aside>
         </section>
 
-        <section className="foundationStrip" aria-labelledby="foundation-heading">
-          <div>
-            <p className="panelLabel">Current boundary</p>
-            <h2 id="foundation-heading">Stage 1 remains deliberately small.</h2>
+        <section className="operationsPanel" aria-labelledby="operations-heading">
+          <div className="panelHeading">
+            <div>
+              <p className="panelLabel">Live activity</p>
+              <h2 id="operations-heading">Current operations</h2>
+            </div>
           </div>
-          <ul>
-            <li>Supabase Auth sessions validated with signed claims</li>
-            <li>Owner-scoped Business reads and writes enforced by RLS</li>
-            <li>No workflow or worker execution logic</li>
-          </ul>
+          <div className="operationEmpty">
+            <strong>No workflows are running.</strong>
+            <span>Workflow activity will appear here as later stages are connected.</span>
+          </div>
         </section>
       </main>
     </div>

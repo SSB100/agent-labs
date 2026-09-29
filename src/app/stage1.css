@@ -7,160 +7,76 @@ button {
   cursor: pointer;
 }
 
-.authShell {
-  width: min(1180px, calc(100% - 40px));
+.loginShell {
+  display: grid;
   min-height: 100vh;
-  margin: 0 auto;
+  place-items: center;
+  padding: 28px;
 }
 
-.authTopbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  min-height: 88px;
-  border-bottom: 1px solid var(--border);
+.loginCard {
+  width: min(100%, 430px);
+  padding: 34px;
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  background: rgba(10, 25, 19, 0.9);
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.36);
+  backdrop-filter: blur(18px);
 }
 
+.loginBrand,
 .appBrand {
   display: inline-flex;
   align-items: center;
   gap: 12px;
 }
 
+.loginBrand > span:last-child,
 .appBrand > span:last-child {
   display: grid;
   gap: 2px;
 }
 
+.loginBrand strong,
 .appBrand strong {
   font-size: 0.95rem;
 }
 
+.loginBrand small,
 .appBrand small {
   color: var(--muted);
   font-size: 0.72rem;
 }
 
-.primaryButton,
-.secondaryButton,
-.ghostButton {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 48px;
-  padding: 0 19px;
-  border-radius: 12px;
-  font-size: 0.9rem;
-  font-weight: 750;
-  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+.loginHeading {
+  margin: 46px 0 26px;
 }
 
-.primaryButton {
-  border: 1px solid var(--accent);
-  color: #06100c;
-  background: var(--accent);
-}
-
-.secondaryButton,
-.ghostButton {
-  border: 1px solid var(--border);
-  color: var(--text);
-  background: rgba(255, 255, 255, 0.025);
-}
-
-.primaryButton:hover,
-.secondaryButton:hover,
-.ghostButton:hover {
-  transform: translateY(-2px);
-}
-
-.secondaryButton:hover,
-.ghostButton:hover {
-  border-color: rgba(121, 226, 167, 0.4);
-  background: rgba(121, 226, 167, 0.06);
-}
-
-.serviceGrid.fourColumns {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-.authPanel {
-  display: grid;
-  grid-template-columns: minmax(260px, 0.7fr) minmax(0, 1.4fr);
-  gap: clamp(32px, 7vw, 90px);
-  align-items: start;
-  padding: 84px 0;
-}
-
-.authIntro {
-  position: sticky;
-  top: 40px;
-}
-
-.authIntro h1,
-.simpleState h1 {
-  font-size: clamp(3rem, 7vw, 5.8rem);
-}
-
-.authIntro > p:not(.eyebrow),
-.simpleState > p:not(.eyebrow) {
-  margin: 28px 0 0;
-  color: var(--muted);
-  line-height: 1.7;
-}
-
-.textLink {
-  display: inline-block;
-  margin-top: 24px;
-  color: var(--accent-strong);
-  font-size: 0.86rem;
-  font-weight: 750;
-}
-
-.authCard,
-.businessPanel,
-.createPanel,
-.foundationStrip {
-  border: 1px solid var(--border);
-  border-radius: 24px;
-  background: var(--panel);
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.24);
-  backdrop-filter: blur(18px);
-}
-
-.authCard {
-  padding: 26px;
-}
-
-.authGrid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 18px;
-}
-
-.authCard h2,
-.panelHeading h2,
-.createPanel h2,
-.foundationStrip h2 {
+.loginHeading h1 {
   margin: 0;
-  letter-spacing: -0.04em;
+  font-size: clamp(2.8rem, 10vw, 4.4rem);
+  line-height: 0.96;
+  letter-spacing: -0.06em;
 }
 
+.loginHeading p {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.loginForm,
 .formStack {
   display: grid;
   gap: 18px;
-  align-content: start;
-  padding: 24px;
-  border: 1px solid var(--border);
-  border-radius: 18px;
-  background: rgba(4, 13, 10, 0.34);
 }
 
-.formStack.compact {
-  margin-top: 24px;
-  padding: 0;
-  border: 0;
-  background: transparent;
+.loginFooter {
+  margin: 22px 0 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.5;
+  text-align: center;
 }
 
 .formField {
@@ -176,18 +92,53 @@ button {
 
 .formField input {
   width: 100%;
-  min-height: 48px;
+  min-height: 49px;
   padding: 0 14px;
   border: 1px solid var(--border);
   border-radius: 11px;
   outline: none;
   color: var(--text);
-  background: rgba(2, 8, 6, 0.64);
+  background: rgba(2, 8, 6, 0.68);
 }
 
 .formField input:focus {
   border-color: rgba(121, 226, 167, 0.68);
   box-shadow: 0 0 0 3px rgba(121, 226, 167, 0.1);
+}
+
+.primaryButton,
+.ghostButton {
+  display: inline-flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 19px;
+  border-radius: 12px;
+  font-size: 0.88rem;
+  font-weight: 750;
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.primaryButton {
+  border: 1px solid var(--accent);
+  color: #06100c;
+  background: var(--accent);
+}
+
+.ghostButton {
+  border: 1px solid var(--border);
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.primaryButton:hover,
+.ghostButton:hover {
+  transform: translateY(-2px);
+}
+
+.ghostButton:hover {
+  border-color: rgba(121, 226, 167, 0.4);
+  background: rgba(121, 226, 167, 0.06);
 }
 
 .notice {
@@ -209,18 +160,9 @@ button {
   background: rgba(255, 110, 110, 0.08);
 }
 
-.simpleState {
-  max-width: 790px;
-  padding: 110px 0;
-}
-
-.simpleState .primaryAction {
-  margin-top: 30px;
-}
-
 .appFrame {
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr);
+  grid-template-columns: 250px minmax(0, 1fr);
   min-height: 100vh;
 }
 
@@ -232,18 +174,18 @@ button {
   flex-direction: column;
   padding: 28px 20px;
   border-right: 1px solid var(--border);
-  background: rgba(5, 14, 11, 0.86);
+  background: rgba(5, 14, 11, 0.9);
   backdrop-filter: blur(18px);
 }
 
 .appBrand {
-  padding: 0 8px 26px;
+  padding: 0 8px 28px;
 }
 
 .appNav {
   display: grid;
   gap: 7px;
-  margin-top: 22px;
+  margin-top: 12px;
 }
 
 .navItem {
@@ -281,21 +223,25 @@ button {
 
 .sidebarFoot span {
   color: var(--accent);
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .sidebarFoot p {
+  overflow: hidden;
   margin: 8px 0 0;
   color: var(--muted);
   font-size: 0.74rem;
   line-height: 1.5;
+  text-overflow: ellipsis;
 }
 
 .appMain {
   width: min(1180px, calc(100% - 64px));
   margin: 0 auto;
-  padding: 42px 0 70px;
+  padding: 38px 0 70px;
 }
 
 .workspaceHeader {
@@ -303,28 +249,88 @@ button {
   gap: 30px;
   align-items: center;
   justify-content: space-between;
-  padding-bottom: 34px;
+  padding-bottom: 30px;
   border-bottom: 1px solid var(--border);
 }
 
-.workspaceHeader h1 {
-  font-size: clamp(2.7rem, 6vw, 5.3rem);
+.workspaceTitle p {
+  margin: 0 0 8px;
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.workspaceTitle h1 {
+  margin: 0;
+  font-size: clamp(2.6rem, 6vw, 4.7rem);
+  line-height: 0.98;
+  letter-spacing: -0.055em;
+}
+
+.workspaceAccount {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+}
+
+.workspaceAccount > span {
+  color: var(--muted);
+  font-size: 0.82rem;
 }
 
 .workspaceHeader + .notice {
   margin-top: 22px;
 }
 
+.summaryGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 28px;
+}
+
+.summaryCard,
+.businessPanel,
+.createPanel,
+.operationsPanel {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(16px);
+}
+
+.summaryCard {
+  display: grid;
+  min-height: 126px;
+  align-content: space-between;
+  padding: 18px;
+  border-radius: 16px;
+}
+
+.summaryLabel {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.summaryValue {
+  font-size: 2.15rem;
+  letter-spacing: -0.05em;
+}
+
 .dashboardGrid {
   display: grid;
-  grid-template-columns: minmax(0, 1.5fr) minmax(300px, 0.7fr);
-  gap: 18px;
-  margin-top: 30px;
+  grid-template-columns: minmax(0, 1.45fr) minmax(290px, 0.7fr);
+  gap: 16px;
+  margin-top: 16px;
 }
 
 .businessPanel,
-.createPanel {
-  padding: 26px;
+.createPanel,
+.operationsPanel {
+  padding: 24px;
+  border-radius: 20px;
 }
 
 .panelHeading {
@@ -333,10 +339,20 @@ button {
   justify-content: space-between;
 }
 
+.panelLabel {
+  margin: 0 0 8px;
+  color: var(--accent);
+  font-size: 0.69rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
 .panelHeading h2,
-.createPanel h2,
-.foundationStrip h2 {
-  font-size: clamp(1.7rem, 4vw, 2.6rem);
+.createPanel h2 {
+  margin: 0;
+  font-size: clamp(1.55rem, 4vw, 2.3rem);
+  letter-spacing: -0.04em;
 }
 
 .countBadge {
@@ -354,7 +370,7 @@ button {
 .businessList {
   display: grid;
   gap: 11px;
-  margin-top: 26px;
+  margin-top: 24px;
 }
 
 .businessCard {
@@ -362,7 +378,7 @@ button {
   gap: 20px;
   align-items: center;
   justify-content: space-between;
-  padding: 18px;
+  padding: 17px;
   border: 1px solid var(--border);
   border-radius: 14px;
   background: rgba(3, 11, 8, 0.4);
@@ -375,12 +391,11 @@ button {
 }
 
 .businessCard p,
-.emptyState p,
-.createPanel > p {
+.emptyState p {
   margin: 7px 0 0;
   color: var(--muted);
-  font-size: 0.82rem;
-  line-height: 1.55;
+  font-size: 0.8rem;
+  line-height: 1.5;
 }
 
 .businessCard > span {
@@ -393,50 +408,77 @@ button {
 }
 
 .emptyState {
-  margin-top: 26px;
+  margin-top: 24px;
   padding: 34px 22px;
   border: 1px dashed rgba(185, 232, 203, 0.2);
   border-radius: 14px;
   text-align: center;
 }
 
-.foundationStrip {
+.formStack.compact {
+  margin-top: 24px;
+}
+
+.operationsPanel {
+  margin-top: 16px;
+}
+
+.operationEmpty {
   display: grid;
-  grid-template-columns: minmax(0, 0.9fr) minmax(300px, 1fr);
-  gap: 40px;
-  margin-top: 18px;
+  gap: 7px;
+  margin-top: 22px;
   padding: 28px;
+  border: 1px dashed rgba(185, 232, 203, 0.2);
+  border-radius: 14px;
 }
 
-.foundationStrip ul {
-  display: grid;
-  gap: 12px;
-  margin: 0;
-  padding: 0;
+.operationEmpty strong {
+  font-size: 0.95rem;
+}
+
+.operationEmpty span {
   color: var(--muted);
-  font-size: 0.84rem;
-  line-height: 1.55;
-  list-style: none;
+  font-size: 0.8rem;
+  line-height: 1.5;
 }
 
-.foundationStrip li {
-  position: relative;
-  padding-left: 20px;
+.authShell {
+  width: min(900px, calc(100% - 40px));
+  min-height: 100vh;
+  margin: 0 auto;
 }
 
-.foundationStrip li::before {
-  position: absolute;
-  top: 0.55em;
-  left: 0;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--accent);
-  content: "";
+.authTopbar {
+  display: flex;
+  min-height: 82px;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
 }
 
-@media (max-width: 1080px) {
-  .serviceGrid.fourColumns {
+.simpleState {
+  max-width: 720px;
+  padding: 100px 0;
+}
+
+.simpleState h1 {
+  margin: 0;
+  font-size: clamp(2.7rem, 8vw, 5rem);
+  line-height: 0.98;
+  letter-spacing: -0.055em;
+}
+
+.simpleState > p:not(.eyebrow) {
+  margin: 24px 0 0;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.simpleState .primaryAction {
+  margin-top: 28px;
+}
+
+@media (max-width: 1050px) {
+  .summaryGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -445,19 +487,7 @@ button {
   }
 }
 
-@media (max-width: 880px) {
-  .authPanel {
-    grid-template-columns: 1fr;
-  }
-
-  .authIntro {
-    position: static;
-  }
-
-  .authGrid {
-    grid-template-columns: 1fr;
-  }
-
+@media (max-width: 820px) {
   .appFrame {
     grid-template-columns: 1fr;
   }
@@ -470,9 +500,13 @@ button {
     border-bottom: 1px solid var(--border);
   }
 
+  .appBrand {
+    padding-bottom: 16px;
+  }
+
   .appNav {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    margin-top: 8px;
+    margin-top: 0;
   }
 
   .sidebarFoot {
@@ -481,48 +515,48 @@ button {
 }
 
 @media (max-width: 620px) {
-  .authShell {
-    width: min(100% - 28px, 1180px);
+  .loginShell {
+    padding: 16px;
   }
 
-  .authTopbar {
-    min-height: 74px;
-  }
-
-  .authPanel {
-    gap: 46px;
-    padding: 56px 0 64px;
-  }
-
-  .authIntro h1,
-  .simpleState h1 {
-    font-size: clamp(3.1rem, 17vw, 5rem);
-  }
-
-  .workspaceHeader,
-  .foundationStrip {
-    display: grid;
-    align-items: start;
-  }
-
-  .serviceGrid.fourColumns,
-  .appNav {
-    grid-template-columns: 1fr;
+  .loginCard {
+    padding: 24px;
   }
 
   .appMain {
     width: min(100% - 28px, 1180px);
-    padding-top: 30px;
+    padding-top: 28px;
   }
 
-  .authCard,
+  .workspaceHeader,
+  .workspaceAccount {
+    align-items: flex-start;
+  }
+
+  .workspaceHeader {
+    display: grid;
+  }
+
+  .workspaceAccount {
+    justify-content: space-between;
+  }
+
+  .summaryGrid,
+  .appNav {
+    grid-template-columns: 1fr;
+  }
+
   .businessPanel,
   .createPanel,
-  .foundationStrip {
+  .operationsPanel {
     padding: 20px;
   }
+}
 
-  .formStack {
-    padding: 18px;
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
   }
 }
