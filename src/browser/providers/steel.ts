@@ -226,11 +226,15 @@ export class SteelBrowserAdapter implements BrowserProviderAdapter {
     );
   }
 
-  async fetchReplay(providerSessionId: string, resourceUrl?: string) {
+  async fetchReplay(
+    providerSessionId: string,
+    resourceUrl?: string,
+    requestHeaders?: HeadersInit,
+  ) {
     return this.request(
       resourceUrl ??
         `${this.config.baseUrl}/v1/sessions/${encodeURIComponent(providerSessionId)}/hls`,
-      {},
+      { headers: requestHeaders },
       30_000,
     );
   }
