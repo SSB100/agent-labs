@@ -17,6 +17,7 @@ export type BrowserObservedElement = {
   role: string | null;
   type: string | null;
   text: string;
+  value: string | null;
   name: string | null;
   placeholder: string | null;
   href: string | null;
