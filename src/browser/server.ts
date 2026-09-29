@@ -90,6 +90,7 @@ export function rewriteReplayManifest(
 export async function fetchBrowserReplay(
   browserSessionId: string,
   resourceUrl?: string,
+  requestHeaders?: HeadersInit,
 ) {
   const owned = await loadOwnedBrowserSession(browserSessionId);
   if (!owned?.session.provider_session_id) return null;
@@ -97,6 +98,7 @@ export async function fetchBrowserReplay(
   const response = await adapter.fetchReplay(
     owned.session.provider_session_id,
     resourceUrl,
+    requestHeaders,
   );
   return { ...owned, response };
 }
