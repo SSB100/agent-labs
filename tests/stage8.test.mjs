@@ -130,6 +130,7 @@ test("Stage 8 qualifies Playwright, upload, persistent identity, isolation and r
   assert.match(steel, /persistProfile: true/);
   assert.match(steel, /profileId/);
   assert.match(steel, /debugConfig/);
+  assert.match(steel, /SUPPORTED_REGION = "us-east"/);
   assert.match(steel, /\/hls/);
   assert.match(automation, /connectOverCDP/);
   assert.match(automation, /setInputFiles/);
@@ -139,6 +140,7 @@ test("Stage 8 qualifies Playwright, upload, persistent identity, isolation and r
   assert.match(nextConfig, /node_modules\/playwright-core\/\*\*\/\*/);
   assert.match(replayManifest, /rewriteReplayManifest/);
   assert.match(env, /STEEL_API_KEY/);
+  assert.match(env, /STEEL_REGION=us-east/);
   assert.doesNotMatch(env, /NEXT_PUBLIC_STEEL_API_KEY/);
 
   assert.equal(existsSync("docs/checkpoints/STAGE_9_CREDENTIAL_VAULT.md"), false);
