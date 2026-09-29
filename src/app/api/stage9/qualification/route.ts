@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 
 import { start } from "workflow/api";
 
@@ -9,8 +9,14 @@ import { getRegisteredWorkflow } from "@/workflows/registry";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-const QUALIFICATION_TOKEN =
-  "aXMVXHtaX6y5rLytDBMRla53TWEgD9LctbA77A6OZijIVVkKEAD0iNDmT2eRqfI8";
+const QUALIFICATION_TOKEN_HASH =
+  "6f69a387104190846e2733059b06b9147a5941273cbee41ef08a39d3a3cd7353";
+
+function authorized(token: string) {
+  const supplied = createHash("sha256").update(token).digest();
+  const expected = Buffer.from(QUALIFICATION_TOKEN_HASH, "hex");
+  return supplied.length === expected.length && timingSafeEqual(supplied, expected);
+}
 
 type PreviewLaunch = {
   workflow_run_id: string;
@@ -29,7 +35,8 @@ export async function GET(request: Request) {
   }
 
   const url = new URL(request.url);
-  if (url.searchParams.get("token") !== QUALIFICATION_TOKEN) {
+  const token = url.searchParams.get("token") ?? "";
+  if (!authorized(token)) {
     return Response.json({ error: "Not found" }, { status: 404 });
   }
 
@@ -47,7 +54,7 @@ export async function GET(request: Request) {
       p_idempotency_key: `stage9:preview-live:${attempt}`,
       p_launch_nonce: launchNonce,
       p_runtime_capability: runtimeCapability,
-      p_token: QUALIFICATION_TOKEN,
+      p_token: token,
     },
   );
   const launch = (Array.isArray(data) ? data[0] : data) as PreviewLaunch | null;
