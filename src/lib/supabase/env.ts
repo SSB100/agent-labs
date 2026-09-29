@@ -10,6 +10,14 @@ export function isSupabaseConfigured(): boolean {
   );
 }
 
+export function isWorkflowRuntimeConfigured(): boolean {
+  return isSupabaseConfigured();
+}
+
+// Retained until the Stage 3 UI import is renamed. The runtime no longer uses
+// a broad Supabase admin key; it uses a one-run capability instead.
+export const isSupabaseAdminConfigured = isWorkflowRuntimeConfigured;
+
 export function getSupabasePublicConfig(): SupabasePublicConfig {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
