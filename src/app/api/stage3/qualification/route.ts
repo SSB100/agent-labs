@@ -14,16 +14,16 @@ const QUALIFICATION_KEY = "uxgGHh2PHxL2C-4VTaC837RPkohrLOWMw8vchSdJCRQ";
 
 const fixtures = {
   approve: {
-    businessId: "00000000-0000-4000-8000-000000003301",
-    coreWorkflowRunId: "2ce27d68-5db4-4a80-84b3-00d5b3145780",
+    businessId: "00000000-0000-4000-8000-000000003303",
+    coreWorkflowRunId: "3c7c4b4c-6407-4d14-b551-6bc5664370a7",
     runtimeCapability:
-      "223eb121-f4c9-4109-ae45-ced82cb8f08feab27772-6e86-453c-9557-860970f96aa2",
+      "6aec6d39-997f-4089-8ef1-e5c733bbd30c06089efc-d241-4e53-b8ce-2cc26dc32c97",
   },
   fail: {
-    businessId: "00000000-0000-4000-8000-000000003302",
-    coreWorkflowRunId: "c46b142c-2881-4a38-b80f-a21ac7313763",
+    businessId: "00000000-0000-4000-8000-000000003304",
+    coreWorkflowRunId: "fe154622-e54a-480a-b4b7-501b8d96ac85",
     runtimeCapability:
-      "7f2cbc8d-85b2-432c-8231-45e815366dce0f25e1a3-79c2-4de1-ba58-033963961cfb",
+      "273768d0-cdff-4888-b5dc-05568eaf26ccac82920e-2af5-432d-9633-3ca5583bac55",
   },
 } satisfies Record<"approve" | "fail", SyntheticRuntimeInput>;
 
