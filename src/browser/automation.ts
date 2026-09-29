@@ -1,4 +1,4 @@
-import { chromium, type Page } from "playwright-core";
+import { chromium, type Browser, type Page } from "playwright-core";
 
 import type {
   BrowserAction,
@@ -14,6 +14,17 @@ const ACTION_CAPABILITIES: Record<BrowserAction["type"], string> = {
   type: "browser.interact",
   upload: "browser.upload",
 };
+
+type DisconnectableBrowser = Browser & {
+  _connection?: {
+    close(): Promise<void> | void;
+  };
+};
+
+async function disconnect(browser: Browser) {
+  const connection = (browser as DisconnectableBrowser)._connection;
+  if (connection) await connection.close();
+}
 
 export function validateBrowserAction(
   action: BrowserAction,
@@ -78,16 +89,21 @@ async function withSessionPage<T>(
   const browser = await chromium.connectOverCDP(session.automationEndpoint, {
     timeout: 30_000,
   });
-  const context = browser.contexts()[0];
-  if (!context) {
-    throw new BrowserProviderError(
-      "automation_failed",
-      "The remote browser did not expose a Playwright context.",
-      true,
-    );
+
+  try {
+    const context = browser.contexts()[0];
+    if (!context) {
+      throw new BrowserProviderError(
+        "automation_failed",
+        "The remote browser did not expose a Playwright context.",
+        true,
+      );
+    }
+    const page = context.pages()[0] ?? (await context.newPage());
+    return await operation(page);
+  } finally {
+    await disconnect(browser);
   }
-  const page = context.pages()[0] ?? (await context.newPage());
-  return operation(page);
 }
 
 export async function prepareQualificationPage(
