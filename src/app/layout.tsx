@@ -6,7 +6,16 @@ import "./stage1.css";
 
 export const metadata: Metadata = {
   title: "Agent Labs",
-  description: "A modular AI workforce platform built around durable workflows.",
+  description: "Private Agent Labs control centre.",
+  robots: {
+    index: false,
+    follow: false,
+    nocache: true,
+    googleBot: {
+      index: false,
+      follow: false,
+    },
+  },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
