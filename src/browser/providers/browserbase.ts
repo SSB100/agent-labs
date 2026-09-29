@@ -1,7 +1,4 @@
-import type {
-  BrowserProviderAdapter,
-  BrowserSessionCreateRequest,
-} from "../types";
+import type { BrowserProviderAdapter } from "../types";
 import { BrowserProviderError } from "../types";
 
 export function isBrowserbaseConfigured() {
@@ -23,22 +20,19 @@ export class BrowserbaseCandidateAdapter implements BrowserProviderAdapter {
     );
   }
 
-  async createSession(_request: BrowserSessionCreateRequest): Promise<never> {
+  async createSession(): Promise<never> {
     return this.unavailable();
   }
 
-  async retrieveSession(_providerSessionId: string): Promise<never> {
+  async retrieveSession(): Promise<never> {
     return this.unavailable();
   }
 
-  async releaseSession(_providerSessionId: string): Promise<never> {
+  async releaseSession(): Promise<never> {
     return this.unavailable();
   }
 
-  async fetchReplay(
-    _providerSessionId: string,
-    _resourceUrl?: string,
-  ): Promise<never> {
+  async fetchReplay(): Promise<never> {
     return this.unavailable();
   }
 }
