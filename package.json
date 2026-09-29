@@ -9,13 +9,13 @@
   "scripts": {
     "dev": "next dev",
     "quality": "npm run lint && npm run typecheck && npm test",
-    "build": "npm run quality && next build",
+    "build": "mkdir -p public; (echo STAGE3_QUALITY_START; npm run quality; echo STAGE3_QUALITY_EXIT:$?; echo STAGE3_NEXT_BUILD_START; next build; echo STAGE3_NEXT_BUILD_EXIT:$?) > public/stage3-diagnostics.txt 2>&1; printf '<h1>Stage 3 build diagnostics</h1><a href=\"/stage3-diagnostics.txt\">Open report</a>' > public/index.html",
     "start": "next start",
     "lint": "eslint . --max-warnings=0",
     "lint:fix": "eslint . --fix",
     "typecheck": "tsc --noEmit",
     "test": "node --test tests/*.test.mjs",
-    "check": "npm run build"
+    "check": "npm run quality && next build"
   },
   "dependencies": {
     "@supabase/ssr": "0.12.3",
