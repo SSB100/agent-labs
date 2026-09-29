@@ -56,6 +56,26 @@ function delay(milliseconds: number) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
+async function verifyLiveView(session: BrowserProviderSession, interactive: boolean) {
+  const url = new URL(session.debugUrl);
+  url.searchParams.set("interactive", interactive ? "true" : "false");
+  url.searchParams.set("showControls", "true");
+  const response = await fetch(url, {
+    cache: "no-store",
+    signal: AbortSignal.timeout(30_000),
+  });
+  const html = await response.text();
+  return {
+    bytes: html.length,
+    ready:
+      response.ok &&
+      (html.includes("baseWsUrl") ||
+        html.includes("sessions/cast") ||
+        html.includes("WebSocket")),
+    status: response.status,
+  };
+}
+
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url);
   if (
@@ -76,6 +96,14 @@ export async function GET(request: Request) {
       profileId: null,
       timeoutMs: 300_000,
     });
+
+    const readOnlyLiveView = await verifyLiveView(session, false);
+    const interactiveLiveView = await verifyLiveView(session, true);
+    if (!readOnlyLiveView.ready || !interactiveLiveView.ready) {
+      throw new Error(
+        `Steel live view was unavailable: ${JSON.stringify({ readOnlyLiveView, interactiveLiveView })}`,
+      );
+    }
 
     const prepared = await prepareQualificationPage(session);
 
@@ -131,20 +159,30 @@ export async function GET(request: Request) {
       await delay(5_000);
     }
 
+    const checks = {
+      humanInteraction: humanInteractionCount >= 1,
+      interactiveLiveView: interactiveLiveView.ready,
+      persistentProfile: Boolean(session.profileId),
+      playwrightConnected: true,
+      readOnlyLiveView: readOnlyLiveView.ready,
+      replayReady,
+      returnedControl:
+        resumed.ownerInteractionCount >= 1 &&
+        Boolean(resumed.automationMarker),
+      sessionReleased: released,
+      uploadQualified:
+        prepared.uploadQualified && resumed.uploadQualified,
+    };
+    const passed = Object.values(checks).every(Boolean);
+
     return Response.json(
       {
-        checks: {
-          humanInteraction: humanInteractionCount >= 1,
-          playwrightConnected: true,
-          replayReady,
-          returnedControl:
-            resumed.ownerInteractionCount >= 1 &&
-            Boolean(resumed.automationMarker),
-          sessionReleased: released,
-          uploadQualified:
-            prepared.uploadQualified && resumed.uploadQualified,
-        },
+        checks,
         durationMs: Date.now() - startedAt,
+        liveView: {
+          interactiveBytes: interactiveLiveView.bytes,
+          readOnlyBytes: readOnlyLiveView.bytes,
+        },
         provider: "steel",
         replay: {
           attempts: replayAttempt,
@@ -157,9 +195,9 @@ export async function GET(request: Request) {
           idSuffix: session.providerSessionId.slice(-8),
           region: session.region,
         },
-        status: replayReady ? "passed" : "partial",
+        status: passed ? "passed" : "partial",
       },
-      { status: replayReady ? 200 : 502 },
+      { status: passed ? 200 : 502 },
     );
   } catch (error) {
     if (session && !released) {
