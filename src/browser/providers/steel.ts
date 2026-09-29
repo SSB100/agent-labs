@@ -79,9 +79,14 @@ export class SteelBrowserAdapter implements BrowserProviderAdapter {
   readonly providerKey = "steel" as const;
   readonly configured = isSteelConfigured();
   private readonly config: SteelConfig;
+  private readonly fetcher: typeof fetch;
 
-  constructor(config?: SteelConfig) {
-    this.config = config ?? getSteelConfig();
+  constructor(options?: {
+    config?: SteelConfig;
+    fetcher?: typeof fetch;
+  }) {
+    this.config = options?.config ?? getSteelConfig();
+    this.fetcher = options?.fetcher ?? fetch;
   }
 
   private async request(
@@ -91,16 +96,21 @@ export class SteelBrowserAdapter implements BrowserProviderAdapter {
   ) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
-    const url = pathOrUrl.startsWith("http")
+    const address = pathOrUrl.startsWith("http")
       ? pathOrUrl
       : `${this.config.baseUrl}${pathOrUrl}`;
+    const target = new URL(address);
+    const providerOrigin = new URL(this.config.baseUrl).origin;
+    const providerAuthenticated = target.origin === providerOrigin;
 
     try {
-      const response = await fetch(url, {
+      const response = await this.fetcher(target, {
         ...init,
         cache: "no-store",
         headers: {
-          "steel-api-key": this.config.apiKey,
+          ...(providerAuthenticated
+            ? { "steel-api-key": this.config.apiKey }
+            : {}),
           ...(init.body ? { "Content-Type": "application/json" } : {}),
           ...init.headers,
         },
