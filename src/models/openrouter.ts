@@ -15,6 +15,23 @@ const DEFAULT_APP_URL = "https://agent-labs-two.vercel.app";
 const DEFAULT_APP_NAME = "Agent Labs";
 const REQUEST_TIMEOUT_MS = 45_000;
 
+const PROVIDER_UNSUPPORTED_SCHEMA_KEYS = new Set([
+  "format",
+  "minLength",
+  "maxLength",
+  "pattern",
+  "minimum",
+  "maximum",
+  "exclusiveMinimum",
+  "exclusiveMaximum",
+  "multipleOf",
+  "minItems",
+  "maxItems",
+  "uniqueItems",
+  "minProperties",
+  "maxProperties",
+]);
+
 export type OpenRouterConfig = {
   apiKey: string;
   baseUrl: string;
@@ -65,6 +82,44 @@ function isJsonValue(value: unknown, seen = new WeakSet<object>()): value is Jso
 
 function jsonObject(value: unknown): value is JsonObject {
   return isRecord(value) && Object.values(value).every((entry) => isJsonValue(entry));
+}
+
+function projectProviderSchemaValue(value: JsonValue): JsonValue {
+  if (Array.isArray(value)) {
+    return value.map((entry) => projectProviderSchemaValue(entry));
+  }
+  if (!isRecord(value)) {
+    return value;
+  }
+
+  const projected: JsonObject = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (key === "const") {
+      if (isJsonValue(entry)) {
+        projected.enum = [entry];
+      }
+      continue;
+    }
+    if (PROVIDER_UNSUPPORTED_SCHEMA_KEYS.has(key)) {
+      continue;
+    }
+    if (isJsonValue(entry)) {
+      projected[key] = projectProviderSchemaValue(entry);
+    }
+  }
+  return projected;
+}
+
+export function projectProviderJsonSchema(schema: JsonObject): JsonObject {
+  const projected = projectProviderSchemaValue(schema);
+  if (!jsonObject(projected)) {
+    throw new ModelProviderError(
+      "provider_rejected",
+      "The structured-output schema could not be projected for the provider.",
+      false,
+    );
+  }
+  return projected;
 }
 
 function optionalNumber(value: unknown): number | null {
@@ -362,7 +417,7 @@ export class OpenRouterAdapter implements ModelProviderAdapter {
         json_schema: {
           name: request.schemaName,
           strict: true,
-          schema: request.outputSchema,
+          schema: projectProviderJsonSchema(request.outputSchema),
         },
       },
       provider: {
@@ -411,6 +466,7 @@ export class OpenRouterAdapter implements ModelProviderAdapter {
             : null,
         requestedModel: request.model.providerModelId,
         modelKey: request.model.modelKey,
+        providerSchemaProjected: true,
         routeMetadata: request.requestMetadata,
       },
     };
