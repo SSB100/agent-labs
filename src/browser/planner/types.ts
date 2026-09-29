@@ -63,9 +63,18 @@ export type BrowserPlannerAction = {
   failureCategory: string | null;
 };
 
-export type BrowserPlannerRequest = {
+export type BrowserPlannerTaskContractView = {
+  id: string;
   objective: string;
   permittedCapabilities: readonly string[];
+  nonGoals: readonly string[];
+  completionCriteria: JsonObject;
+  failureCriteria: JsonObject;
+  escalationRules: JsonObject;
+};
+
+export type BrowserPlannerRequest = {
+  taskContract: BrowserPlannerTaskContractView;
   observation: BrowserStructuredObservation;
   previousFailure?: BrowserPlannerFailure | null;
 };
