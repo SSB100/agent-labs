@@ -6,6 +6,7 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
+    "types": ["node"],
     "outDir": ".core-tests",
     "rootDir": "src",
     "noEmit": false,
