@@ -1,5 +1,7 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
+
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { resumeHook, start } from "workflow/api";
@@ -102,6 +104,7 @@ export async function startSyntheticWorkflow(formData: FormData) {
     dashboardRedirect("error", "business-not-found");
   }
 
+  const runtimeCapability = `${randomUUID()}${randomUUID()}`;
   const input = {
     requestedBy: userId,
     workflowKey: SYNTHETIC_WORKFLOW_KEY,
@@ -113,6 +116,7 @@ export async function startSyntheticWorkflow(formData: FormData) {
       p_idempotency_key: idempotencyKey,
       p_input: input,
       p_launch_nonce: launchNonce,
+      p_runtime_capability: runtimeCapability,
     },
   );
 
@@ -130,6 +134,7 @@ export async function startSyntheticWorkflow(formData: FormData) {
   const workflowInput: SyntheticRuntimeInput = {
     businessId,
     coreWorkflowRunId: launch.workflow_run_id,
+    runtimeCapability,
   };
   const registered = getRegisteredWorkflow(SYNTHETIC_WORKFLOW_KEY);
 

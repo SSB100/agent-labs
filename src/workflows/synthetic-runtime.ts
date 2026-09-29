@@ -19,6 +19,7 @@ export const SYNTHETIC_RUNTIME_WORKFLOW_DEFINITION_ID =
 export type SyntheticRuntimeInput = {
   businessId: string;
   coreWorkflowRunId: string;
+  runtimeCapability: string;
 };
 
 export type SyntheticReviewDecision = {

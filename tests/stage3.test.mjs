@@ -22,22 +22,26 @@ test("Workflow SDK is configured for Next.js without intercepting internal route
   assert.deepEqual(vercelConfig.regions, ["syd1"]);
 });
 
-test("Stage 3 migration creates a versioned runtime workflow and atomic launch reservation", async () => {
-  const migration = await readProjectFile(
+test("Stage 3 migrations create a versioned workflow and scoped runtime capability", async () => {
+  const baseMigration = await readProjectFile(
     "supabase/migrations/20260929033000_stage3_vercel_workflow_runtime.sql",
   );
+  const capabilityMigration = await readProjectFile(
+    "supabase/migrations/20260929034200_stage3_scoped_runtime_capability.sql",
+  );
 
-  assert.match(migration, /synthetic\.core\.runtime-proof/);
+  assert.match(baseMigration, /synthetic\.core\.runtime-proof/);
   for (const stage of ["start", "worker-task", "wait", "review", "complete"]) {
-    assert.match(migration, new RegExp(`\\"key\\":\\"${stage}\\"`));
+    assert.match(baseMigration, new RegExp(`\\"key\\":\\"${stage}\\"`));
   }
-  assert.match(migration, /runtime_run_id text/);
-  assert.match(migration, /unique index workflow_runs_runtime_run_id_idx/);
-  assert.match(migration, /begin_synthetic_workflow_run/);
-  assert.match(migration, /on conflict \(business_id, idempotency_key\) do nothing/);
-  assert.match(migration, /stage3_claim_synthetic_worker_attempt/);
-  assert.match(migration, /grant execute[^;]+to service_role/s);
-  assert.doesNotMatch(migration, /etsy|printful|shopify/i);
+  assert.match(baseMigration, /runtime_run_id text/);
+  assert.match(baseMigration, /unique index workflow_runs_runtime_run_id_idx/);
+  assert.match(capabilityMigration, /runtime_capability_hash text/);
+  assert.match(capabilityMigration, /extensions\.digest/);
+  assert.match(capabilityMigration, /stage3_runtime_transition/);
+  assert.match(capabilityMigration, /grant execute[^;]+to anon, authenticated/s);
+  assert.match(capabilityMigration, /drop function if exists public\.stage3_claim/);
+  assert.doesNotMatch(`${baseMigration}\n${capabilityMigration}`, /etsy|printful|shopify/i);
 });
 
 test("Synthetic runtime proves workflow, step, wait, retry and human resume boundaries", async () => {
@@ -53,23 +57,23 @@ test("Synthetic runtime proves workflow, step, wait, retry and human resume boun
   assert.match(steps, /"use step"/);
   assert.match(steps, /RetryableError/);
   assert.match(steps, /retryAfter: "1s"/);
-  assert.match(steps, /workflow\.stage\.completed/);
-  assert.match(steps, /workflow\.owner_intervention\.requested/);
+  assert.match(steps, /stage3_runtime_transition/);
   assert.match(actions, /start\(registered\.workflow, \[workflowInput\]\)/);
   assert.match(actions, /resumeHook/);
   assert.match(actions, /begin_synthetic_workflow_run/);
+  assert.match(actions, /runtimeCapability/);
   assert.match(registry, /WORKFLOW_REGISTRY/);
 });
 
-test("Stage 3 uses only a server-side Supabase runtime key", async () => {
+test("Stage 3 uses a one-run capability rather than a broad database secret", async () => {
   const env = await readProjectFile(".env.example");
-  const admin = await readProjectFile("src/lib/supabase/admin.ts");
-  const publicClient = await readProjectFile("src/lib/supabase/client.ts");
+  const runtime = await readProjectFile("src/lib/supabase/runtime.ts");
+  const steps = await readProjectFile("src/workflows/synthetic-runtime-steps.ts");
 
-  assert.match(env, /^SUPABASE_SECRET_KEY=/m);
-  assert.doesNotMatch(env, /^NEXT_PUBLIC_.*SECRET/m);
-  assert.match(admin, /getSupabaseAdminConfig/);
-  assert.doesNotMatch(publicClient, /SECRET|SERVICE_ROLE/);
+  assert.doesNotMatch(env, /SECRET|SERVICE_ROLE/);
+  assert.match(runtime, /getSupabasePublicConfig/);
+  assert.match(steps, /p_runtime_capability: input\.runtimeCapability/);
+  assert.doesNotMatch(steps, /service_role|secretKey|createAdminClient/i);
 });
 
 test("Stage 3 remains a synthetic runtime proof without worker or model execution", async () => {
