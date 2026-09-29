@@ -18,8 +18,11 @@ export function BrowserReplay({ browserSessionId }: { browserSessionId: string }
     }
 
     if (!Hls.isSupported()) {
-      setError("This browser does not support HLS replay.");
-      return;
+      const timeout = window.setTimeout(
+        () => setError("This browser does not support HLS replay."),
+        0,
+      );
+      return () => window.clearTimeout(timeout);
     }
 
     const hls = new Hls({
