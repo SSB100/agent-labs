@@ -19,6 +19,7 @@ export type BrowserProviderSession = {
   automationEndpoint: string;
   profileId: string | null;
   status: "live" | "released" | "failed";
+  releaseReason: string | null;
   region: string | null;
   browserMode: string | null;
 };
