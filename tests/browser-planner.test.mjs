@@ -4,6 +4,8 @@ import test from "node:test";
 import fixturesModule from "../.core-tests/browser/planner/fixtures.js";
 import plannerModule from "../.core-tests/browser/planner/planner.js";
 import recoveryModule from "../.core-tests/browser/planner/recovery.js";
+import workerRuntimeModule from "../.core-tests/workers/runtime.js";
+import workerModule from "../.core-tests/workers/browser-planner.js";
 
 const {
   MOCK_COMMERCE_OBSERVATION,
@@ -16,6 +18,23 @@ const {
   validatePlannerAction,
 } = plannerModule;
 const { BROWSER_PLANNER_MAX_RECOVERY_ATTEMPTS } = recoveryModule;
+const { validateWorkerPackManifest } = workerRuntimeModule;
+const { BROWSER_PLANNER_MANIFEST } = workerModule;
+
+function taskContract(objective, permittedCapabilities) {
+  return {
+    id: "00000000-0000-4000-8000-000000009001",
+    objective,
+    permittedCapabilities,
+    nonGoals: [
+      "Invent selectors or element identifiers.",
+      "Return multiple browser actions in one planning step.",
+    ],
+    completionCriteria: { oneBoundedAction: true },
+    failureCriteria: { maximumRecoveryAttempts: 2 },
+    escalationRules: { recovery: "bounded" },
+  };
+}
 
 function fakeAdapter(output) {
   return {
@@ -44,6 +63,19 @@ function fakeAdapter(output) {
   };
 }
 
+test("Browser Planner Worker Pack is a valid versioned specialist worker", () => {
+  assert.doesNotThrow(() => validateWorkerPackManifest(BROWSER_PLANNER_MANIFEST));
+  assert.equal(BROWSER_PLANNER_MANIFEST.worker.workerKey, "browser.planner");
+  assert.deepEqual(BROWSER_PLANNER_MANIFEST.capabilityPolicy.allowed, [
+    "browser.observe",
+    "browser.interact",
+  ]);
+  assert.equal(
+    BROWSER_PLANNER_MANIFEST.modelRequirements.routeKey,
+    "standard.default",
+  );
+});
+
 test("Stage 9 planner schema encodes exactly one bounded decision", () => {
   assert.equal(BROWSER_PLANNER_OUTPUT_SCHEMA.type, "object");
   assert.equal(BROWSER_PLANNER_OUTPUT_SCHEMA.additionalProperties, false);
@@ -56,8 +88,10 @@ test("Stage 9 planner schema encodes exactly one bounded decision", () => {
 
 test("Browser Planner accepts only stable element IDs present in the observation", () => {
   const request = {
-    objective: "Save this product as a draft.",
-    permittedCapabilities: ["browser.observe", "browser.interact"],
+    taskContract: taskContract(
+      "Save this product as a draft.",
+      ["browser.observe", "browser.interact"],
+    ),
     observation: MOCK_COMMERCE_OBSERVATION,
   };
 
@@ -93,8 +127,10 @@ test("Browser Planner cannot smuggle selectors into non-element actions", () => 
     () =>
       validatePlannerAction(
         {
-          objective: "Inspect example.com.",
-          permittedCapabilities: ["browser.observe"],
+          taskContract: taskContract(
+            "Inspect example.com.",
+            ["browser.observe"],
+          ),
           observation: READ_ONLY_SITE_OBSERVATION,
         },
         {
@@ -113,8 +149,10 @@ test("Browser Planner cannot smuggle selectors into non-element actions", () => 
 test("Browser Planner emits one valid model-routed action with no Playwright exposure", async () => {
   const decision = await planBrowserAction(
     {
-      objective: "Enter the email address.",
-      permittedCapabilities: ["browser.observe", "browser.interact"],
+      taskContract: taskContract(
+        "Enter the email address.",
+        ["browser.observe", "browser.interact"],
+      ),
       observation: SYNTHETIC_LOGIN_OBSERVATION,
     },
     {
@@ -140,8 +178,10 @@ test("Browser Planner rejects a model that invents an element ID", async () => {
     () =>
       planBrowserAction(
         {
-          objective: "Sign in.",
-          permittedCapabilities: ["browser.observe", "browser.interact"],
+          taskContract: taskContract(
+            "Sign in.",
+            ["browser.observe", "browser.interact"],
+          ),
           observation: SYNTHETIC_LOGIN_OBSERVATION,
         },
         {
@@ -162,8 +202,10 @@ test("Browser Planner rejects a model that invents an element ID", async () => {
 test("Browser Planner supports bounded read-only completion without browser mutation", async () => {
   const decision = await planBrowserAction(
     {
-      objective: "Confirm the page is Example Domain and stop.",
-      permittedCapabilities: ["browser.observe"],
+      taskContract: taskContract(
+        "Confirm the page is Example Domain and stop.",
+        ["browser.observe"],
+      ),
       observation: READ_ONLY_SITE_OBSERVATION,
     },
     {
@@ -180,4 +222,11 @@ test("Browser Planner supports bounded read-only completion without browser muta
 
   assert.equal(decision.action.type, "complete");
   assert.equal(decision.action.elementId, null);
+});
+
+test("password fields never expose their current value to the planner", () => {
+  const password = SYNTHETIC_LOGIN_OBSERVATION.controls.find(
+    (control) => control.type === "password",
+  );
+  assert.equal(password?.value, null);
 });
