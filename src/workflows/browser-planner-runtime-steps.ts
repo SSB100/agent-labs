@@ -165,9 +165,10 @@ async function runBoundedObjective(
           `[data-agent-labs-element-id="${elementId}"]`,
         );
         if (!original) return;
-        const replacement = original.cloneNode(true) as HTMLElement;
-        replacement.removeAttribute("data-agent-labs-element-id");
-        original.replaceWith(replacement);
+        original.setAttribute(
+          "data-agent-labs-element-id",
+          `stale_${elementId}`,
+        );
       }, decision.action.elementId);
     }
 
