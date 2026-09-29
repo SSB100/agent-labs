@@ -1,7 +1,7 @@
-import type { JsonObject } from "../../core/contracts";
 import { OpenRouterAdapter } from "../../models/openrouter";
 import { runModelRoute } from "../../models/router";
 import type { ModelProviderAdapter } from "../../models/types";
+import { BROWSER_PLANNER_ACTION_SCHEMA } from "../../workers/browser-planner";
 
 import {
   observationElement,
@@ -14,29 +14,7 @@ import type {
 } from "./types";
 import { BrowserPlannerError } from "./types";
 
-const PLANNER_OUTPUT_SCHEMA: JsonObject = {
-  type: "object",
-  additionalProperties: false,
-  required: [
-    "type",
-    "elementId",
-    "text",
-    "url",
-    "reason",
-    "failureCategory",
-  ],
-  properties: {
-    type: {
-      type: "string",
-      enum: ["click", "type", "navigate", "complete", "fail"],
-    },
-    elementId: { type: ["string", "null"] },
-    text: { type: ["string", "null"] },
-    url: { type: ["string", "null"] },
-    reason: { type: "string" },
-    failureCategory: { type: ["string", "null"] },
-  },
-};
+const PLANNER_OUTPUT_SCHEMA = BROWSER_PLANNER_ACTION_SCHEMA;
 
 const ELEMENT_ACTIONS = new Set(["click", "type"]);
 
@@ -159,8 +137,7 @@ function messages(request: BrowserPlannerRequest) {
     {
       role: "user" as const,
       content: JSON.stringify({
-        objective: request.objective,
-        permittedCapabilities: request.permittedCapabilities,
+        taskContract: request.taskContract,
         observation: request.observation,
         allowedElementIds,
         previousFailure: request.previousFailure ?? null,
