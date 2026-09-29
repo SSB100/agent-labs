@@ -58,6 +58,69 @@ test("browser actions are denied unless the Task Contract exposes the exact capa
   );
 });
 
+test("Steel creates a minimal stable session and release remains idempotent", async () => {
+  const requests = [];
+  const fetcher = async (input, init = {}) => {
+    const url = String(input);
+    requests.push({
+      body: typeof init.body === "string" ? JSON.parse(init.body) : null,
+      method: init.method ?? "GET",
+      url,
+    });
+    if (url.endsWith("/v1/sessions") && init.method === "POST") {
+      return new Response(
+        JSON.stringify({
+          id: "steel-session-1",
+          websocketUrl: "wss://connect.steel.dev?sessionId=steel-session-1",
+          debugUrl: "https://app.steel.dev/live/steel-session-1",
+          sessionViewerUrl: "https://app.steel.dev/sessions/steel-session-1",
+          profileId: "steel-profile-1",
+          status: "live",
+          region: "us-east",
+          browserMode: "standard",
+          releaseReason: null,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }
+    if (url.endsWith("/release")) {
+      return new Response(JSON.stringify({ message: "already released" }), {
+        status: 409,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return new Response("not found", { status: 404 });
+  };
+  const adapter = new SteelBrowserAdapter({
+    config: {
+      apiKey: "steel-secret-test-key",
+      baseUrl: "https://api.steel.dev",
+      region: null,
+    },
+    fetcher,
+  });
+
+  const session = await adapter.createSession({
+    browserSessionId: "00000000-0000-4000-8000-000000000001",
+    profileId: "pending:00000000-0000-4000-8000-000000000002",
+    timeoutMs: 900_000,
+  });
+  const createBody = requests[0].body;
+
+  assert.deepEqual(Object.keys(createBody).sort(), [
+    "debugConfig",
+    "persistProfile",
+    "timeout",
+  ]);
+  assert.equal(createBody.timeout, 900_000);
+  assert.equal(createBody.persistProfile, true);
+  assert.equal(createBody.debugConfig.interactive, true);
+  assert.equal(session.profileId, "steel-profile-1");
+  assert.equal(session.releaseReason, null);
+  assert.match(session.automationEndpoint, /apiKey=steel-secret-test-key/);
+  await assert.doesNotReject(() => adapter.releaseSession(session.providerSessionId));
+});
+
 test("Steel authentication is never forwarded to external replay resources", async () => {
   const calls = [];
   const fetcher = async (input, init = {}) => {
@@ -74,7 +137,7 @@ test("Steel authentication is never forwarded to external replay resources", asy
     config: {
       apiKey: "steel-secret-test-key",
       baseUrl: "https://api.steel.dev",
-      region: "us-east",
+      region: null,
     },
     fetcher,
   });
@@ -82,12 +145,14 @@ test("Steel authentication is never forwarded to external replay resources", asy
   await adapter.fetchReplay(
     "steel-session-1",
     "https://recordings.example.test/session/segment.m3u8",
+    { Range: "bytes=0-99" },
   );
   await adapter.fetchReplay("steel-session-1");
 
   assert.equal(calls.length, 2);
   assert.equal(calls[0].url, "https://recordings.example.test/session/segment.m3u8");
   assert.equal(calls[0].headers.has("steel-api-key"), false);
+  assert.equal(calls[0].headers.get("range"), "bytes=0-99");
   assert.equal(calls[1].url, "https://api.steel.dev/v1/sessions/steel-session-1/hls");
   assert.equal(calls[1].headers.get("steel-api-key"), "steel-secret-test-key");
 });
@@ -196,14 +261,18 @@ test("Stage 8 qualifies Playwright, upload, persistent identity, isolation and r
   const replayManifest = read(
     "src/app/api/browser/sessions/[browserSessionId]/replay/manifest/route.ts",
   );
+  const replayResource = read(
+    "src/app/api/browser/sessions/[browserSessionId]/replay/resource/route.ts",
+  );
   const env = read(".env.example");
 
   assert.match(steel, /persistProfile: true/);
   assert.match(steel, /profileId/);
   assert.match(steel, /debugConfig/);
-  assert.match(steel, /SUPPORTED_REGION = "us-east"/);
+  assert.match(steel, /process\.env\.STEEL_REGION/);
   assert.match(steel, /providerAuthenticated/);
   assert.match(steel, /\/hls/);
+  assert.match(automation, /CDP_CONNECT_ATTEMPTS = 5/);
   assert.match(automation, /connectOverCDP/);
   assert.match(automation, /setInputFiles/);
   assert.match(automation, /stage8-browser-proof\.txt/);
@@ -211,6 +280,8 @@ test("Stage 8 qualifies Playwright, upload, persistent identity, isolation and r
   assert.match(nextConfig, /serverExternalPackages: \["playwright-core"\]/);
   assert.match(nextConfig, /node_modules\/playwright-core\/\*\*\/\*/);
   assert.match(replayManifest, /rewriteReplayManifest/);
+  assert.match(replayResource, /content-range/);
+  assert.match(replayResource, /status: result\.response\.status/);
   assert.match(env, /STEEL_API_KEY/);
   assert.match(env, /STEEL_REGION=us-east/);
   assert.doesNotMatch(env, /NEXT_PUBLIC_STEEL_API_KEY/);
