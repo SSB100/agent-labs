@@ -1,0 +1,14 @@
+-- Historical hosted migration marker.
+--
+-- The original Stage 6 framework migration was applied directly to the Agent Labs
+-- Supabase project while the schema was being qualified. The final replayable
+-- definitions are deliberately consolidated in the following versioned migrations:
+--
+--   20260929120901_stage6_evaluation_schema_consolidation.sql
+--   20260929120943_stage6_evaluation_runtime_consolidation.sql
+--   20260929121005_stage6_evaluation_invalidation_and_gate.sql
+--   20260929121027_stage6_generic_researcher_evaluation_catalog.sql
+--
+-- Keeping this marker preserves exact hosted migration ordering without making a
+-- clean installation depend on an unreconciled development-time SQL snapshot.
+select 1;

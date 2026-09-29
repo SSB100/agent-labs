@@ -22,6 +22,31 @@ function hasActiveWorkflow() {
   return document.querySelector(ACTIVE_WORKFLOW_SELECTOR) !== null;
 }
 
+function DashboardLinks() {
+  return (
+    <div
+      style={{
+        bottom: 24,
+        display: "flex",
+        gap: 10,
+        position: "fixed",
+        right: 24,
+        zIndex: 50,
+      }}
+    >
+      <Link className="compactButton" href="/dashboard/worker-proof">
+        Worker proof
+      </Link>
+      <Link className="compactButton" href="/dashboard/model-router">
+        Model router
+      </Link>
+      <Link className="compactButton" href="/dashboard/worker-evaluations">
+        Worker evaluations
+      </Link>
+    </div>
+  );
+}
+
 export default function DashboardTemplate({ children }: DashboardTemplateProps) {
   const pathname = usePathname();
   const router = useRouter();
@@ -50,45 +75,16 @@ export default function DashboardTemplate({ children }: DashboardTemplateProps) 
     };
   }, [router]);
 
+  const supportsProofNavigation = [
+    "/dashboard",
+    "/dashboard/worker-proof",
+    "/dashboard/model-router",
+    "/dashboard/worker-evaluations",
+  ].includes(pathname);
+
   return (
     <>
-      {pathname === "/dashboard" ? (
-        <div
-          style={{
-            bottom: 24,
-            display: "flex",
-            gap: 10,
-            position: "fixed",
-            right: 24,
-            zIndex: 50,
-          }}
-        >
-          <Link className="compactButton" href="/dashboard/worker-proof">
-            Worker proof
-          </Link>
-          <Link className="compactButton" href="/dashboard/model-router">
-            Model router
-          </Link>
-        </div>
-      ) : null}
-      {pathname === "/dashboard/worker-proof" ? (
-        <Link
-          className="compactButton"
-          href="/dashboard/model-router"
-          style={{ bottom: 24, position: "fixed", right: 24, zIndex: 50 }}
-        >
-          Model router
-        </Link>
-      ) : null}
-      {pathname === "/dashboard/model-router" ? (
-        <Link
-          className="compactButton"
-          href="/dashboard/worker-proof"
-          style={{ bottom: 24, position: "fixed", right: 24, zIndex: 50 }}
-        >
-          Worker proof
-        </Link>
-      ) : null}
+      {supportsProofNavigation ? <DashboardLinks /> : null}
       {children}
     </>
   );
