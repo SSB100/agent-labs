@@ -23,12 +23,6 @@ const ACTION_CAPABILITIES: Record<BrowserAction["type"], string> = {
 const CDP_CONNECT_ATTEMPTS = 5;
 const CDP_CONTEXT_WAIT_ATTEMPTS = 50;
 
-type DisconnectableBrowser = Browser & {
-  _connection?: {
-    close(): Promise<void> | void;
-  };
-};
-
 function delay(milliseconds: number) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
@@ -38,8 +32,9 @@ function errorMessage(error: unknown) {
 }
 
 async function disconnect(browser: Browser) {
-  const connection = (browser as DisconnectableBrowser)._connection;
-  if (connection) await connection.close();
+  if (browser.isConnected()) {
+    await browser.close({ reason: "Agent Labs CDP step completed." });
+  }
 }
 
 async function waitForDefaultContext(browser: Browser) {
