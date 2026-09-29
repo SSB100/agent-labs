@@ -1,20 +1,9 @@
-import { start } from "workflow/api";
-
 import {
   isSupabaseAdminConfigured,
   isSupabaseConfigured,
 } from "@/lib/supabase/env";
-import type { SyntheticRuntimeInput } from "@/workflows/synthetic-runtime";
-import { getRegisteredWorkflow } from "@/workflows/registry";
 
 export const dynamic = "force-dynamic";
-
-const approvalFixture: SyntheticRuntimeInput = {
-  businessId: "00000000-0000-4000-8000-000000003301",
-  coreWorkflowRunId: "2ce27d68-5db4-4a80-84b3-00d5b3145780",
-  runtimeCapability:
-    "223eb121-f4c9-4109-ae45-ced82cb8f08feab27772-6e86-453c-9557-860970f96aa2",
-};
 
 const unavailableResponse = (
   supabaseStatus: string,
@@ -35,17 +24,6 @@ const unavailableResponse = (
   );
 
 export async function GET() {
-  if (process.env.VERCEL_ENV === "preview") {
-    const registered = getRegisteredWorkflow("synthetic.core.runtime-proof");
-    const runtimeRun = await start(registered.workflow, [approvalFixture]);
-
-    return Response.json({
-      qualification: "approval-path-started",
-      runtimeRunId: runtimeRun.runId,
-      status: "ok",
-    });
-  }
-
   const workflowRuntimeStatus = isSupabaseAdminConfigured()
     ? "configured"
     : "not_configured";
