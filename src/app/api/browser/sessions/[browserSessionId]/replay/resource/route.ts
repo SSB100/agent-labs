@@ -10,6 +10,14 @@ type RouteProps = {
   params: Promise<{ browserSessionId: string }>;
 };
 
+const FORWARDED_RESPONSE_HEADERS = [
+  "accept-ranges",
+  "content-length",
+  "content-range",
+  "etag",
+  "last-modified",
+] as const;
+
 function decodeResource(value: string) {
   try {
     return Buffer.from(value, "base64url").toString("utf8");
@@ -31,13 +39,23 @@ export async function GET(request: Request, { params }: RouteProps) {
     return Response.json({ error: "Invalid replay resource" }, { status: 403 });
   }
 
-  const result = await fetchBrowserReplay(browserSessionId, resourceUrl);
+  const requestHeaders = new Headers();
+  const range = request.headers.get("range");
+  if (range && !resourceUrl.toLowerCase().includes(".m3u8")) {
+    requestHeaders.set("range", range);
+  }
+
+  const result = await fetchBrowserReplay(
+    browserSessionId,
+    resourceUrl,
+    requestHeaders,
+  );
   if (!result) return Response.json({ error: "Not found" }, { status: 404 });
 
   const contentType = result.response.headers.get("content-type") ?? "";
   if (
     contentType.includes("mpegurl") ||
-    resourceUrl.endsWith(".m3u8")
+    resourceUrl.toLowerCase().includes(".m3u8")
   ) {
     const manifest = await result.response.text();
     return new Response(
@@ -56,10 +74,19 @@ export async function GET(request: Request, { params }: RouteProps) {
     );
   }
 
+  const responseHeaders = new Headers({
+    "Cache-Control": "private, max-age=300",
+    "Content-Type": contentType || "application/octet-stream",
+    "Vary": "Range",
+  });
+  for (const header of FORWARDED_RESPONSE_HEADERS) {
+    const value = result.response.headers.get(header);
+    if (value) responseHeaders.set(header, value);
+  }
+
   return new Response(result.response.body, {
-    headers: {
-      "Cache-Control": "private, max-age=300",
-      "Content-Type": contentType || "application/octet-stream",
-    },
+    status: result.response.status,
+    statusText: result.response.statusText,
+    headers: responseHeaders,
   });
 }
