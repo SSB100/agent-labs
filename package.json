@@ -9,13 +9,14 @@
   "scripts": {
     "dev": "next dev",
     "quality": "npm run lint && npm run typecheck && npm test",
-    "build": "mkdir -p public; (echo STAGE3_QUALITY_START; npm run quality; echo STAGE3_QUALITY_EXIT:$?; echo STAGE3_NEXT_BUILD_START; next build; echo STAGE3_NEXT_BUILD_EXIT:$?) > public/stage3-diagnostics.txt 2>&1; node scripts/capture-stage3-diagnostics.mjs; printf '<h1>Stage 3 build diagnostics</h1>' > public/index.html",
+    "build": "npm run quality && next build",
     "start": "next start",
     "lint": "eslint . --max-warnings=0",
     "lint:fix": "eslint . --fix",
     "typecheck": "tsc --noEmit",
+    "pretest": "tsc -p tsconfig.core-tests.json",
     "test": "node --test tests/*.test.mjs",
-    "check": "npm run quality && next build"
+    "check": "npm run build"
   },
   "dependencies": {
     "@opentelemetry/api": "1.9.0",
