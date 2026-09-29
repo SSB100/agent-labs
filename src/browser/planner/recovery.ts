@@ -45,8 +45,20 @@ export async function runBrowserPlannerCycle(
     try {
       const decision = await planBrowserAction(
         {
-          objective: input.objective,
-          permittedCapabilities: input.permittedCapabilities,
+          taskContract: {
+            id: "00000000-0000-4000-8000-000000009999",
+            objective: input.objective,
+            permittedCapabilities: input.permittedCapabilities,
+            nonGoals: [
+              "Invent selectors or element identifiers.",
+              "Return multiple browser actions in one planning step.",
+            ],
+            completionCriteria: { oneBoundedAction: true },
+            failureCriteria: { maximumRecoveryAttempts },
+            escalationRules: {
+              previousFailure,
+            },
+          },
           observation,
           previousFailure,
         },
