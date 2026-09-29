@@ -1,6 +1,9 @@
 import Link from "next/link";
 
-import { startBrowserQualification } from "@/app/dashboard/browser-actions";
+import {
+  startBrowserPlannerQualification,
+  startBrowserQualification,
+} from "@/app/dashboard/browser-actions";
 import {
   BROWSER_PROVIDER_COMPARISON,
   isDefaultBrowserProviderConfigured,
@@ -27,12 +30,16 @@ type AccountsPageProps = {
 
 const messages: Record<string, string> = {
   "browser-workflow-started": "Browser provider qualification started.",
+  "browser-planner-workflow-started": "Browser Planner qualification started.",
 };
 
 const errors: Record<string, string> = {
   "browser-provider-not-configured":
     "STEEL_API_KEY is not configured for this Vercel environment.",
   "browser-reservation-failed": "The browser qualification could not be reserved.",
+  "browser-planner-reservation-failed": "The Browser Planner qualification could not be reserved.",
+  "browser-planner-launch-failed": "The Browser Planner workflow could not launch.",
+  "invalid-browser-planner-launch": "The Browser Planner qualification request was invalid.",
   "business-not-found": "The selected Business is unavailable.",
   "invalid-browser-launch": "The browser qualification request was invalid.",
 };
@@ -182,6 +189,44 @@ export default async function AccountsPage({ searchParams }: AccountsPageProps) 
             {!browserConfigured ? (
               <small>Add STEEL_API_KEY to Preview and Production, then redeploy.</small>
             ) : null}
+          </div>
+        </div>
+      </section>
+
+      <section className="dashboardSection">
+        <div className="sectionTitleRow">
+          <div><p className="coreEyebrow">Stage 9 qualification</p><h2>Browser Planner</h2></div>
+          <StatusPill status="candidate" />
+        </div>
+        <div className="browserQualificationPanel">
+          <div>
+            <p className="coreEyebrow">Bounded browser reasoning</p>
+            <h3>Qualify observation, planning, recovery, and safe draft mutation</h3>
+            <p>
+              Runs the Browser Planner through synthetic recovery, mock commerce,
+              a real read-only site, and a controlled draft mutation. Every model
+              decision selects exactly one observed stable element or stops.
+            </p>
+          </div>
+          <div className="browserQualificationActions">
+            {context.businesses.map((business) => (
+              <form action={startBrowserPlannerQualification} key={business.id}>
+                <input name="businessId" type="hidden" value={business.id} />
+                <input name="idempotencyKey" type="hidden" value={`stage9:${crypto.randomUUID()}`} />
+                <input name="launchNonce" type="hidden" value={crypto.randomUUID()} />
+                <button
+                  className="coreButton coreButton-primary"
+                  disabled={!browserConfigured || !isOpenRouterConfigured()}
+                  type="submit"
+                >
+                  Qualify for {business.name}
+                </button>
+              </form>
+            ))}
+            <small>
+              Uses the qualified Steel browser and standard model route. Actions
+              remain visible in the Workflow Live Browser workspace.
+            </small>
           </div>
         </div>
       </section>
