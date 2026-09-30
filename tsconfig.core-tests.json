@@ -29,7 +29,18 @@
     "src/research/**/*.ts",
     "src/workers/**/*.ts",
     "src/products/types.ts",
+    "src/products/history.ts",
     "src/products/discovery.ts",
+    "src/products/discovery-v2.ts",
+    "src/products/discovery-v2-knowledge.ts",
+    "src/products/discovery-v2-budget.ts",
+    "src/products/discovery-v2-research.ts",
+    "src/products/discovery-v2-plan.ts",
+    "src/products/discovery-v2-worker-contract.ts",
+    "src/products/discovery-v2-workers.ts",
+    "src/products/discovery-v2-packs.ts",
+    "src/products/discovery-v2-runtime.ts",
+    "src/products/discovery-v2-goal.ts",
     "src/creative/**/*.ts"
   ],
   "exclude": [

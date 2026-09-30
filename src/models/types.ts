@@ -115,9 +115,10 @@ export type ModelProviderResponse = {
 };
 
 export type ProviderPriceLimit = { prompt: number; completion: number; request: 0 };
-export type WebSearchModelRequest = { model: ModelDefinition; query: string; allowedDomains: string[]; providerPriceLimit?: ProviderPriceLimit };
+export type WebSearchModelRequest = { model: ModelDefinition; query: string; allowedDomains: string[]; providerPriceLimit?: ProviderPriceLimit; providerOnly?: readonly string[]; requireReturnedModel?: boolean };
 
 export type StructuredModelRequest = {
+  requireReturnedModel?: boolean;
   providerPriceLimit?: ProviderPriceLimit;
   providerOnly?: readonly string[];
   maxOutputTokens?: number;
