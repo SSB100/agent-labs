@@ -13,13 +13,14 @@ import {
 import { CoreIcon } from "@/components/stage7/icons";
 import {
   DIMENSIONS,
-  type CandidateAssessment,
+  type CandidateOutcome,
   type Dimension,
   type ProductCandidate,
-  type ProductDecision,
-  type ProductExperiment,
+  type ProductDecisionRecord as ProductDecision,
+  type ProductExperimentRecord as ProductExperiment,
   type ProductWorkspaceData,
 } from "@/products/types";
+import { hasOnlyLegacyProductHistory, isLegacyProductAssessment, isLegacyProductExperiment, productAssessmentVersion, productExperimentLabel, recordedProductOutcome } from "@/products/history";
 import "@/app/dashboard/products/products.css";
 
 const DIMENSION_LABELS: Record<Dimension, string> = {
@@ -74,7 +75,8 @@ export function ProductSubmitButton({
   </button>;
 }
 
-function OutcomePill({ outcome }: { outcome: CandidateAssessment["outcome"] }) {
+function OutcomePill({ outcome }: { outcome: CandidateOutcome | null }) {
+  if (!outcome) return <span className="productTag">Recorded outcome unavailable</span>;
   return <span className={`productOutcome productOutcome-${outcome.toLowerCase()}`}>{outcome}</span>;
 }
 
@@ -98,6 +100,13 @@ function EvidenceReferences({ ids, experiment }: { ids: string[]; experiment?: P
 
 function DecisionView({ decision, experiment }: { decision: ProductDecision; experiment?: ProductExperiment }) {
   const assessment = decision.assessment;
+  if (!isLegacyProductAssessment(assessment)) return <div className="productDecision">
+    <div className="productRow productRow-start"><div><span className="productEyebrow">Versioned assessment · {productAssessmentVersion(assessment)}</span><p className="productSubtle">Recorded <ProductTime value={decision.created_at} /></p></div><OutcomePill outcome={recordedProductOutcome(assessment)} /></div>
+    <p className="productDecisionMeaning">This reader does not interpret this assessment format. Its complete saved content is preserved below, including any rationale, uncertainty, and evidence references. No legacy scores are inferred.</p>
+    <p className="productSubtle">A recorded TEST does not authorize creative production, publication, or spending. Use the linked workflow to review its version-specific evidence and approval requirements.</p>
+    {experiment?.workflow_run_id ? <Link className="productTextLink" href={`/dashboard/workflows/${experiment.workflow_run_id}`}>Open decision workflow ↗</Link> : null}
+    <details className="productDetails"><summary>Preserved assessment content</summary><pre className="productVariables">{JSON.stringify(assessment, null, 2) ?? "No assessment content recorded"}</pre></details>
+  </div>;
   return <div className="productDecision">
     <div className="productRow productRow-start">
       <div><span className="productEyebrow">{assessment.assessmentOrigin === "owner_assessment" ? "Owner assessment" : "Deterministic provisional assessment"}</span><p className="productSubtle">Recorded <ProductTime value={decision.created_at} /></p></div>
@@ -150,6 +159,11 @@ function EvidenceView({ experiment }: { experiment: ProductExperiment }) {
 }
 
 function MeasurementPlanView({ experiment }: { experiment: ProductExperiment }) {
+  if (!isLegacyProductExperiment(experiment)) return <div className="productMeasurement">
+    <div className="productRow"><h4>Versioned plan</h4><span className="productTag">{experiment.discovery_version ?? "Unrecognized format"}</span></div>
+    <p className="productSubtle">This plan is preserved in its original format. Legacy observation counts, duration, and zero-dollar budgets do not describe it. Any proposed future test still requires its own execution approvals.</p>
+    <details className="productDetails"><summary>Preserved plan content</summary><pre className="productVariables">{JSON.stringify(experiment.measurement_plan, null, 2) ?? "No plan content recorded"}</pre></details>
+  </div>;
   const plan = experiment.measurement_plan;
   return <div className="productMeasurement"><div className="productRow"><h4>Future measurement plan</h4><span className="productTag">Unstarted · Research only</span></div>
     <p className="productSubtle">This records a proposed observation plan, not measured results. No test, listing, creative, advertising, or spending is launched.</p>
@@ -160,7 +174,7 @@ function MeasurementPlanView({ experiment }: { experiment: ProductExperiment }) 
 
 function OwnerAssessment({ experiment }: { experiment: ProductExperiment }) {
   const prefix = useId();
-  if (experiment.status !== "completed" || !experiment.evidence_pack) return null;
+  if (!isLegacyProductExperiment(experiment) || experiment.status !== "completed" || !experiment.evidence_pack) return null;
   return <details className="productDetails"><summary>Record an owner assessment</summary>
     <p className="productSubtle">Use only evidence from this completed experiment. Leave the score blank and kind Unassessed for Unknown. Every dimension needs a rationale (10–600 characters). Higher scores are favorable. Policy sources cannot support demand or other market scores. Saving recalculates the decision; it does not approve a product.</p>
     <p className="productSubtle">Available evidence IDs: {experiment.evidence_pack.evidence.length ? experiment.evidence_pack.evidence.map((entry) => entry.id).join(", ") : "None"}</p>
@@ -186,13 +200,14 @@ function ReconsiderCandidate({ candidate }: { candidate: ProductCandidate }) {
   </details>;
 }
 
-function ExperimentDetails({ experiment }: { experiment: ProductExperiment }) {
+function ExperimentDetails({ experiment, legacyActionsAllowed }: { experiment: ProductExperiment; legacyActionsAllowed: boolean }) {
   return <div className="productExperimentBody">
+    {!isLegacyProductExperiment(experiment) ? <p className="productSubtle">{productExperimentLabel(experiment)}. Preserved read-only in this workspace; legacy assessment, reconciliation, and reconsideration controls do not apply.{experiment.parent_discovery_id ? <> Parent discovery: <code>{experiment.parent_discovery_id}</code>.</> : null}</p> : null}
     <dl className="productMetadata"><div><dt>Experiment</dt><dd><code>{experiment.id}</code></dd></div><div><dt>Created</dt><dd><ProductTime value={experiment.created_at} /></dd></div><div><dt>Research started</dt><dd>{experiment.started_at ? <ProductTime value={experiment.started_at} /> : "Not started"}</dd></div><div><dt>Research completed</dt><dd>{experiment.completed_at ? <ProductTime value={experiment.completed_at} /> : "Not completed"}</dd></div><div><dt>Source artifact</dt><dd><code>{experiment.source_artifact_id ?? "None yet"}</code></dd></div><div><dt>Reconsideration basis</dt><dd><code>{experiment.basis_artifact_id ?? "Initial research"}</code></dd></div><div><dt>Duplicate fingerprint</dt><dd><code>{experiment.fingerprint}</code></dd></div></dl>
     {experiment.failure ? <p className="productFailure" role="status">{experiment.failure}</p> : null}
     {experiment.status === "failed" ? <p className="productSubtle">No automatic retry. This experiment remains in the registry so another click cannot repeat provider work.</p> : null}
     {experiment.workflow_run_id ? <Link className="productTextLink" href={`/dashboard/workflows/${experiment.workflow_run_id}`}>Open research workflow <span aria-hidden="true">↗</span></Link> : <p className="productSubtle">No research workflow is attached.</p>}
-    {experiment.workflow_run_id && experiment.status !== "completed" ? <details className="productDetails"><summary>Reconcile completed research</summary><p className="productSubtle">If the research workflow completed but source persistence failed, try to recover its saved output. Reconciliation makes no new provider call and will not retry a failed research run.</p><form action={reconcileProductDiscovery}><input name="experimentId" type="hidden" value={experiment.id} /><ProductSubmitButton secondary pendingText="Reconciling persisted output…">Reconcile persisted research</ProductSubmitButton></form></details> : null}
+    {legacyActionsAllowed && isLegacyProductExperiment(experiment) && experiment.workflow_run_id && experiment.status !== "completed" ? <details className="productDetails"><summary>Reconcile completed research</summary><p className="productSubtle">If the research workflow completed but source persistence failed, try to recover its saved output. Reconciliation makes no new provider call and will not retry a failed research run.</p><form action={reconcileProductDiscovery}><input name="experimentId" type="hidden" value={experiment.id} /><ProductSubmitButton secondary pendingText="Reconciling persisted output…">Reconcile persisted research</ProductSubmitButton></form></details> : null}
     <MeasurementPlanView experiment={experiment} />
     <details className="productDetails"><summary>Hypothesis and experiment variables</summary><p>{experiment.hypothesis}</p><p className="productSubtle">Audience: {experiment.audience}</p><pre className="productVariables">{JSON.stringify(experiment.variables, null, 2)}</pre></details>
   </div>;
@@ -202,18 +217,19 @@ function CandidateCard({ candidate, experiments, decisions, onView }: { candidat
   const latestExperiment = experiments[0];
   const latestDecision = decisions[0];
   const assessedExperiment = experiments.find((item) => item.id === latestDecision?.experiment_id);
+  const legacyControls = hasOnlyLegacyProductHistory(candidate.id, experiments, decisions);
   return <article className="productCandidate" id={`candidate-${candidate.id}`}>
-    <div className="productRow productRow-start"><span className="productEyebrow">Original POD T-shirt</span>{latestDecision ? <OutcomePill outcome={latestDecision.assessment.outcome} /> : <span className="productTag">Unassessed</span>}</div>
+    <div className="productRow productRow-start"><span className="productEyebrow">Original POD T-shirt</span>{latestDecision ? <OutcomePill outcome={recordedProductOutcome(latestDecision.assessment)} /> : <span className="productTag">Unassessed</span>}</div>
     <h3>{candidate.concept}</h3><p className="productCandidateAudience">For {candidate.audience}</p><p className="productHypothesis">{candidate.hypothesis}</p>
     <div className="productCandidateFacts"><span>Original design: {candidate.original_design ? "Declared" : "Not confirmed"}</span><span>Rights: {candidate.rights_status === "confirmed" ? "Owner confirmed" : "Unclear"}</span><span>{experiments.length} experiment{experiments.length === 1 ? "" : "s"}</span></div>
     <p className="productSubtle">Sources scoped to {candidate.source_domains.length ? candidate.source_domains.join(", ") : "no domains recorded"}</p>
-    <div className="productCandidateActions">{!latestExperiment ? <form action={startProductResearch}><input type="hidden" name="candidateId" value={candidate.id} /><ProductSubmitButton pendingText="Reserving research…">Research candidate</ProductSubmitButton></form> : <><ExperimentStatus status={latestExperiment.status} />{latestExperiment.workflow_run_id ? <Link className="coreButton coreButton-secondary" href={`/dashboard/workflows/${latestExperiment.workflow_run_id}`}>View workflow</Link> : null}</>}
+    <div className="productCandidateActions">{!latestExperiment && legacyControls ? <form action={startProductResearch}><input type="hidden" name="candidateId" value={candidate.id} /><ProductSubmitButton pendingText="Reserving research…">Research candidate</ProductSubmitButton></form> : latestExperiment ? <><ExperimentStatus status={latestExperiment.status} />{latestExperiment.workflow_run_id ? <Link className="coreButton coreButton-secondary" href={`/dashboard/workflows/${latestExperiment.workflow_run_id}`}>View workflow</Link> : null}</> : null}
       <button className="productTextButton" type="button" onClick={() => onView("Registry", candidate.id)}>Experiment history</button>
     </div>
-    {!latestExperiment ? <p className="productProviderNote">Uses the qualified Web Researcher: at most 2 searches and 2 selection calls, with fallback only for recoverable failures. Each call reserves a conservative estimate against a US$1 per-experiment allowance. Estimates are not guaranteed invoice caps. No automatic rerun.</p> : <p className="productProviderNote">The registered experiment is retained. Repeated requests reuse it, including failures; there is no automatic provider retry.</p>}
-    {latestDecision ? <details className="productDetails"><summary>Latest decision and scorecard</summary><DecisionView decision={latestDecision} experiment={assessedExperiment} /></details> : <p className="productInlineEmpty">No decision yet. All nine dimensions are Unknown until assessed.</p>}
+    {!legacyControls ? <p className="productProviderNote">This candidate has versioned history. All records remain available; legacy research and assessment actions are unavailable for this history.</p> : !latestExperiment ? <p className="productProviderNote">Uses the qualified Web Researcher: at most 2 searches and 2 selection calls, with fallback only for recoverable failures. Each call reserves a conservative estimate against a US$1 per-experiment allowance. Estimates are not guaranteed invoice caps. No automatic rerun.</p> : <p className="productProviderNote">The registered experiment is retained. Repeated requests reuse it, including failures; there is no automatic provider retry.</p>}
+    {latestDecision ? <details className="productDetails"><summary>Latest decision and assessment</summary><DecisionView decision={latestDecision} experiment={assessedExperiment} /></details> : <p className="productInlineEmpty">No decision yet. All nine dimensions are Unknown until assessed.</p>}
     {latestExperiment?.evidence_pack ? <div className="productCandidateActions"><button type="button" className="productTextButton" onClick={() => onView("Evidence", candidate.id)}>Read evidence and citations</button><button type="button" className="productTextButton" onClick={() => onView("Decisions", candidate.id)}>Review decision history</button></div> : null}
-    {latestExperiment ? <><OwnerAssessment experiment={latestExperiment} /><ReconsiderCandidate candidate={candidate} /></> : null}
+    {latestExperiment && legacyControls ? <><OwnerAssessment experiment={latestExperiment} /><ReconsiderCandidate candidate={candidate} /></> : null}
     <footer className="productCandidateFooter"><span>Added <ProductTime value={candidate.created_at} /></span><code title={candidate.id}>{candidate.id.slice(0, 8)}</code></footer>
   </article>;
 }
@@ -227,6 +243,8 @@ export function ProductsWorkspace({ data, compact = false }: { data: ProductWork
   const candidates = data.candidates.filter((candidate) => candidateId === "all" || candidate.id === candidateId);
   const visibleExperiments = experiments.filter((experiment) => candidateId === "all" || experiment.candidate_id === candidateId);
   const visibleDecisions = decisions.filter((decision) => candidateId === "all" || decision.candidate_id === candidateId);
+  const discoveryRoots = visibleExperiments.filter(experiment => experiment.candidate_id === null);
+  const versionedExperiments = visibleExperiments.filter(experiment => !isLegacyProductExperiment(experiment));
   const candidateById = new Map(data.candidates.map((candidate) => [candidate.id, candidate]));
   const experimentById = new Map(experiments.map((experiment) => [experiment.id, experiment]));
   const counts = { Candidates: candidates.length, Evidence: visibleExperiments.filter((experiment) => experiment.evidence_pack).length, Decisions: visibleDecisions.length, Registry: visibleExperiments.length };
@@ -244,14 +262,15 @@ export function ProductsWorkspace({ data, compact = false }: { data: ProductWork
   };
   return <div className={`productsWorkspace${compact ? " productsWorkspace-compact" : ""}`}>
     {data.errors.length ? <div className="productFailure" role="alert"><strong>Some product records could not be loaded</strong><ul>{data.errors.map((error, index) => <li key={`${index}-${error}`}>{error}</li>)}</ul><p>Refresh to check again. Missing records below do not confirm that no experiment exists.</p></div> : null}
-    <div className="productWorkspaceToolbar"><div className="productViews" role="tablist" aria-label="Product discovery views">{VIEWS.map((item, index) => <button id={`${id}-tab-${item}`} aria-controls={`${id}-panel`} aria-selected={view === item} tabIndex={view === item ? 0 : -1} role="tab" className={view === item ? "productView productView-active" : "productView"} key={item} type="button" onClick={() => setView(item)} onKeyDown={(event) => onTabKeyDown(event, index)}>{item}<span>{counts[item]}</span></button>)}</div>
+    <div className="productWorkspaceToolbar"><div className="productViews" role="tablist" aria-label="Product discovery views">{VIEWS.map((item, index) => <button id={`${id}-tab-${item}`} aria-controls={`${id}-panel`} aria-selected={view === item} tabIndex={view === item ? 0 : -1} role="tab" className={view === item ? "productView productView-active" : "productView"} key={item} type="button" onClick={() => setView(item)} onKeyDown={(event) => onTabKeyDown(event, index)}>{item}<span>{item === "Evidence" && versionedExperiments.some(experiment => !experiment.evidence_pack) ? `${counts[item]} + linked` : counts[item]}</span></button>)}</div>
       {data.candidates.length > 1 ? <label className="productFilter" htmlFor={`${id}-filter`}><span>Candidate</span><select id={`${id}-filter`} value={candidateId} onChange={(event) => setCandidateId(event.target.value)}><option value="all">All candidates</option>{data.candidates.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.concept}</option>)}</select></label> : null}
     </div>
+    {discoveryRoots.length ? <p className="productSubtle">{discoveryRoots.length} discovery root(s) have no candidate assigned. These are preserved research records, not missing experiments. Open Registry for their complete plans, variables, and workflow links.</p> : null}
     <div id={`${id}-panel`} role="tabpanel" aria-labelledby={`${id}-tab-${view}`} tabIndex={0} className="productViewPanel">
-      {view === "Candidates" ? candidates.length ? <div className="productCandidateGrid">{candidates.map((candidate) => <CandidateCard key={candidate.id} candidate={candidate} experiments={experiments.filter((experiment) => experiment.candidate_id === candidate.id)} decisions={decisions.filter((decision) => decision.candidate_id === candidate.id)} onView={viewCandidate} />)}</div> : <EmptyState title={data.errors.length ? "Candidate data unavailable" : "Start with a question worth researching"}>{compact ? "No product candidate is linked to this workflow. Add candidates in Products to preserve hypotheses, evidence, and decisions." : "Add an original T-shirt concept, audience, and testable hypothesis above. Saving a candidate does not start provider research."}</EmptyState> : null}
-      {view === "Evidence" ? counts.Evidence ? <div className="productStack">{visibleExperiments.filter((experiment) => experiment.evidence_pack).map((experiment) => <article className="productPanel" key={experiment.id}><header className="productPanelHeader"><div><span className="productEyebrow">Evidence Pack</span><h3>{candidateById.get(experiment.candidate_id)?.concept ?? "Product candidate"}</h3><p className="productSubtle">Experiment <code>{experiment.id}</code></p></div><ExperimentStatus status={experiment.status} /></header><EvidenceView experiment={experiment} /></article>)}</div> : <EmptyState title="Evidence has not arrived yet">Completed research will appear with source URLs, selected quotes, provenance, and explicit UTC freshness windows.</EmptyState> : null}
-      {view === "Decisions" ? visibleDecisions.length ? <div className="productStack">{visibleDecisions.map((decision) => <article className="productPanel" key={decision.id}><header className="productPanelHeader"><div><span className="productEyebrow">Preserved decision</span><h3>{candidateById.get(decision.candidate_id)?.concept ?? "Product candidate"}</h3><p className="productSubtle">Experiment <code>{decision.experiment_id}</code></p></div></header><DecisionView decision={decision} experiment={experimentById.get(decision.experiment_id)} /></article>)}</div> : <EmptyState title="No evidence-backed decision yet">TEST, REJECT, and NEEDS_MORE_EVIDENCE decisions will preserve all nine scores, exact gaps, and evidence references. Unknown scores remain explicit.</EmptyState> : null}
-      {view === "Registry" ? visibleExperiments.length ? <div className="productStack">{visibleExperiments.map((experiment) => <article className="productPanel" key={experiment.id}><header className="productPanelHeader"><div><span className="productEyebrow">{experiment.basis_artifact_id ? "Evidence-led reconsideration" : "Initial research"}</span><h3>{candidateById.get(experiment.candidate_id)?.concept ?? "Product candidate"}</h3><p className="productSubtle">Audience: {experiment.audience}</p></div><ExperimentStatus status={experiment.status} /></header><ExperimentDetails experiment={experiment} /><OwnerAssessment experiment={experiment} /></article>)}</div> : <EmptyState title="No registered experiments">Research reserves an experiment before provider work. Duplicate requests reuse it; reconsideration needs genuinely new persisted source content.</EmptyState> : null}
+      {view === "Candidates" ? candidates.length ? <div className="productCandidateGrid">{candidates.map((candidate) => <CandidateCard key={candidate.id} candidate={candidate} experiments={experiments.filter((experiment) => experiment.candidate_id === candidate.id)} decisions={decisions.filter((decision) => decision.candidate_id === candidate.id)} onView={viewCandidate} />)}</div> : discoveryRoots.length ? <EmptyState title="Candidate selection is not recorded">Discovery records are already present. Their workflow and Registry history remain available before a candidate is selected.</EmptyState> : <EmptyState title={data.errors.length ? "Candidate data unavailable" : "Start with a question worth researching"}>{compact ? "No product candidate is linked to this workflow. Add candidates in Products to preserve hypotheses, evidence, and decisions." : "Add an original T-shirt concept, audience, and testable hypothesis above. Saving a candidate does not start provider research."}</EmptyState> : null}
+      {view === "Evidence" ? counts.Evidence ? <div className="productStack">{visibleExperiments.filter((experiment) => experiment.evidence_pack).map((experiment) => <article className="productPanel" key={experiment.id}><header className="productPanelHeader"><div><span className="productEyebrow">Evidence Pack</span><h3>{(experiment.candidate_id ? candidateById.get(experiment.candidate_id)?.concept : null) ?? productExperimentLabel(experiment)}</h3><p className="productSubtle">Experiment <code>{experiment.id}</code></p></div><ExperimentStatus status={experiment.status} /></header><EvidenceView experiment={experiment} /></article>)}</div> : versionedExperiments.length ? <EmptyState title="Versioned evidence remains linked to its workflow">This reader displays single-pack legacy evidence only. A zero pack count here does not establish that versioned research has no evidence. Open Registry and the linked workflow for its saved artifacts.</EmptyState> : <EmptyState title="Evidence has not arrived yet">Completed research will appear with source URLs, selected quotes, provenance, and explicit UTC freshness windows.</EmptyState> : null}
+      {view === "Decisions" ? visibleDecisions.length ? <div className="productStack">{visibleDecisions.map((decision) => <article className="productPanel" key={decision.id}><header className="productPanelHeader"><div><span className="productEyebrow">Preserved decision</span><h3>{candidateById.get(decision.candidate_id)?.concept ?? "Product candidate"}</h3><p className="productSubtle">Experiment <code>{decision.experiment_id}</code></p></div></header><DecisionView decision={decision} experiment={experimentById.get(decision.experiment_id)} /></article>)}</div> : <EmptyState title="No evidence-backed decision yet">Saved decisions preserve their original assessment format, exact gaps, and evidence references. Legacy unknown scores remain explicit.</EmptyState> : null}
+      {view === "Registry" ? visibleExperiments.length ? <div className="productStack">{visibleExperiments.map((experiment) => <article className="productPanel" key={experiment.id}><header className="productPanelHeader"><div><span className="productEyebrow">{productExperimentLabel(experiment)}</span><h3>{(experiment.candidate_id ? candidateById.get(experiment.candidate_id)?.concept : null) ?? productExperimentLabel(experiment)}</h3><p className="productSubtle">Audience: {experiment.audience}</p></div><ExperimentStatus status={experiment.status} /></header><ExperimentDetails experiment={experiment} legacyActionsAllowed={hasOnlyLegacyProductHistory(experiment.candidate_id, experiments, decisions)} />{hasOnlyLegacyProductHistory(experiment.candidate_id, experiments, decisions) ? <OwnerAssessment experiment={experiment} /> : null}</article>)}</div> : <EmptyState title="No registered experiments">Research reserves an experiment before provider work. Duplicate requests reuse it; reconsideration needs genuinely new persisted source content.</EmptyState> : null}
     </div>
     <p className="productAuthorityNote"><CoreIcon name="products" />Original POD T-shirts only. TEST proposes an unstarted future test. No qualified product approval, creative production, publishing, or spending authority is granted.</p>
     {compact ? <Link className="productTextLink" href="/dashboard/products">Open full Products workspace <span aria-hidden="true">↗</span></Link> : null}
