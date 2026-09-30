@@ -1,4 +1,9 @@
 import {
+  BROWSER_PLANNER_RUNTIME_WORKFLOW_DEFINITION_ID,
+  BROWSER_PLANNER_RUNTIME_WORKFLOW_KEY,
+  browserPlannerRuntimeWorkflow,
+} from "./browser-planner-runtime";
+import {
   BROWSER_PROVIDER_RUNTIME_WORKFLOW_DEFINITION_ID,
   BROWSER_PROVIDER_RUNTIME_WORKFLOW_KEY,
   browserProviderRuntimeWorkflow,
@@ -35,6 +40,10 @@ export const WORKFLOW_REGISTRY = {
   [BROWSER_PROVIDER_RUNTIME_WORKFLOW_KEY]: {
     definitionId: BROWSER_PROVIDER_RUNTIME_WORKFLOW_DEFINITION_ID,
     workflow: browserProviderRuntimeWorkflow,
+  },
+  [BROWSER_PLANNER_RUNTIME_WORKFLOW_KEY]: {
+    definitionId: BROWSER_PLANNER_RUNTIME_WORKFLOW_DEFINITION_ID,
+    workflow: browserPlannerRuntimeWorkflow,
   },
 } as const;
 

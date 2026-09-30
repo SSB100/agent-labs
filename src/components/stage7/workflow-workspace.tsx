@@ -4,7 +4,10 @@ import { useState } from "react";
 
 import { resumeBrowserControl } from "@/app/dashboard/browser-actions";
 import { BrowserReplay } from "@/components/stage8/browser-replay";
-import type { BrowserSessionRecord } from "@/browser/ui";
+import type {
+  BrowserSessionEventRecord,
+  BrowserSessionRecord,
+} from "@/browser/ui";
 import type {
   ArtifactRecord,
   OwnerInterventionRecord,
@@ -28,6 +31,7 @@ type WorkspaceTab = (typeof tabs)[number]["key"];
 
 type WorkflowWorkspaceProps = {
   artifacts: ArtifactRecord[];
+  browserEvents?: BrowserSessionEventRecord[];
   browserIntervention?: OwnerInterventionRecord | null;
   browserSession?: BrowserSessionRecord | null;
   returnTo: string;
@@ -51,11 +55,60 @@ function Placeholder({
   );
 }
 
+function BrowserPlannerActivity({
+  events,
+}: {
+  events: BrowserSessionEventRecord[];
+}) {
+  const plannerEvents = events
+    .filter((event) => event.event_type.startsWith("browser.planner."))
+    .slice(0, 8);
+
+  if (!plannerEvents.length) return null;
+
+  return (
+    <div className="browserPlannerActivity">
+      <div>
+        <strong>Browser Planner</strong>
+        <small>One bounded action per planning step</small>
+      </div>
+      <ol>
+        {plannerEvents.map((event) => {
+          const action =
+            typeof event.payload.actionType === "string"
+              ? event.payload.actionType
+              : event.event_type.split(".").at(-1) ?? "action";
+          const elementId =
+            typeof event.payload.elementId === "string"
+              ? event.payload.elementId
+              : null;
+          const reason =
+            typeof event.payload.reason === "string"
+              ? event.payload.reason
+              : humanize(event.event_type);
+          return (
+            <li key={event.id}>
+              <span>{humanize(action)}</span>
+              <strong>{reason}</strong>
+              <small>
+                {elementId ? `Element ${elementId} · ` : ""}
+                {formatDateTime(event.occurred_at)}
+              </small>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
+
 function BrowserWorkspace({
+  events,
   intervention,
   returnTo,
   session,
 }: {
+  events: BrowserSessionEventRecord[];
   intervention?: OwnerInterventionRecord | null;
   returnTo: string;
   session: BrowserSessionRecord | null;
@@ -108,6 +161,8 @@ function BrowserWorkspace({
         </Placeholder>
       )}
 
+      <BrowserPlannerActivity events={events} />
+
       <div className="browserWorkspaceFooter">
         <div>
           <strong>
@@ -119,10 +174,10 @@ function BrowserWorkspace({
           </strong>
           <small>
             {session.control_mode === "human"
-              ? "Click Record human interaction in the live page, then return control."
+              ? "Complete the required human interaction, then return control."
               : session.status === "released"
                 ? "The provider session is released and no browser time is being consumed."
-                : "The live view is read-only until Take Control is approved."}
+                : "Planner actions are shown above. The live view stays read-only until Take Control is approved."}
           </small>
         </div>
         {intervention && ["browser_takeover", "browser_return_control"].includes(intervention.intervention_type) ? (
@@ -146,6 +201,7 @@ function BrowserWorkspace({
 
 export function WorkflowWorkspace({
   artifacts,
+  browserEvents = [],
   browserIntervention,
   browserSession = null,
   returnTo,
@@ -187,6 +243,7 @@ export function WorkflowWorkspace({
       <div className="workspaceContent" role="tabpanel">
         {activeTab === "browser" ? (
           <BrowserWorkspace
+            events={browserEvents}
             intervention={browserIntervention}
             returnTo={returnTo}
             session={browserSession}

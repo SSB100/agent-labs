@@ -1,6 +1,9 @@
 import Link from "next/link";
 
-import { startBrowserQualification } from "@/app/dashboard/browser-actions";
+import {
+  startBrowserPlannerQualification,
+  startBrowserQualification,
+} from "@/app/dashboard/browser-actions";
 import {
   BROWSER_PROVIDER_COMPARISON,
   isDefaultBrowserProviderConfigured,
@@ -25,14 +28,36 @@ type AccountsPageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
+type BrowserPlannerDefinitionRecord = {
+  id: string;
+  planner_key: string;
+  version: string;
+  name: string;
+  status: string;
+  model_route_key: string;
+  qualification: Record<string, unknown>;
+};
+
+type BrowserPlannerCaseRecord = {
+  id: string;
+  case_key: string;
+  level: string;
+  status: string;
+  score: number | string | null;
+};
+
 const messages: Record<string, string> = {
   "browser-workflow-started": "Browser provider qualification started.",
+  "browser-planner-workflow-started": "Browser Planner qualification started.",
 };
 
 const errors: Record<string, string> = {
   "browser-provider-not-configured":
     "STEEL_API_KEY is not configured for this Vercel environment.",
   "browser-reservation-failed": "The browser qualification could not be reserved.",
+  "browser-planner-reservation-failed": "The Browser Planner qualification could not be reserved.",
+  "browser-planner-launch-failed": "The Browser Planner workflow could not launch.",
+  "invalid-browser-planner-launch": "The Browser Planner qualification request was invalid.",
   "business-not-found": "The selected Business is unavailable.",
   "invalid-browser-launch": "The browser qualification request was invalid.",
 };
@@ -45,6 +70,12 @@ function rows<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
 }
 
+function record<T>(value: unknown): T | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as T)
+    : null;
+}
+
 export default async function AccountsPage({ searchParams }: AccountsPageProps) {
   const context = await requireOwnerUiContext();
   const query = await searchParams;
@@ -52,7 +83,7 @@ export default async function AccountsPage({ searchParams }: AccountsPageProps) 
   const error = errors[first(query.error) ?? ""];
   const browserConfigured = isDefaultBrowserProviderConfigured();
 
-  const [providerResult, sessionResult] = await Promise.all([
+  const [providerResult, sessionResult, plannerResult, plannerCaseResult] = await Promise.all([
     context.supabase
       .from("browser_provider_definitions")
       .select(
@@ -72,9 +103,22 @@ export default async function AccountsPage({ searchParams }: AccountsPageProps) 
           .order("created_at", { ascending: false })
           .limit(12)
       : Promise.resolve({ data: [], error: null }),
+    context.supabase
+      .from("browser_planner_definitions")
+      .select("id, planner_key, version, name, status, model_route_key, qualification")
+      .eq("planner_key", "browser.planner")
+      .eq("version", "1.0.0")
+      .maybeSingle(),
+    context.supabase
+      .from("browser_planner_qualification_cases")
+      .select("id, case_key, level, status, score")
+      .order("level"),
   ]);
   const providers = rows<BrowserProviderDefinitionRecord>(providerResult.data);
   const sessions = rows<BrowserSessionRecord>(sessionResult.data);
+  const planner = record<BrowserPlannerDefinitionRecord>(plannerResult.data);
+  const plannerCases = rows<BrowserPlannerCaseRecord>(plannerCaseResult.data);
+  const plannerPassed = plannerCases.filter((entry) => entry.status === "passed").length;
   const providerById = new Map(providers.map((provider) => [provider.id, provider]));
   const businessById = new Map(context.businesses.map((business) => [business.id, business]));
 
@@ -182,6 +226,47 @@ export default async function AccountsPage({ searchParams }: AccountsPageProps) 
             {!browserConfigured ? (
               <small>Add STEEL_API_KEY to Preview and Production, then redeploy.</small>
             ) : null}
+          </div>
+        </div>
+      </section>
+
+      <section className="dashboardSection">
+        <div className="sectionTitleRow">
+          <div><p className="coreEyebrow">Stage 9 qualification</p><h2>Browser Planner</h2></div>
+          <StatusPill status={planner?.status ?? "candidate"} />
+        </div>
+        <div className="browserQualificationPanel">
+          <div>
+            <p className="coreEyebrow">Bounded browser reasoning</p>
+            <h3>Qualify observation, planning, recovery, and safe draft mutation</h3>
+            <p>
+              Runs the Browser Planner through synthetic recovery, mock commerce,
+              a real read-only site, and a controlled draft mutation. Every model
+              decision selects exactly one observed stable element or stops.
+            </p>
+            <small>
+              {plannerPassed}/{plannerCases.length || 4} required cases passed · Route {planner?.model_route_key ?? "standard.default"}
+            </small>
+          </div>
+          <div className="browserQualificationActions">
+            {context.businesses.map((business) => (
+              <form action={startBrowserPlannerQualification} key={business.id}>
+                <input name="businessId" type="hidden" value={business.id} />
+                <input name="idempotencyKey" type="hidden" value={`stage9:${crypto.randomUUID()}`} />
+                <input name="launchNonce" type="hidden" value={crypto.randomUUID()} />
+                <button
+                  className="coreButton coreButton-primary"
+                  disabled={!browserConfigured || !isOpenRouterConfigured()}
+                  type="submit"
+                >
+{planner?.status === "qualified" ? "Requalify" : "Qualify"} for {business.name}
+                </button>
+              </form>
+            ))}
+            <small>
+              Uses the qualified Steel browser and standard model route. Actions
+              remain visible in the Workflow Live Browser workspace.
+            </small>
           </div>
         </div>
       </section>

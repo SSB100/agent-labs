@@ -39,3 +39,4 @@ pnpm-debug.log*
 Thumbs.db
 .vscode/
 .idea/
+/.swc

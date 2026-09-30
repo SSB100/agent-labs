@@ -14,6 +14,7 @@
   },
   "include": [
     "src/browser/automation.ts",
+    "src/browser/planner/**/*.ts",
     "src/browser/providers/**/*.ts",
     "src/browser/registry.ts",
     "src/browser/replay.ts",

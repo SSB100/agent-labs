@@ -1,7 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import type { BrowserSessionRecord } from "@/browser/ui";
+import type {
+  BrowserSessionEventRecord,
+  BrowserSessionRecord,
+} from "@/browser/ui";
 import { BrowserInterventionCard } from "@/components/stage8/browser-intervention";
 import {
   AppShell,
@@ -36,6 +39,8 @@ const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const BROWSER_SESSION_SELECT =
   "id, business_id, workflow_run_id, provider_definition_id, browser_identity_id, provider_session_id, status, control_mode, live_view_status, replay_status, current_url, page_title, region, browser_mode, metadata, failure, started_at, released_at, created_at, updated_at";
+const BROWSER_EVENT_SELECT =
+  "id, business_id, workflow_run_id, browser_session_id, event_type, control_mode, payload, occurred_at, created_at";
 
 type WorkflowPageProps = {
   params: Promise<{ workflowRunId: string }>;
@@ -47,6 +52,8 @@ const messages: Record<string, string> = {
   "browser-control-taken": "Takeover approved. The live browser is now interactive.",
   "browser-duplicate-prevented": "The existing browser qualification remains authoritative.",
   "browser-workflow-started": "Remote browser qualification started.",
+  "browser-planner-workflow-started": "Browser Planner qualification started.",
+  "browser-planner-duplicate-prevented": "The existing Browser Planner qualification remains authoritative.",
   "review-approved": "Decision recorded. The durable workflow is resuming.",
   "review-failed": "Failure decision recorded. The workflow is closing safely.",
   "workflow-duplicate-prevented": "The existing workflow remains authoritative.",
@@ -57,6 +64,7 @@ const errors: Record<string, string> = {
   "browser-control-not-open": "That browser-control request is no longer open.",
   "browser-control-resume-failed": "The browser workflow could not resume.",
   "browser-launch-failed": "The remote browser workflow could not launch.",
+  "browser-planner-launch-failed": "The Browser Planner workflow could not launch.",
   "invalid-browser-control": "The browser-control request was invalid.",
   "invalid-review-decision": "The review decision was invalid.",
   "review-not-open": "That review is no longer open.",
@@ -73,20 +81,31 @@ function record<T>(value: unknown): T | null {
     : null;
 }
 
+function records<T>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : [];
+}
+
 export default async function WorkflowPage({ params, searchParams }: WorkflowPageProps) {
   const { workflowRunId } = await params;
   if (!UUID_PATTERN.test(workflowRunId)) notFound();
 
   const context = await requireOwnerUiContext();
-  const [detail, browserResult] = await Promise.all([
+  const [detail, browserResult, browserEventResult] = await Promise.all([
     loadWorkflowDetail(context, workflowRunId),
     context.supabase
       .from("browser_sessions")
       .select(BROWSER_SESSION_SELECT)
       .eq("workflow_run_id", workflowRunId)
       .maybeSingle(),
+    context.supabase
+      .from("browser_session_events")
+      .select(BROWSER_EVENT_SELECT)
+      .eq("workflow_run_id", workflowRunId)
+      .order("occurred_at", { ascending: false })
+      .limit(80),
   ]);
   const browserSession = record<BrowserSessionRecord>(browserResult.data);
+  const browserEvents = records<BrowserSessionEventRecord>(browserEventResult.data);
   const query = await searchParams;
   const message = messages[first(query.message) ?? ""];
   const error = errors[first(query.error) ?? ""];
@@ -189,6 +208,7 @@ export default async function WorkflowPage({ params, searchParams }: WorkflowPag
       <div className="workflowWorkspaceGrid">
         <WorkflowWorkspace
           artifacts={detail.artifacts}
+          browserEvents={browserEvents}
           browserIntervention={browserIntervention}
           browserSession={browserSession}
           returnTo={returnTo}
