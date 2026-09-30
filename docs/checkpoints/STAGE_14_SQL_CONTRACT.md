@@ -90,6 +90,14 @@ Image generation is a trusted capability, not a falsely labeled Creative Directo
 
 Approvals, creative runs, phase outputs, asset versions, reviews, reservations and settlements are append-only. Composite foreign keys bind Business/candidate/decision/approval/run/asset identities; hashes bind exact immutable content. Core CRUD guards prevent owners from fabricating receipts, completed runs, reviews, artifacts or events through generic table writes. Dedicated runs have neither `pack_snapshot` nor a generic runtime capability hash on `workflow_runs`; generic installed-pack runtimes cannot execute them. Their pinned catalog is stored in `creative_runs`.
 
+## Terminal eligibility hardening
+
+Applied migration `20260930130626_stage14_terminal_eligibility_guard` replaces only the existing runtime function, retaining its signature, owner, grants and empty search path. Final candidate-production PASS rechecks the current decision, source freshness and approval after the paid phase output is preserved. Candidate/experiment locks serialize the final check with new assessments. A changed basis routes to Needs You without releasing reservations or erasing paid artifacts. Hard capability expiry remains an authorization denial, including after a lock wait; it does not gain a late-write grace period.
+
+Combined Stage 10–14 rollback suites passed before and after apply, including changed final decisions, expiry during persistence and preserved earlier receipts. The exact function ACL, owner, SECURITY DEFINER and empty search path were verified unchanged.
+
+The owner-facing production form uses this same approved RPC. It never creates or changes a candidate assessment, grants publication authority, or starts a paid run while saving approval.
+
 ## Storage boundary requiring approval
 
 Private bucket `creative-assets`, PNG only, 7 MB maximum. Exact immutable paths:

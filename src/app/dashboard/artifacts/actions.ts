@@ -5,6 +5,9 @@ import { redirect } from "next/navigation";
 import { start } from "workflow/api";
 import { validateCreativeApproval } from "@/creative/contracts";
 import { currentCreativeQuote, TECHNICAL_HYPOTHESIS, technicalCreativeApproval } from "@/creative/proposal";
+import { currentProductionCandidate, productionCreativeApproval } from "@/creative/production-approval";
+import { SCREEN_CATEGORIES } from "@/creative/types";
+import type { ProductCandidate, ProductDecision, ProductExperiment } from "@/products/types";
 import { requireOwnerUiContext } from "@/lib/core-ui/data";
 import { creativeRuntimeWorkflow } from "@/workflows/creative-runtime";
 
@@ -51,6 +54,32 @@ export async function startCreativeRun(form: FormData) {
     error("Creative launch could not be confirmed. Its reservation is preserved; check the existing run before another attempt.");
   }
   revalidatePath("/dashboard/artifacts"); redirect(`/dashboard/workflows/${launch.data.workflowRunId}`);
+}
+export async function approveProductionCreativeCandidate(form: FormData) {
+  const context = await requireOwnerUiContext(), candidateId = value(form, "candidateId"), decisionId = value(form, "decisionId"), approvalId = value(form, "approvalId");
+  if (![candidateId, decisionId, approvalId].every(id => uuidPattern.test(id))) error("Invalid candidate or approval reference.");
+  if (!["confirmOriginalIntent", "confirmProductionScope", "confirmPrintSpec", "confirmTerms", "confirmBudget", "confirmPolicyScreen"].every(key => value(form, key) === "on")) error("Confirm the exact candidate, original instructions, policy screen, print specification, terms and allowance.");
+  const candidateResult = await context.supabase.from("product_candidates").select("*").eq("id", candidateId).maybeSingle();
+  const candidate = candidateResult.data as ProductCandidate | null;
+  if (candidateResult.error || !candidate || !context.businesses.some(b => b.id === candidate.business_id)) error("Owned candidate not found.");
+  const decisionsResult = await context.supabase.from("product_decisions").select("*").eq("candidate_id", candidate.id).eq("business_id", candidate.business_id).order("created_at", { ascending: false }).limit(2);
+  const decisions = (decisionsResult.data ?? []) as ProductDecision[], selected = decisions.find(d => d.id === decisionId);
+  if (decisionsResult.error || !selected || selected.id !== decisions[0]?.id) error("The candidate decision changed. Review the current evidence before approving.");
+  const experimentResult = await context.supabase.from("product_experiments").select("*").eq("id", selected.experiment_id).eq("candidate_id", candidate.id).eq("business_id", candidate.business_id).maybeSingle();
+  const choice = experimentResult.error ? null : currentProductionCandidate(candidate, decisions, experimentResult.data ? [experimentResult.data as ProductExperiment] : []);
+  if (!choice) error("Current evidence-backed owner TEST and fresh completed research are required. Unknown evidence cannot be waived by creative approval.");
+  const maximumMicrousd = Math.round(Number(value(form, "budgetUsd")) * 1_000_000);
+  if (!Number.isInteger(maximumMicrousd) || maximumMicrousd < 1 || maximumMicrousd > 1_000_000) error("This bounded creative run allows at most US$1 across all phases.");
+  let approval: ReturnType<typeof productionCreativeApproval>, quote: Awaited<ReturnType<typeof currentCreativeQuote>>;
+  try {
+    approval = productionCreativeApproval(choice, { approvalId, designInstructions: value(form, "designInstructions"), rightsStatement: value(form, "rightsStatement"), maximumMicrousd,
+      policyScreen: SCREEN_CATEGORIES.map(category => ({ category, status: "clear", rationale: value(form, `rationale_${category}`), sourceUrls: value(form, `sources_${category}`).split(/\r?\n/).map(url => url.trim()).filter(Boolean) })) });
+    quote = await currentCreativeQuote();
+  } catch (cause) { error(cause instanceof Error ? cause.message : "Unable to validate the exact production approval."); }
+  if (quote.maximumEstimateMicrousd > maximumMicrousd) error("Current conservative estimate exceeds the allowance; no provider call was made.");
+  const saved = await context.supabase.rpc("approve_creative_candidate", { p_candidate_id: candidate.id, p_approval: approval, p_quote: quote });
+  if (saved.error) error(saved.error.message);
+  success("Separate candidate creative approval saved. Review and start its single bounded run when ready; publication is not authorized.");
 }
 export async function closeExpiredCreativeRun(form: FormData) {
   const context = await requireOwnerUiContext(), runId = value(form, "creativeRunId");

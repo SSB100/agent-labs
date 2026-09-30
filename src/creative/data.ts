@@ -1,5 +1,15 @@
 import type { OwnerUiContext } from "../lib/core-ui/data";
 import type { AssetInspection, CreativeApprovalSnapshot, DesignReview } from "./types";
+import { loadProductWorkspace } from "../products/data";
+import { currentProductionCandidate, type ProductionCandidateChoice } from "./production-approval";
+
+export async function loadProductionCandidates(context: OwnerUiContext): Promise<{ candidates: ProductionCandidateChoice[]; errors: string[] }> {
+  const products = await loadProductWorkspace(context);
+  return { candidates: products.errors.length ? [] : products.candidates.flatMap(candidate => {
+    const choice = currentProductionCandidate(candidate, products.decisions, products.experiments);
+    return choice ? [choice] : [];
+  }), errors: products.errors };
+}
 export type CreativeApprovalRecord = { id: string; business_id: string; candidate_id: string; purpose: string; snapshot: CreativeApprovalSnapshot; maximum_microusd: number; approved_at: string; expires_at: string };
 export type CreativeRunRecord = { id: string; business_id: string; approval_id: string; workflow_run_id: string; created_at: string; capability_expires_at: string; capabilityExpired: boolean; status: string; phase: string | null; productionReady: boolean };
 export type CreativeAssetRecord = { id: string; creative_run_id: string; business_id: string; candidate_id: string; version: number; brief_hash: string; asset_hash: string; storage_path: string; inspection: AssetInspection; prompt: string; provider: string; model: string; generated_at: string; signedUrl: string | null };

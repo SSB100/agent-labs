@@ -373,4 +373,142 @@ begin
  assert private.stage14_safe_repair('Restore the exact approved composition using only the approved subjects and background. Remove unrequested elements; add no new subjects, names, text or references.');
  assert not private.stage14_safe_repair('Add a protected branded character beside the trees.');
 end; $$;
+-- This temporary trigger delays only the designated synthetic final review
+-- after output insertion. The fixed deadline crosses during the same persist,
+-- exercising the post-wait check rather than the already-expired entry guard.
+create function pg_temp.stage14_delay_terminal_fixture() returns trigger language plpgsql set search_path='' as $$
+begin
+  if new.creative_run_id::text=current_setting('stage14.delay_terminal_run',true) and new.call_key='review:1' then
+    perform pg_sleep(1.25);
+  end if;
+  return new;
+end; $$;
+create trigger stage14_terminal_delay_fixture after insert on public.creative_phase_outputs
+  for each row execute function pg_temp.stage14_delay_terminal_fixture();
+
+-- Terminal eligibility regressions for the later Stage14 guard migration.
+-- Each scenario is synthetic, lives only in this rollback transaction, and
+-- exercises real provenance, reservations and receipt persistence without HTTP.
+select set_config('request.jwt.claim.sub',current_setting('stage14.owner'),true);
+do $$
+declare scenario text; b uuid:=current_setting('stage14.business')::uuid; c jsonb; research jsonb; launch jsonb; approved jsonb;
+  e public.product_experiments%rowtype; provisional public.product_decisions%rowtype; dimensions jsonb; assessment jsonb; replacement jsonb;
+  r uuid; workflow_id uuid; approval_id uuid; final_key text; final_output jsonb; result jsonb; replay jsonb; receipt_before jsonb; assets_before jsonb; cost_before bigint;
+  denied boolean; denial_message text; research_cap text:=repeat('terminal-research-fixture-',3); cap text:=repeat('terminal-creative-fixture-',3);
+begin
+  foreach scenario in array array['unchanged','reject','needs_more_evidence','approval_expired','print_source_expired','repair_reject','capability_expired','capability_expires_during_persist'] loop
+    c:=public.create_product_candidate(b,jsonb_build_object('concept','Terminal eligibility fixture '||scenario,'audience','Adult synthetic terminal review audience',
+      'hypothesis','Synthetic source-backed terminal race fixture, never live market evidence.','originalDesign',true,'rightsStatus','confirmed','sourceDomains',jsonb_build_array('etsy.com')));
+    research:=public.begin_product_discovery((c->>'candidateId')::uuid,gen_random_uuid(),research_cap);
+    perform pg_temp.stage13_fixture((research->>'workflowRunId')::uuid,b,research_cap);
+    perform public.product_discovery_runtime((research->>'workflowRunId')::uuid,b,research_cap,'finalize');
+    select * into strict e from public.product_experiments where id=(research->>'experimentId')::uuid;
+    select * into strict provisional from public.product_decisions where experiment_id=e.id;
+    -- Distinguish the earlier provisional decision in transaction-stable time.
+    alter table public.product_decisions disable trigger stage13_decision_append_only;
+    update public.product_decisions set created_at=now()-interval '1 minute' where id=provisional.id;
+    alter table public.product_decisions enable trigger stage13_decision_append_only;
+    select jsonb_agg(x||jsonb_build_object('score',4,'rationale','Owner-scored synthetic terminal race evidence only',
+      'evidenceKind',case when x->>'dimension'='policy_ip_risk' then 'policy' when x->>'dimension' in ('estimated_margin','production_complexity') then 'operational_fact' else 'market_observation' end,
+      'evidenceIds',jsonb_build_array(e.evidence_pack->'evidence'->case when x->>'dimension'='policy_ip_risk' then 2 when x->>'dimension' in ('estimated_margin','production_complexity') then 1 else 0 end->>'id')))
+      into dimensions from jsonb_array_elements(provisional.assessment->'dimensions') x;
+    assessment:=public.record_product_assessment(e.id,dimensions,true);
+    assert assessment->'assessment'->>'outcome'='TEST';
+    approved:=public.approve_creative_candidate((c->>'candidateId')::uuid,pg_temp.creative_approval((c->>'candidateId')::uuid)||
+      jsonb_build_object('purpose','candidate_production','decisionId',assessment->>'decisionId','candidateAssessment',assessment->'assessment'),pg_temp.creative_quote());
+    approval_id:=(approved->>'approvalId')::uuid;
+    launch:=public.begin_creative_run(approval_id,gen_random_uuid(),cap);
+    r:=(launch->>'creativeRunId')::uuid; workflow_id:=(launch->>'workflowRunId')::uuid;
+    perform public.creative_runtime_transition(r,b,cap,'load',jsonb_build_object('runtimeRunId','terminal-fixture-'||r));
+    perform pg_temp.creative_phase(r,b,cap,'brief:1');
+    perform pg_temp.creative_phase(r,b,cap,'screen:1');
+    perform pg_temp.creative_phase(r,b,cap,'generate:1');
+    final_key:='review:1';
+    if scenario='repair_reject' then
+      perform pg_temp.creative_phase(r,b,cap,'review:1',true);
+      perform pg_temp.creative_phase(r,b,cap,'generate:2');
+      final_key:='review:2';
+    end if;
+    -- Eligibility passes when this paid final review is reserved.
+    result:=pg_temp.creative_reserve(r,b,cap,final_key);
+    assert result->'shouldExecute'='true';
+    final_output:=pg_temp.creative_output(r,final_key);
+    assert final_output->>'outcome'='PASS';
+    if scenario in ('reject','repair_reject') then
+      replacement:=public.record_product_assessment(e.id,jsonb_set(dimensions,'{7,score}','0'),true);
+      assert replacement->'assessment'->>'outcome'='REJECT';
+    elsif scenario='needs_more_evidence' then
+      replacement:=public.record_product_assessment(e.id,jsonb_set(dimensions,'{0,score}','2'),true);
+      assert replacement->'assessment'->>'outcome'='NEEDS_MORE_EVIDENCE';
+    elsif scenario='approval_expired' then
+      -- Controlled time-boundary fixture: make only the approval invalid while
+      -- leaving an active run capability, so the terminal branch is exercised.
+      -- Real capabilities are min(approval expiry,2h); their hard boundary is
+      -- separately asserted below. No production approval is actually mutable.
+      alter table public.creative_approvals disable trigger creative_approvals_immutable;
+      update public.creative_approvals set approved_at=now()-interval '1 day',expires_at=now()-interval '1 second',
+        snapshot=snapshot||jsonb_build_object('approvedAt',now()-interval '1 day','expiresAt',now()-interval '1 second') where id=approval_id;
+      alter table public.creative_approvals enable trigger creative_approvals_immutable;
+    elsif scenario='print_source_expired' then
+      alter table public.creative_approvals disable trigger creative_approvals_immutable;
+      update public.creative_approvals set snapshot=jsonb_set(snapshot,'{printSpecification,verifiedAt}',to_jsonb((now()-interval '31 days')::text)) where id=approval_id;
+      alter table public.creative_approvals enable trigger creative_approvals_immutable;
+    end if;
+    -- Already incurred charges must be recorded despite changed eligibility.
+    perform pg_temp.creative_record(r,b,cap,final_key);
+    select to_jsonb(s) into strict receipt_before from public.creative_cost_settlements s where s.creative_run_id=r and s.call_key=final_key;
+    select jsonb_agg(to_jsonb(v) order by v.version) into assets_before from public.creative_assets v where v.creative_run_id=r;
+    cost_before:=private.stage14_committed_cost(r);
+    if scenario in ('capability_expired','capability_expires_during_persist') then
+      alter table public.creative_runs disable trigger creative_runs_immutable;
+      -- The immediate recovery branch compares against transaction-stable now(),
+      -- so its already-expired fixture must precede that timestamp, not merely
+      -- wall time. The in-persistence branch keeps a real future wall deadline.
+      update public.creative_runs set capability_expires_at=(case when scenario='capability_expired' then now()-interval '1 second' else clock_timestamp()+interval '1 second' end) where id=r;
+      alter table public.creative_runs enable trigger creative_runs_immutable;
+      if scenario='capability_expires_during_persist' then perform set_config('stage14.delay_terminal_run',r::text,true); end if;
+      denied:=false; denial_message:=null;
+      begin perform public.creative_runtime_transition(r,b,cap,'persist_phase',jsonb_build_object('callKey',final_key,'output',final_output));
+      exception when insufficient_privilege then denied:=true; get stacked diagnostics denial_message=message_text; end;
+      perform set_config('stage14.delay_terminal_run','',true);
+      assert denied,'The final eligibility fix must not extend an expired runtime capability';
+      assert not exists(select 1 from public.creative_phase_outputs o where o.creative_run_id=r and o.call_key=final_key),'Expired secret cannot retain late output inserts';
+      assert not exists(select 1 from public.artifacts a where a.id=private.stage4_deterministic_uuid('creative:output:'||r||':'||final_key)),'The whole late persist, including Core Artifact, rolls back';
+      assert not exists(select 1 from public.creative_reviews review where review.creative_run_id=r),'Late final review insert rolls back';
+      if scenario='capability_expires_during_persist' then
+        assert denial_message='Creative capability expired before final production publication.','The call passed admission, then expired after output insertion and before terminal publication';
+        assert (select status='running' and state->'productionReady'='false' from public.workflow_runs where id=workflow_id),'Expired persist cannot change terminal state';
+        assert (select status='running' from public.workflow_stage_runs where workflow_run_id=workflow_id and stage_key=final_key),'Completed stage update also rolls back';
+        -- Owner recovery runs in a later request/transaction in production; this
+        -- transaction-stable now() fixture deliberately leaves the run untouched.
+      else
+        result:=public.close_expired_creative_run(r);
+        assert result->>'status'='needs_owner';
+      end if;
+    else
+      result:=public.creative_runtime_transition(r,b,cap,'persist_phase',jsonb_build_object('callKey',final_key,'output',final_output));
+      if scenario='unchanged' then
+        assert result->>'status'='completed' and result->'productionReady'='true','Current valid production eligibility still completes';
+      else
+        assert result->>'status'='needs_owner' and result->'productionReady'='false','Changed final eligibility must never publish productionReady: '||scenario;
+        assert exists(select 1 from public.owner_interventions i where i.workflow_run_id=workflow_id and i.status='open' and i.description like 'Production eligibility changed or expired%'),'Eligibility failure requests owner review';
+      end if;
+      assert (select o.output=final_output from public.creative_phase_outputs o where o.creative_run_id=r and o.call_key=final_key),'Paid final phase output is retained';
+      assert exists(select 1 from public.creative_reviews review join public.creative_assets asset on asset.id=review.asset_id
+        where review.creative_run_id=r and review.review=final_output and asset.version=split_part(final_key,':',2)::integer),'Paid hash-bound final review is retained';
+      assert (select a.content=final_output and a.metadata->'receipt'=receipt_before->'receipt' from public.artifacts a where a.id=(result->>'artifactId')::uuid),'Core final artifact retains the exact receipt';
+      replay:=public.creative_runtime_transition(r,b,cap,'persist_phase',jsonb_build_object('callKey',final_key,'output',final_output));
+      assert replay->>'status'=result->>'status' and replay->'productionReady'=result->'productionReady','Terminal replay cannot reset eligibility result';
+    end if;
+    assert (select to_jsonb(s)=receipt_before from public.creative_cost_settlements s where s.creative_run_id=r and s.call_key=final_key),'Final paid settlement is immutable after terminal decision';
+    assert (select jsonb_agg(to_jsonb(v) order by v.version)=assets_before from public.creative_assets v where v.creative_run_id=r),'Existing paid asset versions are preserved';
+    assert private.stage14_committed_cost(r)=cost_before,'Terminal eligibility failure never releases reserved/actual cost';
+    assert (select state->'productionReady'=to_jsonb(scenario='unchanged') and state->'publicationAllowed'='false' from public.workflow_runs where id=workflow_id);
+    replay:=public.begin_creative_run(approval_id,gen_random_uuid(),repeat('replacement-terminal-secret-',3));
+    assert replay->'shouldStart'='false' and replay->>'creativeRunId'=r::text,'Begin replay does not bypass expiry or reset the approved run';
+  end loop;
+  assert has_function_privilege('anon','public.creative_runtime_transition(uuid,uuid,text,text,jsonb)','execute');
+  assert not has_function_privilege('authenticated','public.creative_runtime_transition(uuid,uuid,text,text,jsonb)','execute');
+  assert not has_function_privilege('service_role','public.creative_runtime_transition(uuid,uuid,text,text,jsonb)','execute');
+end; $$;
 rollback;

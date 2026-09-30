@@ -18,3 +18,9 @@ test('Creative actions are owner-scoped and approval does not launch a provider 
   assert.match(actions, /if \(!launch.data\?\.shouldStart\)/);
   assert.match(actions, /close_expired_creative_run/);
 });
+test('Production approval UI keeps the evidence gate and separately confirmed scope', () => {
+  for (const text of ['No current evidence-backed TEST candidates are eligible', 'name="decisionId"', 'name="rightsStatement"', 'name="confirmProductionScope"', 'name="confirmPolicyScreen"', 'Save candidate creative approval']) assert.ok(page.includes(text), text);
+  const approve = actions.split('export async function approveProductionCreativeCandidate')[1].split('export async function closeExpiredCreativeRun')[0];
+  for (const text of ['requireOwnerUiContext', 'currentProductionCandidate', 'productionCreativeApproval', 'candidate.business_id', 'selected.id !== decisions[0]?.id', 'approve_creative_candidate']) assert.ok(approve.includes(text), text);
+  assert.doesNotMatch(approve, /await start\(|create_product_candidate|record_product_assessment|service.role/);
+});
