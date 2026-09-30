@@ -32,7 +32,6 @@ test("Stage 9 qualification covers every implementation-plan level", () => {
   const foundation = read(
     "supabase/migrations/20260929230650_stage9_browser_planner_foundation.sql",
   );
-  const steps = read("src/workflows/browser-planner-runtime-steps.ts");
   const workflow = read(
     "supabase/migrations/20260929230953_stage9_browser_planner_runtime.sql",
   );
@@ -44,6 +43,9 @@ test("Stage 9 qualification covers every implementation-plan level", () => {
   );
   const schemaAlignment = read(
     "supabase/migrations/20260930003521_stage9_browser_planner_worker_schema_alignment.sql",
+  );
+  const promotionFix = read(
+    "supabase/migrations/20260930003957_stage9_browser_planner_promotion_trigger_fix.sql",
   );
 
   for (const level of [
@@ -72,11 +74,14 @@ test("Stage 9 qualification covers every implementation-plan level", () => {
   assert.match(contextAndPromotion, /subjectFingerprint/);
   assert.match(schemaAlignment, /requiredOutputSchema/);
   assert.match(schemaAlignment, /minLength',1,'maxLength',500/);
+  assert.match(promotionFix, /old\.status is distinct from new\.status/);
+  assert.doesNotMatch(promotionFix, /set\s+status='qualified',[\s\S]*subjectFingerprint/i);
 });
 
 test("Stage 9 planner actions are durable and visible in the Workflow UI", () => {
   const workspace = read("src/components/stage7/workflow-workspace.tsx");
   const eventLabels = read("src/lib/core-ui/workflows.ts");
+  const steps = read("src/workflows/browser-planner-runtime-steps.ts");
   const foundation = read(
     "supabase/migrations/20260929230650_stage9_browser_planner_foundation.sql",
   );
