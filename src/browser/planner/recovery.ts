@@ -48,7 +48,13 @@ export async function runBrowserPlannerCycle(
           taskContract: {
             id: "00000000-0000-4000-8000-000000009999",
             objective: input.objective,
+            inputArtifactIds: ["00000000-0000-4000-8000-000000009998"],
             permittedCapabilities: input.permittedCapabilities,
+            requiredKnowledge: [],
+            requiredOutputSchema: {
+              type: "object",
+              additionalProperties: false,
+            },
             nonGoals: [
               "Invent selectors or element identifiers.",
               "Return multiple browser actions in one planning step.",
