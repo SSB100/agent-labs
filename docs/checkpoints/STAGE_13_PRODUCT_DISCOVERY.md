@@ -42,7 +42,7 @@ Reusable packs, knowledge/capability definitions, worker/workflow definitions, m
 
 Installed-pack activations, workflow execution, raw research artifacts/evidence, and product candidates/experiments/decisions are Business-private operational history. They do not automatically transfer between accounts. Test-account deletion is deliberately not part of this stage: existing installation dependencies can block it, and deletion of business-private history would otherwise risk qualification source links. Retain test history and plan any future archival or ownership change explicitly.
 
-A read-only RLS check confirmed the main owner account can access the shared application catalog without granting access to the test Business. No account transfer, membership change or deletion was performed. Useful, verified general learnings should be curated into reviewed, versioned application-wide Knowledge Packs; raw tenant-private research, business performance and connections stay private. This stage does not automatically promote raw experiment evidence into shared knowledge.
+The application catalog is available under authenticated catalog-read policies, independently of Business-private history. Useful, verified general learnings should be curated into reviewed, versioned application-wide Knowledge Packs; raw tenant-private research, business performance and connections stay private. This stage does not automatically promote raw experiment evidence into shared knowledge.
 
 ## Bounded paid qualification
 
@@ -56,19 +56,11 @@ At prices verified on 2026-09-30, the maximum declared four-attempt estimate is 
 
 Current runtime pricing metadata was corrected for Luna and Gemini and source/verification dates retained. The historical database model-definition snapshot remains unchanged because Stage 6 qualification fingerprints include price metadata; silently replacing it would invalidate unrelated prior worker evaluations. Candidate cost preflight always uses a fresh catalog response, not that historical snapshot.
 
-Planned single qualification candidate:
-
-- Concept: Original camping illustration T-shirt
-- Audience: Adult camping enthusiasts
-- Hypothesis: An original campsite illustration could appeal to adult camping enthusiasts
-- Allowed domains: `etsy.com`, `printful.com`
-- Query: Research this original print-on-demand T-shirt opportunity: Original camping illustration T-shirt. Audience: Adult camping enthusiasts. Find candidate-specific buyer-interest, comparable listings, dated trend signals, prices and production constraints. Separate observed facts from general policy guidance. Do not infer sales or demand from listing counts. Return inspectable sources only.
-- Expected legitimate outcome: NEEDS_MORE_EVIDENCE; no assumed demand, margin or commercial approval
-- Production smoke should inspect the same persisted experiment rather than spend on an additional live run
+The live qualification uses one bounded original-POD hypothesis and approved public-source domains. Tenant-specific candidate content, billing receipts, account context and durable identifiers remain in the owning Business rather than this repository. Production smoke inspects that existing experiment instead of spending on another run.
 
 ## Verification record
 
-- Full local `npm run check`: lint, TypeScript, 180 tests, optimized Next.js build and Workflow compilation passed
+- Full local `npm run check`: lint, TypeScript, 181 tests, optimized Next.js build and Workflow compilation passed
 - Independent read-only review covered authorization, owner isolation, source linkage, scoring, duplicate/reconsideration gates, budget replay/exhaustion, UI scope and Stage 12 compatibility
 - Review fixes: current-relative test clocks; append-only owner rights confirmation; Researching transition bound to the expected experiment; workflow-specific decisions scoped to matching experiments
 - Hosted transactional rehearsal of the migration plus Stage 13 rollback suite passed after correcting PostgreSQL CASE grouping and JSONB/text cast precedence
@@ -78,7 +70,12 @@ Planned single qualification candidate:
 - Specific approval of the full grant scope received; migration applied as `20260930095221_stage13_product_discovery`
 - Post-apply Stage 10/11/12/13 regression suites passed; synthetic changes rolled back and the production candidate registry remains empty
 - Security advisor delta is exactly three new capability-guarded anonymous RPC notices and six owner-checked authenticated RPC notices. No new table/RLS warning; existing leaked-password protection warning is unchanged
-- Live provider proof, preview UI, exact-commit CI, production merge/deployment and production advisor scan: pending
+- Exact-commit CI `36699173840` passed and preview deployment `dpl_4N35fwtjWEfRfwo5yM3BaRRDo8jN` became READY for code commit `3a4bfe484148b3bbfe500734a89aa847b4bdf075`
+- One real source-backed research qualification completed with NEEDS_MORE_EVIDENCE, explicit unknown scores and no creative/publication authority. Detailed evidence and receipts remain Business-private
+- Live duplicate reservation reused its existing experiment and workflow without an additional provider call
+- Candidate, evidence/UTC provenance, decision/unknown scorecard and registry/future measurement plan were verified in the signed-in preview browser. Live QA found one blank upstream source title; renderer/source-extraction fallback now supplies a readable hostname without rewriting historical evidence
+- Preview error/fatal log scan returned no errors for the qualified deployment
+- Final presentation-fix CI/preview, production merge/deployment and production advisor scan: pending
 
 ## Reproduce
 

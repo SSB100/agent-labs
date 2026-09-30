@@ -118,3 +118,9 @@ test("Researcher rejects missing capability, stale evidence and instruction trap
   await assert.rejects(worker.executeMarketResearcher(fixture.definition,trap,adapter),/unavailable evidence/);
   assert.equal(calls,1,"Unsupported evidence is terminal after the worker responds");
 });
+
+test("source citations with blank provider titles retain a readable host label", () => {
+  const item = annotation(); item.url_citation.title = "   ";
+  const collection = sources.extractResearchSources(request, {annotations:[item],metadata:{}});
+  assert.equal(collection.sources[0].title, "www.etsy.com");
+});

@@ -133,9 +133,10 @@ function EvidenceView({ experiment }: { experiment: ProductExperiment }) {
     <p className="productSubtle">Sources establish only what they state. Policy evidence cannot establish market demand. Retrieval and expiry timestamps describe freshness, not new evidence.</p>
     {!pack.sources.length ? <p className="productInlineEmpty">No source citations are available in this Evidence Pack.</p> : <div className="productSources">{pack.sources.map((source) => {
       const url = publicSourceUrl(source.url);
+      const title = source.title.trim() || (url ? new URL(url).hostname : "Public source");
       const evidence = pack.evidence.filter((entry) => entry.sourceId === source.id);
       return <article className="productSource" key={source.id}>
-        <div className="productRow productRow-start"><h4>{url ? <a href={url} target="_blank" rel="noopener noreferrer">{source.title}<span aria-hidden="true"> ↗</span></a> : source.title}</h4><code>{source.id}</code></div>
+        <div className="productRow productRow-start"><h4>{url ? <a href={url} target="_blank" rel="noopener noreferrer">{title}<span aria-hidden="true"> ↗</span></a> : title}</h4><code>{source.id}</code></div>
         <p className="productSourceUrl">{url ?? "Source URL unavailable or not a secure public URL"}</p>
         <dl className="productSourceDates"><div><dt>Retrieved</dt><dd><ProductTime value={source.retrievedAt} /></dd></div><div><dt>Expires</dt><dd><ProductTime value={source.retrievalExpiresAt} /></dd></div><div><dt>Published</dt><dd><ProductTime value={source.publishedAt} /></dd></div></dl>
         {evidence.length ? evidence.map((entry) => <figure className="productQuote" key={entry.id}><blockquote>{entry.quote}</blockquote><figcaption>Evidence <code>{entry.id}</code></figcaption></figure>) : <figure className="productQuote"><blockquote>{source.excerpt}</blockquote><figcaption>Source excerpt · No selected evidence quote</figcaption></figure>}
