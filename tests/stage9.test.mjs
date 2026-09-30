@@ -35,6 +35,9 @@ test("Stage 9 qualification covers every implementation-plan level", () => {
   const workflow = read(
     "supabase/migrations/20260929230953_stage9_browser_planner_runtime.sql",
   );
+  const workerContracts = read(
+    "supabase/migrations/20260929233009_stage9_browser_planner_worker_contracts.sql",
+  );
 
   for (const level of [
     "synthetic",
@@ -53,6 +56,10 @@ test("Stage 9 qualification covers every implementation-plan level", () => {
   assert.match(foundation, /selectorsForbidden/);
   assert.match(foundation, /playwrightExcluded/);
   assert.match(workflow, /oneActionPerPlanningStep/);
+  assert.match(workerContracts, /worker\.browser-planner/);
+  assert.match(workerContracts, /stage9_prepare_planner_step/);
+  assert.match(workerContracts, /stage9_finish_planner_step/);
+  assert.match(workerContracts, /stage9_task_contract_requires_qualified_planner/);
 });
 
 test("Stage 9 planner actions are durable and visible in the Workflow UI", () => {
