@@ -66,10 +66,13 @@ export type BrowserPlannerAction = {
 export type BrowserPlannerTaskContractView = {
   id: string;
   objective: string;
+  inputArtifactIds: readonly string[];
   permittedCapabilities: readonly string[];
-  nonGoals: readonly string[];
+  requiredKnowledge: readonly string[];
+  requiredOutputSchema: JsonObject;
   completionCriteria: JsonObject;
   failureCriteria: JsonObject;
+  nonGoals: readonly string[];
   escalationRules: JsonObject;
 };
 
