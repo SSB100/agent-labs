@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { resumeSyntheticReview } from "@/app/dashboard/actions";
+import { acknowledgeEtsySimulation } from "@/app/dashboard/packs/actions";
 import { resumeBrowserControl } from "@/app/dashboard/browser-actions";
 import type {
   BusinessRecord,
@@ -104,6 +105,7 @@ export function NeedsYouCard({
   returnTo,
   workflowName,
 }: NeedsYouCardProps) {
+  const simulationReview = intervention.intervention_type === "etsy_simulation_review";
   const browserDecision =
     intervention.intervention_type === "browser_takeover"
       ? "take_control"
@@ -120,6 +122,7 @@ export function NeedsYouCard({
         <p className="coreEyebrow">{browserDecision ? "Browser control" : "Needs your decision"}</p>
         <h3>{intervention.title}</h3>
         <p>{intervention.description}</p>
+        {simulationReview && intervention.workflow_run_id ? <Link href={`/dashboard/workflows/${intervention.workflow_run_id}`}>View simulated output and receipts</Link> : null}
         <small>
           {[businessName, workflowName, formatRelativeTime(intervention.requested_at)]
             .filter(Boolean)
@@ -132,6 +135,16 @@ export function NeedsYouCard({
           <input name="returnTo" type="hidden" value={returnTo} />
           <button className="coreButton coreButton-primary" name="decision" type="submit" value={browserDecision}>
             {browserDecision === "take_control" ? "Take Control" : "Return Control"}
+          </button>
+        </form>
+      ) : simulationReview ? (
+        <form action={acknowledgeEtsySimulation} className="needsYouActions">
+          <input name="interventionId" type="hidden" value={intervention.id} />
+          <button className="coreButton coreButton-primary" name="decision" type="submit" value="acknowledge">
+            Acknowledge simulated result
+          </button>
+          <button className="coreButton coreButton-danger" name="decision" type="submit" value="stop">
+            Stop simulation
           </button>
         </form>
       ) : (

@@ -3,7 +3,8 @@ import { collectInstalledPackResearch, completeInstalledPack, executeInstalledPa
 
 export type InstalledPackRuntimeInput = {
   businessId: string; coreWorkflowRunId: string; runtimeCapability: string;
-  qualification?: "stage11";
+  qualification?: "stage11" | "stage12";
+  mode?: "simulation";
 };
 
 // A single interpreter executes every registered declarative Workflow Pack.
@@ -11,6 +12,7 @@ export async function installedPackRuntimeWorkflow(input: InstalledPackRuntimeIn
   "use workflow";
   const { workflowRunId } = getWorkflowMetadata();
   try {
+    if (input.qualification === "stage12") throw new FatalError("Use the dedicated Etsy simulation runtime.");
     const stages = await loadInstalledPack(input, workflowRunId);
     for (const stageKey of stages) {
       const research = await collectInstalledPackResearch(input, stageKey);

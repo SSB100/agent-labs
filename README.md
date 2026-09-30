@@ -11,8 +11,14 @@ The repository has completed:
 - **Stage 5: Model Router**
 - **Stage 6: Worker evaluation framework**
 - **Stage 7: Core UI and live activity**
+- **Stage 8: Browser provider qualification**
+- **Stage 9: Browser Planner qualification**
+- **Stage 10: Pack framework**
+- **Stage 11: Web Research capability**
 
-The next planned stage is **Stage 8: Browser provider**. It has not been started.
+**Stage 12: Etsy and POD knowledge foundation** is in progress. Its checkpoint distinguishes local simulation, hosted verification and live model qualification. Stage 13 begins only after the Stage 12 gate is verified.
+
+Authoritative scope: [V2 implementation plan](docs/AGENT_LABS_V2_IMPLEMENTATION_PLAN.md). Verified stage evidence: [checkpoints](docs/checkpoints/).
 
 ## Private application model
 
@@ -76,6 +82,11 @@ Implemented:
 - authenticated Supabase Realtime subscriptions for workflow, stage, intervention, task, worker, artifact and Business changes
 - a bounded 30-second refresh fallback if the live channel is unavailable
 - preserved owner-scoped RLS isolation for every live UI source
+- qualified replaceable remote-browser adapters, workflow sessions, live view, takeover and replay
+- bounded Browser Planner observation/action contracts and qualification fixtures
+- immutable Capability, Knowledge, Worker and Workflow Packs with exact dependency pins and Business activation
+- one generic installed-pack workflow interpreter with durable scoped artifacts and receipts
+- reusable Web Research and Market Researcher packs with inspected sources and evidence-linked claims
 
 Qualification tools remain available from the private shell:
 
@@ -85,10 +96,8 @@ Qualification tools remain available from the private shell:
 
 Not implemented yet:
 
-- browser operation or a remote browser provider
-- browser takeover, return control, replay or session recording
 - commerce provider connections
-- production capability, knowledge, worker or workflow packs
+- live-qualified Etsy commerce workers and production workflows
 - Etsy or other commerce execution
 
 ## Local setup
