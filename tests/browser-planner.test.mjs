@@ -6,6 +6,7 @@ import plannerModule from "../.core-tests/browser/planner/planner.js";
 import recoveryModule from "../.core-tests/browser/planner/recovery.js";
 import workerRuntimeModule from "../.core-tests/workers/runtime.js";
 import workerModule from "../.core-tests/workers/browser-planner.js";
+import schemaModule from "../.core-tests/workers/schema-validator.js";
 
 const {
   MOCK_COMMERCE_OBSERVATION,
@@ -18,8 +19,38 @@ const {
   validatePlannerAction,
 } = plannerModule;
 const { BROWSER_PLANNER_MAX_RECOVERY_ATTEMPTS, runBrowserPlannerCycle } = recoveryModule;
-const { validateWorkerPackManifest } = workerRuntimeModule;
+const { validateWorkerPackManifest, validateWorkerInvocationContext } = workerRuntimeModule;
 const { BROWSER_PLANNER_MANIFEST } = workerModule;
+const { validateJsonSchemaValue } = schemaModule;
+
+test("Browser Planner durable context accepts constant-only Artifact fields", () => {
+  const context = {
+    taskContract: taskContract("Confirm Example Domain and stop.", ["browser.observe"]),
+    inputArtifacts: [{
+      id: "00000000-0000-4000-8000-000000009002",
+      artifactType: "browser.structured-observation",
+      name: "Read-only browser observation",
+      mediaType: "application/json",
+      content: READ_ONLY_SITE_OBSERVATION,
+      metadata: {},
+    }],
+  };
+  assert.doesNotThrow(() => validateWorkerInvocationContext(BROWSER_PLANNER_MANIFEST, context));
+  context.inputArtifacts[0].artifactType = "unrelated.artifact";
+  assert.throws(() => validateWorkerInvocationContext(BROWSER_PLANNER_MANIFEST, context));
+});
+
+test("Browser Planner output accepts nullable fields while rejecting invalid values", () => {
+  const output = {
+    type: "complete", elementId: null, text: null, url: null,
+    reason: "Example Domain is confirmed.", failureCategory: null,
+  };
+  assert.deepEqual(validateJsonSchemaValue(BROWSER_PLANNER_MANIFEST.outputSchema, output), []);
+  assert.notEqual(validateJsonSchemaValue(BROWSER_PLANNER_MANIFEST.outputSchema,
+    { ...output, elementId: 42 }).length, 0);
+  assert.notEqual(validateJsonSchemaValue(BROWSER_PLANNER_MANIFEST.outputSchema,
+    { ...output, reason: "" }).length, 0);
+});
 
 function taskContract(objective, permittedCapabilities) {
   return {

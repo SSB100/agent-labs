@@ -2,7 +2,7 @@
 
 Date: 30 September 2026
 
-Status: **In progress, paused for GitHub account billing**
+Status: **In progress, live qualification repairs underway**
 
 Branch: `stage-9/browser-planner-qualification`
 
@@ -17,7 +17,7 @@ Pull request: https://github.com/SSB100/agent-labs/pull/13
 - Planner steps, actions, failures, recovery, and model cost summaries are durable and visible in the Workflow workspace.
 - Recovery has two retry opportunities and qualification objectives have a five-step limit.
 - An explicit planner `fail` decision is terminal and cannot report success.
-- Six Stage 9 migrations are present in GitHub and applied to the Agent Labs Supabase project.
+- Nine Stage 9 migrations are tracked and applied to the Agent Labs Supabase project.
 
 ## Recovery in this session
 
@@ -39,23 +39,35 @@ A dependency lockfile now records the installed versions. Next.js's local SWC ca
 
 The local gate used Node 24.21.0 and npm 11.19.0 with the CI placeholder public Supabase environment. The repository and hosted builds target Node 22. The hosted gate must still run; this local result does not establish live provider qualification.
 
-## Manual blocker
+## Resolved billing blocker
 
 GitHub Actions job `109688097370`, for source commit `9cfb173775f2f0bb9afbb7d9f89476ab4d127fcd`, never started a runner. Its annotation states:
 
 > The job was not started because recent account payments have failed or your spending limit needs to be increased. Please check the 'Billing & plans' section in your settings
 
-The owner must resolve the account issue at https://github.com/settings/billing before the required hosted CI gate can run.
+The owner upgraded GitHub on 30 September. CI run `36655525072` was rerun and passed on Node 22.23.2 for commit `74e5143ae5ded48e7cef3171568b111eb4d1c173`: lint, TypeScript, all 86 tests, 36 steps across five workflows, and the production build.
+
+## Live qualification recovery
+
+The confirmed test owner can sign in through the normal application login. Its empty dashboard correctly excludes the separate Etsy owner's Business. A private `Stage 9 Live Qualification` Business was created under the test account.
+
+The first owner launch exposed an ambiguous `workflow_run_id` lookup in the reservation RPC. The applied reservation migration qualifies that column with its table alias. `supabase/tests/stage9_reservation.sql` verifies first reservation, duplicate suppression, all seven stages, and denial outside owner scope in a rolled-back transaction.
+
+Live run `54a2d31a-9f39-441b-ae49-9a0715451e2f` successfully launched Steel, then stopped during synthetic context validation. The bounded JSON Schema validator rejected valid constant-only Artifact fields. The validator now accepts constant-only fields and nullable type alternatives while still rejecting wrong constants, wrong types, and invalid constraints. Two Browser Planner behavioral regressions cover these inputs and outputs.
+
+A private trigger closes active Worker Runs and Task Contracts when their Stage 9 Workflow Run fails. The failed live run's orphaned child records are now failed with completion timestamps. The obsolete token-based Preview route and its database helper have been removed; live qualification uses the authenticated owner action.
+
+Local lint also excludes Workflow SDK generated routes, so checks can run again after a local build. The repaired candidate still needs its hosted gate, Preview and successful live rerun.
 
 ## Live status and next steps
 
-The Supabase inspection found no Stage 9 Workflow Runs. The planner remains `candidate`; all four required cases remain `candidate`:
+The first live Stage 9 run failed during synthetic input validation. The planner remains `candidate`; the synthetic case is `failed` and the other three required cases remain `candidate`:
 
 1. Synthetic stable-element action and stale-element recovery.
 2. Mock commerce draft flow.
 3. Real read-only Example Domain observation.
 4. Controlled draft price mutation with a no-publication check.
 
-After billing is resolved, rerun the hosted gate, obtain a passing Stage 9 Preview, run and inspect all four live cases, verify durable Worker/Artifact/action records and owner isolation, remove temporary qualification infrastructure, and complete the checkpoint before merging and deploying production.
+After the consolidated repair passes the hosted gate and Preview, rerun and inspect all four live cases, verify durable Worker/Artifact/action records and owner isolation, and complete the checkpoint before merging and deploying production.
 
 Production remains on qualified Stage 8 commit `c968312aed962dcaf4bcb8d48ba9be6d57856035`. Stage 9 is not qualified and Stage 10 has not started.

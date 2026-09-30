@@ -99,6 +99,25 @@ function validateNode(
   }
 
   const declaredType = schemaValue.type;
+  if (Array.isArray(declaredType)) {
+    if (declaredType.length === 0 || declaredType.some((type) =>
+      typeof type !== "string" ||
+      !["object", "array", "string", "integer", "number", "boolean", "null"].includes(type)
+    )) {
+      issues.push({ path, message: "schema contains unsupported type alternatives" });
+      return;
+    }
+    for (const type of declaredType) {
+      const alternativeIssues: SchemaValidationIssue[] = [];
+      validateNode({ ...schemaValue, type }, value, path, alternativeIssues);
+      if (alternativeIssues.length === 0) return;
+    }
+    issues.push({ path, message: "must match one of the declared types" });
+    return;
+  }
+  if (declaredType === undefined && ("const" in schemaValue || Array.isArray(schemaValue.enum))) {
+    return;
+  }
   if (typeof declaredType !== "string") {
     issues.push({ path, message: "schema must declare one supported type" });
     return;
