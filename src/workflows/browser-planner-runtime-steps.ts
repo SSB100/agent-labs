@@ -5,6 +5,7 @@ import {
   executePlannerAction,
   observeStructuredPage,
   planBrowserAction,
+  BrowserPlannerError,
   type BrowserPlannerDecision,
   type BrowserPlannerFailure,
   type BrowserStructuredObservation,
@@ -362,8 +363,16 @@ async function runBoundedObjective(
       });
 
       if (decision.action.type === "fail") {
-        throw new Error(
-          `Browser Planner declined the case: ${decision.action.reason}`,
+        throw new BrowserPlannerError(
+          result.failure ?? {
+            category: "action_failed",
+            message: decision.action.reason,
+            retryable: false,
+            details: {
+              failureCategory:
+                decision.action.failureCategory ?? "planner_declined",
+            },
+          },
         );
       }
 
