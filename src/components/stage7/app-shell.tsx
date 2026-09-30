@@ -8,6 +8,7 @@ import { LiveRefresh } from "./live-refresh";
 
 export type CoreSection =
   | "accounts"
+  | "artifacts"
   | "dashboard"
   | "history"
   | "needs-you"
@@ -34,6 +35,7 @@ const primaryNavigation: NavItem[] = [
   { href: "/dashboard", icon: "dashboard", key: "dashboard", label: "Dashboard" },
   { href: "/dashboard/workflows", icon: "workflow", key: "workflows", label: "Workflows" },
   { href: "/dashboard/products", icon: "products", key: "products", label: "Products" },
+  { href: "/dashboard/artifacts", icon: "artifacts", key: "artifacts", label: "Artifacts" },
   { href: "/dashboard/needs-you", icon: "needs-you", key: "needs-you", label: "Needs You" },
   { href: "/dashboard/history", icon: "history", key: "history", label: "History" },
 ];

@@ -1,0 +1,63 @@
+import { randomUUID } from "node:crypto";
+import Link from "next/link";
+import { AppShell, PageHeader } from "@/components/stage7/app-shell";
+import { ProductSubmitButton } from "@/components/stage13/products-workspace";
+import { loadCreativeWorkspace } from "@/creative/data";
+import { CREATIVE_PROVIDER_TERMS, TECHNICAL_PRINT_SPECIFICATION } from "@/creative/proposal";
+import { requireOwnerUiContext } from "@/lib/core-ui/data";
+import { approveCreativeCandidate, closeExpiredCreativeRun, startCreativeRun } from "./actions";
+import "./artifacts.css";
+
+export const dynamic = "force-dynamic";
+const utc = (date: string) => `${new Date(date).toISOString().replace("T", " ").replace(".000Z", " UTC").replace("Z", " UTC")}`;
+const usd = (micro: number) => `US$${(micro / 1e6).toFixed(6)}`;
+export default async function ArtifactsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const context = await requireOwnerUiContext(), [data, query] = await Promise.all([loadCreativeWorkspace(context), searchParams]);
+  const first = (v: string | string[] | undefined) => Array.isArray(v) ? v[0] : v;
+  return <AppShell active="artifacts" context={context}>
+    <PageHeader eyebrow="Creative · Evidence & assets" title="Artifacts" description="Keep the brief, original pixels, versions and independent review together." />
+    {first(query.message) ? <p className="coreNotice coreNotice-success" role="status">{first(query.message)}</p> : null}
+    {first(query.error) ? <p className="coreNotice coreNotice-danger" role="alert">{first(query.error)}</p> : null}
+    {data.errors.length ? <p className="coreNotice coreNotice-danger" role="alert">Creative registry is unavailable. No provider action can start until its approved schema is ready. {data.errors[0]}</p> : null}
+    <section className="creativeIntro"><p className="coreEyebrow">Original design, bounded execution</p><h2>Every image keeps its source and verdict</h2><p>Technical qualification checks the creative pipeline. It does not prove product demand or change an earlier research decision. Candidate production requires a separate evidence-backed TEST and creative approval. Assets remain private to their Business.</p><Link href="/dashboard/products">Review product evidence →</Link></section>
+    <details className="creativePanel" open={data.approvals.length === 0}><summary><strong>Approve the bounded technical design</strong><span>No generation until you start the saved approval</span></summary>
+      <div className="creativeApprovalBody"><h3>One original design, one explicit approval</h3><p>Enter the concept and art direction privately. This technical run uses an intentional opaque background. Do not include brands, logos, protected characters, celebrity likenesses, copied artwork, artist imitation or third-party reference images.</p><dl className="creativeFacts"><div><dt>Intended placement</dt><dd>6.5 × 6.5 in, large front</dd></div><div><dt>Garment</dt><dd>Bella + Canvas 3001, size L</dd></div><div><dt>File acceptance</dt><dd>PNG, sRGB, at least 150 effective DPI</dd></div><div><dt>Bound</dt><dd>One initial image + at most one repair</dd></div></dl>
+      <p><a href={TECHNICAL_PRINT_SPECIFICATION.sourceUrl} target="_blank" rel="noopener noreferrer">Printful placement source ↗</a> · <a href="https://www.printful.com/creating-dtg-file" target="_blank" rel="noopener noreferrer">Print file guidance ↗</a> · <a href={CREATIVE_PROVIDER_TERMS} target="_blank" rel="noopener noreferrer">Recraft API terms ↗</a></p>
+      <p className="creativeMuted">Print specification checked {utc(TECHNICAL_PRINT_SPECIFICATION.verifiedAt)}. Actual returned dimensions and visual quality are checked before any PASS. The square background is intentional, not transparent.</p>
+      {context.businesses.length && !data.errors.length ? <form action={approveCreativeCandidate} className="creativeForm">
+        <input type="hidden" name="approvalId" value={randomUUID()} />
+        <label className="creativeTextField">Original design concept<input name="concept" required minLength={3} maxLength={160} placeholder="Name your original design concept" /></label>
+        <label className="creativeTextField">Intended audience<input name="audience" required minLength={3} maxLength={160} placeholder="Describe the intended adult audience" /></label>
+        <label className="creativeTextField">Exact design instructions<textarea name="designInstructions" required minLength={50} maxLength={1500} rows={4} placeholder="Describe the original composition, colors and intentional opaque square background. Exclude text, brands, protected characters and reference artwork." /></label>
+        <div className="creativeFormRow"><label>Business<select name="businessId" required>{context.businesses.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></label><label>Total allowance (USD)<input name="budgetUsd" type="number" min="0.01" max="1" step="0.01" defaultValue="1.00" required /></label></div>
+        <label><input type="checkbox" name="confirmOriginalIntent" required />I approve the original concept and exact instructions above with no third-party references or protected elements; this is not a guarantee of universal non-infringement</label>
+        <label><input type="checkbox" name="confirmTechnicalOnly" required />This is a technical creative test, not a market-validated product or publication approval</label>
+        <label><input type="checkbox" name="confirmPrintSpec" required />I approve the named garment, physical print size and intentional opaque-square background</label>
+        <label><input type="checkbox" name="confirmTerms" required />I understand the linked Recraft API terms apply and AI provenance must be preserved</label>
+        <label><input type="checkbox" name="confirmBudget" required />I approve this total allowance for the brief, IP screen, initial image, independent pixel review and at most one repair</label>
+        <p className="creativeMuted">Recraft generates the image through OpenRouter; Luna writes the brief, and Claude reviews it. Fresh pricing is checked and each call reserved first. No automatic provider retries. Current declared estimate is checked against your allowance; it is not a provider-enforced invoice guarantee.</p>
+        <ProductSubmitButton pendingText="Checking quote and saving…">Save specific approval</ProductSubmitButton>
+      </form> : <p>Choose an available Business and resolve registry errors before approving a run.</p>}</div>
+    </details>
+    <section aria-labelledby="creative-approvals"><h2 id="creative-approvals">Approved scope & run history</h2><div className="creativeRunGrid">{data.approvals.map(a => {
+      const run = data.runs.find(r => r.approval_id === a.id), costs = data.costs.filter(c => c.creative_run_id === run?.id), known = costs.reduce((sum, c) => sum + (c.reported_microusd ?? 0), 0);
+      return <article className="creativePanel creativeRun" key={a.id}><div className="creativeTagRow"><span className="creativeTag">{a.purpose.replaceAll("_", " ")}</span><span className="creativeTag">{run?.status ?? "Approved · not started"}</span></div><h3>{a.snapshot.concept}</h3><p>{a.snapshot.audience}</p><p>Allowance: {usd(a.maximum_microusd)} · Reported: {costs.length ? usd(known) : "No calls recorded"}{costs.some(c => c.reported_microusd === null) ? " + uncertain charge" : ""}</p><p className="creativeMuted">Approved {utc(a.approved_at)} · Expires {utc(a.expires_at)}</p>
+        {run ? <><p>{run.productionReady ? "Production-ready against the named approval and print specification" : "No candidate production or publication authority"}</p><Link className="coreButton" href={`/dashboard/workflows/${run.workflow_run_id}`}>Open workflow</Link></> : <form action={startCreativeRun}><input type="hidden" name="approvalId" value={a.id} /><ProductSubmitButton pendingText="Reserving creative run…">Start approved creative run</ProductSubmitButton></form>}
+        {run && ["queued", "running"].includes(run.status) && run.capabilityExpired ? <form action={closeExpiredCreativeRun}><input type="hidden" name="creativeRunId" value={run.id} /><ProductSubmitButton pendingText="Closing expired run…">Close expired run for review</ProductSubmitButton></form> : null}
+        {costs.length ? <details><summary>Provider receipts</summary><ul>{costs.map(c => <li key={c.call_key}>{c.call_key}: {c.reported_microusd === null ? "Charge unknown; reservation retained" : usd(c.reported_microusd)} · {utc(c.created_at)}</li>)}</ul></details> : null}</article>;
+    })}</div>{!data.approvals.length ? <p className="creativeEmpty">No creative approvals yet. Product research remains unchanged.</p> : null}</section>
+    <section aria-labelledby="creative-gallery"><h2 id="creative-gallery">Design gallery</h2><div className="creativeGallery">{data.assets.map(asset => {
+      const review = data.reviews.find(r => r.asset_id === asset.id), run = data.runs.find(r => r.id === asset.creative_run_id), approval = data.approvals.find(a => a.id === run?.approval_id);
+      return <article className="creativePanel creativeAsset" key={asset.id}><div className="creativeImage">{asset.signedUrl ? <>
+        {/* Private signed URLs must not enter a shared image-optimization cache. */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={asset.signedUrl} alt={`Generated version ${asset.version} of ${approval?.snapshot.concept ?? "original design"}`} loading="lazy" />
+      </> : <p>Image preview unavailable; reload to refresh private access.</p>}</div><div className="creativeAssetBody"><div className="creativeTagRow"><span className="creativeTag">Version {asset.version}</span><span className="creativeTag">{review?.review.outcome ?? "Awaiting visual review"}</span><span className="creativeTag">{approval?.purpose.replaceAll("_", " ")}</span></div><h3>{approval?.snapshot.concept ?? "Generated design"}</h3><p>{asset.inspection.width} × {asset.inspection.height}px · {Math.floor(asset.inspection.effectiveDpi)} effective DPI · {asset.inspection.colorSpace}</p><p className="creativeMuted">{asset.model} via {asset.provider} · {utc(asset.generated_at)}</p>
+        {asset.inspection.failedCriteria.length ? <p className="coreNotice coreNotice-danger">Binary gate: {asset.inspection.failedCriteria.join(", ")}</p> : null}
+        {review ? <div className="creativeReview"><h4>Independent visual review</h4><ul>{review.review.checks.map(c => <li key={c.criterion}><strong>{c.outcome} · {c.criterion.replaceAll("_", " ")}</strong><p>{c.rationale}</p></li>)}</ul>{review.review.repairInstruction ? <p><strong>Exact repair:</strong> {review.review.repairInstruction}</p> : null}<p className="creativeMuted">{review.reviewer_model} · {utc(review.created_at)}</p></div> : null}
+        <details><summary>Prompt & immutable provenance</summary><pre>{asset.prompt}</pre><dl><dt>Asset SHA-256</dt><dd className="creativeHash">{asset.asset_hash}</dd><dt>Source brief SHA-256</dt><dd className="creativeHash">{asset.brief_hash}</dd></dl></details>
+        <p className="creativeMuted">Technical PASS is a reviewable design artifact. It does not clear market evidence or authorize selling a product.</p>
+      </div></article>;
+    })}</div>{!data.assets.length ? <p className="creativeEmpty">Generated images will appear here with their exact prompt, source brief and review. Nothing has been generated yet.</p> : null}</section>
+  </AppShell>;
+}

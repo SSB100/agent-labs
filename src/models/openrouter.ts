@@ -409,12 +409,28 @@ export class OpenRouterAdapter implements ModelProviderAdapter {
     if (request.maxOutputTokens !== undefined && (!Number.isInteger(request.maxOutputTokens) || request.maxOutputTokens < 1 || request.maxOutputTokens > request.model.maxOutputTokens)) {
       throw new ModelProviderError("provider_rejected", "Invalid bounded output-token limit.", false);
     }
+    let imageCount = 0;
+    if (request.providerOnly && (request.providerOnly.length !== 1 || !/^[a-z0-9-]{2,60}$/.test(request.providerOnly[0]))) {
+      throw new ModelProviderError("provider_rejected", "Invalid fixed provider route.", false);
+    }
+    for (const message of request.messages) {
+      if (!message.images) continue;
+      imageCount += message.images.length;
+      if (message.role !== "user" || !request.model.capabilities.includes("vision") || imageCount > 1 || message.images.length !== 1) {
+        throw new ModelProviderError("provider_rejected", "One scoped image requires a vision model and user message.", false);
+      }
+      const picture = message.images[0];
+      if (picture.mediaType !== "image/png" || picture.base64.length > 10_000_000 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(picture.base64) ||
+        Buffer.from(picture.base64.slice(0, 12), "base64").subarray(0, 8).toString("hex") !== "89504e470d0a1a0a") {
+        throw new ModelProviderError("provider_rejected", "Visual review requires bounded PNG bytes, not remote URLs.", false);
+      }
+    }
     const response = await this.post({
       model: request.model.providerModelId,
       ...(request.maxOutputTokens === undefined ? {} : { max_tokens: request.maxOutputTokens }),
       messages: request.messages.map((message) => ({
         role: message.role,
-        content: message.content,
+        content: message.images ? [{ type: "text", text: message.content }, ...message.images.map(picture => ({ type: "image_url", image_url: { url: `data:${picture.mediaType};base64,${picture.base64}` } }))] : message.content,
       })),
       response_format: {
         type: "json_schema",
@@ -428,10 +444,18 @@ export class OpenRouterAdapter implements ModelProviderAdapter {
         allow_fallbacks: request.providerPriceLimit ? false : true,
         require_parameters: true,
         ...(request.providerPriceLimit ? { max_price: request.providerPriceLimit } : {}),
+        ...(request.providerOnly ? { only: [...request.providerOnly], allow_fallbacks: false } : {}),
       },
       stream: false,
     });
 
+    const receivedReceipt: JsonObject = {
+      provider: typeof response.body.provider === "string" ? response.body.provider : "openrouter",
+      providerModelId: typeof response.body.model === "string" ? response.body.model : request.model.providerModelId,
+      providerRequestId: typeof response.body.id === "string" ? response.body.id : response.requestId,
+      latencyMs: response.latencyMs, usage: { ...readUsage(request.model, response.body) },
+    };
+    try {
     const choices = Array.isArray(response.body.choices)
       ? response.body.choices
       : [];
@@ -475,6 +499,10 @@ export class OpenRouterAdapter implements ModelProviderAdapter {
         routeMetadata: request.requestMetadata,
       },
     };
+    } catch (error) {
+      if (error instanceof ModelProviderError) throw new ModelProviderError(error.category, error.message, error.retryable, { ...error.details, providerReceipt: receivedReceipt });
+      throw error;
+    }
   }
 
   async invokeWebSearch(request: WebSearchModelRequest): Promise<ModelProviderResponse> {

@@ -20,6 +20,8 @@ The repository implements:
 
 Stage 12 includes five source-backed knowledge packs and a verified mock-only Product Discovery simulation, now deployed and smoke-tested in production. It does not establish live model competence or authorize commerce. **Stage 13: Product discovery and experiment system** preserves real source-linked research, conservative decisions and experiment history. Its live research proof is complete; the checkpoint and PR record release verification. Stage checkpoints and PR closeouts record deployment evidence.
 
+**Stage 14 is in progress:** the bounded creative pipeline, private versioned image storage and independent visual review are implemented and under hosted qualification. Its technical image test does not satisfy the separate evidence-backed approved-candidate production exit.
+
 Authoritative scope: [V2 implementation plan](docs/AGENT_LABS_V2_IMPLEMENTATION_PLAN.md). Verified stage evidence: [checkpoints](docs/checkpoints/).
 
 ## Private application model

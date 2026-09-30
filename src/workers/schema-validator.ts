@@ -98,6 +98,20 @@ function validateNode(
     }
   }
 
+  if ("anyOf" in schemaValue) {
+    if (!Array.isArray(schemaValue.anyOf) || schemaValue.anyOf.length < 1 || schemaValue.anyOf.length > 10 || schemaValue.anyOf.some(branch => !isRecord(branch))) {
+      issues.push({ path, message: "anyOf must contain 1 to 10 object schemas" });
+      return;
+    }
+    const matches = schemaValue.anyOf.some(branch => {
+      const branchIssues: SchemaValidationIssue[] = [];
+      validateNode(branch, value, path, branchIssues);
+      return branchIssues.length === 0;
+    });
+    if (!matches) { issues.push({ path, message: "must match an anyOf schema" }); return; }
+    if (schemaValue.type === undefined) return;
+  }
+
   const declaredType = schemaValue.type;
   if (Array.isArray(declaredType)) {
     if (declaredType.length === 0 || declaredType.some((type) =>

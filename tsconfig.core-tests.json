@@ -29,6 +29,10 @@
     "src/research/**/*.ts",
     "src/workers/**/*.ts",
     "src/products/types.ts",
-    "src/products/discovery.ts"
+    "src/products/discovery.ts",
+    "src/creative/**/*.ts"
+  ],
+  "exclude": [
+    "src/creative/data.ts"
   ]
 }

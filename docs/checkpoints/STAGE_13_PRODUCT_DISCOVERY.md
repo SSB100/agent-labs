@@ -4,7 +4,7 @@
 
 Implements Stage 13 of the unchanged authoritative implementation plan, after Stage 12 production commit `018b4652d575ef8975421bd38d48dfd05bf0f67f` ([PR 16](https://github.com/SSB100/agent-labs/pull/16)). Initial scope is original print-on-demand T-shirts.
 
-The code, applied database migration/regressions, and local build are verified. Hosted real-research qualification, preview UI proof, CI, merge and production verification are recorded below as they occur. Until those gates pass, this stage is not production-qualified.
+Stage 13 is complete in production. Code, applied schema/regressions, bounded real research, signed-in preview UI, exact-commit CI, merge and production smoke are verified. This does not qualify a product for creative production or commerce.
 
 No assets, listings, marketplace mutations, advertising, purchases or commerce operations are implemented. Stage 12's three domain workers remain experimental; this change does not promote them. Its source-policy date anomaly remains recorded in the Stage 12 checkpoint.
 
@@ -75,7 +75,13 @@ The live qualification uses one bounded original-POD hypothesis and approved pub
 - Live duplicate reservation reused its existing experiment and workflow without an additional provider call
 - Candidate, evidence/UTC provenance, decision/unknown scorecard and registry/future measurement plan were verified in the signed-in preview browser. Live QA found one blank upstream source title; renderer/source-extraction fallback now supplies a readable hostname without rewriting historical evidence
 - Preview error/fatal log scan returned no errors for the qualified deployment
-- Final presentation-fix CI/preview, production merge/deployment and production advisor scan: pending
+- Final presentation-fix CI `36701782002` passed on `89f30ecd1d94b3deddc804abb5a6df84477af1a9`; preview `dpl_8esc8e7yqpdUkgdBbaDB6vvj1S1w` was READY and the fallback source label was verified
+- [PR 17](https://github.com/SSB100/agent-labs/pull/17) merged with a normal merge commit at `bbf3dea0b6bf6af6aff641ca78d3f66a1f6aedf0`
+- Production deployment `dpl_FEsTRBWZSmAvWgN4LSSN1YpPwRSh` is READY for that exact merge commit; main CI `36702151155` passed
+- Production health returned HTTP 200/ok with connected Supabase and configured workflow, model and browser runtimes
+- Signed-in production Products route and owner-data isolation were verified. The existing qualified experiment remained durable and owner-readable; production smoke made no additional paid run
+- Production error/fatal log scan was clean. Advisor findings retain only the reviewed capability/owner-function notices and existing leaked-password warning
+- Stage 14 is the next implementation gate; no candidate has been silently promoted to creative production
 
 ## Reproduce
 
