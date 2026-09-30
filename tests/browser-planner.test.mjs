@@ -97,6 +97,42 @@ function fakeAdapter(output) {
   };
 }
 
+test("verified objectives stop repeated mutations and unverified objectives cannot complete", () => {
+  const request = {
+    taskContract: taskContract("Save the draft once and stop.", ["browser.observe", "browser.interact"]),
+    observation: MOCK_COMMERCE_OBSERVATION,
+  };
+  const click = { type: "click", elementId: "el_save001", text: null, url: null,
+    reason: "Save draft.", failureCategory: null };
+  const complete = { ...click, type: "complete", elementId: null, reason: "Draft is saved." };
+  request.taskContract.completionCriteria.objectiveVerified = true;
+  assert.throws(() => validatePlannerAction(request, click), /already verified/);
+  assert.doesNotThrow(() => validatePlannerAction(request, complete));
+  request.taskContract.completionCriteria.objectiveVerified = false;
+  assert.throws(() => validatePlannerAction(request, complete), /not yet verified/);
+  assert.doesNotThrow(() => validatePlannerAction(request, click));
+});
+
+test("the model receives current completion evidence and the exact durable scope", async () => {
+  const contract = taskContract("Save the draft once and stop.", ["browser.observe", "browser.interact"]);
+  contract.completionCriteria.objectiveVerified = true;
+  contract.nonGoals.push("Click Publish.");
+  const adapter = fakeAdapter({ type: "complete", elementId: null, text: null, url: null,
+    reason: "The observed saved draft satisfies the objective.", failureCategory: null });
+  const invoke = adapter.invokeStructured;
+  adapter.invokeStructured = async (request) => {
+    const context = JSON.parse(request.messages[1].content);
+    assert.equal(context.objectiveVerified, true);
+    assert.deepEqual(context.taskContract, contract);
+    assert.equal(context.previousFailure, null);
+    assert.match(request.messages[0].content, /Do not repeat a successful action/);
+    return invoke(request);
+  };
+  const decision = await planBrowserAction({ taskContract: contract,
+    observation: MOCK_COMMERCE_OBSERVATION, previousFailure: null }, { adapter });
+  assert.equal(decision.action.type, "complete");
+});
+
 test("Browser Planner Worker Pack is a valid versioned specialist worker", () => {
   assert.doesNotThrow(() => validateWorkerPackManifest(BROWSER_PLANNER_MANIFEST));
   assert.equal(BROWSER_PLANNER_MANIFEST.worker.workerKey, "browser.planner");

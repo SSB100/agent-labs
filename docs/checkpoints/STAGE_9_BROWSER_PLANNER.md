@@ -17,7 +17,7 @@ Pull request: https://github.com/SSB100/agent-labs/pull/13
 - Planner steps, actions, failures, recovery, and model cost summaries are durable and visible in the Workflow workspace.
 - Recovery has two retry opportunities and qualification objectives have a five-step limit.
 - An explicit planner `fail` decision is terminal and cannot report success.
-- Nine Stage 9 migrations are tracked and applied to the Agent Labs Supabase project.
+- Ten Stage 9 migrations are tracked and applied to the Agent Labs Supabase project.
 
 ## Recovery in this session
 
@@ -57,7 +57,11 @@ Live run `54a2d31a-9f39-441b-ae49-9a0715451e2f` successfully launched Steel, the
 
 A private trigger closes active Worker Runs and Task Contracts when their Stage 9 Workflow Run fails. The failed live run's orphaned child records are now failed with completion timestamps. The obsolete token-based Preview route and its database helper have been removed; live qualification uses the authenticated owner action.
 
-Local lint also excludes Workflow SDK generated routes, so checks can run again after a local build. The repaired candidate still needs its hosted gate, Preview and successful live rerun.
+Local lint also excludes Workflow SDK generated routes, so checks can run again after a local build. Hosted CI run `36658286335` passed all 88 tests and the production build for `c2aff72bf77c227e722a5c32a2e8972aa9701dc6`.
+
+The repaired Preview's live run `5b5b58fd-7152-4d0f-9fe8-878945455570` executed genuine routed model calls, fresh observations, and stale-element recovery. It exposed repeated clicks after the visible success state. Each durable Task Contract now includes the Core verifier result and case-specific non-goals. Core rejects further mutation after verification and premature completion before verification. Successful actions clear resolved failures. The model prompt explicitly compares current state against the objective, and the synthetic fixture counts clicks to prove exactly one successful click. Draft verifiers also check the exact field value and the controlled no-publication state.
+
+Local lint, TypeScript, and all 90 tests pass. The rolled-back database context regression proves verifier evidence and case-specific scope survive the durable round trip, and wrong runtime capabilities are denied. The latest stopping repair awaits hosted CI, Preview, and successful live qualification.
 
 ## Live status and next steps
 

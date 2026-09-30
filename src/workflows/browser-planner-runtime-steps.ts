@@ -130,6 +130,8 @@ async function preparePlannerStep(
     permittedCapabilities: readonly string[];
     observation: BrowserStructuredObservation;
     previousFailure: BrowserPlannerFailure | null;
+    objectiveVerified: boolean;
+    nonGoals: readonly string[];
   },
 ): Promise<PlannerStepContract> {
   const supabase = createRuntimeClient();
@@ -141,6 +143,8 @@ async function preparePlannerStep(
     p_observation: options.observation,
     p_permitted_capabilities: [...options.permittedCapabilities],
     p_previous_failure: options.previousFailure,
+    p_objective_verified: options.objectiveVerified,
+    p_non_goals: [...options.nonGoals],
     p_runtime_capability: input.runtimeCapability,
     p_stage_key: options.stageKey,
     p_step: options.step,
@@ -256,6 +260,8 @@ async function runBoundedObjective(
       permittedCapabilities: options.permittedCapabilities,
       observation: observedPage,
       previousFailure,
+      objectiveVerified: await options.verify(),
+      nonGoals: options.nonGoals ?? DEFAULT_NON_GOALS,
     });
     const durableContext = await loadPlannerStepContext(input, contract);
     const durableObservation = durableContext.inputArtifacts[0]?.content;
@@ -346,6 +352,7 @@ async function runBoundedObjective(
         options.permittedCapabilities,
         durableObservation,
       );
+      previousFailure = null;
       if (
         decision.action.type !== "complete" &&
         decision.action.type !== "fail"
@@ -535,7 +542,11 @@ export async function qualifySyntheticPlanner(
           <button id="continue">Continue</button>
           <output id="status">Waiting</output>
           <script>
+            document.documentElement.dataset.continueClicks = "0";
             document.querySelector("#continue").addEventListener("click", () => {
+              document.documentElement.dataset.continueClicks = String(
+                Number(document.documentElement.dataset.continueClicks) + 1
+              );
               document.querySelector("#status").textContent = "Continued";
             });
           </script>
@@ -549,7 +560,8 @@ export async function qualifySyntheticPlanner(
         permittedCapabilities: ["browser.observe", "browser.interact"],
         staleFirstTarget: true,
         verify: async () =>
-          (await page.locator("#status").textContent())?.trim() === "Continued",
+          (await page.locator("#status").textContent())?.trim() === "Continued" &&
+          (await page.evaluate(() => document.documentElement.dataset.continueClicks)) === "1",
       });
     },
   );
@@ -590,7 +602,8 @@ export async function qualifyMockCommerce(
           "Set the product title to exactly Stage 9 Product, save the draft, and complete only when the visible status says Draft saved.",
         permittedCapabilities: ["browser.observe", "browser.interact"],
         verify: async () =>
-          (await page.locator("#status").textContent())?.trim() === "Draft saved",
+          (await page.locator("#status").textContent())?.trim() === "Draft saved" &&
+          (await page.locator("input[name=title]").inputValue()) === "Stage 9 Product",
       });
     },
   );
@@ -676,7 +689,8 @@ export async function qualifyControlledDraft(
           const published = await page.evaluate(
             () => document.documentElement.dataset.published,
           );
-          return status === "Draft saved at 24.99" && published === "false";
+          return status === "Draft saved at 24.99" && published === "false" &&
+            (await page.locator("input[name=price]").inputValue()) === "24.99";
         },
       });
     },
