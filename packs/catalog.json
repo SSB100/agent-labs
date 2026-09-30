@@ -1,0 +1,608 @@
+[
+  {
+    "frameworkVersion": "1.0",
+    "packKey": "capability.synthetic-transform",
+    "kind": "capability",
+    "version": "1.0.0",
+    "name": "Structured transform",
+    "description": "Proves installable definitions, scoped knowledge, and pinned versions.",
+    "dependencies": [],
+    "ui": {
+      "category": "Qualification",
+      "summary": "Create a summary from a supplied message and scoped guidance.",
+      "supportedBusinessTypes": [
+        "all"
+      ]
+    },
+    "evals": [
+      "manifest",
+      "dependencies",
+      "scope",
+      "version-pinning",
+      "worker-output"
+    ],
+    "capabilities": [
+      {
+        "key": "data.transform",
+        "adapter": "structured.mapping",
+        "description": "Map structured input without external access."
+      }
+    ],
+    "knowledge": [],
+    "workers": [],
+    "workflows": []
+  },
+  {
+    "frameworkVersion": "1.0",
+    "packKey": "knowledge.synthetic-guide",
+    "kind": "knowledge",
+    "version": "1.0.0",
+    "name": "Synthetic guidance",
+    "description": "Proves installable definitions, scoped knowledge, and pinned versions.",
+    "dependencies": [],
+    "ui": {
+      "category": "Qualification",
+      "summary": "Create a summary from a supplied message and scoped guidance.",
+      "supportedBusinessTypes": [
+        "all"
+      ]
+    },
+    "evals": [
+      "manifest",
+      "dependencies",
+      "scope",
+      "version-pinning",
+      "worker-output"
+    ],
+    "capabilities": [],
+    "knowledge": [
+      {
+        "key": "synthetic.guide",
+        "version": "1.0.0",
+        "name": "Bounded summary guidance",
+        "source": "fixture://agent-labs/stage10",
+        "verifiedAt": "2026-09-30T00:00:00Z",
+        "freshnessDays": 3650,
+        "content": {
+          "guidance": "Use only the supplied message. Stop once the summary is complete."
+        }
+      }
+    ],
+    "workers": [],
+    "workflows": []
+  },
+  {
+    "frameworkVersion": "1.0",
+    "packKey": "worker.synthetic-summary",
+    "kind": "worker",
+    "version": "1.0.0",
+    "name": "Synthetic summary",
+    "description": "Proves installable definitions, scoped knowledge, and pinned versions.",
+    "dependencies": [
+      {
+        "packKey": "capability.synthetic-transform",
+        "version": "1.0.0"
+      },
+      {
+        "packKey": "knowledge.synthetic-guide",
+        "version": "1.0.0"
+      }
+    ],
+    "ui": {
+      "category": "Qualification",
+      "summary": "Create a summary from a supplied message and scoped guidance.",
+      "supportedBusinessTypes": [
+        "all"
+      ]
+    },
+    "evals": [
+      "manifest",
+      "dependencies",
+      "scope",
+      "version-pinning",
+      "worker-output"
+    ],
+    "capabilities": [],
+    "knowledge": [],
+    "workers": [
+      {
+        "manifest": {
+          "manifestVersion": "1.0",
+          "packKey": "worker.synthetic-summary",
+          "version": "1.0.0",
+          "name": "Synthetic summary",
+          "worker": {
+            "workerKey": "synthetic.summary",
+            "version": "1.0.0",
+            "role": "Summary Worker",
+            "charter": "Return one scoped summary then stop."
+          },
+          "inputSchema": {
+            "type": "object"
+          },
+          "outputSchema": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "decision",
+              "summary",
+              "guidance",
+              "releaseVersion",
+              "stopReason"
+            ],
+            "properties": {
+              "decision": {
+                "type": "string",
+                "const": "complete"
+              },
+              "summary": {
+                "type": "string",
+                "minLength": 1
+              },
+              "guidance": {
+                "type": "string",
+                "minLength": 1
+              },
+              "releaseVersion": {
+                "type": "string"
+              },
+              "stopReason": {
+                "type": "string",
+                "const": "objective_complete"
+              }
+            }
+          },
+          "capabilityPolicy": {
+            "allowed": [
+              "data.transform"
+            ],
+            "forbidden": [
+              "shell.execute",
+              "money.spend",
+              "marketplace.publish"
+            ]
+          },
+          "knowledgeRequirements": [
+            "synthetic.guide"
+          ],
+          "modelRequirements": {
+            "executionMode": "structured.mapping"
+          },
+          "instructions": [
+            "Copy the supplied message and scoped guidance; perform no external action."
+          ],
+          "examples": [
+            {
+              "name": "bounded summary",
+              "input": {
+                "message": "Pack framework proof"
+              },
+              "expectedOutput": {
+                "decision": "complete",
+                "summary": "Pack framework proof",
+                "guidance": "Use only the supplied message. Stop once the summary is complete.",
+                "releaseVersion": "1.0.0",
+                "stopReason": "objective_complete"
+              }
+            }
+          ],
+          "negativeExamples": [
+            {
+              "name": "unscoped knowledge",
+              "forbiddenBehaviour": "Read unrelated Business data or undeclared knowledge.",
+              "reason": "Only Task Contract artifacts are authorized."
+            }
+          ],
+          "escalationPolicy": {
+            "invalidInput": "fail_task"
+          }
+        },
+        "execution": {
+          "kind": "structured.mapping",
+          "fields": {
+            "decision": {
+              "source": "literal",
+              "value": "complete"
+            },
+            "summary": {
+              "source": "input",
+              "key": "message"
+            },
+            "guidance": {
+              "source": "knowledge",
+              "knowledgeKey": "synthetic.guide",
+              "key": "guidance"
+            },
+            "releaseVersion": {
+              "source": "literal",
+              "value": "1.0.0"
+            },
+            "stopReason": {
+              "source": "literal",
+              "value": "objective_complete"
+            }
+          }
+        }
+      }
+    ],
+    "workflows": []
+  },
+  {
+    "frameworkVersion": "1.0",
+    "packKey": "workflow.synthetic-summary",
+    "kind": "workflow",
+    "version": "1.0.0",
+    "name": "Synthetic summary",
+    "description": "Proves installable definitions, scoped knowledge, and pinned versions.",
+    "dependencies": [
+      {
+        "packKey": "worker.synthetic-summary",
+        "version": "1.0.0"
+      }
+    ],
+    "ui": {
+      "category": "Qualification",
+      "summary": "Create a summary from a supplied message and scoped guidance.",
+      "supportedBusinessTypes": [
+        "all"
+      ]
+    },
+    "evals": [
+      "manifest",
+      "dependencies",
+      "scope",
+      "version-pinning",
+      "worker-output"
+    ],
+    "capabilities": [],
+    "knowledge": [],
+    "workers": [],
+    "workflows": [
+      {
+        "key": "synthetic.installed-summary",
+        "version": "1.0.0",
+        "name": "Installed pack summary",
+        "description": "Proves installable definitions, scoped knowledge, and pinned versions.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "message"
+          ],
+          "properties": {
+            "message": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            }
+          }
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "decision",
+            "summary",
+            "guidance",
+            "releaseVersion",
+            "stopReason"
+          ],
+          "properties": {
+            "decision": {
+              "type": "string",
+              "const": "complete"
+            },
+            "summary": {
+              "type": "string",
+              "minLength": 1
+            },
+            "guidance": {
+              "type": "string",
+              "minLength": 1
+            },
+            "releaseVersion": {
+              "type": "string"
+            },
+            "stopReason": {
+              "type": "string",
+              "const": "objective_complete"
+            }
+          }
+        },
+        "sampleInput": {
+          "message": "Pack framework proof"
+        },
+        "stages": [
+          {
+            "key": "summary",
+            "workerKey": "synthetic.summary",
+            "workerVersion": "1.0.0",
+            "objective": "Summarize only the supplied message using the scoped synthetic guidance, then stop.",
+            "inputFrom": "workflow",
+            "knowledgeKeys": [
+              "synthetic.guide"
+            ],
+            "permittedCapabilities": [
+              "data.transform"
+            ],
+            "nonGoals": [
+              "Read unrelated Business data.",
+              "Publish or perform external actions."
+            ],
+            "completionCriteria": {
+              "requiredDecision": "complete",
+              "requiredStopReason": "objective_complete"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "frameworkVersion": "1.0",
+    "packKey": "worker.synthetic-summary",
+    "kind": "worker",
+    "version": "2.0.0",
+    "name": "Synthetic summary",
+    "description": "Proves installable definitions, scoped knowledge, and pinned versions.",
+    "dependencies": [
+      {
+        "packKey": "capability.synthetic-transform",
+        "version": "1.0.0"
+      },
+      {
+        "packKey": "knowledge.synthetic-guide",
+        "version": "1.0.0"
+      }
+    ],
+    "ui": {
+      "category": "Qualification",
+      "summary": "Create a summary from a supplied message and scoped guidance.",
+      "supportedBusinessTypes": [
+        "all"
+      ]
+    },
+    "evals": [
+      "manifest",
+      "dependencies",
+      "scope",
+      "version-pinning",
+      "worker-output"
+    ],
+    "capabilities": [],
+    "knowledge": [],
+    "workers": [
+      {
+        "manifest": {
+          "manifestVersion": "1.0",
+          "packKey": "worker.synthetic-summary",
+          "version": "2.0.0",
+          "name": "Synthetic summary",
+          "worker": {
+            "workerKey": "synthetic.summary",
+            "version": "2.0.0",
+            "role": "Summary Worker",
+            "charter": "Return one scoped summary then stop."
+          },
+          "inputSchema": {
+            "type": "object"
+          },
+          "outputSchema": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "decision",
+              "summary",
+              "guidance",
+              "releaseVersion",
+              "stopReason"
+            ],
+            "properties": {
+              "decision": {
+                "type": "string",
+                "const": "complete"
+              },
+              "summary": {
+                "type": "string",
+                "minLength": 1
+              },
+              "guidance": {
+                "type": "string",
+                "minLength": 1
+              },
+              "releaseVersion": {
+                "type": "string"
+              },
+              "stopReason": {
+                "type": "string",
+                "const": "objective_complete"
+              }
+            }
+          },
+          "capabilityPolicy": {
+            "allowed": [
+              "data.transform"
+            ],
+            "forbidden": [
+              "shell.execute",
+              "money.spend",
+              "marketplace.publish"
+            ]
+          },
+          "knowledgeRequirements": [
+            "synthetic.guide"
+          ],
+          "modelRequirements": {
+            "executionMode": "structured.mapping"
+          },
+          "instructions": [
+            "Copy the supplied message and scoped guidance; perform no external action."
+          ],
+          "examples": [
+            {
+              "name": "bounded summary",
+              "input": {
+                "message": "Pack framework proof"
+              },
+              "expectedOutput": {
+                "decision": "complete",
+                "summary": "Pack framework proof",
+                "guidance": "Use only the supplied message. Stop once the summary is complete.",
+                "releaseVersion": "2.0.0",
+                "stopReason": "objective_complete"
+              }
+            }
+          ],
+          "negativeExamples": [
+            {
+              "name": "unscoped knowledge",
+              "forbiddenBehaviour": "Read unrelated Business data or undeclared knowledge.",
+              "reason": "Only Task Contract artifacts are authorized."
+            }
+          ],
+          "escalationPolicy": {
+            "invalidInput": "fail_task"
+          }
+        },
+        "execution": {
+          "kind": "structured.mapping",
+          "fields": {
+            "decision": {
+              "source": "literal",
+              "value": "complete"
+            },
+            "summary": {
+              "source": "input",
+              "key": "message"
+            },
+            "guidance": {
+              "source": "knowledge",
+              "knowledgeKey": "synthetic.guide",
+              "key": "guidance"
+            },
+            "releaseVersion": {
+              "source": "literal",
+              "value": "2.0.0"
+            },
+            "stopReason": {
+              "source": "literal",
+              "value": "objective_complete"
+            }
+          }
+        }
+      }
+    ],
+    "workflows": []
+  },
+  {
+    "frameworkVersion": "1.0",
+    "packKey": "workflow.synthetic-summary",
+    "kind": "workflow",
+    "version": "2.0.0",
+    "name": "Synthetic summary",
+    "description": "Proves installable definitions, scoped knowledge, and pinned versions.",
+    "dependencies": [
+      {
+        "packKey": "worker.synthetic-summary",
+        "version": "2.0.0"
+      }
+    ],
+    "ui": {
+      "category": "Qualification",
+      "summary": "Create a summary from a supplied message and scoped guidance.",
+      "supportedBusinessTypes": [
+        "all"
+      ]
+    },
+    "evals": [
+      "manifest",
+      "dependencies",
+      "scope",
+      "version-pinning",
+      "worker-output"
+    ],
+    "capabilities": [],
+    "knowledge": [],
+    "workers": [],
+    "workflows": [
+      {
+        "key": "synthetic.installed-summary",
+        "version": "2.0.0",
+        "name": "Installed pack summary",
+        "description": "Proves installable definitions, scoped knowledge, and pinned versions.",
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "message"
+          ],
+          "properties": {
+            "message": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            }
+          }
+        },
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "decision",
+            "summary",
+            "guidance",
+            "releaseVersion",
+            "stopReason"
+          ],
+          "properties": {
+            "decision": {
+              "type": "string",
+              "const": "complete"
+            },
+            "summary": {
+              "type": "string",
+              "minLength": 1
+            },
+            "guidance": {
+              "type": "string",
+              "minLength": 1
+            },
+            "releaseVersion": {
+              "type": "string"
+            },
+            "stopReason": {
+              "type": "string",
+              "const": "objective_complete"
+            }
+          }
+        },
+        "sampleInput": {
+          "message": "Pack framework proof"
+        },
+        "stages": [
+          {
+            "key": "summary",
+            "workerKey": "synthetic.summary",
+            "workerVersion": "2.0.0",
+            "objective": "Summarize only the supplied message using the scoped synthetic guidance, then stop.",
+            "inputFrom": "workflow",
+            "knowledgeKeys": [
+              "synthetic.guide"
+            ],
+            "permittedCapabilities": [
+              "data.transform"
+            ],
+            "nonGoals": [
+              "Read unrelated Business data.",
+              "Publish or perform external actions."
+            ],
+            "completionCriteria": {
+              "requiredDecision": "complete",
+              "requiredStopReason": "objective_complete"
+            }
+          }
+        ]
+      }
+    ]
+  }
+]

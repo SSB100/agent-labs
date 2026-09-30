@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const read = (path) => readFileSync(path, "utf8");
@@ -114,8 +114,6 @@ test("Stage 9 owner launch stays separate from Stage 8 provider qualification", 
   assert.match(accounts, /for \{business\.name\}/);
 });
 
-test("Stage 9 does not start the Stage 10 pack framework", () => {
-  assert.equal(existsSync("docs/checkpoints/STAGE_10_PACK_FRAMEWORK.md"), false);
-  assert.equal(existsSync("src/packs/registry.ts"), false);
-  assert.equal(existsSync("src/packs/dependencies.ts"), false);
+test("Stage 9 qualification remains independent of specialist pack installation", () => {
+  assert.doesNotMatch(read("src/workflows/browser-planner-runtime.ts"), /stage10|pack-runtime/);
 });
