@@ -16,9 +16,11 @@ export type CreativeApprovalRecord = { id: string; business_id: string; candidat
 export type CreativeRunRecord = { id: string; business_id: string; approval_id: string; workflow_run_id: string; created_at: string; capability_expires_at: string; capabilityExpired: boolean; status: string; phase: string | null; productionReady: boolean };
 export type CreativeAssetRecord = { id: string; creative_run_id: string; business_id: string; candidate_id: string; version: number; brief_hash: string; asset_hash: string; storage_path: string; inspection: AssetInspection; prompt: string; provider: string; model: string; generated_at: string; signedUrl: string | null; provenance?: StoredImageProvenance | null; sourceSignedUrl?: string | null };
 export type CreativeReviewRecord = { id: string; creative_run_id: string; asset_id: string; review: DesignReview; reviewer_model: string; created_at: string };
-export type CreativeWorkspaceData = { approvals: CreativeApprovalRecord[]; runs: CreativeRunRecord[]; assets: CreativeAssetRecord[]; reviews: CreativeReviewRecord[]; costs: CreativeCostRecord[]; costsAvailable: boolean; errors: string[] };
+export type RetainedCreativeSource = { creativeRunId: string; callKey: string; storagePath: string; mediaType: "image/png" | "image/webp"; bytes: number; sha256: string; downloadVerified: boolean; signedUrl: string | null };
+export type CreativeWorkspaceData = { approvals: CreativeApprovalRecord[]; runs: CreativeRunRecord[]; assets: CreativeAssetRecord[]; reviews: CreativeReviewRecord[]; costs: CreativeCostRecord[]; costsAvailable: boolean; retainedSources: RetainedCreativeSource[]; errors: string[] };
+const retainedSourcePath = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\/version-[12](\.png|\.original\.webp)$/;
 export async function loadCreativeWorkspace(context: OwnerUiContext): Promise<CreativeWorkspaceData> {
-  const empty: CreativeWorkspaceData = { approvals: [], runs: [], assets: [], reviews: [], costs: [], costsAvailable: true, errors: [] };
+  const empty: CreativeWorkspaceData = { approvals: [], runs: [], assets: [], reviews: [], costs: [], costsAvailable: true, retainedSources: [], errors: [] };
   const businessIds = context.businesses.map(b => b.id); if (!businessIds.length) return empty;
   const [approvals, runs, assets] = await Promise.all([
     context.supabase.from("creative_approvals").select("id,business_id,candidate_id,purpose,snapshot,maximum_microusd,approved_at,expires_at").in("business_id", businessIds).order("approved_at", { ascending: false }).limit(50),
@@ -33,7 +35,7 @@ export async function loadCreativeWorkspace(context: OwnerUiContext): Promise<Cr
     context.supabase.from("workflow_runs").select("id,status,current_stage_key,state").in("id", runRows.map(r => r.workflow_run_id)),
     context.supabase.from("creative_reviews").select("id,creative_run_id,asset_id,review,reviewer_model,created_at").in("creative_run_id", runIds).order("created_at", { ascending: false }),
     context.supabase.from("creative_cost_reservations").select("creative_run_id,call_key,reserved_microusd,created_at").in("creative_run_id", runIds).order("created_at", { ascending: true }),
-    context.supabase.from("creative_cost_settlements").select("creative_run_id,call_key,reported_microusd,provider_request_id,created_at").in("creative_run_id", runIds).order("created_at", { ascending: true }),
+    context.supabase.from("creative_cost_settlements").select("creative_run_id,call_key,reported_microusd,provider_request_id,created_at,receipt").in("creative_run_id", runIds).order("created_at", { ascending: true }),
     assets.data?.length ? context.supabase.storage.from("creative-assets").createSignedUrls(assets.data.map(a => a.storage_path as string), 1200) : Promise.resolve({ data: [], error: null }),
     context.supabase.from("creative_phase_outputs").select("creative_run_id,call_key,output").in("creative_run_id", runIds).in("call_key", ["generate:1", "generate:2"]),
   ]);
@@ -45,6 +47,19 @@ export async function loadCreativeWorkspace(context: OwnerUiContext): Promise<Cr
   const sourceUrls = sourcePaths.length ? await context.supabase.storage.from("creative-assets").createSignedUrls(sourcePaths, 1200) : { data: [], error: null };
   if (sourceUrls.error) errors.push(sourceUrls.error.message);
   const signedSources = new Map((sourceUrls.data ?? []).map(url => [url.path, url.signedUrl]));
+  const retainedSources: RetainedCreativeSource[] = (costs.data ?? []).flatMap(cost => {
+    const run = runRows.find(r => r.id === cost.creative_run_id), source = cost.receipt?.sourcePreservation;
+    if (cost.receipt?.outputValidated !== false || !run || !businessIds.includes(run.business_id) || !/^generate:[12]$/.test(cost.call_key) || !source || source.uploadConfirmed !== true ||
+        !["image/png", "image/webp"].includes(source.mediaType) || !Number.isSafeInteger(source.bytes) || source.bytes < 12 || source.bytes > 7_000_000 ||
+        typeof source.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(source.sha256) ||
+        typeof source.storagePath !== "string" || !retainedSourcePath.test(source.storagePath) ||
+        source.storagePath !== `${run.business_id}/${run.id}/version-${cost.call_key.split(":")[1]}${source.mediaType === "image/webp" ? ".original.webp" : ".png"}`) return [];
+    return [{ creativeRunId: run.id, callKey: cost.call_key, storagePath: source.storagePath, mediaType: source.mediaType,
+      bytes: source.bytes, sha256: source.sha256, downloadVerified: source.downloadVerified === true, signedUrl: null }];
+  });
+  const retainedUrls = retainedSources.length ? await context.supabase.storage.from("creative-assets").createSignedUrls(retainedSources.map(source => source.storagePath), 1200) : { data: [], error: null };
+  if (retainedUrls.error) errors.push(retainedUrls.error.message);
+  const signedRetained = new Map((retainedUrls.data ?? []).map(url => [url.path, url.signedUrl]));
   return { approvals: (approvals.data ?? []) as CreativeApprovalRecord[],
     runs: runRows.map(r => ({ ...r, capabilityExpired: Date.parse(r.capability_expires_at) <= Date.now(), status: workflowMap.get(r.workflow_run_id)?.status ?? "unknown", phase: workflowMap.get(r.workflow_run_id)?.current_stage_key ?? null, productionReady: workflowMap.get(r.workflow_run_id)?.state?.productionReady === true })),
     assets: (assets.data ?? []).map(a => {
@@ -54,5 +69,6 @@ export async function loadCreativeWorkspace(context: OwnerUiContext): Promise<Cr
     }) as CreativeAssetRecord[],
     reviews: (reviews.data ?? []) as CreativeReviewRecord[],
     costs: mergeCreativeCosts((reservations.data ?? []) as CreativeCostReservationRecord[], (costs.data ?? []) as CreativeCostSettlementRecord[]),
-    costsAvailable: !runs.error && !reservations.error && !costs.error, errors };
+    costsAvailable: !runs.error && !reservations.error && !costs.error,
+    retainedSources: retainedSources.map(source => ({ ...source, signedUrl: signedRetained.get(source.storagePath) ?? null })), errors };
 }

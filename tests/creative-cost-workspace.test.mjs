@@ -50,7 +50,7 @@ function fixture({ failures = [], empty = false, settled = false, unknown = fals
     },
     storage: { from() { throw new Error('No fixture assets require storage access'); } },
   } };
-  return { context, queries };
+  return { context, queries, rows };
 }
 
 async function renderWorkspace(context, data) {
@@ -145,4 +145,54 @@ test('derived PNG gallery distinguishes retained provider WebP and its immutable
   assert.match(html, /b{64}/);
   assert.match(html, /Open original provider file/);
   assert.match(html, /Pixel equality does not claim/);
+});
+
+
+function retainedFixture() {
+  const f = fixture({ settled: true });
+  const businessId = '00000000-0000-4000-8000-000000000001', runId = '00000000-0000-4000-8000-000000000002';
+  f.context.businesses[0].id = businessId; f.rows.creative_approvals[0].business_id = businessId;
+  Object.assign(f.rows.creative_runs[0], { id: runId, business_id: businessId });
+  for (const name of ['creative_cost_reservations', 'creative_cost_settlements']) Object.assign(f.rows[name][0], { creative_run_id: runId, call_key: 'generate:1' });
+  const source = { storagePath: `${businessId}/${runId}/version-1.original.webp`, mediaType: 'image/webp', bytes: 2000, sha256: 'a'.repeat(64), uploadConfirmed: true, downloadVerified: true };
+  f.rows.creative_cost_settlements[0].receipt = { outputValidated: false, sourcePreservation: source };
+  const signed = [];
+  f.context.supabase.storage = { from(bucket) { assert.equal(bucket, 'creative-assets'); return { async createSignedUrls(paths, expiry) {
+    signed.push(...paths); assert.equal(expiry, 1200);
+    return { error: null, data: paths.map(path => ({ path, signedUrl: 'https://example.invalid/private-unvalidated' })) };
+  } }; } };
+  return { ...f, source, signed };
+}
+test('owner sees retained paid source as explicitly unvalidated, separate from approved gallery', async () => {
+  const f = retainedFixture(), data = await loadCreativeWorkspace(f.context);
+  assert.deepEqual(f.signed, [f.source.storagePath]);
+  assert.equal(data.assets.length, 0); assert.equal(data.retainedSources.length, 1);
+  assert.equal(data.retainedSources[0].sha256, f.source.sha256);
+  const html = await renderWorkspace(f.context, data);
+  assert.match(html, /Unvalidated provider source retained after failure/);
+  assert.match(html, /not a validated design or review PASS/);
+  assert.match(html, /No validated images are available in the gallery/);
+  assert.match(html, /Open retained unvalidated source/);
+  assert.doesNotMatch(html, /Nothing has been generated yet/);
+});
+test('retained source signing rejects forged owners, runs, paths and metadata', async () => {
+  for (const alter of [
+    f => { f.rows.creative_runs[0].business_id = '00000000-0000-4000-8000-000000000009'; },
+    f => { f.source.storagePath = f.source.storagePath.replace('000000000002/', '000000000009/'); },
+    f => { f.source.storagePath += '/extra'; },
+    f => { f.source.storagePath = '../' + f.source.storagePath; },
+    f => { f.source.storagePath = 'https://example.invalid/file'; },
+    f => { f.source.mediaType = 'image/png'; },
+    f => { f.source.sha256 = 'not-a-hash'; },
+    f => { f.source.bytes = 7_000_001; },
+    f => { f.source.uploadConfirmed = false; },
+    f => { f.rows.creative_cost_settlements[0].receipt.outputValidated = true; },
+    f => { delete f.rows.creative_cost_settlements[0].receipt.outputValidated; },
+    f => { f.rows.creative_cost_settlements[0].call_key = 'generate:2'; },
+  ]) {
+    const f = retainedFixture(); alter(f); const data = await loadCreativeWorkspace(f.context);
+    assert.equal(data.retainedSources.length, 0);
+    assert.equal(f.signed.length, 0);
+    assert.equal(data.costs.length >= 1, true, 'Rejecting source metadata must not erase charged history');
+  }
 });
