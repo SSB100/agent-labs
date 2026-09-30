@@ -56,7 +56,14 @@ export async function runBrowserPlannerCycle(
             completionCriteria: { oneBoundedAction: true },
             failureCriteria: { maximumRecoveryAttempts },
             escalationRules: {
-              previousFailure,
+              previousFailure: previousFailure
+                ? {
+                    category: previousFailure.category,
+                    message: previousFailure.message,
+                    retryable: previousFailure.retryable,
+                    details: previousFailure.details,
+                  }
+                : null,
             },
           },
           observation,
