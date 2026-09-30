@@ -247,7 +247,14 @@ async function runBoundedObjective(
             maximumRecoveryAttempts: MAX_RECOVERIES,
           },
           escalationRules: {
-            previousFailure,
+            previousFailure: previousFailure
+              ? {
+                  category: previousFailure.category,
+                  message: previousFailure.message,
+                  retryable: previousFailure.retryable,
+                  details: previousFailure.details,
+                }
+              : null,
             recoveryAttempt: recoveries,
           },
         },
