@@ -71,6 +71,7 @@ export async function runModelRoute(
 
       const response = await options.adapter.invokeStructured({
         model,
+        ...(options.maxOutputTokens === undefined ? {} : { maxOutputTokens: options.maxOutputTokens }),
         schemaName: options.schemaName,
         outputSchema: options.outputSchema,
         messages: options.messages,

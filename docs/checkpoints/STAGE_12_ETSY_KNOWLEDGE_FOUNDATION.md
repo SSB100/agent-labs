@@ -57,10 +57,12 @@ The complete local gate runs lint, TypeScript, all tests, optimized Next.js buil
 - Each hosted run has three completed worker receipts, 16 artifacts and 11 final events, zero external action intents and zero live model cost. Both standard workers retain `standard.default`; the Reviewer retains `reviewer.independent`. All receipts explicitly identify mock simulation
 - Workflow timeline, source-backed knowledge artifacts, decision text, completion/cancellation, and cleared Needs You controls were verified in the cloud browser. The preview error/fatal log scan returned no errors
 - Security advisors retain 14 established run-capability-guarded anonymous SECURITY DEFINER notices and add two owner-checked authenticated RPC notices; owner isolation/forged decisions are covered by SQL regressions. Existing leaked-password protection warning is unchanged. No table/RLS warning was introduced
-- Production verification follows merge; PR 16 closeout will record the exact deployed commit and production smoke result. Live model competence remains deliberately unqualified
+- PR 16 merged at `018b4652d575ef8975421bd38d48dfd05bf0f67f`; production deployment `dpl_9nmhM2V381vGUCHW78LXNVvA7oTH` is READY and CI `36692476983` passed
+- Signed-in production smoke run `156d5ec9-1716-4bc2-ad74-83efc8e40447`, runtime `wrun_01M3RRCTWAHKTTPJ48G4QD0NZ6`, completed all three mock worker stages, paused in Needs You, and completed after acknowledgment. It has 16 artifacts, 11 events, three mock receipts and no external action intents
+- Production health returned HTTP 200 with Supabase connected and all configured runtime services. The production error/fatal log scan was clean. Final deployment evidence is also recorded in the PR 16 closeout comment. Live model competence remains deliberately unqualified
 
-## Remaining gate
+## Closeout and next gate
 
-Verify final CI after this evidence update, merge PR 16, and verify its exact production deployment and signed-in smoke result. Record closeout evidence on the PR before advancing. Do not promote these mocked workers to live-qualified on the strength of these tests.
+Stage 12's knowledge and integrated simulation gate is complete in production. Do not promote these mocked workers to live-qualified on the strength of these tests.
 
 Stage 13 must collect actual source-backed candidate evidence and implement persistent candidate/experiment decisions. Stage 25 still requires a complete real business workflow to verified realised profit and repeated success before additional packs become a priority.

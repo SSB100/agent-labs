@@ -6,7 +6,9 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "types": ["node"],
+    "types": [
+      "node"
+    ],
     "outDir": ".core-tests",
     "rootDir": "src",
     "noEmit": false,
@@ -25,6 +27,8 @@
     "src/models/**/*.ts",
     "src/packs/**/*.ts",
     "src/research/**/*.ts",
-    "src/workers/**/*.ts"
+    "src/workers/**/*.ts",
+    "src/products/types.ts",
+    "src/products/discovery.ts"
   ]
 }
