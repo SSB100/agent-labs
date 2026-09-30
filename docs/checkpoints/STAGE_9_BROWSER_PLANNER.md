@@ -25,7 +25,7 @@ The last deployed Stage 9 candidate failed during tests. The latest branch had a
 
 The recovery corrects that expression so it checks that the promotion helper does not recursively update planner status. It also updates the historical Stage 8 closeout test to allow subsequent Stage 9 implementation, corrects the assertion for the dynamic Qualify/Requalify label, excludes generated test output from lint, and adds a behavioral regression for terminal planner failure.
 
-A dependency lockfile now records the installed versions. Next.js's local SWC cache is ignored.
+A dependency lockfile now records the installed versions. Next.js's local SWC cache is ignored. Git author configuration is scoped to this checkout and matches the established Agent Labs repository identity for Vercel deployment access.
 
 ## Local verification
 
