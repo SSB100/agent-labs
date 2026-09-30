@@ -8,8 +8,6 @@ test("Stage 8 records live qualification and removes one-time infrastructure", (
     existsSync("src/app/api/stage8/live-provider-check/route.ts"),
     false,
   );
-  assert.equal(existsSync("src/browser/planner.ts"), false);
-  assert.equal(existsSync("src/workflows/browser-planner-runtime.ts"), false);
 
   const checkpoint = readFileSync(
     "docs/checkpoints/STAGE_8_BROWSER_PROVIDER.md",

@@ -10,6 +10,8 @@ export default defineConfig([
     "out/**",
     "build/**",
     "coverage/**",
+    ".core-tests/**",
+    ".worker-tests/**",
     "next-env.d.ts",
   ]),
 ]);

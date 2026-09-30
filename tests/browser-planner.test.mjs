@@ -17,7 +17,7 @@ const {
   planBrowserAction,
   validatePlannerAction,
 } = plannerModule;
-const { BROWSER_PLANNER_MAX_RECOVERY_ATTEMPTS } = recoveryModule;
+const { BROWSER_PLANNER_MAX_RECOVERY_ATTEMPTS, runBrowserPlannerCycle } = recoveryModule;
 const { validateWorkerPackManifest } = workerRuntimeModule;
 const { BROWSER_PLANNER_MANIFEST } = workerModule;
 
@@ -232,4 +232,42 @@ test("password fields never expose their current value to the planner", () => {
     (control) => control.type === "password",
   );
   assert.equal(password?.value, null);
+});
+
+test("a planner fail decision stops without retrying or reporting success", async () => {
+  let invocations = 0;
+  const adapter = fakeAdapter({
+    type: "fail",
+    elementId: null,
+    text: null,
+    url: null,
+    reason: "The task cannot progress safely.",
+    failureCategory: "blocked_objective",
+  });
+  const invoke = adapter.invokeStructured;
+  adapter.invokeStructured = async (request) => {
+    invocations += 1;
+    return invoke(request);
+  };
+  const page = {
+    async evaluate() {
+      return READ_ONLY_SITE_OBSERVATION;
+    },
+    locator() {
+      throw new Error("A fail decision must not touch browser controls.");
+    },
+    async goto() {
+      throw new Error("A fail decision must not navigate.");
+    },
+  };
+
+  const result = await runBrowserPlannerCycle(page, {
+    objective: "Stop when the objective cannot progress safely.",
+    permittedCapabilities: ["browser.observe"],
+    adapter,
+  });
+  assert.equal(invocations, 1);
+  assert.equal(result.completed, false);
+  assert.equal(result.failure.retryable, false);
+  assert.equal(result.failure.details.failureCategory, "blocked_objective");
 });

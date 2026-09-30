@@ -75,7 +75,7 @@ test("Stage 9 qualification covers every implementation-plan level", () => {
   assert.match(schemaAlignment, /requiredOutputSchema/);
   assert.match(schemaAlignment, /minLength',1,'maxLength',500/);
   assert.match(promotionFix, /old\.status is distinct from new\.status/);
-  assert.doesNotMatch(promotionFix, /set\s+status='qualified',[\s\S]*subjectFingerprint/i);
+  assert.doesNotMatch(promotionFix, /update\s+public\.browser_planner_definitions\s+set\s+status\s*=\s*'qualified'/i);
 });
 
 test("Stage 9 planner actions are durable and visible in the Workflow UI", () => {
@@ -110,7 +110,8 @@ test("Stage 9 owner launch stays separate from Stage 8 provider qualification", 
   assert.match(actions, /synthetic\.browser-planner\.qualification/);
   assert.match(accounts, /Stage 9 qualification/);
   assert.match(accounts, /Browser Planner/);
-  assert.match(accounts, /Qualify for/);
+  assert.match(accounts, /"Requalify" : "Qualify"/);
+  assert.match(accounts, /for \{business\.name\}/);
 });
 
 test("Stage 9 does not start the Stage 10 pack framework", () => {
