@@ -1,3 +1,4 @@
+import type { JsonObject } from "../../core/contracts";
 import type { Page } from "playwright-core";
 
 import { observeStructuredPage } from "./observation";
@@ -24,7 +25,7 @@ function failure(
   category: BrowserPlannerFailure["category"],
   message: string,
   retryable: boolean,
-  details: Record<string, unknown> = {},
+  details: JsonObject = {},
 ): BrowserPlannerError {
   return new BrowserPlannerError({
     category,
