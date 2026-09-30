@@ -2,7 +2,7 @@
 
 Agent Labs V2 is a clean, cloud-first rebuild of Agent Labs. The permanent Core hosts durable workflows, bounded specialist workers, model routing, connected accounts, evidence, business state and human intervention. Specialised expertise is installed through versioned packs.
 
-The repository has completed:
+The repository implements:
 
 - **Stage 1: Cloud application scaffold**
 - **Stage 2: Universal Core data contracts**
@@ -15,8 +15,9 @@ The repository has completed:
 - **Stage 9: Browser Planner qualification**
 - **Stage 10: Pack framework**
 - **Stage 11: Web Research capability**
+- **Stage 12: Etsy and POD knowledge foundation**
 
-**Stage 12: Etsy and POD knowledge foundation** is in progress. Its checkpoint distinguishes local simulation, hosted verification and live model qualification. Stage 13 begins only after the Stage 12 gate is verified.
+Stage 12 includes five source-backed knowledge packs and a verified mock-only Product Discovery simulation. It does not establish live model competence or authorize commerce. **Stage 13: Product discovery and experiment system** is next, after the Stage 12 production deployment gate. Its checkpoint and PR closeout record deployment evidence.
 
 Authoritative scope: [V2 implementation plan](docs/AGENT_LABS_V2_IMPLEMENTATION_PLAN.md). Verified stage evidence: [checkpoints](docs/checkpoints/).
 
