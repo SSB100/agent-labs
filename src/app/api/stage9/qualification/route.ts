@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 const QUALIFICATION_TOKEN_HASH =
-  "6f69a387104190846e2733059b06b9147a5941273cbee41ef08a39d3a3cd7353";
+  "d72d15932530c100159640b31f8c2e413c7b31879beff26af15a5ad59a27eaef";
 
 function authorized(token: string) {
   const supplied = createHash("sha256").update(token).digest();
