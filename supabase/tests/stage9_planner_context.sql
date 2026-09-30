@@ -43,6 +43,19 @@ begin
     v_denied := true;
   end;
   assert v_denied, 'An incorrect runtime capability must be denied';
+  v_denied := false;
+  begin
+    perform public.stage9_browser_planner_transition(v_business_id,
+      v_run.workflow_run_id, v_capability, 'completed', '{}'::jsonb);
+  exception when invalid_parameter_value then
+    v_denied := true;
+  end;
+  assert v_denied, 'Another run must not inherit globally passed qualification cases';
+  perform public.stage9_record_browser_planner_event(v_business_id,
+    v_run.workflow_run_id, v_run.browser_session_id, v_capability,
+    'browser.planner.observed', '{"url":"about:blank","title":"Synthetic"}'::jsonb);
+  assert (select page_title from public.browser_sessions where id=v_run.browser_session_id) = 'Synthetic',
+    'Fresh observations must update the live workspace header';
 end;
 $$;
 rollback;

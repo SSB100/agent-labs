@@ -2,76 +2,54 @@
 
 Date: 30 September 2026
 
-Status: **In progress, live qualification repairs underway**
+Status: **Qualified, ready for production deployment after the final hosted gate**
 
 Branch: `stage-9/browser-planner-qualification`
 
 Pull request: https://github.com/SSB100/agent-labs/pull/13
 
-## Implemented
+## Result
 
-- Structured browser observations contain URL, title, visible content, forms, controls, links, and stable element IDs.
-- The Browser Planner receives the exact durable Task Contract and its referenced observation Artifact.
-- Each planning step returns one bounded decision through the qualified `standard.default` model route.
-- Core rejects invented element IDs and executes browser actions through a separate Playwright adapter.
-- Planner steps, actions, failures, recovery, and model cost summaries are durable and visible in the Workflow workspace.
-- Recovery has two retry opportunities and qualification objectives have a five-step limit.
-- An explicit planner `fail` decision is terminal and cannot report success.
-- Ten Stage 9 migrations are tracked and applied to the Agent Labs Supabase project.
+The authenticated test owner launched live Workflow Run `99e75fd9-ac3a-4771-af95-712b967da77f` on Preview deployment `dpl_6zpvKs5bhfGcYxdnnpdGtbsCUweh`, source `ecce3afa4680ca052e84c524692e823c788c3b18`. Vercel Workflow run `wrun_01M3R1YAX7PXTV2S96YYH9CD19` completed successfully. All four required cases passed in this one run.
 
-## Recovery in this session
+| Case | Successful actions | Recoveries | Reported model cost USD |
+| --- | ---: | ---: | ---: |
+| Synthetic stable-element action | 1 | 1 | 0.0008498 |
+| Mock commerce draft | 2 | 0 | 0.0008010 |
+| Real read-only Example Domain | 0 | 0 | 0.0002940 |
+| Controlled draft price mutation | 2 | 0 | 0.0008752 |
 
-The last deployed Stage 9 candidate failed during tests. The latest branch had already restored the Browser Planner test file, but still contained an invalid regular expression in `tests/stage9.test.mjs`.
+The run used genuine `luna.standard` calls through the qualified `standard.default` route. Reported model cost totaled USD 0.00282; browser-provider cost is separate. The synthetic fixture verified exactly one successful Continue click after intentional stale-element recovery. The draft cases verified exact input values and saved statuses. The controlled mutation verified that Publish was never activated. The read-only case completed on https://example.com/ without mutation.
 
-The recovery corrects that expression so it checks that the promotion helper does not recursively update planner status. It also updates the historical Stage 8 closeout test to allow subsequent Stage 9 implementation, corrects the assertion for the dynamic Qualify/Requalify label, excludes generated test output from lint, and adds a behavioral regression for terminal planner failure.
+The Browser Planner definition, its WorkerDefinition, and its Worker Pack are qualified. `private.stage9_planner_is_currently_qualified()` returns true for the stored Worker Pack/model-route fingerprint.
 
-A dependency lockfile now records the installed versions. Next.js's local SWC cache is ignored. Git author configuration is scoped to this checkout and matches the established Agent Labs repository identity for Vercel deployment access.
+## Implementation
 
-## Local verification
+- Structured observations expose URL, title, visible text, forms, controls, links, and stable element IDs. Password values remain excluded.
+- Each invocation loads exactly one durable Task Contract and its referenced observation Artifact. It emits one bounded decision through Model Router.
+- Core validates observed IDs and permitted capabilities, and executes actions through a separate Playwright adapter. The model receives no selectors, DOM handles, browser APIs, or provider credentials.
+- Durable completion criteria record the current verifier result. Core rejects repeated mutation after verification and premature completion before verification. Successful actions clear resolved failures.
+- Each objective has five planning steps and at most two recoveries. Explicit fail decisions are terminal.
+- Eleven Stage 9 migrations are applied and tracked. Runtime access uses scoped capability hashes; owner launch uses the authenticated Business action.
+- Qualification completion requires all four completed stages and passing evidence tied to the same Workflow Run. Current case evidence replaces prior failure summaries; failed-run history stays in its own stage and worker records.
+- Fresh observations update the session URL/title shown in the workspace. Failed workflows close active Worker Runs and Task Contracts.
 
-`npm run check` passed:
+## Verification
 
-- ESLint with zero warnings
-- TypeScript checks
-- 86 tests passed, zero failures and zero skips
-- Optimized Next.js production build
-- Workflow compilation: 36 steps across five workflows
+Hosted CI `36659328987`, job `109710374817`, passed lint, TypeScript, all 90 tests, the optimized Next.js build, and Workflow compilation of 36 steps across five workflows on Node 22.23.2. The final evidence-integrity migration has no application runtime changes and passed a rolled-back database regression after application.
 
-The local gate used Node 24.21.0 and npm 11.19.0 with the CI placeholder public Supabase environment. The repository and hosted builds target Node 22. The hosted gate must still run; this local result does not establish live provider qualification.
+`supabase/tests/stage9_reservation.sql` verifies initial owner reservation, duplicate suppression, exactly seven stages, and foreign-Business denial. `supabase/tests/stage9_planner_context.sql` verifies the exact completion/scope round trip, incorrect runtime capability denial, prevention of inheriting another run's qualification, and fresh live workspace metadata.
 
-## Resolved billing blocker
+The live run persisted 10 completed Worker Runs, 20 observation/action Artifacts, and 31 owner-readable activity events. No active child Worker Runs remain. The session was released successfully.
 
-GitHub Actions job `109688097370`, for source commit `9cfb173775f2f0bb9afbb7d9f89476ab4d127fcd`, never started a runner. Its annotation states:
+In the signed-in browser, planner actions and recovery appeared in the Workflow workspace and Activity Feed. A screenshot during mock commerce showed the actual remote browser embedded in the central workspace. The test owner cannot see the separate Etsy Business, and its direct workflow URL returns 404.
 
-> The job was not started because recent account payments have failed or your spending limit needs to be increased. Please check the 'Billing & plans' section in your settings
+## Repairs discovered by live qualification
 
-The owner upgraded GitHub on 30 September. CI run `36655525072` was rerun and passed on Node 22.23.2 for commit `74e5143ae5ded48e7cef3171568b111eb4d1c173`: lint, TypeScript, all 86 tests, 36 steps across five workflows, and the production build.
+The owner launch initially exposed an ambiguous reservation SQL column. The first reserved run then exposed valid constant-only Artifact fields rejected by the JSON Schema validator. These are repaired, including nullable output types. The next live run exposed repeated successful clicks and stale failure context; verifier-aware contracts and the stopping guard repair this behavior without overriding the model's completion decision.
 
-## Live qualification recovery
+The GitHub billing blocker is resolved. The obsolete token-based Preview launcher and database helper were removed. Provider secrets remain server-only.
 
-The confirmed test owner can sign in through the normal application login. Its empty dashboard correctly excludes the separate Etsy owner's Business. A private `Stage 9 Live Qualification` Business was created under the test account.
+## Next step
 
-The first owner launch exposed an ambiguous `workflow_run_id` lookup in the reservation RPC. The applied reservation migration qualifies that column with its table alias. `supabase/tests/stage9_reservation.sql` verifies first reservation, duplicate suppression, all seven stages, and denial outside owner scope in a rolled-back transaction.
-
-Live run `54a2d31a-9f39-441b-ae49-9a0715451e2f` successfully launched Steel, then stopped during synthetic context validation. The bounded JSON Schema validator rejected valid constant-only Artifact fields. The validator now accepts constant-only fields and nullable type alternatives while still rejecting wrong constants, wrong types, and invalid constraints. Two Browser Planner behavioral regressions cover these inputs and outputs.
-
-A private trigger closes active Worker Runs and Task Contracts when their Stage 9 Workflow Run fails. The failed live run's orphaned child records are now failed with completion timestamps. The obsolete token-based Preview route and its database helper have been removed; live qualification uses the authenticated owner action.
-
-Local lint also excludes Workflow SDK generated routes, so checks can run again after a local build. Hosted CI run `36658286335` passed all 88 tests and the production build for `c2aff72bf77c227e722a5c32a2e8972aa9701dc6`.
-
-The repaired Preview's live run `5b5b58fd-7152-4d0f-9fe8-878945455570` executed genuine routed model calls, fresh observations, and stale-element recovery. It exposed repeated clicks after the visible success state. Each durable Task Contract now includes the Core verifier result and case-specific non-goals. Core rejects further mutation after verification and premature completion before verification. Successful actions clear resolved failures. The model prompt explicitly compares current state against the objective, and the synthetic fixture counts clicks to prove exactly one successful click. Draft verifiers also check the exact field value and the controlled no-publication state.
-
-Local lint, TypeScript, and all 90 tests pass. The rolled-back database context regression proves verifier evidence and case-specific scope survive the durable round trip, and wrong runtime capabilities are denied. The latest stopping repair awaits hosted CI, Preview, and successful live qualification.
-
-## Live status and next steps
-
-The first live Stage 9 run failed during synthetic input validation. The planner remains `candidate`; the synthetic case is `failed` and the other three required cases remain `candidate`:
-
-1. Synthetic stable-element action and stale-element recovery.
-2. Mock commerce draft flow.
-3. Real read-only Example Domain observation.
-4. Controlled draft price mutation with a no-publication check.
-
-After the consolidated repair passes the hosted gate and Preview, rerun and inspect all four live cases, verify durable Worker/Artifact/action records and owner isolation, and complete the checkpoint before merging and deploying production.
-
-Production remains on qualified Stage 8 commit `c968312aed962dcaf4bcb8d48ba9be6d57856035`. Stage 9 is not qualified and Stage 10 has not started.
+Merge PR #13 after its final hosted gate, verify production deployment and the owner workspace, then continue Stage 10's installable Pack framework. Stage 10 implementation has not started in this branch.
