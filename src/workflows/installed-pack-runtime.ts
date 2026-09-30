@@ -1,8 +1,9 @@
 import { FatalError, getWorkflowMetadata } from "workflow";
-import { completeInstalledPack, executeInstalledPackStage, failInstalledPack, loadInstalledPack } from "./installed-pack-runtime-steps";
+import { collectInstalledPackResearch, completeInstalledPack, executeInstalledPackStage, failInstalledPack, loadInstalledPack, persistInstalledPackResearch, persistInstalledPackStage } from "./installed-pack-runtime-steps";
 
 export type InstalledPackRuntimeInput = {
   businessId: string; coreWorkflowRunId: string; runtimeCapability: string;
+  qualification?: "stage11";
 };
 
 // A single interpreter executes every registered declarative Workflow Pack.
@@ -11,7 +12,12 @@ export async function installedPackRuntimeWorkflow(input: InstalledPackRuntimeIn
   const { workflowRunId } = getWorkflowMetadata();
   try {
     const stages = await loadInstalledPack(input, workflowRunId);
-    for (const stageKey of stages) await executeInstalledPackStage(input, stageKey);
+    for (const stageKey of stages) {
+      const research = await collectInstalledPackResearch(input, stageKey);
+      if (research) await persistInstalledPackResearch(input, stageKey, research);
+      const result = await executeInstalledPackStage(input, stageKey);
+      if (result) await persistInstalledPackStage(input, stageKey, result);
+    }
     await completeInstalledPack(input);
     return { coreWorkflowRunId: input.coreWorkflowRunId, status: "completed" };
   } catch (error) {

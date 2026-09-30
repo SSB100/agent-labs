@@ -44,7 +44,7 @@ export function validatePackManifest(value: unknown): asserts value is PackManif
   }
   const manifest = value as unknown as PackManifest;
   check(manifest[manifest.kind === "capability" ? "capabilities" : manifest.kind === "worker" ? "workers" : manifest.kind === "workflow" ? "workflows" : "knowledge"].length > 0, "A pack must add definitions.");
-  for (const c of manifest.capabilities) { check(object(c),"Invalid capability."); exact(c,["key","adapter","description"]); check(key(c.key) && c.adapter === "structured.mapping" && text(c.description), "Untrusted capability adapter."); }
+  for (const c of manifest.capabilities) { check(object(c),"Invalid capability."); exact(c,["key","adapter","description"]); check(key(c.key) && ["structured.mapping","web.research"].includes(c.adapter) && text(c.description), "Untrusted capability adapter."); }
   for (const k of manifest.knowledge) {
     check(object(k),"Invalid knowledge."); exact(k,["key","version","name","source","verifiedAt","freshnessDays","content"]);
     check(key(k.key) && VERSION.test(k.version) && text(k.name) && text(k.source) && Number.isFinite(Date.parse(k.verifiedAt)) && Number.isInteger(k.freshnessDays) && k.freshnessDays > 0 && object(k.content), "Knowledge needs provenance and freshness.");
@@ -64,7 +64,8 @@ export function validatePackManifest(value: unknown): asserts value is PackManif
       }
       check(w.manifest.modelRequirements.executionMode === "structured.mapping", "Execution mode mismatch.");
     } else {
-      exact(w.execution,["kind","routeKey"]); check(w.execution.kind === "model_router" && w.execution.routeKey === "standard.default" && w.manifest.modelRequirements.executionMode === "model_router", "Untrusted model route.");
+      exact(w.execution,["kind","routeKey"]); check(["model_router","web.research"].includes(w.execution.kind) && w.execution.routeKey === "standard.default" && w.manifest.modelRequirements.executionMode === w.execution.kind, "Untrusted model route.");
+      if (w.execution.kind === "web.research") check(w.manifest.capabilityPolicy.allowed.includes("web.research"),"Research Worker must declare web.research.");
     }
   }
   for (const w of manifest.workflows) {

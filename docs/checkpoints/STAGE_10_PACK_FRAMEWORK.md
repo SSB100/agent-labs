@@ -42,4 +42,4 @@ The Supabase advisor reports the existing scoped SECURITY DEFINER RPC pattern, i
 
 ## Production
 
-Preview and hosted gates passed. Merge and production verification follow this checkpoint; Stage 11 adds reusable Web Research evidence collection.
+PR #14 is merged at `d0040eb37ab3d99af435097c9c1e37998fa490e2`. Production deployment `dpl_534BiwFsgymRJNHhCPHNPCbBp4G3` is ready at https://agent-labs-two.vercel.app. The health endpoint reports all four configured services, and the signed-in test owner can access Packs with its active `2.0.0` installation. Final hosted CI `36666848734` passed, and the final preview's pack cards were visually checked against the existing dashboard theme. Stage 11 adds reusable Web Research evidence collection.

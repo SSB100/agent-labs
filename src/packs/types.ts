@@ -2,7 +2,7 @@ import type { JsonObject, JsonValue, QualificationStatus } from "../core/contrac
 import type { WorkerPackManifest } from "../workers/types";
 
 export type PackDependency = { packKey: string; version: string };
-export type PackCapability = { key: string; adapter: "structured.mapping"; description: string };
+export type PackCapability = { key: string; adapter: "structured.mapping" | "web.research"; description: string };
 export type PackKnowledge = {
   key: string; version: string; name: string; source: string;
   verifiedAt: string; freshnessDays: number; content: JsonObject;
@@ -14,7 +14,8 @@ export type FieldMapping =
 export type PackWorker = {
   manifest: WorkerPackManifest;
   execution: { kind: "structured.mapping"; fields: Record<string, FieldMapping> }
-    | { kind: "model_router"; routeKey: "standard.default" };
+    | { kind: "model_router"; routeKey: "standard.default" }
+    | { kind: "web.research"; routeKey: "standard.default" };
 };
 export type PackStage = {
   key: string; workerKey: string; workerVersion: string; objective: string;

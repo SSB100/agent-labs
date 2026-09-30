@@ -15,6 +15,7 @@ import type {
 import { formatDateTime, humanize } from "@/lib/core-ui/workflows";
 
 import { CoreIcon, type CoreIconName } from "./icons";
+import { ResearchSources } from "./research-sources";
 
 const tabs = [
   { key: "browser", label: "Live Browser", icon: "browser" },
@@ -207,7 +208,7 @@ export function WorkflowWorkspace({
   returnTo,
 }: WorkflowWorkspaceProps) {
   const [activeTab, setActiveTab] = useState<WorkspaceTab>(
-    browserSession ? "browser" : artifacts.length ? "artifacts" : "browser",
+      browserSession ? "browser" : "artifacts",
   );
 
   return (
@@ -274,7 +275,11 @@ export function WorkflowWorkspace({
                       <p>{humanize(artifact.artifact_type)} · {artifact.media_type}</p>
                     </div>
                   </div>
-                  <pre>{JSON.stringify(artifact.content ?? artifact.metadata, null, 2)}</pre>
+                  {artifact.artifact_type === "research.sources" ? (
+                    <ResearchSources content={artifact.content ?? {}} />
+                  ) : (
+                    <pre>{JSON.stringify(artifact.content ?? artifact.metadata, null, 2)}</pre>
+                  )}
                   <footer>
                     <span>Created {formatDateTime(artifact.created_at)}</span>
                     <code>{artifact.id.slice(0, 8)}</code>
