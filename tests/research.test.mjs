@@ -59,7 +59,7 @@ test("OpenRouter research uses one bounded Exa server tool and preserves provide
   let body;
   const adapter=new models.OpenRouterAdapter({config,fetcher:async(url,options)=>{
     assert.equal(url,"https://openrouter.ai/api/v1/chat/completions");body=JSON.parse(options.body);
-    return new Response(JSON.stringify({id:"research-test",choices:[{message:{content:"Cited reply",annotations:result.annotations}}],usage:{prompt_tokens:20,completion_tokens:30,cost:0.0071,server_tool_use:{web_search_requests:1}}}),{status:200});
+    return new Response(JSON.stringify({id:"research-test",choices:[{message:{content:"Cited reply",annotations:result.annotations}}],usage:{prompt_tokens:20,completion_tokens:30,cost:0.0071,server_tool_use_details:{web_search_requests:1,tool_calls_executed:1,tool_calls_requested:1}}}),{status:200});
   }});
   const response=await adapter.invokeWebSearch({model:registry.resolveModelRoute("standard.default").candidates[0],...request});
   assert.equal(body.tool_choice,"required");assert.equal(body.max_tool_calls,1);assert.equal(body.tools.length,1);assert.equal(body.tools[0].parameters.max_uses,1);assert.equal(body.tools[0].parameters.engine,"exa");
@@ -69,6 +69,14 @@ test("OpenRouter research uses one bounded Exa server tool and preserves provide
 test("a provider answer without an executed search cannot pass live research",async()=>{
   const adapter=new models.OpenRouterAdapter({config,fetcher:async()=>new Response(JSON.stringify({choices:[{finish_reason:"stop",message:{content:"Unverified guidance"}}],usage:{prompt_tokens:20,completion_tokens:30}}),{status:200})});
   await assert.rejects(adapter.invokeWebSearch({model:registry.resolveModelRoute("standard.default").candidates[0],...request}),/searches=0, annotations=0/);
+});
+test("search accounting rejects extra calls and accepts the documented legacy receipt",async()=>{
+  for (const count of [0,1,2]) {
+    const adapter=new models.OpenRouterAdapter({config,fetcher:async()=>new Response(JSON.stringify({choices:[{message:{annotations:result.annotations}}],usage:{server_tool_use:{web_search_requests:count}}}),{status:200})});
+    const invocation=adapter.invokeWebSearch({model:registry.resolveModelRoute("standard.default").candidates[0],...request});
+    if (count===1) assert.equal((await invocation).metadata.searchRequests,1);
+    else await assert.rejects(invocation,/requires one search/);
+  }
 });
 test("research provider has bounded fallback and never treats uncited model text as a source",async()=>{
   let calls=0;

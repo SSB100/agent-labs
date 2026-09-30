@@ -481,7 +481,10 @@ export class OpenRouterAdapter implements ModelProviderAdapter {
     const choices=Array.isArray(response.body.choices)?response.body.choices:[];
     const choice=isRecord(choices[0])?choices[0]:{},message=isRecord(choice.message)?choice.message:{};
     const annotations=(Array.isArray(message.annotations)?message.annotations:[]).filter(jsonObject);
-    const usage=isRecord(response.body.usage)?response.body.usage:{},tools=isRecord(usage.server_tool_use)?usage.server_tool_use:{};
+    const usage=isRecord(response.body.usage)?response.body.usage:{};
+    // ChatUsage in OpenRouter's OpenAPI schema uses server_tool_use_details;
+    // the guide and Anthropic-compatible responses use server_tool_use.
+    const tools=isRecord(usage.server_tool_use_details)?usage.server_tool_use_details:isRecord(usage.server_tool_use)?usage.server_tool_use:{};
     const searches=nonNegativeInteger(tools.web_search_requests);
     if (searches!==1||!annotations.length) throw new ModelProviderError("malformed_model_output",`Web Research requires one search and source annotations (searches=${searches}, annotations=${annotations.length}, finish=${String(choice.finish_reason)}, usageFields=${Object.keys(usage).join(",")}).`,true);
     return {output:{annotations},provider:"openrouter.exa",providerModelId:request.model.providerModelId,
