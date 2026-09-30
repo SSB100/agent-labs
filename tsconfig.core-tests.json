@@ -24,6 +24,7 @@
     "src/lib/core-ui/workflows.ts",
     "src/models/**/*.ts",
     "src/packs/**/*.ts",
+    "src/research/**/*.ts",
     "src/workers/**/*.ts"
   ]
 }

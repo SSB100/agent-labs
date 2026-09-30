@@ -17,6 +17,12 @@
   --core-shadow: 0 26px 80px rgba(0, 0, 0, 0.24);
 }
 
+.researchSources { display: grid; gap: 16px; padding: 18px; }
+.researchSourceCard { display: grid; gap: 10px; padding: 16px; border: 1px solid var(--core-border); border-radius: 10px; background: var(--core-panel-soft); }
+.researchSourceCard a { color: var(--core-accent-strong); font-weight: 700; line-height: 1.5; }
+.researchSourceCard small { color: var(--core-muted); font-size: 11px; line-height: 1.5; }
+.researchSourceCard blockquote { margin: 0; padding-left: 12px; border-left: 2px solid var(--core-border-strong); color: var(--core-text); font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+
 .coreShell {
   min-height: 100vh;
   padding-left: 264px;

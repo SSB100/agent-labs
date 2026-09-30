@@ -3,16 +3,16 @@ begin;
 do $$
 declare v_pack record; blocked boolean:=false;
 begin
-  assert (select count(*) from public.packs where manifest->>'frameworkVersion'='1.0')=6;
-  assert (select count(*) from public.worker_definitions w join public.packs p on p.id=w.pack_id where p.manifest->>'frameworkVersion'='1.0')=2;
-  assert (select count(*) from public.workflow_definitions w join public.packs p on p.id=w.pack_id where p.manifest->>'frameworkVersion'='1.0')=2;
-  assert (select count(*) from public.pack_knowledge_definitions)=1;
-  assert (select count(*) from public.pack_capability_definitions)=1;
+  assert (select count(*) from public.packs where pack_key in ('capability.synthetic-transform','knowledge.synthetic-guide','worker.synthetic-summary','workflow.synthetic-summary'))=6;
+  assert (select count(*) from public.worker_definitions w join public.packs p on p.id=w.pack_id where p.pack_key='worker.synthetic-summary')=2;
+  assert (select count(*) from public.workflow_definitions w join public.packs p on p.id=w.pack_id where p.pack_key='workflow.synthetic-summary')=2;
+  assert (select count(*) from public.pack_knowledge_definitions k join public.packs p on p.id=k.pack_id where p.pack_key='knowledge.synthetic-guide')=1;
+  assert (select count(*) from public.pack_capability_definitions c join public.packs p on p.id=c.pack_id where p.pack_key='capability.synthetic-transform')=1;
   begin
     perform private.stage10_qualify_pack((select id from public.packs where pack_key='workflow.synthetic-summary' and version='1.0.0'),'{"source":"regression","checks":{"manifest":"passed"}}');
   exception when others then blocked:=true; end;
   assert blocked,'Incomplete qualification must fail';
-  for v_pack in select id from public.packs where manifest->>'frameworkVersion'='1.0' loop
+  for v_pack in select id from public.packs where pack_key in ('capability.synthetic-transform','knowledge.synthetic-guide','worker.synthetic-summary','workflow.synthetic-summary') loop
     perform private.stage10_qualify_pack(v_pack.id,'{"source":"rolled-back-regression","checks":{"manifest":"passed","dependencies":"passed","scope":"passed","version-pinning":"passed","worker-output":"passed"}}');
   end loop;
 end; $$;

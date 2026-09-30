@@ -2,7 +2,7 @@ import Link from "next/link";
 import { AppShell, PageHeader, StatusPill } from "@/components/stage7/app-shell";
 import { requireOwnerUiContext } from "@/lib/core-ui/data";
 import type { PackRelease, PackSnapshot } from "@/packs/types";
-import { activatePack, launchInstalledPack } from "./actions";
+import { activatePack, launchInstalledPack, qualifyWebResearch } from "./actions";
 import "./packs.css";
 
 export const dynamic="force-dynamic";
@@ -20,6 +20,14 @@ export default async function PacksPage({searchParams}:{searchParams:Promise<Rec
     {params.error && <p className="packNotice packNotice-error" role="alert">{params.error}</p>}
     {params.message && <p className="packNotice" role="status">{params.message}</p>}
     {(catalog.error||installed.error) && <p role="alert">The pack catalog could not be loaded.</p>}
+    {packs.some(p=>p.manifest.packKey === "workflow.web-research") ? <section className="dashboardSection">
+      <div className="sectionTitleRow"><div><p className="coreEyebrow">Live qualification</p><h2>Web Research</h2></div></div>
+      <p>Verify public source collection and a linked Evidence Pack using the configured model route.</p>
+      <div className="packCardActions">{context.businesses.map(b=><form action={qualifyWebResearch} key={b.id}>
+        <input type="hidden" name="businessId" value={b.id}/><input type="hidden" name="idempotencyKey" value={`research-qualification:${crypto.randomUUID()}`}/>
+        <button className="coreButton coreButton-primary" type="submit">Qualify Web Research for {b.name}</button>
+      </form>)}</div>
+    </section> : null}
     <section className="dashboardSection">
       <div className="sectionTitleRow"><div><p className="coreEyebrow">Available releases</p><h2>Pack catalog</h2></div><span className="coreCount">{packs.length}</span></div>
       <div className="packGrid">{packs.map(({id,status,manifest:m})=><article className="packCard" key={id}>

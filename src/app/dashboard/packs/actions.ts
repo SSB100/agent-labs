@@ -33,6 +33,24 @@ export async function activatePack(form: FormData) {
   redirect("/dashboard/packs?message=Pack%20activated.");
 }
 
+export async function qualifyWebResearch(form:FormData) {
+  const context=await requireOwnerUiContext(),businessId=text(form,"businessId");
+  if (!context.businesses.some(b=>b.id===businessId)) fail("Business not found.");
+  const runtimeCapability=`${randomUUID()}${randomUUID()}`,nonce=randomUUID();
+  const reserved=await context.supabase.rpc("begin_web_research_qualification",{p_business_id:businessId,p_idempotency_key:text(form,"idempotencyKey"),p_launch_nonce:nonce,p_runtime_capability:runtimeCapability});
+  if (reserved.error) fail(reserved.error.message);
+  const launch=reserved.data as {workflowRunId:string;shouldStart:boolean};
+  if (launch.shouldStart) {
+    try { await start(installedPackRuntimeWorkflow,[{businessId,coreWorkflowRunId:launch.workflowRunId,runtimeCapability,qualification:"stage11"}]); }
+    catch(error) {
+      console.error("Unable to launch Web Research qualification",error);
+      await context.supabase.from("workflow_runs").update({status:"failed",runtime_launch_status:"launch_failed",completed_at:new Date().toISOString()}).eq("id",launch.workflowRunId).eq("business_id",businessId).eq("runtime_launch_nonce",nonce);
+      fail("Web Research qualification could not start.");
+    }
+  }
+  redirect(`/dashboard/workflows/${launch.workflowRunId}`);
+}
+
 export async function launchInstalledPack(form: FormData) {
   const context = await requireOwnerUiContext();
   const businessId=text(form,"businessId"), installationId=text(form,"installationId"), workflowKey=text(form,"workflowKey");
