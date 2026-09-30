@@ -11,6 +11,7 @@ export type CoreSection =
   | "dashboard"
   | "history"
   | "needs-you"
+  | "packs"
   | "settings"
   | "workflows";
 
@@ -36,6 +37,7 @@ const primaryNavigation: NavItem[] = [
 ];
 
 const systemNavigation: NavItem[] = [
+  { href: "/dashboard/packs", icon: "products", key: "packs", label: "Packs" },
   { href: "/dashboard/accounts", icon: "accounts", key: "accounts", label: "Accounts" },
   { href: "/dashboard/settings", icon: "settings", key: "settings", label: "Settings" },
 ];

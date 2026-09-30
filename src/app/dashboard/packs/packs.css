@@ -1,0 +1,13 @@
+.packGrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,350px),1fr)); gap:18px; }
+.packCard { display:flex; flex-direction:column; gap:14px; padding:24px; border:1px solid var(--border,#e2e7e9); border-radius:14px; background:var(--surface,#fff); }
+.packCardHeading { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.packCard h3,.packCard p { margin:0; }
+.packCard p { line-height:1.6; color:#56646b; }
+.packCard small,.packDependencies span { overflow-wrap:anywhere; color:#65747b; font-size:12px; }
+.packDependencies { display:flex; flex-direction:column; gap:7px; padding:14px; background:#f5f8f8; border-radius:8px; }
+.packDependencies strong { font-size:12px; }
+.packCardActions,.packLaunch { display:flex; flex-direction:column; gap:12px; }
+.packLaunch label { font-size:13px; font-weight:600; }
+.packLaunch textarea { resize:vertical; padding:12px; border:1px solid #cbd4d8; border-radius:8px; font:13px/1.5 monospace; }
+.packNotice { padding:14px 18px; background:#edf8f1; border:1px solid #c6e7d2; border-radius:8px; }
+.packNotice-error { background:#fff1ef; border-color:#f5c6c0; }

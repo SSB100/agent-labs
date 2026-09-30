@@ -50,6 +50,6 @@ The owner launch initially exposed an ambiguous reservation SQL column. The firs
 
 The GitHub billing blocker is resolved. The obsolete token-based Preview launcher and database helper were removed. Provider secrets remain server-only.
 
-## Next step
+## Production deployment
 
-Merge PR #13 after its final hosted gate, verify production deployment and the owner workspace, then continue Stage 10's installable Pack framework. Stage 10 implementation has not started in this branch.
+PR #13 was merged. Following the Vercel upgrade, production deployment `dpl_2hMWGgdoRRh2TS8E4gaK8WoTFS3b` is ready from commit `3b76ef33d18f14055eceb9a92dd27a02e53a4de5` at https://agent-labs-two.vercel.app. The health endpoint reports all four configured services. The signed-in test owner sees the Browser Planner as Qualified with all four required cases passed and the successful browser session released. Stage 10 continues on its own branch.
