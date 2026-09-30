@@ -2,7 +2,7 @@ import Link from "next/link";
 import { AppShell, PageHeader, StatusPill } from "@/components/stage7/app-shell";
 import { requireOwnerUiContext } from "@/lib/core-ui/data";
 import type { PackRelease, PackSnapshot } from "@/packs/types";
-import { activatePack, launchInstalledPack, qualifyWebResearch } from "./actions";
+import { activatePack, launchInstalledPack, qualifyWebResearch, runEtsyDiscoverySimulation } from "./actions";
 import "./packs.css";
 
 export const dynamic="force-dynamic";
@@ -26,6 +26,15 @@ export default async function PacksPage({searchParams}:{searchParams:Promise<Rec
       <div className="packCardActions">{context.businesses.map(b=><form action={qualifyWebResearch} key={b.id}>
         <input type="hidden" name="businessId" value={b.id}/><input type="hidden" name="idempotencyKey" value={`research-qualification:${crypto.randomUUID()}`}/>
         <button className="coreButton coreButton-primary" type="submit">Qualify Web Research for {b.name}</button>
+      </form>)}</div>
+    </section> : null}
+    {packs.some(p => p.manifest.packKey === "workflow.etsy-product-discovery" && p.manifest.version === "1.0.0" && p.status === "experimental") ? <section className="dashboardSection">
+      <div className="sectionTitleRow"><div><p className="coreEyebrow">Stage 12 · Simulation only</p><h2>Etsy Product Discovery</h2></div></div>
+      <p>Run the sample original camping T-shirt concept through research, strategy, and independent review with mocked model responses. All nine releases stay experimental. No live demand, paid provider calls, publishing, or spending.</p>
+      <p>The completed worker results pause in Needs You for acknowledgment of the simulation or a stop decision.</p>
+      <div className="packCardActions">{context.businesses.map(b => <form action={runEtsyDiscoverySimulation} key={b.id}>
+        <input type="hidden" name="businessId" value={b.id}/><input type="hidden" name="idempotencyKey" value={`etsy-simulation:${crypto.randomUUID()}`}/>
+        <button className="coreButton coreButton-primary" type="submit">Run Etsy discovery simulation for {b.name}</button>
       </form>)}</div>
     </section> : null}
     <section className="dashboardSection">

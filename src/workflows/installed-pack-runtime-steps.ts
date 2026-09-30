@@ -6,6 +6,7 @@ import { buildWorkerModelMessages } from "../models/prompt";
 import { runModelRoute } from "../models/router";
 import { resolvePackDependencies, validateResolvedDefinitions } from "../packs/dependencies";
 import { executePackMapping } from "../packs/executor";
+import { assertEtsySimulationSnapshot } from "../packs/etsy-simulation-runtime-contract";
 import { validatePackManifest } from "../packs/registry";
 import type { PackSnapshot, PackWorker } from "../packs/types";
 import { collectResearch, OpenRouterResearchProvider } from "../research/openrouter";
@@ -33,7 +34,9 @@ export async function loadInstalledPack(input: InstalledPackRuntimeInput, runtim
   if (!root) throw new FatalError("Pinned root pack is unavailable.");
   for (const release of snapshot.releases) validatePackManifest(release.manifest);
   const qualification = input.qualification === "stage11" && (snapshot as PackSnapshot & {platformQualification?:string}).platformQualification === "stage11" && root.manifest.packKey === "workflow.web-research";
-  const resolved = resolvePackDependencies(snapshot.releases,{packKey:root.manifest.packKey,version:root.manifest.version},qualification);
+  const simulation = input.qualification === "stage12" && input.mode === "simulation";
+  if (simulation) assertEtsySimulationSnapshot(snapshot);
+  const resolved = resolvePackDependencies(snapshot.releases,{packKey:root.manifest.packKey,version:root.manifest.version},qualification || simulation);
   validateResolvedDefinitions(resolved);
   const declared = root.manifest.workflows.find(w=>w.key === snapshot.workflow.key);
   if (!declared || JSON.stringify(declared) !== JSON.stringify(snapshot.workflow)) throw new FatalError("Pinned workflow does not match its release.");
@@ -43,6 +46,7 @@ export async function loadInstalledPack(input: InstalledPackRuntimeInput, runtim
 
 export async function executeInstalledPackStage(input: InstalledPackRuntimeInput, stageKey: string) {
   "use step";
+  if (input.qualification === "stage12") throw new FatalError("Use the dedicated simulation worker.");
   const prepared = await transition(input,"prepare",{stageKey});
   if (prepared.completed === true) return;
   const worker = prepared.worker as PackWorker;
@@ -58,7 +62,8 @@ export async function executeInstalledPackStage(input: InstalledPackRuntimeInput
       : worker.execution.kind === "structured.mapping"
       ? executePackMapping(worker,context)
       : await (async () => {
-        const routed = await runModelRoute({adapter:new OpenRouterAdapter(),routeKey:"standard.default",
+        if (worker.execution.kind !== "model_router") throw new Error("Model Router executor required.");
+        const routed = await runModelRoute({adapter:new OpenRouterAdapter(),routeKey:worker.execution.routeKey,
           outputSchema:worker.manifest.outputSchema,schemaName:"installed_pack_worker",
           messages:buildWorkerModelMessages(worker.manifest,context),
           requestMetadata:{businessId:input.businessId,workflowRunId:input.coreWorkflowRunId,taskContractId:context.taskContract.id}});

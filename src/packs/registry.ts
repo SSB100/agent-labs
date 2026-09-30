@@ -64,7 +64,12 @@ export function validatePackManifest(value: unknown): asserts value is PackManif
       }
       check(w.manifest.modelRequirements.executionMode === "structured.mapping", "Execution mode mismatch.");
     } else {
-      exact(w.execution,["kind","routeKey"]); check(["model_router","web.research"].includes(w.execution.kind) && w.execution.routeKey === "standard.default" && w.manifest.modelRequirements.executionMode === w.execution.kind, "Untrusted model route.");
+      exact(w.execution,["kind","routeKey"]);
+      const trustedRoute = w.execution.kind === "model_router"
+        ? ["standard.default","reviewer.independent"].includes(w.execution.routeKey)
+        : w.execution.kind === "web.research" && w.execution.routeKey === "standard.default";
+      check(trustedRoute && w.manifest.modelRequirements.executionMode === w.execution.kind, "Untrusted model route.");
+      check(w.manifest.modelRequirements.routeKey === undefined || w.manifest.modelRequirements.routeKey === w.execution.routeKey, "Worker model route declaration mismatch.");
       if (w.execution.kind === "web.research") check(w.manifest.capabilityPolicy.allowed.includes("web.research"),"Research Worker must declare web.research.");
     }
   }

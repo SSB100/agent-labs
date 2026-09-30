@@ -2,7 +2,7 @@
 
 Agent Labs V2 is a clean, cloud-first rebuild of Agent Labs. The permanent Core hosts durable workflows, bounded specialist workers, model routing, connected accounts, evidence, business state and human intervention. Specialised expertise is installed through versioned packs.
 
-The repository has completed:
+The repository implements:
 
 - **Stage 1: Cloud application scaffold**
 - **Stage 2: Universal Core data contracts**
@@ -11,8 +11,15 @@ The repository has completed:
 - **Stage 5: Model Router**
 - **Stage 6: Worker evaluation framework**
 - **Stage 7: Core UI and live activity**
+- **Stage 8: Browser provider qualification**
+- **Stage 9: Browser Planner qualification**
+- **Stage 10: Pack framework**
+- **Stage 11: Web Research capability**
+- **Stage 12: Etsy and POD knowledge foundation**
 
-The next planned stage is **Stage 8: Browser provider**. It has not been started.
+Stage 12 includes five source-backed knowledge packs and a verified mock-only Product Discovery simulation. It does not establish live model competence or authorize commerce. **Stage 13: Product discovery and experiment system** is next, after the Stage 12 production deployment gate. Its checkpoint and PR closeout record deployment evidence.
+
+Authoritative scope: [V2 implementation plan](docs/AGENT_LABS_V2_IMPLEMENTATION_PLAN.md). Verified stage evidence: [checkpoints](docs/checkpoints/).
 
 ## Private application model
 
@@ -76,6 +83,11 @@ Implemented:
 - authenticated Supabase Realtime subscriptions for workflow, stage, intervention, task, worker, artifact and Business changes
 - a bounded 30-second refresh fallback if the live channel is unavailable
 - preserved owner-scoped RLS isolation for every live UI source
+- qualified replaceable remote-browser adapters, workflow sessions, live view, takeover and replay
+- bounded Browser Planner observation/action contracts and qualification fixtures
+- immutable Capability, Knowledge, Worker and Workflow Packs with exact dependency pins and Business activation
+- one generic installed-pack workflow interpreter with durable scoped artifacts and receipts
+- reusable Web Research and Market Researcher packs with inspected sources and evidence-linked claims
 
 Qualification tools remain available from the private shell:
 
@@ -85,10 +97,8 @@ Qualification tools remain available from the private shell:
 
 Not implemented yet:
 
-- browser operation or a remote browser provider
-- browser takeover, return control, replay or session recording
 - commerce provider connections
-- production capability, knowledge, worker or workflow packs
+- live-qualified Etsy commerce workers and production workflows
 - Etsy or other commerce execution
 
 ## Local setup

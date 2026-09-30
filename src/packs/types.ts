@@ -14,7 +14,7 @@ export type FieldMapping =
 export type PackWorker = {
   manifest: WorkerPackManifest;
   execution: { kind: "structured.mapping"; fields: Record<string, FieldMapping> }
-    | { kind: "model_router"; routeKey: "standard.default" }
+    | { kind: "model_router"; routeKey: "standard.default" | "reviewer.independent" }
     | { kind: "web.research"; routeKey: "standard.default" };
 };
 export type PackStage = {
