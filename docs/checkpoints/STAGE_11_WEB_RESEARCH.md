@@ -10,11 +10,16 @@ Four exact-version packs are registered: capability.web-research, knowledge.rese
 
 ## Verification
 
-- Local lint, TypeScript, 106 tests, optimized Next.js build, and Workflow compilation passed.
+- Local lint, TypeScript, optimized Next.js build, and Workflow compilation passed. The research suite now has 11 passing tests; hosted CI passed the complete 108-test gate.
 - Stage 11 SQL regression passed with all synthetic mutations rolled back.
 - Stage 10 SQL regression passed after extending the catalog.
 - Migrations 20260930042900, 20260930043140, and 20260930070451 are applied.
-- Preview, hosted CI, live qualification, and production checks are pending.
+- Preview deployment dpl_7dZLc5nahnRUcPZkMT9i6sdanLaq is READY for code commit 88c3d8b5da53efae4bc797581cc843ea3f3faecf. Hosted CI 36683357171 passed.
+- Live qualification ef133f33-717b-4fad-b92a-10fd4a70260d completed using runtime wrun_01M3RK97VPMNPH50MQ3YBERQPB. One search retrieved four Etsy sources; the Researcher selected three exact-quote claims. Four artifacts and five events were saved, and all four releases were atomically qualified.
+- Search receipt gen-1790753162-8uJ3tSo73v7Sn3eodb5e reported US$0.008083. Researcher receipt gen-1790753181-Pb5cLLDmPNhww54z2Cu7 reported US$0.00114495. Total: US$0.00922795.
+- Live regression identified Chat Completions usage under server_tool_use_details, unlike the guide's server_tool_use example. The adapter accepts the official schema plus the legacy format, requires one search, and rejects missing or extra searches. Earlier failed qualification runs remain visible and were not promoted.
+- Signed-in preview source links and retrieval metadata were verified. Production deployment follows merge of PR 15.
+- Security advisors report the established scoped SECURITY DEFINER RPC pattern and the existing Auth password-protection setting. Owner isolation and incorrect runtime capabilities are covered by the database regressions.
 
 ## Next stage
 
