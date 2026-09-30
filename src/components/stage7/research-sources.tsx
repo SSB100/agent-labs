@@ -12,7 +12,7 @@ export function ResearchSources({content}:{content:UiJson}) {
       let url:URL;try{url=new URL(source.url);}catch{return null;}
       if (url.protocol!=="https:"||url.username||url.password) return null;
       return <article className="researchSourceCard" key={typeof source.id==="string"?source.id:index}>
-        <a href={url.toString()} target="_blank" rel="noopener noreferrer">{typeof source.title==="string"?source.title:url.hostname}<span aria-hidden="true"> ↗</span></a>
+        <a href={url.toString()} target="_blank" rel="noopener noreferrer">{typeof source.title==="string"&&source.title.trim()?source.title:url.hostname}<span aria-hidden="true"> ↗</span></a>
         <small>{url.hostname} · Retrieved {typeof source.retrievedAt==="string"?formatDateTime(source.retrievedAt):"unknown"}</small>
         <blockquote>{source.excerpt}</blockquote>
         <small>{typeof source.publishedAt==="string"?`Published ${formatDateTime(source.publishedAt)}`:"Publication date unavailable"}</small>

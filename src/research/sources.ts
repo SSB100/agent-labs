@@ -37,7 +37,7 @@ export function extractResearchSources(request:ResearchRequest, result:ResearchP
     const excerpt=normalize(citation.content).slice(0,1800),contentHash=hash(excerpt);
     if (excerpt.length<30||seenUrls.has(url)||seenContent.has(contentHash)) continue;
     seenUrls.add(url);seenContent.add(contentHash);
-    sources.push({id:`src-${hash(url+":"+contentHash).slice(0,24)}`,url,title:typeof citation.title==="string"?citation.title.slice(0,250):new URL(url).hostname,
+    sources.push({id:`src-${hash(url+":"+contentHash).slice(0,24)}`,url,title:typeof citation.title==="string"&&citation.title.trim()?citation.title.trim().slice(0,250):new URL(url).hostname,
       retrievedAt,publishedAt:null,retrievalExpiresAt:new Date(Date.parse(retrievedAt)+86400000).toISOString(),contentHash,excerpt,provider:"openrouter.exa"});
     if (sources.length===4) break;
   }

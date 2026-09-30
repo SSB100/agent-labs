@@ -2,6 +2,9 @@
 
 import { useState } from "react";
 
+import { ProductsWorkspace } from "@/components/stage13/products-workspace";
+import type { ProductWorkspaceData } from "@/products/types";
+
 import { resumeBrowserControl } from "@/app/dashboard/browser-actions";
 import { BrowserReplay } from "@/components/stage8/browser-replay";
 import type {
@@ -36,6 +39,8 @@ type WorkflowWorkspaceProps = {
   browserIntervention?: OwnerInterventionRecord | null;
   browserSession?: BrowserSessionRecord | null;
   returnTo: string;
+  productData?: ProductWorkspaceData;
+  initialWorkspace?: string;
 };
 
 function Placeholder({
@@ -205,10 +210,12 @@ export function WorkflowWorkspace({
   browserEvents = [],
   browserIntervention,
   browserSession = null,
+  productData = { candidates: [], experiments: [], decisions: [], errors: [] },
+  initialWorkspace,
   returnTo,
 }: WorkflowWorkspaceProps) {
   const [activeTab, setActiveTab] = useState<WorkspaceTab>(
-      browserSession ? "browser" : "artifacts",
+      initialWorkspace === "products" || productData.candidates.length ? "products" : browserSession ? "browser" : "artifacts",
   );
 
   return (
@@ -237,6 +244,7 @@ export function WorkflowWorkspace({
             <span>{tab.label}</span>
             {tab.key === "browser" && browserSession ? <strong>1</strong> : null}
             {tab.key === "artifacts" && artifacts.length ? <strong>{artifacts.length}</strong> : null}
+            {tab.key === "products" && productData.candidates.length ? <strong>{productData.candidates.length}</strong> : null}
           </button>
         ))}
       </div>
@@ -252,9 +260,7 @@ export function WorkflowWorkspace({
         ) : null}
 
         {activeTab === "products" ? (
-          <Placeholder icon="products" title="No product workspace yet">
-            Products will appear here when a product workflow creates candidates, decisions, listings, or fulfilment records.
-          </Placeholder>
+          <ProductsWorkspace data={productData} compact />
         ) : null}
 
         {activeTab === "metrics" ? (

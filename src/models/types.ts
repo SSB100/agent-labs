@@ -35,6 +35,10 @@ export type ModelPriceMetadata = {
   inputPerMillionUsd: number;
   outputPerMillionUsd: number;
   cacheReadPerMillionUsd: number | null;
+  inputCacheWritePerMillionUsd?: number;
+  verifiedAt?: string;
+  source?: string;
+  longContext?: { minimumInputTokens: number; inputPerMillionUsd: number; outputPerMillionUsd: number; cacheReadPerMillionUsd: number; inputCacheWritePerMillionUsd: number };
 };
 
 export type ModelDefinition = {
@@ -108,7 +112,12 @@ export type ModelProviderResponse = {
   metadata: JsonObject;
 };
 
+export type ProviderPriceLimit = { prompt: number; completion: number; request: 0 };
+export type WebSearchModelRequest = { model: ModelDefinition; query: string; allowedDomains: string[]; providerPriceLimit?: ProviderPriceLimit };
+
 export type StructuredModelRequest = {
+  providerPriceLimit?: ProviderPriceLimit;
+  maxOutputTokens?: number;
   model: ModelDefinition;
   schemaName: string;
   outputSchema: JsonObject;
@@ -241,6 +250,7 @@ export type ModelRouteTelemetry = {
 };
 
 export type RunModelRouteOptions = {
+  maxOutputTokens?: number;
   adapter: ModelProviderAdapter;
   routeKey: ModelRouteKey;
   outputSchema: JsonObject;

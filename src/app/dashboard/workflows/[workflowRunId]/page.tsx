@@ -19,6 +19,7 @@ import {
 } from "@/components/stage7/workflow-visuals";
 import { WorkflowWorkspace } from "@/components/stage7/workflow-workspace";
 import { CoreIcon } from "@/components/stage7/icons";
+import { loadProductWorkspace } from "@/products/data";
 import {
   loadWorkflowDetail,
   requireOwnerUiContext,
@@ -90,7 +91,7 @@ export default async function WorkflowPage({ params, searchParams }: WorkflowPag
   if (!UUID_PATTERN.test(workflowRunId)) notFound();
 
   const context = await requireOwnerUiContext();
-  const [detail, browserResult, browserEventResult] = await Promise.all([
+  const [detail, browserResult, browserEventResult, productData] = await Promise.all([
     loadWorkflowDetail(context, workflowRunId),
     context.supabase
       .from("browser_sessions")
@@ -103,6 +104,7 @@ export default async function WorkflowPage({ params, searchParams }: WorkflowPag
       .eq("workflow_run_id", workflowRunId)
       .order("occurred_at", { ascending: false })
       .limit(80),
+    loadProductWorkspace(context, workflowRunId),
   ]);
   const browserSession = record<BrowserSessionRecord>(browserResult.data);
   const browserEvents = records<BrowserSessionEventRecord>(browserEventResult.data);
@@ -211,6 +213,8 @@ export default async function WorkflowPage({ params, searchParams }: WorkflowPag
           browserEvents={browserEvents}
           browserIntervention={browserIntervention}
           browserSession={browserSession}
+          productData={productData}
+          initialWorkspace={first(query.workspace)}
           returnTo={returnTo}
         />
         <ActivityFeed events={detail.events} />

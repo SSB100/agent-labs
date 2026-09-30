@@ -5,7 +5,7 @@ import { extractResearchSources, validateResearchRequest } from "./sources";
 import type { ResearchCollection, ResearchProvider, ResearchProviderResult, ResearchRequest } from "./types";
 
 export class OpenRouterResearchProvider implements ResearchProvider {
-  constructor(private readonly adapter=new OpenRouterAdapter()) {}
+  constructor(private readonly adapter: Pick<OpenRouterAdapter, "invokeWebSearch"> = new OpenRouterAdapter()) {}
   async search(request:ResearchRequest): Promise<ResearchProviderResult> {
     validateResearchRequest(request);
     const attempts=[];

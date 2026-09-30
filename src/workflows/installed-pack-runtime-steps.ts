@@ -11,6 +11,8 @@ import { validatePackManifest } from "../packs/registry";
 import type { PackSnapshot, PackWorker } from "../packs/types";
 import { collectResearch, OpenRouterResearchProvider } from "../research/openrouter";
 import { executeMarketResearcher } from "../research/worker";
+import { BudgetedResearchAdapter } from "../research/budget";
+import { runtimeResearchBudget } from "../research/runtime-budget";
 import type { ResearchCollection, ResearchRequest } from "../research/types";
 import { executeWorkerPack, validateWorkerInvocationContext } from "../workers/runtime";
 import { assertJsonSchemaValue } from "../workers/schema-validator";
@@ -29,6 +31,13 @@ async function transition(input: InstalledPackRuntimeInput, operation: string, p
 export async function loadInstalledPack(input: InstalledPackRuntimeInput, runtimeRunId: string): Promise<string[]> {
   "use step";
   const loaded = await transition(input,"load",{runtimeRunId});
+  if (input.productExperimentId) {
+    const scoped = await createRuntimeClient().rpc("product_discovery_runtime", {
+      p_workflow_run_id: input.coreWorkflowRunId, p_business_id: input.businessId,
+      p_runtime_capability: input.runtimeCapability, p_operation: "scope",
+    });
+    if (scoped.error || scoped.data?.experimentId !== input.productExperimentId) throw new FatalError("Product experiment scope does not match this runtime.");
+  }
   const snapshot = loaded.snapshot as PackSnapshot;
   const root = snapshot.releases.find(r=>r.id === snapshot.rootPackId);
   if (!root) throw new FatalError("Pinned root pack is unavailable.");
@@ -58,7 +67,7 @@ export async function executeInstalledPackStage(input: InstalledPackRuntimeInput
     if (!stageInput) throw new Error("Scoped stage input is missing.");
     assertJsonSchemaValue(worker.manifest.inputSchema,stageInput.content,"Stage input");
     result = worker.execution.kind === "web.research"
-      ? await executeMarketResearcher(worker,context,new OpenRouterAdapter())
+      ? await executeMarketResearcher(worker,context,input.productExperimentId ? new BudgetedResearchAdapter(runtimeResearchBudget(input)) : new OpenRouterAdapter(),input.productExperimentId ? { maxOutputTokens: 1000 } : {})
       : worker.execution.kind === "structured.mapping"
       ? executePackMapping(worker,context)
       : await (async () => {
@@ -93,7 +102,7 @@ export async function collectInstalledPackResearch(input: InstalledPackRuntimeIn
   const stageInput=context.inputArtifacts.find(a=>a.artifactType==="pack.stage-input")?.content;
   if (!stageInput) throw new FatalError("Research input is missing.");
   const request:ResearchRequest={query:stageInput.question as string,allowedDomains:stageInput.sourceDomains as string[]};
-  try { return await collectResearch(new OpenRouterResearchProvider(),request); }
+  try { return await collectResearch(new OpenRouterResearchProvider(input.productExperimentId ? new BudgetedResearchAdapter(runtimeResearchBudget(input)) : new OpenRouterAdapter()),request); }
   catch(error) { throw new FatalError(error instanceof Error?error.message:"Web Research failed."); }
 }
 
@@ -114,10 +123,25 @@ export async function completeInstalledPack(input: InstalledPackRuntimeInput) {
     if (error) throw new Error(`Unable to record Web Research qualification: ${error.message}`);
     return data;
   }
+  if (input.productExperimentId) {
+    const { data, error } = await createRuntimeClient().rpc("product_discovery_runtime", {
+      p_workflow_run_id: input.coreWorkflowRunId, p_business_id: input.businessId,
+      p_runtime_capability: input.runtimeCapability, p_operation: "finalize",
+    });
+    if (error) throw new Error(`Unable to preserve product discovery: ${error.message}`);
+    return data;
+  }
   return transition(input,"complete");
 }
 
 export async function failInstalledPack(input: InstalledPackRuntimeInput, message: string) {
   "use step";
   await transition(input,"fail",{category:"pack_execution_failed",message});
+  if (input.productExperimentId) {
+    const { error } = await createRuntimeClient().rpc("product_discovery_runtime", {
+      p_workflow_run_id: input.coreWorkflowRunId, p_business_id: input.businessId,
+      p_runtime_capability: input.runtimeCapability, p_operation: "fail",
+    });
+    if (error) throw new Error(`Unable to preserve discovery failure: ${error.message}`);
+  }
 }

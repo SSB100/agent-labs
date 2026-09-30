@@ -5,6 +5,7 @@ export type InstalledPackRuntimeInput = {
   businessId: string; coreWorkflowRunId: string; runtimeCapability: string;
   qualification?: "stage11" | "stage12";
   mode?: "simulation";
+  productExperimentId?: string;
 };
 
 // A single interpreter executes every registered declarative Workflow Pack.

@@ -37,9 +37,13 @@ export const MODEL_REGISTRY = {
       "files",
     ],
     pricing: {
-      inputPerMillionUsd: 0.1,
-      outputPerMillionUsd: 0.6,
-      cacheReadPerMillionUsd: 0.01,
+      inputPerMillionUsd: 0.2,
+      outputPerMillionUsd: 1.2,
+      cacheReadPerMillionUsd: 0.02,
+      inputCacheWritePerMillionUsd: 0.25,
+      verifiedAt: "2026-09-30T09:12:00.000Z",
+      source: "https://openrouter.ai/api/v1/models",
+      longContext: { minimumInputTokens: 272_000, inputPerMillionUsd: 0.4, outputPerMillionUsd: 1.8, cacheReadPerMillionUsd: 0.04, inputCacheWritePerMillionUsd: 0.5 },
     },
     qualifications: {
       structuredOutput: "qualified",
@@ -67,9 +71,12 @@ export const MODEL_REGISTRY = {
       "files",
     ],
     pricing: {
-      inputPerMillionUsd: 1.5,
-      outputPerMillionUsd: 7.5,
-      cacheReadPerMillionUsd: 0.15,
+      inputPerMillionUsd: 0.75,
+      outputPerMillionUsd: 3.75,
+      cacheReadPerMillionUsd: 0.075,
+      inputCacheWritePerMillionUsd: 0.0416666666666667,
+      verifiedAt: "2026-09-30T09:12:00.000Z",
+      source: "https://openrouter.ai/api/v1/models",
     },
     qualifications: {
       structuredOutput: "qualified",

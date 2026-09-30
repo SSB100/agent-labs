@@ -14,6 +14,9 @@ const LIVE_TABLES = [
   "businesses",
   "events",
   "owner_interventions",
+  "product_candidates",
+  "product_experiments",
+  "product_decisions",
   "task_contracts",
   "worker_runs",
   "workflow_runs",
@@ -21,6 +24,7 @@ const LIVE_TABLES = [
 ] as const;
 
 const WORKFLOW_FILTERED_TABLES = new Set([
+  "product_experiments",
   "artifacts",
   "browser_session_events",
   "browser_sessions",

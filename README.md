@@ -16,8 +16,9 @@ The repository implements:
 - **Stage 10: Pack framework**
 - **Stage 11: Web Research capability**
 - **Stage 12: Etsy and POD knowledge foundation**
+- **Stage 13: Product discovery and experiment system**
 
-Stage 12 includes five source-backed knowledge packs and a verified mock-only Product Discovery simulation. It does not establish live model competence or authorize commerce. **Stage 13: Product discovery and experiment system** is next, after the Stage 12 production deployment gate. Its checkpoint and PR closeout record deployment evidence.
+Stage 12 includes five source-backed knowledge packs and a verified mock-only Product Discovery simulation, now deployed and smoke-tested in production. It does not establish live model competence or authorize commerce. **Stage 13: Product discovery and experiment system** preserves real source-linked research, conservative decisions and experiment history. Its live research proof is complete; the checkpoint and PR record release verification. Stage checkpoints and PR closeouts record deployment evidence.
 
 Authoritative scope: [V2 implementation plan](docs/AGENT_LABS_V2_IMPLEMENTATION_PLAN.md). Verified stage evidence: [checkpoints](docs/checkpoints/).
 
@@ -88,6 +89,9 @@ Implemented:
 - immutable Capability, Knowledge, Worker and Workflow Packs with exact dependency pins and Business activation
 - one generic installed-pack workflow interpreter with durable scoped artifacts and receipts
 - reusable Web Research and Market Researcher packs with inspected sources and evidence-linked claims
+- owner-scoped original POD T-shirt candidates, immutable experiments, source-linked provisional decisions, explicit unknown scores and measurement plans
+- Products workspace with candidate, evidence, decision and experiment-history views
+- duplicate research prevention, evidence-led reconsideration and per-attempt research cost estimates/receipts
 
 Qualification tools remain available from the private shell:
 
