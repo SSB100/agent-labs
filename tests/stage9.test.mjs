@@ -32,11 +32,18 @@ test("Stage 9 qualification covers every implementation-plan level", () => {
   const foundation = read(
     "supabase/migrations/20260929230650_stage9_browser_planner_foundation.sql",
   );
+  const steps = read("src/workflows/browser-planner-runtime-steps.ts");
   const workflow = read(
     "supabase/migrations/20260929230953_stage9_browser_planner_runtime.sql",
   );
   const workerContracts = read(
     "supabase/migrations/20260929233009_stage9_browser_planner_worker_contracts.sql",
+  );
+  const contextAndPromotion = read(
+    "supabase/migrations/20260930002954_stage9_browser_planner_context_and_promotion.sql",
+  );
+  const schemaAlignment = read(
+    "supabase/migrations/20260930003521_stage9_browser_planner_worker_schema_alignment.sql",
   );
 
   for (const level of [
@@ -60,6 +67,11 @@ test("Stage 9 qualification covers every implementation-plan level", () => {
   assert.match(workerContracts, /stage9_prepare_planner_step/);
   assert.match(workerContracts, /stage9_finish_planner_step/);
   assert.match(workerContracts, /stage9_task_contract_requires_qualified_planner/);
+  assert.match(contextAndPromotion, /stage9_get_planner_step_context/);
+  assert.match(contextAndPromotion, /stage9_promote_planner_if_qualified/);
+  assert.match(contextAndPromotion, /subjectFingerprint/);
+  assert.match(schemaAlignment, /requiredOutputSchema/);
+  assert.match(schemaAlignment, /minLength',1,'maxLength',500/);
 });
 
 test("Stage 9 planner actions are durable and visible in the Workflow UI", () => {
@@ -76,6 +88,11 @@ test("Stage 9 planner actions are durable and visible in the Workflow UI", () =>
   assert.match(eventLabels, /Browser Planner chose the next action/);
   assert.match(foundation, /stage9_record_browser_planner_event/);
   assert.match(foundation, /runtime_capability_hash/);
+  assert.match(steps, /stage9_get_planner_step_context/);
+  assert.match(steps, /validateWorkerInvocationContext/);
+  assert.match(steps, /assertStructuredObservation/);
+  assert.match(steps, /taskContract: durableContext\.taskContract/);
+  assert.match(steps, /observation: durableObservation/);
 });
 
 test("Stage 9 owner launch stays separate from Stage 8 provider qualification", () => {
