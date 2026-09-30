@@ -5,6 +5,7 @@ import { CoreIcon } from "@/components/stage7/icons";
 import { ProductsWorkspace, ProductSubmitButton } from "@/components/stage13/products-workspace";
 import { requireOwnerUiContext } from "@/lib/core-ui/data";
 import { loadProductWorkspace } from "@/products/data";
+import { productHistorySummary } from "@/products/history";
 import { createProductCandidate } from "./actions";
 import "./products.css";
 
@@ -23,11 +24,7 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
   const [data, query] = await Promise.all([loadProductWorkspace(context), searchParams]);
   const message = first(query.message);
   const error = first(query.error);
-  const latestDecisions = new Map<string, (typeof data.decisions)[number]>();
-  for (const decision of [...data.decisions].sort((a, b) => b.created_at.localeCompare(a.created_at))) {
-    if (!latestDecisions.has(decision.candidate_id)) latestDecisions.set(decision.candidate_id, decision);
-  }
-  const needsEvidence = [...latestDecisions.values()].filter((decision) => decision.assessment.outcome === "NEEDS_MORE_EVIDENCE").length;
+  const { needsEvidence, unsupportedAssessments, unrecognizedOutcomes } = productHistorySummary(data.decisions);
   const activeResearch = data.experiments.filter((experiment) => ["reserved", "researching"].includes(experiment.status)).length;
 
   return <AppShell active="products" context={context}>
@@ -47,6 +44,7 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
       <div><dt>Needs more evidence</dt><dd>{needsEvidence}</dd><small>Latest decision per candidate</small></div>
       <div><dt>Preserved experiments</dt><dd>{data.experiments.length}</dd><small>History prevents repeated loops</small></div>
     </dl>
+    {unsupportedAssessments ? <p className="productSubtle">{unsupportedAssessments} latest decision(s) use a newer or unrecognized assessment format. Their preserved contents remain visible in the workspace; they are not converted into legacy scores.{unrecognizedOutcomes ? ` ${unrecognizedOutcomes} outcome(s) cannot be interpreted and are not included in the needs-evidence count.` : ""}</p> : null}
 
     <details className="productCreate" id="new-candidate" open={!data.candidates.length}>
       <summary><span><span aria-hidden="true">+</span><strong>Add a product candidate</strong></span><span>Define the question before research</span></summary>

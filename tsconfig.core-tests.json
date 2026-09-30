@@ -29,6 +29,7 @@
     "src/research/**/*.ts",
     "src/workers/**/*.ts",
     "src/products/types.ts",
+    "src/products/history.ts",
     "src/products/discovery.ts"
   ]
 }
