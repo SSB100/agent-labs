@@ -1,6 +1,7 @@
 import type { Page } from "playwright-core";
 
 import {
+  assertStructuredObservation,
   executePlannerAction,
   observeStructuredPage,
   planBrowserAction,
@@ -12,6 +13,13 @@ import { withBrowserSessionPage } from "@/browser/automation";
 import { createBrowserProviderAdapter } from "@/browser/registry";
 import type { BrowserProviderSession } from "@/browser/types";
 import { createRuntimeClient } from "@/lib/supabase/runtime";
+import {
+  BROWSER_PLANNER_MANIFEST,
+} from "@/workers/browser-planner";
+import {
+  validateWorkerInvocationContext,
+} from "@/workers/runtime";
+import type { WorkerInvocationContext } from "@/workers/types";
 
 import type { BrowserPlannerRuntimeInput } from "./browser-planner-runtime";
 
@@ -148,6 +156,36 @@ async function preparePlannerStep(
   return contract;
 }
 
+async function loadPlannerStepContext(
+  input: BrowserPlannerRuntimeInput,
+  contract: PlannerStepContract,
+): Promise<WorkerInvocationContext> {
+  const supabase = createRuntimeClient();
+  const { data, error } = await supabase.rpc(
+    "stage9_get_planner_step_context",
+    {
+      p_browser_session_id: input.browserSessionId,
+      p_business_id: input.businessId,
+      p_observation_artifact_id: contract.observation_artifact_id,
+      p_runtime_capability: input.runtimeCapability,
+      p_task_contract_id: contract.task_contract_id,
+      p_worker_run_id: contract.worker_run_id,
+      p_workflow_run_id: input.coreWorkflowRunId,
+    },
+  );
+  if (error) {
+    throw new Error(
+      `Unable to load Browser Planner Task Contract context: ${errorMessage(error)}`,
+    );
+  }
+
+  const context: unknown = data;
+  validateWorkerInvocationContext(BROWSER_PLANNER_MANIFEST, context);
+  const observation = context.inputArtifacts[0]?.content;
+  assertStructuredObservation(observation);
+  return context;
+}
+
 async function finishPlannerStep(
   input: BrowserPlannerRuntimeInput,
   contract: PlannerStepContract,
@@ -208,16 +246,19 @@ async function runBoundedObjective(
   let staleInjected = false;
 
   for (let step = 1; step <= MAX_ACTION_STEPS; step += 1) {
-    const observation = await observeStructuredPage(page);
+    const observedPage = await observeStructuredPage(page);
     const contract = await preparePlannerStep(input, {
       stageKey: options.stageKey,
       caseKey: options.caseKey,
       step,
       objective: options.objective,
       permittedCapabilities: options.permittedCapabilities,
-      observation,
+      observation: observedPage,
       previousFailure,
     });
+    const durableContext = await loadPlannerStepContext(input, contract);
+    const durableObservation = durableContext.inputArtifacts[0]?.content;
+    assertStructuredObservation(durableObservation);
 
     await plannerEvent(input, "browser.planner.observed", {
       caseKey: options.caseKey,
@@ -225,40 +266,17 @@ async function runBoundedObjective(
       taskContractId: contract.task_contract_id,
       observationArtifactId: contract.observation_artifact_id,
       workerRunId: contract.worker_run_id,
-      url: observation.url,
-      title: observation.title,
-      controlCount: observation.controls.length,
-      linkCount: observation.links.length,
+      url: durableObservation.url,
+      title: durableObservation.title,
+      controlCount: durableObservation.controls.length,
+      linkCount: durableObservation.links.length,
     });
 
     let decision: BrowserPlannerDecision;
     try {
       decision = await planBrowserAction({
-        taskContract: {
-          id: contract.task_contract_id,
-          objective: options.objective,
-          permittedCapabilities: options.permittedCapabilities,
-          nonGoals: [...(options.nonGoals ?? DEFAULT_NON_GOALS)],
-          completionCriteria: {
-            oneBoundedAction: true,
-            freshObservationRequiredAfterAction: true,
-          },
-          failureCriteria: {
-            maximumRecoveryAttempts: MAX_RECOVERIES,
-          },
-          escalationRules: {
-            previousFailure: previousFailure
-              ? {
-                  category: previousFailure.category,
-                  message: previousFailure.message,
-                  retryable: previousFailure.retryable,
-                  details: previousFailure.details,
-                }
-              : null,
-            recoveryAttempt: recoveries,
-          },
-        },
-        observation,
+        taskContract: durableContext.taskContract,
+        observation: durableObservation,
         previousFailure,
       });
       await finishPlannerStep(input, contract, {
@@ -325,7 +343,7 @@ async function runBoundedObjective(
         page,
         decision.action,
         options.permittedCapabilities,
-        observation,
+        durableObservation,
       );
       if (
         decision.action.type !== "complete" &&
