@@ -11,6 +11,7 @@ Status: implementation and guarded database deployment, including final owner-ap
 - One initial image and at most one repair; repair text is chosen from an exact, shared SQL/TypeScript safe-template allowlist. It cannot introduce new subjects, names or references
 - Private PNG originals retain their provider provenance. Inspection verifies decoded dimensions, sRGB interpretation, physical DPI, alpha when required and SHA-256. No silent upscaling or metadata stripping
 - Artifacts workspace shows private previews, exact prompts/hashes, UTC dates, version/review state and provider receipts
+- The visible cost ledger joins durable reservations with settlements. Missing receipts and unknown charges remain visible after run expiry; settled charges are not added to their reservations twice. Failed ledger reads are explicitly unavailable rather than presented as zero spend
 - A separate owner production-approval form accepts only current, fresh evidence-backed TEST candidates. Candidate identity and assessment are fetched server-side; explicit rights, eight source-linked policy/IP screens, print specification and a separate creative allowance are required
 - Existing NEEDS_MORE_EVIDENCE decisions remain unchanged. Production approval separately requires the current persisted evidence-backed TEST; technical or simulation PASS always keeps productionReady=false and publicationAllowed=false
 
@@ -37,6 +38,8 @@ Full interface and grants: [SQL contract](STAGE_14_SQL_CONTRACT.md).
 ## Verification record
 
 - Full local check after owner-approval UI hardening: 217 tests, lint, TypeScript, Next.js build and Workflow compilation passed. Hosted terminal-race checks passed before and after the narrowing migration
+- Cost-display regression coverage includes pending reservations, known and unknown receipts, expired runs, composite run/call matching, late read snapshots and conservative max(reservation, reported charge) accounting. Offline tests execute the actual loader and server-rendered page with mocked queries, including each failed ledger read, both failures, run-read failure and a genuinely empty ledger. This changes only owner-readable display logic, without schema, grants or provider execution changes
+- Full local check after cost-display hardening: 232 tests, lint, TypeScript, Next.js build and Workflow compilation passed. Hosted browser verification remains blocked; offline server-render tests are not a substitute for that live check
 - Independent static review found no remaining authorization-boundary blocker under the stated trusted-owner model, including the final owner-production UI and terminal revalidation patch
 - Review fixes covered exact repair scope, billed malformed-text receipts, returned model identity, encoded image-size compatibility and expired-run recovery
 - Mocked worker tests exercise complete scoped knowledge, actual image payloads, independent reviewer route and no fallback; fixtures are not live provider proof
@@ -51,7 +54,7 @@ Full interface and grants: [SQL contract](STAGE_14_SQL_CONTRACT.md).
 
 ## Remaining stage exit
 
-The original technical test can verify generation, storage, traceability and independent pixel review. Full Stage 14 additionally requires a genuinely eligible current owner TEST, a separate candidate-production approval and a successful production-purpose run. Unknown demand, margin or other required evidence cannot be waived, and a technical PASS does not advance Stage 15. Hosted UI verification is currently blocked by cloud browser protocol timeouts; no live creative run has started.
+The original technical test can verify generation, storage, traceability and independent pixel review. Full Stage 14 additionally requires a genuinely eligible current owner TEST, a separate candidate-production approval and a successful production-purpose run. Unknown demand, margin or other required evidence cannot be waived, and a technical PASS does not advance Stage 15. Hosted UI verification is currently blocked by blank/loading cloud Chromium pages, CDP focus-emulation timeouts and an unavailable native AT-SPI input provider. Authentication or an application defect has not been established as the cause. No live creative run has started.
 
 ## Primary references
 
