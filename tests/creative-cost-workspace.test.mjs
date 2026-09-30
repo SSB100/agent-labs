@@ -62,7 +62,8 @@ async function renderWorkspace(context, data) {
     '@/components/stage13/products-workspace': { ProductSubmitButton: ({ children, disabled }) => React.createElement('button', { disabled }, children) },
     '@/creative/data': { loadCreativeWorkspace: async () => data, loadProductionCandidates: async () => ({ candidates: [], errors: [] }) },
     '@/creative/cost-display': costDisplay,
-    '@/creative/proposal': { CREATIVE_PROVIDER_TERMS: 'https://example.com/terms', TECHNICAL_PRINT_SPECIFICATION: { sourceUrl: 'https://example.com/spec', verifiedAt: '2026-09-01T10:00:00.000Z' } },
+    '@/creative/image-provider': require('../.core-tests/creative/image-provider.js'),
+    '@/creative/proposal': { FLUX_KLEIN_PROVIDER_TERMS: ['https://bfl.ai/legal/developer-terms-of-service', 'https://bfl.ai/legal/flux-api-service-terms'], CREATIVE_PROVIDER_TERMS: 'https://example.com/terms', TECHNICAL_PRINT_SPECIFICATION: { sourceUrl: 'https://example.com/spec', verifiedAt: '2026-09-01T10:00:00.000Z' } },
     '@/creative/types': { SCREEN_CATEGORIES: [] }, '@/lib/core-ui/data': { requireOwnerUiContext: async () => context },
     './actions': {}, './artifacts.css': {},
   });

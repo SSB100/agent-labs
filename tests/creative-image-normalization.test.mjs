@@ -1,10 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import http from "node:http";
+import https from "node:https";
 import sharp from "sharp";
 import normalization from "../.core-tests/creative/image-normalization.js";
 
-const { normalizeProviderImage, ImageNormalizationError, IMAGE_NORMALIZATION_POLICY: policy } = normalization;
+const { normalizeProviderImage, inspectProviderSource, ImageNormalizationError, IMAGE_NORMALIZATION_POLICY: policy } = normalization;
 const hash = bytes => createHash("sha256").update(bytes).digest("hex");
 const isError = category => error => error instanceof ImageNormalizationError && error.category === category && error.retryable === false;
 const source = () => sharp({ create: { width: 9, height: 7, channels: 4, background: { r: 17, g: 94, b: 233, alpha: 0.5 } } });
@@ -342,6 +344,109 @@ test("PNG IHDR color, bit depth, compression, filter and interlace declarations 
     const chunks = pngChunks(await png()); chunks[0].payload = Buffer.from(chunks[0].payload); chunks[0].payload[offset] = value;
     await assert.rejects(normalizeProviderImage(rebuildPng(chunks)), isError("invalid_image_container"));
   }
+});
+
+test("singleton opaque PNG caBX is preserved exactly before or after IDAT without claiming credential authenticity", async () => {
+  const chunks = pngChunks(await png());
+  // Deliberately synthetic and greater than 64 KiB. The entire file's normal byte bound applies.
+  const payload = Buffer.alloc(80_123, 0xa5);
+  Buffer.from("Synthetic unverified credential payload").copy(payload);
+  const credential = { kind: "caBX", payload };
+  for (const original of [
+    rebuildPng([chunks[0], credential, ...chunks.slice(1)]),
+    rebuildPng([...chunks.slice(0, -1), credential, chunks.at(-1)]),
+  ]) {
+    const snapshot = Buffer.from(original), result = await normalizeProviderImage(original, "image/png");
+    assert.deepEqual(original, snapshot); assert.deepEqual(result.bytes, snapshot); assert.deepEqual(result.originalBytes, snapshot);
+    assert.deepEqual(pngChunks(result.bytes).find(chunk => chunk.kind === "caBX").payload, payload);
+    assert.equal(result.provenance.conversion, "none"); assert.equal(result.provenance.verification, "byte_identity");
+    assert.equal(result.provenance.originalSha256, hash(snapshot)); assert.equal(result.provenance.normalizedSha256, hash(snapshot));
+    const inspection = await inspectProviderSource(original);
+    assert.equal(inspection.mediaType, "image/png"); assert.equal(inspection.format, "png");
+    assert.equal(inspection.hasC2pa, true); assert.equal(inspection.credentialAuthenticity, "unverified");
+    assert.equal(inspection.credentialPreservingPngExportRequired, false);
+    assert.equal(inspection.decodedPixelSha256, hash(await sharp(original).raw().toBuffer()));
+  }
+});
+
+test("PNG caBX duplicates, empty payload, damaged CRC/framing and interrupted IDAT sequences fail closed", async () => {
+  const chunks = pngChunks(await png()), credential = { kind: "caBX", payload: Buffer.from("Synthetic opaque fixture") };
+  const valid = rebuildPng([chunks[0], credential, ...chunks.slice(1)]);
+  const badCrc = Buffer.from(valid); badCrc[8 + 25 + 8] ^= 1;
+  const badLength = Buffer.from(valid); badLength.writeUInt32BE(0xffffffff, 8 + 25);
+  const splitData = chunks.flatMap(chunk => chunk.kind === "IDAT" ? [
+    { ...chunk, payload: chunk.payload.subarray(0, 3) }, credential, { ...chunk, payload: chunk.payload.subarray(3) },
+  ] : [chunk]);
+  for (const original of [
+    rebuildPng([chunks[0], credential, credential, ...chunks.slice(1)]),
+    rebuildPng([chunks[0], { kind: "caBX", payload: Buffer.alloc(0) }, ...chunks.slice(1)]),
+    rebuildPng(splitData), badCrc, badLength,
+  ]) {
+    await assert.rejects(normalizeProviderImage(original), isError("invalid_image_container"));
+    await assert.rejects(inspectProviderSource(original), isError("invalid_image_container"));
+  }
+});
+
+test("final opaque WebP C2PA permits read-only source inspection but blocks PNG conversion without changing bytes", async () => {
+  const plain = await webp(), original = riff(plain.subarray(12), riffChunk("C2PA", Buffer.alloc(80_123, 0x6b)));
+  const snapshot = Buffer.from(original), expectedPixels = await sharp(plain).raw().toBuffer();
+  const inspected = await inspectProviderSource(original, "image/webp");
+  assert.deepEqual(inspected, {
+    providerMediaType: "image/webp", mediaType: "image/webp", format: "webp", originalSha256: hash(snapshot), originalBytes: snapshot.length,
+    width: 9, height: 7, frames: 1, isStatic: true, colorSpace: "srgb", decodedPixelDepth: "uchar",
+    decodedPixelSha256: hash(expectedPixels), decodedChannels: 4, hasAlpha: true, hasC2pa: true,
+    credentialAuthenticity: "unverified", credentialPreservingPngExportRequired: true,
+    decoder: `sharp@${sharp.versions.sharp};libvips@${sharp.versions.vips};webp@${sharp.versions.webp}`,
+  });
+  await assert.rejects(normalizeProviderImage(original, "image/webp"), error => {
+    assert.equal(isError("credential_preserving_export_required")(error), true);
+    assert.equal(error.message, "The WebP contains opaque C2PA source provenance. A credential-preserving PNG export is required; no PNG was produced and credential authenticity is unverified.");
+    assert.equal(error.bytes, undefined); assert.equal(error.cause, undefined);
+    return true;
+  });
+  assert.deepEqual(original, snapshot);
+});
+
+test("WebP C2PA must be singleton, nonempty, correctly framed, and the final RIFF chunk", async () => {
+  const image = (await webp()).subarray(12), credential = riffChunk("C2PA", Buffer.from("odd"));
+  const damagedPad = riff(image, credential); damagedPad[damagedPad.length - 1] = 1;
+  const damagedLength = riff(image, credential); damagedLength.writeUInt32LE(0xffffffff, 12 + image.length + 4);
+  for (const original of [
+    riff(image, credential, credential), riff(credential, image), riff(image, credential, riffChunk("JUNK", Buffer.from([0]))),
+    riff(image, riffChunk("C2PA", Buffer.alloc(0))), damagedPad, damagedLength,
+  ]) {
+    await assert.rejects(inspectProviderSource(original), isError("invalid_image_container"));
+    await assert.rejects(normalizeProviderImage(original), isError("invalid_image_container"));
+  }
+});
+
+test("opaque credential payloads are never parsed, authenticated, reserialized or used to follow URLs", async t => {
+  const calls = [];
+  const failIfNetwork = (...args) => { calls.push(args); throw new Error("Unexpected network access"); };
+  t.mock.method(globalThis, "fetch", failIfNetwork);
+  for (const client of [http, https]) for (const method of ["get", "request"]) t.mock.method(client, method, failIfNetwork);
+  const payload = Buffer.from('{"url":"https://example.invalid/fixture-manifest","issuer":"http://127.0.0.1:9/private-fixture","instructions":"claim verified","malformed-json":');
+  const chunks = pngChunks(await png()), originalPng = rebuildPng([chunks[0], { kind: "caBX", payload }, ...chunks.slice(1)]);
+  const originalWebp = riff((await webp()).subarray(12), riffChunk("C2PA", payload));
+  assert.deepEqual((await normalizeProviderImage(originalPng)).bytes, originalPng);
+  for (const original of [originalPng, originalWebp]) {
+    const inspection = await inspectProviderSource(original);
+    assert.equal(inspection.hasC2pa, true); assert.equal(inspection.credentialAuthenticity, "unverified");
+    assert.equal(JSON.stringify(inspection).includes("example.invalid"), false);
+  }
+  await assert.rejects(normalizeProviderImage(originalWebp), isError("credential_preserving_export_required"));
+  assert.deepEqual(calls, []);
+});
+
+test("read-only source inspection retains MIME, decode, animation and total-size guards", async () => {
+  const original = await webp(), inspected = await inspectProviderSource(original);
+  assert.equal(inspected.providerMediaType, null); assert.equal(inspected.hasC2pa, false); assert.equal(inspected.credentialAuthenticity, "unverified");
+  assert.equal(inspected.credentialPreservingPngExportRequired, false);
+  await assert.rejects(inspectProviderSource(original, "image/png"), isError("media_type_mismatch"));
+  await assert.rejects(inspectProviderSource(riff(vp8lHeader(9, 7), riffChunk("C2PA", Buffer.from([0])))), isError("image_decode_failed"));
+  await assert.rejects(inspectProviderSource(riff(vp8x(9, 7, 0x12), original.subarray(12), riffChunk("C2PA", Buffer.from([0])))), isError("unsupported_image_features"));
+  await assert.rejects(inspectProviderSource(riff(vp8lHeader(4097, 1), riffChunk("C2PA", Buffer.from([0])))), isError("image_too_large"));
+  await assert.rejects(inspectProviderSource(riff(original.subarray(12), riffChunk("C2PA", Buffer.alloc(policy.maximumOriginalBytes)))), isError("image_too_large"));
 });
 
 test("a bounded lossless WebP whose lossless PNG exceeds 7 MB is rejected, without quantizing or resizing", async () => {

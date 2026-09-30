@@ -5,7 +5,7 @@ import { createRuntimeClient } from "../lib/supabase/runtime";
 import { getSupabasePublicConfig } from "../lib/supabase/env";
 import { creativeHash, validateBriefScreen, validateCreativeApproval, validateDesignBrief } from "../creative/contracts";
 import type { CreativeCallKey, CreativeLedger, CreativeModelCallKey } from "../creative/budget";
-import { ImageProviderError, OpenRouterImageAdapter } from "../creative/image-provider";
+import { getImageGenerationPolicy, ImageProviderError, OpenRouterImageAdapter } from "../creative/image-provider";
 import { inspectCreativePng } from "../creative/inspection";
 import { storeCreativeImage, type SourcePreservation, type StoredImageProvenance } from "../creative/stored-image";
 import type { AssetInspection, BriefScreen, CreativeApprovalSnapshot, DesignBrief, DesignReview } from "../creative/types";
@@ -16,7 +16,7 @@ import type { WorkerInvocationContext } from "../workers/types";
 import type { CreativeRuntimeInput } from "./creative-runtime";
 
 type CreativeState = { status: string; phaseKey: CreativeCallKey; productionReady: boolean; approval: CreativeApprovalSnapshot;
-  approvalHash: string; brief: DesignBrief | null; briefHash: string | null; screen: BriefScreen | null;
+  approvalHash: string; quote: { generatorModel: string }; brief: DesignBrief | null; briefHash: string | null; screen: BriefScreen | null;
   assets: { version: number; inspection: AssetInspection; storagePath: string; prompt: string }[];
   reviews: { version: number; output: DesignReview }[] };
 async function transition(input: CreativeRuntimeInput, operation: string, payload: JsonObject = {}) {
@@ -79,7 +79,9 @@ async function executeCreativePhaseOnce(input: CreativeRuntimeInput, callKey: Cr
   const previous = state.reviews.find(r => r.version === 1)?.output;
   if (generation === 2 && (!previous || previous.outcome !== "FAIL" || !previous.repairInstruction)) throw new FatalError("A repair requires the first independent review's exact instruction.");
   const prompt = state.brief.imagePrompt + (generation === 2 ? `\n\nRepair instruction: ${previous!.repairInstruction}` : "");
-  const adapter = new OpenRouterImageAdapter(), quote = await adapter.preflight({ prompt });
+  if (typeof state.quote?.generatorModel !== "string") throw new FatalError("The immutable approval has no image provider binding.");
+  const approvedPolicy = getImageGenerationPolicy(state.quote.generatorModel);
+  const adapter = new OpenRouterImageAdapter({ modelId: approvedPolicy.modelId }), quote = await adapter.preflight({ prompt });
   const reserved = await costs.reserve({ callKey, model: quote.modelId, provider: "openrouter", requestHash: quote.requestHash,
     reservedMicrousd: quote.estimatedMicrousd, estimate: { ...quote } });
   if (!reserved.shouldExecute) throw new FatalError("Image generation was already reserved; uncertain charges cannot be retried automatically.");
@@ -93,7 +95,7 @@ async function executeCreativePhaseOnce(input: CreativeRuntimeInput, callKey: Cr
     const declared = generated.declaredMediaType;
     const stored = await storeCreativeImage({ bytes: generated.bytes, mediaType: generated.mediaType,
       declaredMediaType: declared === "absent" ? null : declared,
-      storagePath, specification: state.approval.printSpecification, storage: storageClient(input),
+      storagePath, specification: state.approval.printSpecification, storage: storageClient(input), nativePngRequired: approvedPolicy.nativePngRequired,
       onSourceProgress: progress => { sourceProgress.current = progress; } });
     inspection = stored.inspection;
     provenance = stored.provenance;

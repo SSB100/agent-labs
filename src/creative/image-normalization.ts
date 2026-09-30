@@ -18,7 +18,7 @@ export type ProviderImageMediaType = "image/png" | "image/webp";
 export type ImageNormalizationErrorCategory =
   | "invalid_image_input" | "unsupported_image_format" | "media_type_mismatch"
   | "image_too_large" | "invalid_image_container" | "unsupported_image_features"
-  | "image_decode_failed" | "pixel_preservation_failed";
+  | "image_decode_failed" | "pixel_preservation_failed" | "credential_preserving_export_required";
 
 const safeMessages: Record<ImageNormalizationErrorCategory, string> = {
   invalid_image_input: "The provider image input or declared media type is invalid.",
@@ -29,6 +29,7 @@ const safeMessages: Record<ImageNormalizationErrorCategory, string> = {
   unsupported_image_features: "The provider image contains unsupported animation, encoding, or metadata.",
   image_decode_failed: "The provider image could not be fully decoded within the normalization bounds.",
   pixel_preservation_failed: "Lossless normalization could not verify unchanged decoded pixels and alpha.",
+  credential_preserving_export_required: "The WebP contains opaque C2PA source provenance. A credential-preserving PNG export is required; no PNG was produced and credential authenticity is unverified.",
 };
 
 /** Never includes decoder diagnostics, provider payloads, or arbitrary metadata. */
@@ -68,7 +69,30 @@ export type NormalizedProviderImage = {
   provenance: ImageNormalizationProvenance;
 };
 
+/** Read-only facts about a fully decoded source; no credential parsing or authenticity claim. */
+export type ProviderSourceInspection = {
+  providerMediaType: ProviderImageMediaType | null;
+  mediaType: ProviderImageMediaType;
+  format: "png" | "webp";
+  originalSha256: string;
+  originalBytes: number;
+  width: number;
+  height: number;
+  frames: 1;
+  isStatic: true;
+  colorSpace: string;
+  decodedPixelDepth: "uchar";
+  decodedPixelSha256: string;
+  decodedChannels: number;
+  hasAlpha: boolean;
+  hasC2pa: boolean;
+  credentialAuthenticity: "unverified";
+  credentialPreservingPngExportRequired: boolean;
+  decoder: string;
+};
+
 type Dimensions = { width: number; height: number };
+type ContainerInspection = Dimensions & { hasC2pa: boolean };
 function reject(category: ImageNormalizationErrorCategory): never { throw new ImageNormalizationError(category); }
 const sha256 = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 const pngSignature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
@@ -91,9 +115,9 @@ function crc32(bytes: Uint8Array): number {
   return (crc ^ 0xffffffff) >>> 0;
 }
 
-function inspectPngContainer(bytes: Buffer): Dimensions {
+function inspectPngContainer(bytes: Buffer): ContainerInspection {
   let offset = 8, chunks = 0, dimensions: Dimensions | undefined;
-  let seenData = false, dataEnded = false, seenPalette = false;
+  let seenData = false, dataEnded = false, seenPalette = false, hasC2pa = false;
   let colorType = -1, bitDepth = 0, paletteEntries = 0;
   const seenAncillary = new Set<string>();
   const srgbChromaticities = [31270, 32900, 64000, 33000, 30000, 60000, 15000, 6000];
@@ -124,7 +148,12 @@ function inspectPngContainer(bytes: Buffer): Dimensions {
       seenData = true;
     } else if (kind === "IEND") {
       if (length !== 0 || !seenData || end !== bytes.length || !dimensions) reject("invalid_image_container");
-      return dimensions;
+      return { ...dimensions, hasC2pa };
+    } else if (kind === "caBX") {
+      // Preserve this opaque C2PA-bearing chunk in the original PNG. Do not parse,
+      // reserialize, authenticate, or dereference anything inside its payload.
+      if (hasC2pa || !length) reject("invalid_image_container");
+      hasC2pa = true;
     } else if (["tRNS", "sRGB", "pHYs", "gAMA", "cHRM"].includes(kind)) {
       // Sharp can ignore duplicate, malformed, or conflicting ancillary chunks without
       // a warning. Validate this deliberately small metadata subset independently.
@@ -163,11 +192,11 @@ function inspectPngContainer(bytes: Buffer): Dimensions {
   return reject("invalid_image_container");
 }
 
-/** Only VP8L, optionally preceded by a VP8X alpha-only canvas. No ignored extension chunks. */
-function inspectLosslessWebpContainer(bytes: Buffer): Dimensions {
+/** VP8L, optional alpha-only VP8X, and a singleton final opaque C2PA chunk. */
+function inspectLosslessWebpContainer(bytes: Buffer): ContainerInspection {
   if (bytes.length < 20 || bytes.length % 2 || bytes.readUInt32LE(4) !== bytes.length - 8) reject("invalid_image_container");
   let offset = 12, chunks = 0, canvas: Dimensions | undefined, image: Dimensions | undefined;
-  let extendedAlpha: boolean | undefined, imageAlpha = false;
+  let extendedAlpha: boolean | undefined, imageAlpha = false, hasC2pa = false;
   while (offset < bytes.length) {
     if (++chunks > IMAGE_NORMALIZATION_POLICY.maximumChunks) reject("unsupported_image_features");
     if (bytes.length - offset < 8) reject("invalid_image_container");
@@ -188,6 +217,11 @@ function inspectLosslessWebpContainer(bytes: Buffer): Dimensions {
       if (header >>> 29) reject("unsupported_image_features");
       image = checkDimensions((header & 0x3fff) + 1, ((header >>> 14) & 0x3fff) + 1);
       imageAlpha = Boolean(header & 0x10000000);
+    } else if (kind === "C2PA") {
+      // Recognition only: C2PA must be the final RIFF chunk and is retained verbatim.
+      // Its asset binding cannot safely be copied to a newly encoded PNG.
+      if (hasC2pa || !image || !length || next !== bytes.length) reject("invalid_image_container");
+      hasC2pa = true;
     } else {
       // Reject VP8/ALPH (lossy), ANIM/ANMF (animation), profiles, and unknown chunks.
       reject("unsupported_image_features");
@@ -197,7 +231,7 @@ function inspectLosslessWebpContainer(bytes: Buffer): Dimensions {
   if (!image || (canvas && (canvas.width !== image.width || canvas.height !== image.height || extendedAlpha !== imageAlpha))) {
     reject("invalid_image_container");
   }
-  return image;
+  return { ...image, hasC2pa };
 }
 
 function decoder(bytes: Buffer) {
@@ -226,35 +260,70 @@ async function encodeBoundedPng(pixels: Buffer, width: number, height: number, c
   }
 }
 
-/**
- * Receives already canonically base64-decoded bytes. Takes an owned snapshot before awaiting.
- * Never resizes, rotates, upscales, quantizes, flattens alpha, or edits image content.
- * Accepted PNG remains byte-identical; only profile-free 8-bit sRGB WebP is converted.
- */
-export async function normalizeProviderImage(bytes: Uint8Array, declaredMediaType?: string | null): Promise<NormalizedProviderImage> {
+/** Common bounded source validation, with an owned byte snapshot taken before awaiting. */
+async function inspectSourceBytes(bytes: Uint8Array, declaredMediaType?: string | null) {
   if (!(bytes instanceof Uint8Array) || !bytes.byteLength) reject("invalid_image_input");
   if (bytes.byteLength > IMAGE_NORMALIZATION_POLICY.maximumOriginalBytes) reject("image_too_large");
   if (declaredMediaType !== undefined && declaredMediaType !== null &&
       declaredMediaType !== "image/png" && declaredMediaType !== "image/webp") reject("invalid_image_input");
+  const providerMediaType: ProviderImageMediaType | null = declaredMediaType ?? null;
   const originalBytes = Buffer.from(bytes);
   const detectedMediaType: ProviderImageMediaType = originalBytes.subarray(0, 8).equals(pngSignature) ? "image/png" :
     originalBytes.length >= 12 && originalBytes.toString("latin1", 0, 4) === "RIFF" && originalBytes.toString("latin1", 8, 12) === "WEBP" ? "image/webp" :
       reject("unsupported_image_format");
   if (declaredMediaType && declaredMediaType !== detectedMediaType) reject("media_type_mismatch");
-  const dimensions = detectedMediaType === "image/png" ? inspectPngContainer(originalBytes) : inspectLosslessWebpContainer(originalBytes);
+  const container = detectedMediaType === "image/png" ? inspectPngContainer(originalBytes) : inspectLosslessWebpContainer(originalBytes);
   try {
     const decoded = decoder(originalBytes);
     const metadata = await decoded.metadata();
-    if (metadata.format !== detectedMediaType.slice(6) || metadata.width !== dimensions.width || metadata.height !== dimensions.height ||
-        (metadata.pages ?? 1) !== 1 || (metadata.pageHeight !== undefined && metadata.pageHeight !== dimensions.height)) reject("invalid_image_container");
+    if (metadata.format !== detectedMediaType.slice(6) || metadata.width !== container.width || metadata.height !== container.height ||
+        (metadata.pages ?? 1) !== 1 || (metadata.pageHeight !== undefined && metadata.pageHeight !== container.height)) reject("invalid_image_container");
     if (detectedMediaType === "image/webp" && (metadata.space !== "srgb" || metadata.depth !== "uchar" ||
         (metadata.channels !== 3 && metadata.channels !== 4) || metadata.icc || metadata.exif || metadata.xmp || metadata.orientation !== undefined)) {
       reject("unsupported_image_features");
     }
     // Full decode is mandatory even for the unchanged PNG path; metadata alone is not validation.
-    const pixels = await decoded.raw().toBuffer({ resolveWithObject: true });
-    if (pixels.info.width !== dimensions.width || pixels.info.height !== dimensions.height || pixels.info.channels < 1 || pixels.info.channels > 4 ||
-        pixels.data.length !== dimensions.width * dimensions.height * pixels.info.channels) reject("image_decode_failed");
+    const pixels = await decoded.raw({ depth: "uchar" }).toBuffer({ resolveWithObject: true });
+    if (pixels.info.width !== container.width || pixels.info.height !== container.height || pixels.info.channels < 1 || pixels.info.channels > 4 ||
+        pixels.data.length !== container.width * container.height * pixels.info.channels) reject("image_decode_failed");
+    if (detectedMediaType === "image/webp" && ((pixels.info.channels !== 3 && pixels.info.channels !== 4) ||
+        pixels.info.premultiplied || pixels.info.channels !== metadata.channels)) reject("pixel_preservation_failed");
+    return { originalBytes, detectedMediaType, providerMediaType, container, metadata, pixels };
+  } catch (error) {
+    if (error instanceof ImageNormalizationError) throw error;
+    throw new ImageNormalizationError("image_decode_failed");
+  }
+}
+
+/**
+ * Read-only, offline inspection. Opaque C2PA bytes are recognized but never interpreted,
+ * verified, modified, or used to make network requests. No derived image is produced.
+ * The decoded-pixel hash explicitly describes Sharp's uint8 output, not credential validity.
+ */
+export async function inspectProviderSource(bytes: Uint8Array, declaredMediaType?: string | null): Promise<ProviderSourceInspection> {
+  const { originalBytes, detectedMediaType, providerMediaType, container, metadata, pixels } = await inspectSourceBytes(bytes, declaredMediaType);
+  return {
+    providerMediaType, mediaType: detectedMediaType, format: detectedMediaType === "image/png" ? "png" : "webp",
+    originalSha256: sha256(originalBytes), originalBytes: originalBytes.length,
+    width: container.width, height: container.height, frames: 1, isStatic: true,
+    colorSpace: metadata.space ?? "unknown", decodedPixelDepth: "uchar", decodedPixelSha256: sha256(pixels.data),
+    decodedChannels: pixels.info.channels, hasAlpha: metadata.hasAlpha ?? false, hasC2pa: container.hasC2pa,
+    credentialAuthenticity: "unverified", credentialPreservingPngExportRequired: detectedMediaType === "image/webp" && container.hasC2pa,
+    decoder: `sharp@${sharp.versions.sharp};libvips@${sharp.versions.vips};webp@${sharp.versions.webp}`,
+  };
+}
+
+/**
+ * Receives already canonically base64-decoded bytes. Takes an owned snapshot before awaiting.
+ * Never resizes, rotates, upscales, quantizes, flattens alpha, or edits image content.
+ * Accepted PNG remains byte-identical, including opaque C2PA caBX bytes. WebP carrying
+ * C2PA is blocked: encoding or copying its asset-bound credential into PNG is not preservation.
+ */
+export async function normalizeProviderImage(bytes: Uint8Array, declaredMediaType?: string | null): Promise<NormalizedProviderImage> {
+  const { originalBytes, detectedMediaType, providerMediaType, container, metadata, pixels } = await inspectSourceBytes(bytes, declaredMediaType);
+  if (detectedMediaType === "image/webp" && container.hasC2pa) reject("credential_preserving_export_required");
+  const dimensions = { width: container.width, height: container.height };
+  try {
     let normalizedBytes: Buffer = originalBytes;
     let normalizedDecodedPixelSha256: string | null = null;
     if (detectedMediaType === "image/webp") {
@@ -268,7 +337,7 @@ export async function normalizeProviderImage(bytes: Uint8Array, declaredMediaTyp
     return {
       bytes: normalizedBytes, mediaType: "image/png", originalBytes,
       provenance: {
-        version: IMAGE_NORMALIZATION_POLICY.version, providerMediaType: declaredMediaType ?? null, detectedMediaType,
+        version: IMAGE_NORMALIZATION_POLICY.version, providerMediaType, detectedMediaType,
         originalSha256: sha256(originalBytes), normalizedSha256: sha256(normalizedBytes),
         originalBytes: originalBytes.length, normalizedBytes: normalizedBytes.length, ...dimensions,
         conversion: detectedMediaType === "image/png" ? "none" : "lossless_webp_to_png",

@@ -99,3 +99,13 @@ test('conflicting declared MIME preserves source but rejects before normalized o
   assert.equal(f.objects.has(path), false);
   assert.equal(f.progress.at(-1).downloadVerified, true);
 });
+
+
+test('native-PNG approval preserves unexpected WebP but forbids conversion or approved output', async () => {
+  const bytes = await image('webp'), f = fixture();
+  await assert.rejects(storeCreativeImage({ bytes, mediaType: 'image/webp', declaredMediaType: 'image/webp', nativePngRequired: true,
+    storagePath: path, specification: spec, storage: f.storage, onSourceProgress: p => f.progress.push(p) }), /requires native PNG output/);
+  assert.deepEqual(f.objects.get(sourcePath), bytes);
+  assert.equal(f.objects.has(path), false);
+  assert.equal(f.progress.at(-1).downloadVerified, true);
+});

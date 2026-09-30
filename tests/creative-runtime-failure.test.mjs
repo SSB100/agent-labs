@@ -69,11 +69,11 @@ test('normalization failure settles the paid generation and preserves its source
       operations.push(args.p_operation);
       if (args.p_operation === 'record_call') settlements.push(args.p_payload);
       return { error: null, data: args.p_operation === 'load' ? { status: 'running', phaseKey: 'generate:1',
-        approval: { purpose: 'technical_qualification', maximumGenerations: 1, printSpecification: {} }, brief: { imagePrompt: 'Synthetic approved prompt' }, screen: { outcome: 'PASS' }, reviews: [] }
+        approval: { purpose: 'technical_qualification', maximumGenerations: 1, printSpecification: {} }, quote: { generatorModel: 'recraft/recraft-v4.1-pro' }, brief: { imagePrompt: 'Synthetic approved prompt' }, screen: { outcome: 'PASS' }, reviews: [] }
         : args.p_operation === 'reserve_call' ? { shouldExecute: true } : {} };
     } }) }, '../lib/supabase/env': { getSupabasePublicConfig: () => ({ url: 'https://example.invalid', publishableKey: 'mock-public' }) },
     '../creative/contracts': { validateCreativeApproval() {}, validateDesignBrief() {}, validateBriefScreen() {} },
-    '../creative/image-provider': { ImageProviderError: class extends Error {}, OpenRouterImageAdapter: class {
+    '../creative/image-provider': { getImageGenerationPolicy: modelId => ({ modelId, nativePngRequired: false }), ImageProviderError: class extends Error {}, OpenRouterImageAdapter: class {
       async preflight() { return { estimatedMicrousd: 210000, requestHash: 'b'.repeat(64), modelId: 'recraft/recraft-v4.1-pro' }; }
       async generate() { paid++; return { bytes: new Uint8Array(64), mediaType: 'image/webp', declaredMediaType: 'image/webp',
         receipt: { reportedMicrousd: 210000, providerRequestId: 'gen-retained' } }; }

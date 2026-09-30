@@ -42,11 +42,33 @@ test('Artifacts loads reservations and receipts without dropping expired runs or
 
 test('owner explicitly selects the image bound and history keeps each saved bound visible', () => {
   assert.equal((page.match(/name="maximumGenerations"/g) ?? []).length, 2);
-  assert.equal((page.match(/name="maximumGenerations" required defaultValue="2"/g) ?? []).length, 2);
+  assert.equal((page.match(/name="maximumGenerations" required defaultValue="1"/g) ?? []).length, 2);
   assert.match(page, /One image, no repair \(up to 4 provider calls\)/);
   assert.match(page, /Image limit: \{a.snapshot.maximumGenerations\}/);
   assert.match(page, /No repair; a failed review stops for owner review/);
-  assert.equal((actions.match(/currentCreativeQuote\(maximumGenerations\)/g) ?? []).length, 2);
-  assert.match(actions, /technicalCreativeApproval\(businessId, candidate.data.candidateId, maximumMicrousd, design, approvalId, maximumGenerations\)/);
+  assert.equal((actions.match(/currentCreativeQuote\(maximumGenerations, generatorModel, true\)/g) ?? []).length, 2);
+  assert.match(actions, /technicalCreativeApproval\(businessId, candidate.data.candidateId, maximumMicrousd, design, approvalId, maximumGenerations, generatorModel\)/);
   assert.match(actions, /limit !== "1" && limit !== "2"/);
+});
+
+
+test('new approvals require an explicit BFL model selection, terms and honest data-use acknowledgement', () => {
+  assert.equal((page.match(/name="generatorModel" required defaultValue=""/g) ?? []).length, 2);
+  assert.equal((page.match(/name="confirmDataUse" required/g) ?? []).length, 2);
+  for (const text of ['OpenRouter lists Black Forest Labs as not training on requests and retaining data for 30 days', 'zero-data-retention route', 'API terms include a training license', 'not a privacy guarantee', 'BFL developer terms', 'BFL FLUX API terms', 'at least 975 × 975', 'original PNG bytes and any provider marking retained', 'Saved image model:', 'a.quote?.generatorModel']) assert.ok(page.includes(text), text);
+  assert.match(actions, /value\(form, "generatorModel"\) !== FLUX_KLEIN_PNG_POLICY.modelId/);
+  assert.match(actions, /value\(form, "confirmDataUse"\) !== "on"/);
+  for (const name of ['approveCreativeCandidate', 'approveProductionCreativeCandidate']) {
+    const approve = actions.split(`export async function ${name}`)[1].split('export async function')[0];
+    assert.ok(approve.indexOf('selectedProvider(form)') < approve.indexOf('currentCreativeQuote('));
+    assert.ok(approve.indexOf('selectedProvider(form)') < approve.indexOf('approve_creative_candidate'));
+  }
+});
+
+
+test('new provider-bound forms cannot infer repair authority from an omitted image limit', () => {
+  const parser = actions.split('function generationLimit')[1].split('function selectedProvider')[0];
+  assert.match(parser, /if \(!limit\) error\(/);
+  assert.doesNotMatch(parser, /if \(!limit\) return 2/);
+  assert.match(parser, /limit !== "1" && limit !== "2"/);
 });

@@ -11,9 +11,10 @@ export async function inspectCreativePng(bytes: Uint8Array, spec: PrintSpecifica
   const metadata = await decoded.metadata();
   if (metadata.format !== "png" || !metadata.width || !metadata.height || (metadata.pages ?? 1) !== 1 || metadata.width > 4096 || metadata.height > 4096) throw new Error("Unsupported image dimensions, animation, or format.");
   const pixels = await decoded.ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-  let transparent = 0, visible = 0;
+  let transparent = 0, visible = 0, nonOpaque = 0;
   for (let i = 3; i < pixels.data.length; i += pixels.info.channels) {
     if (pixels.data[i] === 0) transparent++;
+    if (pixels.data[i] !== 255) nonOpaque++;
     if (pixels.data[i] >= 250) visible++;
   }
   const count = pixels.info.width * pixels.info.height;
@@ -22,6 +23,7 @@ export async function inspectCreativePng(bytes: Uint8Array, spec: PrintSpecifica
   if (effectiveDpi < spec.minimumDpi) failedCriteria.push("effective_dpi_below_print_specification");
   if (metadata.space !== "srgb") failedCriteria.push("unsupported_color_space");
   if (visible / count < 0.01) failedCriteria.push("no_substantial_visible_artwork");
+  if (spec.background === "opaque" && nonOpaque !== 0) failedCriteria.push("opaque_background_not_fully_opaque");
   if (spec.background === "transparent" && (!metadata.hasAlpha || transparent / count < 0.01)) failedCriteria.push("transparent_background_missing");
   if (Math.abs(metadata.width / metadata.height - spec.designWidthInches / spec.designHeightInches) > 0.01) failedCriteria.push("aspect_ratio_mismatch");
   return { sha256: createHash("sha256").update(bytes).digest("hex"), mediaType: "image/png", bytes: bytes.byteLength,

@@ -16,7 +16,7 @@ const pathPattern = new RegExp(`^${uuidPart}/${uuidPart}/version-[12]\\.png$`);
 /** Retain paid source bytes before decoding; each upload is immutable and verified by download. */
 export async function storeCreativeImage(input: {
   bytes: Uint8Array; mediaType: ProviderImageMediaType; declaredMediaType: string | null;
-  storagePath: string; specification: PrintSpecification; storage: CreativeImageStorage;
+  storagePath: string; specification: PrintSpecification; storage: CreativeImageStorage; nativePngRequired?: boolean;
   onSourceProgress: (progress: SourcePreservation) => void;
 }): Promise<{ inspection: AssetInspection; provenance: StoredImageProvenance }> {
   if (!pathPattern.test(input.storagePath)) throw new Error("Invalid bounded creative storage path.");
@@ -32,6 +32,7 @@ export async function storeCreativeImage(input: {
   progress.uploadConfirmed = true; report();
   await verifyStoredBytes(input.storage, originalStoragePath, source);
   progress.downloadVerified = true; report();
+  if (input.nativePngRequired && input.mediaType !== "image/png") throw new Error("This approval requires native PNG output. The non-PNG original is retained; conversion or automatic regeneration is not permitted.");
   const normalized = await normalizeProviderImage(source, input.declaredMediaType);
   if (normalized.provenance.detectedMediaType !== input.mediaType || normalized.provenance.originalSha256 !== progress.sha256) throw new Error("Original provider source metadata changed during normalization.");
   if (input.mediaType === "image/webp") {

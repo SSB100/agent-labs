@@ -811,4 +811,137 @@ begin
   assert (select to_jsonb(x)=original_approval from public.creative_approvals x where x.id=current_setting('stage14.approval')::uuid),'Prior approval and quote are unchanged';
   assert private.stage14_committed_cost(current_setting('stage14.run')::uuid)=original_cost,'Prior paid and reserved history is unchanged';
 end; $$;
+
+-- BFL native-PNG supplemental authorization and runtime regressions.
+-- Append inside stage14_creative.sql before its final ROLLBACK.
+-- All IDs, pixels, receipts and quotes below are synthetic; no HTTP or paid call.
+create function pg_temp.flux_quote() returns jsonb language sql as $$
+ select pg_temp.creative_quote()||jsonb_build_object(
+   'generatorModel','black-forest-labs/flux.2-klein-4b',
+   'providerBinding','{"provider":"openrouter","upstreamProvider":"black-forest-labs","adapterVersion":"flux-klein-png-1.0","outputFormat":"png","requestedSize":"1024x1024","nativePngRequired":true,"disclosureVersion":"bfl-openrouter-data-use-1.0","ownerAcknowledged":true}'::jsonb,
+   'sourceUrls','["https://openrouter.ai/api/v1/models","https://openrouter.ai/api/v1/images/models/black-forest-labs/flux.2-klein-4b/endpoints","https://bfl.ai/legal/developer-terms-of-service","https://bfl.ai/legal/flux-api-service-terms"]'::jsonb,
+   'maximaMicrousd','{"brief":33992,"screen":107304,"generation":70000,"review":131880}'::jsonb,
+   'maximumEstimateMicrousd',343176,'maximumCalls',4);
+$$;
+create function pg_temp.flux_payload(p_run uuid) returns jsonb language plpgsql security definer set search_path='' as $$
+declare prompt text; body jsonb; estimate jsonb; request_hash text;
+begin
+ select output->>'imagePrompt' into strict prompt from public.creative_phase_outputs where creative_run_id=p_run and call_key='brief:1';
+ body:=jsonb_build_object('model','black-forest-labs/flux.2-klein-4b','prompt',prompt,'aspect_ratio','1:1','n',1,'output_format','png','size','1024x1024','provider',jsonb_build_object('only',jsonb_build_array('black-forest-labs'),'allow_fallbacks',false));
+ request_hash:=private.stage14_hash(body);
+ estimate:=jsonb_build_object('version','flux-klein-png-1.0','provider','openrouter','upstreamProvider','black-forest-labs','modelId','black-forest-labs/flux.2-klein-4b',
+   'requestHash',request_hash,'promptHash',private.stage13_hash(prompt),'pricingFingerprint',repeat('a',64),'estimatedMicrousd',70000,'verifiedAt',to_char(now() at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+   'source','https://openrouter.ai/api/v1/images/models/black-forest-labs/flux.2-klein-4b/endpoints','estimateOnly',true,'providerInvoiceGuarantee',false);
+ estimate:=estimate||jsonb_build_object('quoteId',private.stage14_hash(estimate));
+ return jsonb_build_object('callKey','generate:1','model','black-forest-labs/flux.2-klein-4b','provider','openrouter','reservedMicrousd',70000,'requestHash',request_hash,'estimate',estimate);
+end; $$;
+create function pg_temp.flux_record(p_run uuid,p_business uuid,p_cap text,p_output jsonb,p_valid boolean default true) returns jsonb language sql as $$
+ select public.creative_runtime_transition(p_run,p_business,p_cap,'record_call',jsonb_build_object('callKey','generate:1','reportedMicrousd',14000,'providerRequestId','stage14-bfl-rollback-'||p_run,
+ 'receipt',jsonb_build_object('model','black-forest-labs/flux.2-klein-4b','provider','openrouter','providerRequestId','stage14-bfl-rollback-'||p_run,'outputValidated',p_valid,'mockProvider',false,'executionMode','image.generate','provenance',p_output->'provenance')));
+$$;
+select set_config('request.jwt.claim.sub',current_setting('stage14.owner'),true);
+do $$
+declare b uuid:=current_setting('stage14.business')::uuid; candidate jsonb; c uuid; approval jsonb; quote jsonb:=pg_temp.flux_quote(); created jsonb; launch jsonb; payload jsonb; invalid jsonb;
+  r uuid; result jsonb; context jsonb; output jsonb; wrong jsonb; replay jsonb; key text; scenario text; op text; denied boolean; message text; item jsonb;
+  cap text:=repeat('native-png-capability-',3); original_run jsonb; original_approval jsonb; original_cost bigint;
+begin
+ select to_jsonb(x) into original_run from public.creative_runs x where x.id=current_setting('stage14.run')::uuid;
+ select to_jsonb(x) into original_approval from public.creative_approvals x where x.id=current_setting('stage14.approval')::uuid;
+ original_cost:=private.stage14_committed_cost(current_setting('stage14.run')::uuid);
+ candidate:=public.create_product_candidate(b,'{"concept":"Synthetic BFL quote rejection fixture","audience":"Adult synthetic format audience","hypothesis":"Synthetic provider binding regression, not real product evidence.","originalDesign":true,"rightsStatus":"confirmed","sourceDomains":["etsy.com"]}'::jsonb);
+ c:=(candidate->>'candidateId')::uuid;
+ approval:=pg_temp.creative_approval(c)||'{"maximumGenerations":1,"maximumMicrousd":550000}'::jsonb;
+ -- Test malformed new authority before any successful same-scope approval exists.
+ for invalid in select value from jsonb_array_elements(jsonb_build_array(
+   quote-'providerBinding',
+   jsonb_set(quote,'{providerBinding,ownerAcknowledged}','false'),
+   jsonb_set(quote,'{providerBinding,outputFormat}','"webp"'),
+   jsonb_set(quote,'{providerBinding,upstreamProvider}','"recraft"'),
+   jsonb_set(quote,'{providerBinding,adapterVersion}','"recraft-image-1.0"'),
+   jsonb_set(quote,'{providerBinding,disclosureVersion}','"undisclosed"'),
+   jsonb_set(quote,'{providerBinding,allowFallbacks}','true'),
+   jsonb_set(quote,'{generatorModel}','"unapproved/image-model"'),
+   jsonb_set(quote,'{sourceUrls}','["https://bfl.ai.attacker.invalid/legal/flux-api-service-terms"]'),
+   jsonb_set(quote,'{sourceUrls}','["https://www.recraft.ai/legal/developer-terms"]'),
+   jsonb_set(quote,'{sourceUrls}','["https://openrouter.ai/api/v1/models"]'),
+   jsonb_set(quote,'{maximaMicrousd,generation}','210000'),
+   jsonb_set(quote,'{maximumCalls}','6'),
+   quote||'{"automaticFallback":true}'::jsonb)) loop
+   denied:=false; begin perform public.approve_creative_candidate(c,approval,invalid); exception when others then denied:=true; end;
+   assert denied,'Invalid BFL route, quote, disclosure, source domain or repair authority must be denied';
+ end loop;
+ assert not exists(select 1 from public.creative_approvals where candidate_id=c),'Rejected quotes cannot create spending authority';
+ created:=public.approve_creative_candidate(c,approval,quote);
+ assert (select a.quote->>'generatorModel'='black-forest-labs/flux.2-klein-4b' and a.snapshot->'maximumGenerations'='1' and a.maximum_microusd=550000 from public.creative_approvals a where a.id=(created->>'approvalId')::uuid),'Saved BFL approval preserves exact provider, one-image bound and ceiling';
+ replay:=public.approve_creative_candidate(c,approval||jsonb_build_object('approvalId',gen_random_uuid()),quote);
+ assert replay->>'approvalId'=created->>'approvalId','A new form UUID cannot buy another BFL run';
+ denied:=false; begin perform public.approve_creative_candidate(c,approval,jsonb_set(quote,'{providerBinding,ownerAcknowledged}','false')); exception when others then denied:=true; end;
+ assert denied,'The saved BFL acknowledgement cannot be rewritten';
+ -- Keep an explicit legacy provider approval for the same original candidate distinct.
+ item:=pg_temp.creative_quote()||'{"maximumCalls":4,"maximumEstimateMicrousd":483176}'::jsonb;
+ replay:=public.approve_creative_candidate(c,approval||jsonb_build_object('approvalId',gen_random_uuid()),item);
+ assert replay->>'approvalId'<>created->>'approvalId','Provider model is part of immutable spending scope';
+ for scenario in select unnest(array['pass','fail']) loop
+   candidate:=public.create_product_candidate(b,jsonb_build_object('concept','Synthetic BFL terminal fixture '||scenario,'audience','Adult synthetic format audience','hypothesis','Synthetic provider binding and no-repair regression only.','originalDesign',true,'rightsStatus','confirmed','sourceDomains',jsonb_build_array('etsy.com')));
+   c:=(candidate->>'candidateId')::uuid;
+   approval:=pg_temp.creative_approval(c)||'{"maximumGenerations":1,"maximumMicrousd":550000}'::jsonb;
+   created:=public.approve_creative_candidate(c,approval,quote);
+   launch:=public.begin_creative_run((created->>'approvalId')::uuid,gen_random_uuid(),cap);
+   r:=(launch->>'creativeRunId')::uuid;
+   context:=public.creative_runtime_transition(r,b,cap,'load',jsonb_build_object('runtimeRunId','bfl-rollback-'||r));
+   assert context->'quote'->>'generatorModel'='black-forest-labs/flux.2-klein-4b','Runtime loads the immutable BFL binding';
+   perform pg_temp.creative_phase(r,b,cap,'brief:1'); perform pg_temp.creative_phase(r,b,cap,'screen:1');
+   payload:=pg_temp.flux_payload(r);
+   for invalid in select value from jsonb_array_elements(jsonb_build_array(
+     jsonb_set(payload,'{model}','"recraft/recraft-v4.1-pro"'),
+     jsonb_set(payload,'{estimate,version}','"recraft-image-1.0"'),
+     jsonb_set(payload,'{estimate,upstreamProvider}','"recraft"'),
+     jsonb_set(payload,'{estimate,source}','"https://openrouter.ai/api/v1/images/models/recraft/recraft-v4.1-pro/endpoints"'),
+     jsonb_set(payload,'{reservedMicrousd}','69999'),
+     jsonb_set(payload,'{estimate,quoteId}','"tampered"'),
+     jsonb_set(payload,'{estimate,output_format}','"webp"'))) loop
+     denied:=false; begin perform public.creative_runtime_transition(r,b,cap,'reserve_call',invalid); exception when others then denied:=true; end;
+     assert denied,'Cross-provider, unbound, underreserved or alternate-output image request is rejected';
+   end loop;
+   -- Correctly rehashed tampered requests must still match the exact native PNG body.
+   invalid:=jsonb_set(payload,'{requestHash}',to_jsonb(repeat('f',64)));
+   item:=jsonb_set(payload->'estimate','{requestHash}',to_jsonb(repeat('f',64)))-'quoteId';
+   invalid:=jsonb_set(invalid,'{estimate}',item||jsonb_build_object('quoteId',private.stage14_hash(item)));
+   denied:=false; begin perform public.creative_runtime_transition(r,b,cap,'reserve_call',invalid); exception when others then denied:=true; end;
+   assert denied,'A self-consistent quote cannot substitute a different PNG request body';
+   assert not exists(select 1 from public.creative_cost_reservations where creative_run_id=r and call_key='generate:1'),'Denied BFL image calls do not reserve';
+   result:=public.creative_runtime_transition(r,b,cap,'reserve_call',payload);
+   assert result->'shouldExecute'='true','Valid exact BFL image request is reserved once';
+   replay:=public.creative_runtime_transition(r,b,cap,'reserve_call',payload);
+   assert replay->'shouldExecute'='false','BFL reservation replay cannot dispatch twice';
+   output:=pg_temp.creative_output(r,'generate:1')||'{"model":"black-forest-labs/flux.2-klein-4b"}'::jsonb;
+   insert into storage.objects(bucket_id,name,metadata) values('creative-assets',output->>'storagePath','{"mimetype":"image/png","size":2048}');
+   wrong:=output||jsonb_build_object('provenance',pg_temp.creative_provenance(output,true));
+   denied:=false; begin
+     perform pg_temp.flux_record(r,b,cap,wrong);
+     perform public.creative_runtime_transition(r,b,cap,'persist_phase',jsonb_build_object('callKey','generate:1','output',wrong));
+   exception when others then denied:=true; message:=sqlerrm; end;
+   assert denied and position('BFL approval requires native PNG source bytes' in message)>0,'A valid-looking WebP-derived PNG violates the BFL native-source approval';
+   assert not exists(select 1 from public.creative_cost_settlements where creative_run_id=r and call_key='generate:1'),'Rejected provenance fixture rolls its receipt back';
+   perform pg_temp.flux_record(r,b,cap,output);
+   result:=public.creative_runtime_transition(r,b,cap,'persist_phase',jsonb_build_object('callKey','generate:1','output',output));
+   assert result->>'phaseKey'='review:1','Native PNG retains byte identity before independent pixel review';
+   result:=pg_temp.creative_phase(r,b,cap,'review:1',scenario='fail');
+   assert result->>'status'=case when scenario='pass' then 'completed' else 'needs_owner' end,'Single-image BFL review terminal state honors the no-repair approval';
+   assert result->'productionReady'='false' and result->'phaseKey'='null','Technical BFL PASS never creates candidate production authority';
+   assert private.stage14_committed_cost(r)=343176,'All four conservative BFL reservations remain committed';
+   assert (select count(*) from public.creative_cost_reservations where creative_run_id=r)=4,'Exactly four BFL pipeline calls reserved';
+   assert (select count(*) from public.creative_assets where creative_run_id=r and model='black-forest-labs/flux.2-klein-4b')=1,'One BFL asset remains with exact model provenance';
+   foreach key in array array['generate:2','review:2'] loop
+     foreach op in array array['prepare','reserve_call','record_call','persist_phase'] loop
+       denied:=false; begin perform public.creative_runtime_transition(r,b,cap,op,jsonb_build_object('callKey',key)); exception when others then denied:=true; end;
+       assert denied,'No second-image phase can consume new authority after BFL review one';
+     end loop;
+   end loop;
+ end loop;
+ assert (select to_jsonb(x)=original_run from public.creative_runs x where x.id=current_setting('stage14.run')::uuid),'Prior Recraft run is byte-for-byte unchanged';
+ assert (select to_jsonb(x)=original_approval from public.creative_approvals x where x.id=current_setting('stage14.approval')::uuid),'Prior Recraft approval and quote remain unchanged';
+ assert private.stage14_committed_cost(current_setting('stage14.run')::uuid)=original_cost,'Prior Recraft cost commitment remains unchanged';
+end; $$;
+
 rollback;

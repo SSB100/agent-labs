@@ -1,12 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
+import { createHash } from 'node:crypto';
+import sharp from 'sharp';
 
 const require = createRequire(import.meta.url);
 const { executeCreativeWorker } = require('../.core-tests/creative/workers.js');
 const { creativePackManifests } = require('../.core-tests/creative/packs.js');
 const { etsyKnowledgePackManifests } = require('../.core-tests/packs/etsy-knowledge.js');
-const { technicalCreativeApproval } = require('../.core-tests/creative/proposal.js');
+const { technicalCreativeApproval, FLUX_KLEIN_PROVIDER_TERMS } = require('../.core-tests/creative/proposal.js');
+const { FLUX_KLEIN_PNG_POLICY } = require('../.core-tests/creative/image-provider.js');
 const { creativeHash, validateDesignBrief } = require('../.core-tests/creative/contracts.js');
 const { parseCreativeModelQuote, CREATIVE_BUDGET } = require('../.core-tests/creative/budget.js');
 const { SCREEN_CATEGORIES, REVIEW_CRITERIA, SAFE_REPAIR_INSTRUCTIONS } = require('../.core-tests/creative/types.js');
@@ -20,11 +23,11 @@ const catalog = { data: [
 // Synthetic values with the actual stage14_prepare/persist_phase envelope, including
 // receipts, knowledge provenance, the current image artifact and the earlier FAIL.
 // The three bytes are test-only pixels; no image, price, database or browser service is used.
-export function liveContextFixture(callKey, { oversized = false } = {}) {
-  const approval = technicalCreativeApproval(id(1), id(2), 1_000_000, {
+export function liveContextFixture(callKey, { oversized = false, nativePng = false, imageBytes = new Uint8Array([1, 2, 3]) } = {}) {
+  const approval = technicalCreativeApproval(id(1), id(2), nativePng ? 550_000 : 1_000_000, {
     concept: 'Synthetic geometric tree fixture', audience: 'Adult synthetic test audience',
     designInstructions: 'Synthetic test-only original tree arrangement on an intentional opaque square; no protected elements or reference images.',
-  }, id(3));
+  }, id(3), nativePng ? 1 : 2, nativePng ? FLUX_KLEIN_PNG_POLICY.modelId : undefined);
   approval.printSpecification.verifiedAt = new Date().toISOString();
   const brief = {
     version: '1.0', approvalId: approval.approvalId, audience: approval.audience, concept: approval.concept,
@@ -35,6 +38,13 @@ export function liveContextFixture(callKey, { oversized = false } = {}) {
     originalityRequirements: 'Original composition without third-party references or imitation',
     imagePrompt: 'Original simple three-pine-tree and sun illustration on an intentional opaque cream square, no text or named brands, no protected characters, no reference artwork.',
   };
+  if (nativePng) brief.imagePrompt = [
+    'Create an original square graphic for an adult nature enthusiast: three distinct geometric pine trees beneath a simple circular sun, centered on an intentionally opaque warm cream background.',
+    'Use a restrained palette of deep forest green, muted terracotta and cream, with broad flat color areas, clean silhouette edges and generous negative space around the composition.',
+    'The center tree should be slightly taller, while the two side trees create a balanced but naturally asymmetric arrangement. Keep the sun separate from the tree crowns and avoid tiny branches or fine texture.',
+    'Make the composition readable at a 6.5 by 6.5 inch front print. Leave a clear margin on all four sides and keep every visible mark inside the square canvas. The background must be fully opaque.',
+    'Include no text, lettering, brands, logos, celebrities, protected characters, reference images or imitation of a named artist. Do not depict a shirt, product mockup, frame, watermark or surrounding scene.',
+  ].join(' ');
   if (oversized) {
     for (const field of ['style', 'hierarchy', 'typography', 'originalityRequirements']) brief[field] = 'a'.repeat(600);
     brief.imagePrompt = 'a'.repeat(3500);
@@ -42,7 +52,7 @@ export function liveContextFixture(callKey, { oversized = false } = {}) {
   }
   validateDesignBrief(brief, approval);
   const approvalHash = creativeHash(approval), briefHash = creativeHash(brief);
-  const inspection = { sha256: 'a'.repeat(64), mediaType: 'image/png', bytes: 3, width: 1024, height: 1024,
+  const inspection = { sha256: nativePng ? createHash('sha256').update(imageBytes).digest('hex') : 'a'.repeat(64), mediaType: 'image/png', bytes: imageBytes.length, width: 1024, height: 1024,
     colorSpace: 'srgb', hasAlpha: false, transparentPixelFraction: 0, effectiveDpi: 1024 / 6.5, failedCriteria: [] };
   const review = { version: '1.0', assetHash: inspection.sha256, briefHash,
     checks: REVIEW_CRITERIA.map(criterion => ({ criterion, outcome: 'PASS', rationale: 'Synthetic test-only criterion result for contract testing.' })),
@@ -69,13 +79,24 @@ export function liveContextFixture(callKey, { oversized = false } = {}) {
     const generation = callKey === 'review:2' ? 2 : 1;
     const storagePath = `${approval.businessId}/${id(99)}/version-${generation}.png`;
     const prompt = brief.imagePrompt + (generation === 2 ? `\n\nRepair instruction: ${priorReview.repairInstruction}` : '');
-    const imageReceipt = { capability: 'image.generate', provider: 'openrouter', upstreamProvider: 'recraft', modelId: 'recraft/recraft-v4.1-pro',
-      providerRequestId: 'fixture-image-request', reservationId: `${id(99)}:generate:${generation}`, quoteId: 'fixture-quote',
-      promptHash: 'b'.repeat(64), requestHash: 'c'.repeat(64), elapsedMs: 1000, estimatedMicrousd: 210000,
-      reportedCostUsd: 0.21, reportedMicrousd: 210000, inputTokens: null, outputTokens: null, totalTokens: null,
-      model: 'recraft/recraft-v4.1-pro', outputValidated: true, executionMode: 'image.generate', mockProvider: false };
+    const imageModel = nativePng ? FLUX_KLEIN_PNG_POLICY.modelId : 'recraft/recraft-v4.1-pro';
+    const provenance = nativePng ? {
+      version: 'creative-image-normalization-1.0', providerMediaType: 'image/png', detectedMediaType: 'image/png',
+      originalSha256: inspection.sha256, normalizedSha256: inspection.sha256, originalBytes: imageBytes.length, normalizedBytes: imageBytes.length,
+      width: 1024, height: 1024, conversion: 'none', verification: 'byte_identity', decodedPixelSha256: null,
+      normalizedDecodedPixelSha256: null, decodedChannels: null, decodedHasAlpha: null,
+      decoder: `sharp@${sharp.versions.sharp};libvips@${sharp.versions.vips};webp@${sharp.versions.webp}`, encoder: null,
+      originalStoragePath: storagePath, normalizedStoragePath: storagePath,
+    } : undefined;
+    const imageReceipt = { capability: 'image.generate', provider: 'openrouter', upstreamProvider: nativePng ? 'black-forest-labs' : 'recraft', modelId: imageModel,
+      providerRequestId: 'fixture-image-request', reservationId: `${id(99)}:generate:${generation}`, quoteId: nativePng ? 'e'.repeat(64) : 'fixture-quote',
+      promptHash: nativePng ? createHash('sha256').update(prompt).digest('hex') : 'b'.repeat(64), requestHash: 'c'.repeat(64), elapsedMs: 1000, estimatedMicrousd: nativePng ? 70000 : 210000,
+      reportedCostUsd: nativePng ? 0.014 : 0.21, reportedMicrousd: nativePng ? 14000 : 210000, inputTokens: null, outputTokens: null, totalTokens: null,
+      model: imageModel, outputValidated: true, executionMode: 'image.generate', mockProvider: false,
+      ...(nativePng ? { provenance, imageResponse: { reason: 'bounded_source_only', dataCount: 1, declaredMediaType: 'image/png',
+        encodedBytes: Buffer.from(imageBytes).toString('base64').length, decodedBytes: imageBytes.length, detectedMediaType: 'image/png', originalSha256: inspection.sha256, created: 1790800000 } } : {}) };
     artifacts.push({ id: id(50), artifactType: 'creative.image', name: `Creative generate:${generation}`, mediaType: 'image/png',
-      content: { inspection, storagePath, prompt, model: 'recraft/recraft-v4.1-pro', provider: 'openrouter', generatedAt: new Date().toISOString() },
+      content: { inspection, ...(nativePng ? { provenance } : {}), storagePath, prompt, model: imageModel, provider: 'openrouter', generatedAt: new Date().toISOString() },
       metadata: { receipt: imageReceipt, approvalId: approval.approvalId, approvalHash, briefHash, callKey: `generate:${generation}`,
         checksum: inspection.sha256, storagePath } });
     if (generation === 2) artifacts.push({ id: id(51), artifactType: 'creative.review', name: 'Creative review:1', mediaType: 'application/json',
@@ -89,14 +110,14 @@ export function liveContextFixture(callKey, { oversized = false } = {}) {
     inputArtifactIds: artifacts.map(artifact => artifact.id), permittedCapabilities: [], requiredKnowledge: ['etsy.current-policy', 'pod.production'],
     requiredOutputSchema: worker.manifest.outputSchema, completionCriteria: { outputValidated: true, approvalHash, actualPixelsRequired: callKey.startsWith('review:') },
     failureCriteria: { noAutomaticRetry: true, unknownRights: 'needs_owner' }, nonGoals: ['No strategy changes', 'No publication', 'No arbitrary tools', 'No unapproved spending'],
-    escalationRules: { maximumAttempts: 1, maximumGenerations: 2, repeatedFailure: 'needs_owner' } }, inputArtifacts: artifacts };
+    escalationRules: { maximumAttempts: 1, maximumGenerations: approval.maximumGenerations, repeatedFailure: 'needs_owner' } }, inputArtifacts: artifacts };
   const output = callKey === 'brief:1' ? brief : callKey === 'screen:1' ? { version: '1.0', briefHash, approvalHash,
     checks: SCREEN_CATEGORIES.map(category => ({ category, status: 'clear', rationale: 'Synthetic test-only screen of the requested generic original illustration.' })),
     outcome: 'PASS' } : review;
   const requests = [], reservations = [], settlements = [];
   return { approval, brief, inspection, context, priorReview, requests, reservations, settlements,
     input: { callKey, approval, brief: callKey === 'brief:1' ? null : brief, worker, context,
-      ...(callKey.startsWith('review:') ? { inspection, imageBytes: new Uint8Array([1, 2, 3]) } : {}),
+      ...(callKey.startsWith('review:') ? { inspection, imageBytes } : {}),
       prices: async model => parseCreativeModelQuote(catalog, model),
       ledger: { reserve: async reservation => { reservations.push(reservation); return { shouldExecute: true, committedMicrousd: reservation.reservedMicrousd }; },
         record: async (...args) => { settlements.push(args); } },
@@ -150,6 +171,81 @@ for (const callKey of ['brief:1', 'screen:1', 'review:1', 'review:2']) {
       assert.deepEqual(prompt.inputArtifacts.find(item => item.artifactType === 'creative.review').content, fixture.priorReview);
       assert.equal(fixture.priorReview.outcome, 'FAIL');
     }
+  });
+}
+
+for (const callKey of ['brief:1', 'screen:1', 'review:1']) {
+  test(`native BFL one-image ${callKey} keeps realistic evidence and pixel bindings under the unchanged 24KB cap`, async t => {
+    // Real, entirely synthetic PNG bytes exercise the native receipt envelope and
+    // pixel/hash binding; no private image, remote service or paid provider is used.
+    const imageBytes = await sharp({ create: { width: 1024, height: 1024, channels: 3,
+      background: { r: 245, g: 238, b: 218 } } }).png().toBuffer();
+    const fixture = liveContextFixture(callKey, { nativePng: true, imageBytes });
+    const originalContext = structuredClone(fixture.context);
+    const policyUrls = ['https://www.etsy.com/legal/creativity/', ...FLUX_KLEIN_PROVIDER_TERMS];
+    assert.equal(fixture.approval.maximumGenerations, 1);
+    assert.equal(fixture.approval.maximumMicrousd, 550_000);
+    assert.ok(fixture.brief.imagePrompt.length >= 950 && fixture.brief.imagePrompt.length <= 1150);
+    assert.ok(fixture.approval.policyScreen.every(screen => JSON.stringify(screen.sourceUrls) === JSON.stringify(policyUrls)));
+    assert.equal(CREATIVE_BUDGET.maximumTextRequestBytes, 24_576, 'Qualification must not expand the text allowance');
+
+    await executeCreativeWorker(fixture.input);
+    assert.equal(fixture.requests.length, 1);
+    assert.equal(fixture.reservations.length, 1);
+    assert.equal(fixture.settlements.length, 1);
+    const bytes = fixture.reservations[0].estimate.textRequestBytes;
+    assert.ok(bytes <= 24_576, `${callKey} uses ${bytes} bytes, above its unchanged text allowance`);
+    t.diagnostic(`${callKey}: ${bytes}/24576 text bytes; ${fixture.brief.imagePrompt.length}-character generation prompt`);
+    assert.deepEqual(fixture.context, originalContext, 'Native provenance and receipts must remain immutable in audit context');
+
+    const request = fixture.requests[0], prompt = JSON.parse(request.messages[1].content);
+    assert.equal(prompt.taskContract.escalationRules.maximumGenerations, 1);
+    assert.equal(prompt.binding.approvalHash, creativeHash(fixture.approval));
+    assert.equal(prompt.binding.briefHash, callKey === 'brief:1' ? null : creativeHash(fixture.brief));
+    assert.deepEqual(prompt.inputArtifacts.map(artifact => artifact.id).sort(), [...fixture.context.taskContract.inputArtifactIds].sort());
+    for (const artifact of fixture.context.inputArtifacts.filter(item => item.artifactType !== 'creative.image')) {
+      const supplied = prompt.inputArtifacts.find(item => item.id === artifact.id);
+      if (artifact.artifactType === 'creative.approval' && supplied.content.policyScreenEncoding) {
+        const { policyScreenEncoding, policyScreen, ...approval } = supplied.content;
+        assert.match(policyScreenEncoding, /each listed category has exactly/);
+        const expanded = policyScreen.flatMap(({ categories, ...screen }) => categories.map(category => ({ category, ...screen })));
+        assert.deepEqual(approval, Object.fromEntries(Object.entries(artifact.content).filter(([key]) => key !== 'policyScreen')));
+        assert.deepEqual(expanded.sort((a, b) => a.category.localeCompare(b.category)), [...artifact.content.policyScreen].sort((a, b) => a.category.localeCompare(b.category)));
+        assert.ok(expanded.every(screen => JSON.stringify(screen.sourceUrls) === JSON.stringify(policyUrls)), 'All three policy URLs survive grouping');
+      } else assert.deepEqual(supplied.content, artifact.content, 'Complete native brief and knowledge content must reach the worker');
+    }
+
+    if (callKey === 'review:1') {
+      const original = fixture.context.inputArtifacts.find(item => item.artifactType === 'creative.image');
+      const projected = prompt.inputArtifacts.find(item => item.id === original.id);
+      const sentBytes = Buffer.from(request.messages[1].images[0].base64, 'base64');
+      assert.equal(request.messages[1].images.length, 1);
+      assert.equal(request.messages[1].images[0].mediaType, 'image/png');
+      assert.deepEqual(sentBytes, imageBytes);
+      assert.equal(createHash('sha256').update(sentBytes).digest('hex'), fixture.inspection.sha256);
+      assert.equal(prompt.binding.assetHash, fixture.inspection.sha256);
+      assert.equal(prompt.binding.inspection.artifactId, original.id);
+      assert.deepEqual(projected.content.inspection, fixture.inspection);
+      assert.equal(projected.content.promptFromBrief, true);
+      assert.equal(projected.content.repairFromPriorReview, undefined);
+      assert.equal(original.content.prompt, fixture.brief.imagePrompt);
+      assert.equal(original.content.model, FLUX_KLEIN_PNG_POLICY.modelId);
+      assert.equal(original.content.provenance.conversion, 'none');
+      assert.equal(original.content.provenance.verification, 'byte_identity');
+      assert.equal(original.content.provenance.originalSha256, fixture.inspection.sha256);
+      assert.equal(original.content.provenance.normalizedSha256, fixture.inspection.sha256);
+      assert.equal(original.content.provenance.originalStoragePath, original.content.storagePath);
+      assert.deepEqual(original.metadata.receipt.provenance, original.content.provenance);
+      assert.equal(original.metadata.receipt.upstreamProvider, 'black-forest-labs');
+      assert.equal(original.metadata.receipt.estimatedMicrousd, 70_000);
+      assert.equal(original.metadata.receipt.imageResponse.originalSha256, fixture.inspection.sha256);
+      assert.equal(original.metadata.receipt.promptHash, createHash('sha256').update(fixture.brief.imagePrompt).digest('hex'));
+      // Existing projection keeps these audit-only fields in the immutable source
+      // artifact, not the visual-review prompt. This test does not change that policy.
+      assert.equal(projected.content.provenance, undefined);
+      assert.equal(projected.metadata, undefined);
+      assert.equal(prompt.inputArtifacts.some(item => item.artifactType === 'creative.review'), false);
+    } else assert.equal(request.messages.flatMap(message => message.images ?? []).length, 0);
   });
 }
 

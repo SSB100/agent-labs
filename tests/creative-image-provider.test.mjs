@@ -4,7 +4,8 @@ import { createHash } from "node:crypto";
 import sharp from "sharp";
 import images from "../.core-tests/creative/image-provider.js";
 
-const { IMAGE_GENERATION_POLICY: policy, OpenRouterImageAdapter, ImageProviderError, parseImageGenerationQuote } = images;
+const { IMAGE_GENERATION_POLICY: policy, FLUX_KLEIN_PNG_POLICY: nativePolicy, getImageGenerationPolicy,
+  OpenRouterImageAdapter, ImageProviderError, parseImageGenerationQuote } = images;
 const config = { apiKey: "mock-only-key", baseUrl: "https://openrouter.ai/api/v1", appUrl: "https://agent-labs-two.vercel.app", appName: "Agent Labs" };
 const timestamp = Date.parse("2026-09-30T09:30:00.000Z");
 const request = { prompt: "An original geometric hiking badge with a intentionally opaque cream square background" };
@@ -33,6 +34,30 @@ function fixture(options = {}) {
   return { adapter, calls, paidCalls: () => calls.filter(call => call.init.method === "POST") };
 }
 const isError = category => error => error instanceof ImageProviderError && error.category === category && error.retryable === false;
+const canonical = value => Array.isArray(value) ? `[${value.map(canonical).join(",")}]` :
+  value !== null && typeof value === "object" ? `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonical(value[key])}`).join(",")}}` : JSON.stringify(value);
+const hash = value => createHash("sha256").update(value).digest("hex");
+const rehashQuote = quote => {
+  const fields = { ...quote };
+  delete fields.quoteId;
+  return { ...fields, quoteId: hash(canonical(fields)) };
+};
+const nativeCatalog = {
+  id: "black-forest-labs/flux.2-klein-4b",
+  endpoints: [{ provider_name: "Black Forest Labs", provider_slug: "black-forest-labs", provider_tag: "black-forest-labs",
+    supported_parameters: {
+      aspect_ratio: { type: "enum", values: ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "21:9", "auto"] },
+      output_format: { type: "enum", values: ["png", "jpeg"] }, n: { type: "range", min: 1, max: 1 },
+      input_references: { type: "range", min: 0, max: 4 }, seed: { type: "boolean" },
+    }, allowed_passthrough_parameters: ["steps", "guidance", "safety_tolerance"], supports_streaming: false,
+    pricing: [{ billable: "output_image", unit: "megapixel", cost_usd: 0.014 }],
+  }],
+};
+const nativeSuccess = () => ({ ...success(), model: nativePolicy.modelId, provider: "Black Forest Labs",
+  usage: { cost: 0.028, prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 } });
+const nativeAuthorization = quote => ({ quote, reservationId: "creative:native-attempt-1", reservedMicrousd: 70000, preauthorized: true });
+const nativeFixture = (options = {}) => fixture({ modelId: nativePolicy.modelId,
+  fetcher: (_url, init) => json(init.method === "GET" ? nativeCatalog : nativeSuccess()), ...options });
 
 test("public preflight exposes a traceable fixed per-image estimate without credentials or prompt transmission", async () => {
   const { adapter, calls } = fixture();
@@ -328,5 +353,244 @@ test("recognized bounded source is retained for private storage even when its de
     assert.equal(result.mediaType, 'image/png');
     assert.equal(result.receipt.imageResponse.reason, 'bounded_source_media_type_conflict');
     assert.doesNotMatch(JSON.stringify(result.receipt), /secret-provider-value/);
+  }
+});
+
+test("policy lookup is a frozen closed allowlist and preserves the legacy default", () => {
+  assert.equal(getImageGenerationPolicy(), policy);
+  assert.equal(getImageGenerationPolicy(policy.modelId), policy);
+  assert.equal(getImageGenerationPolicy(nativePolicy.modelId), nativePolicy);
+  assert.equal(policy.nativePngRequired, false);
+  assert.equal(nativePolicy.nativePngRequired, true);
+  assert.equal(nativePolicy.version, "flux-klein-png-1.0");
+  assert.equal(nativePolicy.estimatedMicrousd, 70000);
+  assert.equal(nativePolicy.outputFormat, "png");
+  assert.equal(nativePolicy.requestedSize, "1024x1024");
+  assert.ok(Object.isFrozen(policy) && Object.isFrozen(nativePolicy));
+  for (const modelId of ["", "black-forest-labs/flux.2-klein-9b", "flux.2-klein-4b", "recraft/recraft-v4", "toString", null, {}]) {
+    assert.throws(() => getImageGenerationPolicy(modelId), isError("configuration_required"));
+    assert.throws(() => new OpenRouterImageAdapter({ config, modelId }), isError("configuration_required"));
+    assert.throws(() => parseImageGenerationQuote(nativeCatalog, request, new Date(timestamp).toISOString(), modelId), isError("configuration_required"));
+  }
+});
+
+test("legacy quote canonical fields and request binding remain identical after introducing a second policy", () => {
+  const verifiedAt = new Date(timestamp).toISOString();
+  const fields = {
+    version: "recraft-image-1.0", provider: "openrouter", upstreamProvider: "recraft", modelId: "recraft/recraft-v4.1-pro",
+    promptHash: hash(request.prompt),
+    requestHash: hash(canonical({ model: "recraft/recraft-v4.1-pro", prompt: request.prompt, aspect_ratio: "1:1", n: 1,
+      provider: { only: ["recraft"], allow_fallbacks: false } })),
+    pricingFingerprint: hash(canonical({ supported_parameters: catalog.endpoints[0].supported_parameters, pricing: catalog.endpoints[0].pricing })),
+    estimatedMicrousd: 210000, verifiedAt, source: "https://openrouter.ai/api/v1/images/models/recraft/recraft-v4.1-pro/endpoints",
+    estimateOnly: true, providerInvoiceGuarantee: false,
+  };
+  assert.deepEqual(parseImageGenerationQuote(catalog, request, verifiedAt), { ...fields, quoteId: hash(canonical(fields)) });
+  assert.deepEqual(parseImageGenerationQuote(catalog, request, verifiedAt, policy.modelId), parseImageGenerationQuote(catalog, request, verifiedAt));
+});
+
+test("native-PNG preflight is public and quotes a conservative megapixel reservation without a price-cap guarantee", async () => {
+  const { adapter, calls } = nativeFixture();
+  const quote = await adapter.preflight(request);
+  assert.equal(quote.version, "flux-klein-png-1.0");
+  assert.equal(quote.provider, "openrouter");
+  assert.equal(quote.upstreamProvider, "black-forest-labs");
+  assert.equal(quote.modelId, "black-forest-labs/flux.2-klein-4b");
+  assert.equal(quote.estimatedMicrousd, 5 * 0.014 * 1000000);
+  assert.equal(quote.estimateOnly, true);
+  assert.equal(quote.providerInvoiceGuarantee, false);
+  assert.equal(quote.verifiedAt, new Date(timestamp).toISOString());
+  assert.equal(quote.promptHash, hash(request.prompt));
+  assert.equal(quote.pricingFingerprint, hash(canonical({ supported_parameters: nativeCatalog.endpoints[0].supported_parameters, pricing: nativeCatalog.endpoints[0].pricing })));
+  assert.deepEqual(quote, rehashQuote(quote));
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, nativePolicy.pricingSource);
+  assert.equal(quote.source, calls[0].url);
+  assert.equal(calls[0].init.method, "GET");
+  assert.equal(calls[0].init.headers, undefined);
+  assert.equal(calls[0].init.body, undefined);
+  assert.equal(calls[0].init.redirect, "error");
+  assert.equal(calls[0].init.cache, "no-store");
+});
+
+test("native-PNG generation dispatches only the exact pinned PNG, square, explicit-pixel body", async () => {
+  const { adapter, calls, paidCalls } = nativeFixture();
+  const quote = await adapter.preflight(request);
+  const result = await adapter.generate(request, nativeAuthorization(quote));
+  assert.deepEqual(calls.map(call => call.init.method), ["GET", "GET", "POST"]);
+  assert.equal(calls[0].url, nativePolicy.pricingSource);
+  assert.equal(calls[1].url, nativePolicy.pricingSource);
+  const body = JSON.parse(paidCalls()[0].init.body);
+  assert.deepEqual(body, {
+    model: "black-forest-labs/flux.2-klein-4b", prompt: request.prompt,
+    aspect_ratio: "1:1", n: 1, output_format: "png", size: "1024x1024",
+    provider: { only: ["black-forest-labs"], allow_fallbacks: false },
+  });
+  assert.equal(paidCalls()[0].url, "https://openrouter.ai/api/v1/images");
+  assert.equal(paidCalls()[0].init.headers.Authorization, "Bearer mock-only-key");
+  assert.equal(quote.requestHash, hash(canonical(body)));
+  assert.equal(result.nativePngRequired, true);
+  assert.equal(result.mediaType, "image/png");
+  assert.equal(result.declaredMediaType, "image/png");
+  assert.deepEqual(Buffer.from(result.bytes), png);
+  assert.equal(result.receipt.modelId, nativePolicy.modelId);
+  assert.equal(result.receipt.upstreamProvider, nativePolicy.upstreamProvider);
+  assert.equal(result.receipt.reservationId, "creative:native-attempt-1");
+  assert.equal(result.receipt.estimatedMicrousd, 70000);
+  assert.equal(result.receipt.reportedMicrousd, 28000);
+  assert.equal(result.receipt.quoteId, quote.quoteId);
+});
+
+test("native-PNG preflight rejects wrong routes, missing capabilities, fee drift and non-megapixel prices", () => {
+  const changes = [
+    c => { c.id = policy.modelId; },
+    c => { c.endpoints[0].provider_tag = "recraft"; },
+    c => { c.endpoints[0].provider_slug = "recraft"; },
+    c => { c.endpoints.push(structuredClone(c.endpoints[0])); },
+    c => { c.endpoints = []; },
+    c => { delete c.endpoints[0].supported_parameters.output_format; },
+    c => { c.endpoints[0].supported_parameters.output_format = { type: "boolean" }; },
+    c => { c.endpoints[0].supported_parameters.output_format.values = ["jpeg"]; },
+    c => { c.endpoints[0].supported_parameters.aspect_ratio.values = ["16:9"]; },
+    c => { c.endpoints[0].supported_parameters.n.min = 0; },
+    c => { c.endpoints[0].supported_parameters.n.max = 2; },
+    c => { c.endpoints[0].supported_parameters.n = { type: "enum", values: [1] }; },
+    c => { c.endpoints[0].pricing = []; },
+    c => { c.endpoints[0].pricing.push({ billable: "request", unit: "request", cost_usd: 0.001 }); },
+    c => { c.endpoints[0].pricing[0].cost_usd = 0.015; },
+    c => { c.endpoints[0].pricing[0].cost_usd = 0.013; },
+    c => { c.endpoints[0].pricing[0].cost_usd = "0.014"; },
+    c => { c.endpoints[0].pricing[0].unit = "image"; },
+    c => { c.endpoints[0].pricing[0].billable = "input_image"; },
+    c => { c.endpoints[0].pricing[0].minimum_charge = 0.1; },
+    c => { c.endpoints[0].pricing[0].variant = "base"; },
+  ];
+  for (const change of changes) {
+    const changed = structuredClone(nativeCatalog); change(changed);
+    assert.throws(() => parseImageGenerationQuote(changed, request, new Date(timestamp).toISOString(), nativePolicy.modelId), isError("preflight_rejected"));
+  }
+});
+
+test("native-PNG pricing and capability drift during reservation consumes the attempt without dispatching", async () => {
+  for (const change of [c => { c.endpoints[0].pricing[0].cost_usd = 0.015; },
+    c => { c.endpoints[0].supported_parameters.output_format.values.push("webp"); },
+    c => { c.endpoints[0].supported_parameters.aspect_ratio.values.push("2:1"); },
+    c => { c.endpoints[0].supported_parameters.input_references.max = 5; }]) {
+    const changed = structuredClone(nativeCatalog); change(changed);
+    const { adapter, paidCalls } = nativeFixture({ fetcher: (_url, _init, call) => json(call === 1 ? nativeCatalog : changed) });
+    const quote = await adapter.preflight(request);
+    await assert.rejects(adapter.generate(request, nativeAuthorization(quote)), error => isError("preflight_rejected")(error) && !error.requestDispatched);
+    await assert.rejects(adapter.generate(request, nativeAuthorization(quote)), isError("authorization_required"));
+    assert.equal(paidCalls().length, 0);
+  }
+});
+
+test("native-PNG approvals reject rehashed policy tampering, under-reservation, old quotes and caller options", async () => {
+  const { adapter, calls, paidCalls } = nativeFixture();
+  const quote = await adapter.preflight(request);
+  for (const patch of [{ version: policy.version }, { provider: "other" }, { upstreamProvider: "recraft" }, { modelId: policy.modelId },
+    { source: policy.pricingSource }, { estimatedMicrousd: 69999 }, { providerInvoiceGuarantee: true }, { estimateOnly: false },
+    { requestHash: hash("different request") }, { promptHash: hash("different prompt") },
+    { verifiedAt: new Date(timestamp - 300001).toISOString() }, { verifiedAt: new Date(timestamp + 1).toISOString() }]) {
+    await assert.rejects(adapter.generate(request, nativeAuthorization(rehashQuote({ ...quote, ...patch }))), isError("authorization_required"));
+  }
+  for (const reservedMicrousd of [69999, 0, -1, 70000.5, Infinity, NaN, "70000"]) {
+    await assert.rejects(adapter.generate(request, { ...nativeAuthorization(quote), reservedMicrousd }), isError("authorization_required"));
+  }
+  for (const patch of [{ model: policy.modelId }, { n: 2 }, { size: "2048x2048" }, { output_format: "jpeg" },
+    { provider: { only: ["other"], allow_fallbacks: true } }, { input_references: [] }, { safety_tolerance: 6 }]) {
+    await assert.rejects(adapter.preflight({ ...request, ...patch }), isError("invalid_request"));
+    await assert.rejects(adapter.generate({ ...request, ...patch }, nativeAuthorization(quote)), isError("invalid_request"));
+  }
+  assert.equal(calls.length, 1);
+  assert.equal(paidCalls().length, 0);
+});
+
+test("a quote for one policy can never authorize the other policy", async () => {
+  const legacy = fixture(), native = nativeFixture();
+  const legacyQuote = await legacy.adapter.preflight(request), nativeQuote = await native.adapter.preflight(request);
+  await assert.rejects(native.adapter.generate(request, authorization(legacyQuote)), isError("authorization_required"));
+  await assert.rejects(legacy.adapter.generate(request, { ...nativeAuthorization(nativeQuote), reservedMicrousd: 210000 }), isError("authorization_required"));
+  assert.equal(legacy.calls.length, 1);
+  assert.equal(native.calls.length, 1);
+  assert.equal(legacy.paidCalls().length + native.paidCalls().length, 0);
+});
+
+test("native-PNG duplicate, failed and concurrent attempts never retry or fall back", async () => {
+  for (const fail of [false, true]) {
+    const { adapter, paidCalls } = nativeFixture({ fetcher: (_url, init) => init.method === "GET" ? json(nativeCatalog) :
+      fail ? json({ error: { message: "upstream unavailable" } }, { status: 503 }) : json(nativeSuccess()) });
+    const quote = await adapter.preflight(request);
+    const results = await Promise.allSettled([adapter.generate(request, nativeAuthorization(quote)), adapter.generate(request, nativeAuthorization(quote))]);
+    assert.equal(results.filter(result => result.status === "fulfilled").length, fail ? 0 : 1);
+    assert.equal(paidCalls().length, 1);
+    assert.deepEqual(JSON.parse(paidCalls()[0].init.body).provider, { only: ["black-forest-labs"], allow_fallbacks: false });
+    await assert.rejects(adapter.generate(request, nativeAuthorization(quote)), isError("authorization_required"));
+    assert.equal(paidCalls().length, 1);
+  }
+});
+
+test("native-PNG receipts reject wrong providers/models and only accept verified provider aliases", async () => {
+  for (const extra of [{ model: policy.modelId }, { model: "flux.2-klein-4b" }, { model: null },
+    { provider: "recraft" }, { provider: "Recraft" }, { provider: "Black Forest Labs/other" }, { provider: "bfl" }, { provider: null },
+    { error: { message: "upstream error" } }]) {
+    const { adapter, paidCalls } = nativeFixture({ fetcher: (_url, init) => json(init.method === "GET" ? nativeCatalog : { ...nativeSuccess(), ...extra }) });
+    await assert.rejects(adapter.generate(request, nativeAuthorization(await adapter.preflight(request))), error => {
+      assert.equal(error.category, "malformed_image_output");
+      assert.equal(error.requestDispatched, true);
+      assert.equal(error.receipt.reportedMicrousd, 28000);
+      assert.equal(error.receipt.upstreamProvider, "black-forest-labs");
+      return true;
+    });
+    assert.equal(paidCalls().length, 1);
+  }
+  for (const provider of ["black-forest-labs", "Black Forest Labs", undefined]) {
+    const { adapter } = nativeFixture({ fetcher: (_url, init) => json(init.method === "GET" ? nativeCatalog : { ...nativeSuccess(), provider }) });
+    assert.equal((await adapter.generate(request, nativeAuthorization(await adapter.preflight(request)))).receipt.upstreamProvider, "black-forest-labs");
+  }
+});
+
+test("native-PNG reservation remains an estimate when the reported charge exceeds it", async () => {
+  const { adapter, paidCalls } = nativeFixture({ fetcher: (_url, init) => json(init.method === "GET" ? nativeCatalog : {
+    ...nativeSuccess(), usage: { cost: 0.084 },
+  }) });
+  const quote = await adapter.preflight(request);
+  const result = await adapter.generate(request, nativeAuthorization(quote));
+  assert.equal(quote.providerInvoiceGuarantee, false);
+  assert.equal(result.receipt.estimatedMicrousd, 70000);
+  assert.equal(result.receipt.reportedMicrousd, 84000);
+  assert.equal(paidCalls().length, 1);
+  assert.equal(JSON.parse(paidCalls()[0].init.body).provider.max_price, undefined);
+});
+
+test("native-PNG policy preserves recognized source bytes and MIME conflict before runtime enforcement", async () => {
+  const webp = await sharp({ create: { width: 16, height: 16, channels: 4, background: "#abc" } }).webp({ lossless: true }).toBuffer();
+  for (const [original, actualType, declaredType] of [[png, "image/png", "image/jpeg"], [png, "image/png", undefined],
+    [png, "image/png", "untrusted-mime"], [webp, "image/webp", "image/png"], [webp, "image/webp", "image/webp"]]) {
+    const { adapter } = nativeFixture({ fetcher: (_url, init) => json(init.method === "GET" ? nativeCatalog : {
+      ...nativeSuccess(), data: [{ b64_json: original.toString("base64"), media_type: declaredType }],
+    }) });
+    const result = await adapter.generate(request, nativeAuthorization(await adapter.preflight(request)));
+    assert.deepEqual(Buffer.from(result.bytes), original);
+    assert.equal(result.mediaType, actualType);
+    assert.equal(result.nativePngRequired, true);
+    assert.equal(result.declaredMediaType, declaredType === undefined ? "absent" : declaredType === "untrusted-mime" ? "other" : declaredType);
+    assert.equal(result.receipt.imageResponse.originalSha256, hash(original));
+    assert.equal(result.receipt.imageResponse.reason, declaredType === undefined || declaredType === actualType ? "bounded_source_only" : "bounded_source_media_type_conflict");
+    assert.equal(result.receipt.reportedMicrousd, 28000);
+    assert.doesNotMatch(JSON.stringify(result.receipt), /untrusted-mime/);
+  }
+});
+
+test("preflight snapshots each policy's prompt before its asynchronous public catalog request", async () => {
+  for (const makeFixture of [fixture, nativeFixture]) {
+    let resume;
+    const held = new Promise(resolve => { resume = resolve; });
+    const selectedCatalog = makeFixture === fixture ? catalog : nativeCatalog;
+    const { adapter } = makeFixture({ fetcher: async () => { await held; return json(selectedCatalog); } });
+    const mutableRequest = { ...request }, pending = adapter.preflight(mutableRequest);
+    mutableRequest.prompt = "Changed after preflight began";
+    resume();
+    assert.equal((await pending).promptHash, hash(request.prompt));
   }
 });

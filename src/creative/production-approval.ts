@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { assessProductCandidate } from "../products/discovery";
 import type { ProductCandidate, ProductDecision, ProductExperiment } from "../products/types";
 import { creativeHash, validateCreativeApproval } from "./contracts";
+import type { ImageGenerationModelId } from "./image-provider";
 import { technicalCreativeApproval } from "./proposal";
 import type { CreativeApprovalSnapshot, CreativeGenerationLimit, PolicyScreen } from "./types";
 
@@ -25,13 +26,13 @@ export function currentProductionCandidate(candidate: ProductCandidate, decision
 }
 
 export function productionCreativeApproval(choice: ProductionCandidateChoice, input: {
-  approvalId?: string; designInstructions: string; rightsStatement: string; policyScreen: PolicyScreen[]; maximumMicrousd: number; maximumGenerations?: CreativeGenerationLimit;
+  approvalId?: string; designInstructions: string; rightsStatement: string; policyScreen: PolicyScreen[]; maximumMicrousd: number; maximumGenerations?: CreativeGenerationLimit; generatorModel?: ImageGenerationModelId;
 }): CreativeApprovalSnapshot {
   // Never accept editable concept, audience, assessment or Business fields from the form.
   const { candidate, decision } = choice;
   if (!currentProductionCandidate(candidate, [decision], [choice.experiment])) throw new Error("Current source-linked owner TEST and fresh evidence are required.");
   const base = technicalCreativeApproval(candidate.business_id, candidate.id, input.maximumMicrousd,
-    { concept: candidate.concept, audience: candidate.audience, designInstructions: input.designInstructions }, input.approvalId ?? randomUUID(), input.maximumGenerations ?? 2);
+    { concept: candidate.concept, audience: candidate.audience, designInstructions: input.designInstructions }, input.approvalId ?? randomUUID(), input.maximumGenerations ?? 2, input.generatorModel);
   const approval: CreativeApprovalSnapshot = { ...base, purpose: "candidate_production", decisionId: decision.id,
     candidateAssessment: structuredClone(decision.assessment), rightsStatement: input.rightsStatement, policyScreen: structuredClone(input.policyScreen) };
   validateCreativeApproval(approval);

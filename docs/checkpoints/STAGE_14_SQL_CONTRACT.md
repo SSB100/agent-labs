@@ -149,3 +149,14 @@ Rollback must retain owner-read access to previously stored originals and all im
 
 
 Applied 2026-09-30 after independent review and isolated PostgreSQL18.3 rehearsal. All65 migrations and Stage1/10–14 tests passed locally; outer rollback restored baseline data and function definitions exactly. Hosted post-apply function ACL/owner/definer/config and private bucket checks matched the approved delta; security-advisor categories/counts were unchanged. Actual WebP Storage HTTP verification and live provider qualification remain pending. No hosted rollback execution with the new definitions is claimed.
+
+
+## Explicit native-PNG provider binding
+
+`20260930210155_stage14_native_png_provider_binding` replaces only `approve_creative_candidate` and `creative_runtime_transition`. Existing Recraft approvals, all earlier costs and the applied source/terminal guards remain intact. No grants, tables, policies, Storage settings or existing data change.
+
+A new BFL approval binds the closed model `black-forest-labs/flux.2-klein-4b`, OpenRouter/BFL upstream, adapter `flux-klein-png-1.0`, PNG, requested size `1024x1024`, native-PNG requirement, disclosure version and owner acknowledgement. Exact terms/catalog URLs and the 70,000 micro-USD image reservation are checked. Runtime recomputes request and quote hashes with the pinned no-fallback PNG request. BFL persistence requires a native PNG, byte identity and no conversion. Legacy Recraft still uses its unchanged request/quote hashing.
+
+New forms require an explicit one- or two-image selection; historical helper defaults remain two. One-image approvals deny every second-generation operation and stop after a first-review FAIL. The four-call BFL estimate is 343,176 micro-USD at verified prices, not an invoice guarantee. Existing per-run `max(reserved, reported)` accounting is unchanged.
+
+Isolated exact-file regression covers bad/missing provider binding, disclosure acknowledgement, catalog/terms mismatch, cross-model quote replay, native WebP rejection, false derived-PNG provenance, first-review PASS/FAIL and preservation of legacy receipts. All 66 migrations and seven suites passed with exact outer rollback restoration. This proves local SQL behavior, not live BFL output or hosted Storage HTTP behavior.
