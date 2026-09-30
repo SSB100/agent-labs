@@ -25,7 +25,10 @@ function taskContract(objective, permittedCapabilities) {
   return {
     id: "00000000-0000-4000-8000-000000009001",
     objective,
+    inputArtifactIds: ["00000000-0000-4000-8000-000000009002"],
     permittedCapabilities,
+    requiredKnowledge: [],
+    requiredOutputSchema: BROWSER_PLANNER_MANIFEST.outputSchema,
     nonGoals: [
       "Invent selectors or element identifiers.",
       "Return multiple browser actions in one planning step.",
