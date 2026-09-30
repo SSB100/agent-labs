@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import type { JsonObject } from "../core/contracts";
 import { OpenRouterAdapter } from "../models/openrouter";
 import { ModelProviderError, type ModelProviderAdapter, type ModelProviderResponse, type StructuredModelRequest } from "../models/types";
+import { JsonSchemaValidationError } from "../workers/schema-validator";
+import { creativeFailureMessage } from "./errors";
 
 export const CREATIVE_BUDGET = { version: "creative-estimate-1.0", maximumMicrousd: 1_000_000,
   maximumTextRequestBytes: 24_576, formattingTokenAllowance: 8192, imageTokenAllowance: 8192,
@@ -81,6 +83,12 @@ export async function callCreativeModel(options: { callKey: CreativeModelCallKey
     if (!permittedProviders.includes(response.provider)) throw fail("Provider returned an unexpected creative upstream; its charge is preserved for review.");
     options.validateOutput(response.output);
   } catch (error) {
+    // Preserve useful validation paths without storing the rejected design or raw provider body.
+    const validationIssues = error instanceof JsonSchemaValidationError ? error.issues.slice(0, 8).map(issue => ({
+      path: issue.message !== "is not an allowed property" && /^[\w$.[\]-]{1,160}$/.test(issue.path) ? issue.path : "$", message: issue.message.slice(0, 180),
+    })) : [];
+    const failure = (creativeFailureMessage(error, "Creative model failed; no automatic retry.") +
+      (validationIssues.length ? ` ${validationIssues.map(issue => `${issue.path}: ${issue.message}`).join("; ")}` : "")).slice(0, 500);
     const received = error instanceof ModelProviderError && record(error.details.providerReceipt) ? error.details.providerReceipt : null;
     const actual = response?.usage.reportedCostUsd ?? (received && record(received.usage) ? received.usage.reportedCostUsd : null);
     const requestId = response?.providerRequestId ?? (received && typeof received.providerRequestId === "string" ? received.providerRequestId : null);
@@ -89,8 +97,8 @@ export async function callCreativeModel(options: { callKey: CreativeModelCallKey
         actualProviderModelId: response?.providerModelId ?? (received && typeof received.providerModelId === "string" ? received.providerModelId : null),
         upstreamProvider: response?.provider ?? (received && typeof received.provider === "string" ? received.provider : null),
         ...(received ? { receivedProviderReceipt: received } : {}),
-        failure: error instanceof Error ? error.message.slice(0, 500) : "Creative model failed" }).catch(() => undefined);
-    throw fail(error instanceof Error ? error.message : "Creative model failed; no automatic retry.");
+        failure, ...(validationIssues.length ? { validationIssues } : {}) }).catch(() => undefined);
+    throw fail(failure);
   }
   const actual = response.usage.reportedCostUsd;
   await options.ledger.record(options.callKey, actual === null ? null : Math.ceil(actual * 1e6), response.providerRequestId,

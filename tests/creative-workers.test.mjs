@@ -11,6 +11,9 @@ const { creativeHash } = require("../.core-tests/creative/contracts.js");
 const { parseCreativeModelQuote } = require("../.core-tests/creative/budget.js");
 const { SCREEN_CATEGORIES, REVIEW_CRITERIA } = require("../.core-tests/creative/types.js");
 const { assertJsonSchemaValue } = require("../.core-tests/workers/schema-validator.js");
+const { projectProviderJsonSchema } = require("../.core-tests/models/openrouter.js");
+const { creativeOutputLimits } = require("../.core-tests/creative/output-limits.js");
+const { DESIGN_BRIEF_SCHEMA, BRIEF_SCREEN_SCHEMA, DESIGN_REVIEW_SCHEMA } = require("../.core-tests/creative/packs.js");
 const id = n => `11111111-1111-4111-8111-${String(n).padStart(12, "0")}`;
 const catalog = { data: [{ id: "openai/gpt-5.6-luna", pricing: { prompt: "0.0000002", completion: "0.0000012" } }, { id: "anthropic/claude-haiku-4.5", pricing: { prompt: "0.000001", completion: "0.000005", input_cache_write_1h: "0.000002" } }] };
 const prices = async model => parseCreativeModelQuote(catalog, model);
@@ -40,6 +43,9 @@ test("Director's complete scoped knowledge context fits its declared budget and 
   assert.deepEqual(result.output, b); assert.equal(h.requests.length, 1);
   assert.equal(h.requests[0].model.providerModelId, "openai/gpt-5.6-luna"); assert.equal(h.requests[0].maxOutputTokens, 2500);
   assert.deepEqual(h.requests[0].providerOnly, ["openai"]); assert.ok(h.reservations[0].estimate.textRequestBytes < 24576);
+  assert.equal(JSON.parse(h.requests[0].messages[1].content).outputLimits, creativeOutputLimits(DESIGN_BRIEF_SCHEMA));
+  assert.match(h.requests[0].messages[0].content, /10–600 characters/);
+  assert.match(h.requests[0].messages[0].content, /#RRGGBB/);
   assert.equal(h.settlements[0][3].outputValidated, true);
 });
 test("final brief screen uses Claude and exact immutable approval/brief hashes", async () => {
@@ -47,6 +53,7 @@ test("final brief screen uses Claude and exact immutable approval/brief hashes",
   const h = harness(screen); await executeCreativeWorker({ callKey: "screen:1", approval: a, brief: b, ...setup("screen:1", a, b), ...h, prices });
   assert.equal(h.requests[0].model.providerModelId, "anthropic/claude-haiku-4.5"); assert.equal(h.requests[0].maxOutputTokens, 1800);
   assert.ok(h.reservations[0].estimate.textRequestBytes < 24576);
+  assert.equal(JSON.parse(h.requests[0].messages[1].content).outputLimits, creativeOutputLimits(BRIEF_SCREEN_SCHEMA));
   const wrong = harness({ ...screen, approvalHash: "a".repeat(64) });
   await assert.rejects(() => executeCreativeWorker({ callKey: "screen:1", approval: a, brief: b, ...setup("screen:1", a, b), ...wrong, prices }), /hash-bound/);
 });
@@ -55,9 +62,23 @@ test("visual Reviewer gets actual pixels; one failure never falls back to creato
   const review = { version: "1.0", assetHash: inspection.sha256, briefHash: creativeHash(b), checks: REVIEW_CRITERIA.map(criterion => ({ criterion, outcome: "PASS", rationale: "Synthetic test-only criterion result for contract testing." })), outcome: "PASS", repairInstruction: null };
   const h = harness(review); await executeCreativeWorker({ callKey: "review:1", approval: a, brief: b, inspection, imageBytes: new Uint8Array([1, 2, 3]), ...setup("review:1", a, b), ...h, prices });
   assert.equal(h.requests[0].messages[1].images[0].base64, "AQID"); assert.deepEqual(h.requests[0].providerOnly, ["anthropic"]);
+  assert.equal(JSON.parse(h.requests[0].messages[1].content).outputLimits, creativeOutputLimits(DESIGN_REVIEW_SCHEMA));
   const failed = harness(null, true);
   await assert.rejects(() => executeCreativeWorker({ callKey: "review:1", approval: a, brief: b, inspection, imageBytes: new Uint8Array([1, 2, 3]), ...setup("review:1", a, b), ...failed, prices }), /Synthetic provider failure/);
   assert.equal(failed.requests.length, 1); assert.equal(failed.settlements[0][1], null);
+});
+test("provider-stripped phase bounds are explicit in compact prompts while local checks remain strict", () => {
+  const b = brief(approval()); b.style = 'x'.repeat(601);
+  assert.doesNotThrow(() => assertJsonSchemaValue(projectProviderJsonSchema(DESIGN_BRIEF_SCHEMA), b, 'Provider'));
+  assert.throws(() => assertJsonSchemaValue(DESIGN_BRIEF_SCHEMA, b, 'Local'), /JSON schema/);
+  const briefLimits = creativeOutputLimits(DESIGN_BRIEF_SCHEMA);
+  for (const field of ['style', 'hierarchy', 'typography', 'originalityRequirements']) assert.ok(briefLimits.includes(`${field}: 1–600 characters`));
+  assert.match(briefLimits, /imagePrompt: 1–3500 characters/);
+  assert.match(briefLimits, /colors: 1–6 items/);
+  assert.match(briefLimits, /forbiddenElements\[\]: 1–120 characters/);
+  assert.match(creativeOutputLimits(BRIEF_SCREEN_SCHEMA), /checks: 8–8 items/);
+  assert.match(creativeOutputLimits(DESIGN_REVIEW_SCHEMA), /checks: 5–5 items/);
+  assert.match(creativeOutputLimits(DESIGN_REVIEW_SCHEMA), /checks\[\]\.rationale: 1–700 characters/);
 });
 test("schema anyOf enforces at least one real alternative including nullable repair", () => {
   assertJsonSchemaValue({ anyOf: [{ type: "null" }, { type: "string", minLength: 3 }] }, null, "Nullable");

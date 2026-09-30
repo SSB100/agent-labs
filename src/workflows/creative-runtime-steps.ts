@@ -9,6 +9,7 @@ import { ImageProviderError, OpenRouterImageAdapter } from "../creative/image-pr
 import { inspectCreativePng } from "../creative/inspection";
 import type { AssetInspection, BriefScreen, CreativeApprovalSnapshot, DesignBrief, DesignReview } from "../creative/types";
 import { executeCreativeWorker } from "../creative/workers";
+import { creativeFailureMessage } from "../creative/errors";
 import type { PackWorker } from "../packs/types";
 import type { WorkerInvocationContext } from "../workers/types";
 import type { CreativeRuntimeInput } from "./creative-runtime";
@@ -39,6 +40,13 @@ export async function loadCreativeRun(input: CreativeRuntimeInput, runtimeRunId:
 }
 export async function executeCreativePhase(input: CreativeRuntimeInput, callKey: CreativeCallKey) {
   "use step";
+  try { await executeCreativePhaseOnce(input, callKey); }
+  catch (error) { throw new FatalError(creativeFailureMessage(error)); }
+}
+// A paid or uncertain phase is never automatically attempted again by the durable runner.
+executeCreativePhase.maxRetries = 0;
+
+async function executeCreativePhaseOnce(input: CreativeRuntimeInput, callKey: CreativeCallKey) {
   const state = await transition(input, "load") as CreativeState;
   if (state.status !== "running" || state.phaseKey !== callKey) return;
   validateCreativeApproval(state.approval);

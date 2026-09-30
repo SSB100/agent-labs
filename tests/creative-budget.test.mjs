@@ -53,3 +53,20 @@ test("malformed paid text retains provider receipt and mismatched identity remai
     assert.equal(receipts[0][3].actualProviderModelId, mismatch ? "other/model" : "openai/gpt-5.6-luna");
   }
 });
+
+test("rejected structured output preserves bounded validation reasons without the rejected content", async () => {
+  const { assertJsonSchemaValue } = require('../.core-tests/workers/schema-validator.js');
+  const receipts = [], output = { style: 'x'.repeat(601), never_store_this_model_property: 'never-store-this-rejected-content' };
+  const ledger = { reserve: async () => ({ shouldExecute: true, committedMicrousd: 20_000 }), record: async (...args) => receipts.push(args) };
+  const adapter = { invokeStructured: async () => ({ output, provider: 'OpenAI', providerModelId: 'openai/gpt-5.6-luna',
+    providerRequestId: 'mock-rejected-brief', usage: { reportedCostUsd: 0.002026 } }) };
+  const schema = { type: 'object', additionalProperties: false, required: ['style'], properties: { style: { type: 'string', maxLength: 600 } } };
+  await assert.rejects(() => budget.callCreativeModel({ callKey: 'brief:1', request: request('brief:1'), ledger, adapter,
+    prices: async model => quote(model), validateOutput: value => assertJsonSchemaValue(schema, value, 'Creative phase output') }), /\$\.style: must contain no more than 600 characters/);
+  assert.equal(receipts[0][1], 2026);
+  assert.deepEqual(receipts[0][3].validationIssues, [
+    { path: '$', message: 'is not an allowed property' }, { path: '$.style', message: 'must contain no more than 600 characters' },
+  ]);
+  assert.ok(receipts[0][3].failure.length <= 500);
+  assert.doesNotMatch(JSON.stringify(receipts), /never_store_this_model_property|never-store-this-rejected-content/);
+});

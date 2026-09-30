@@ -1,6 +1,6 @@
 # Stage 14 — Creative pipeline
 
-Status: implementation and guarded database deployment, including final owner-approval and terminal-eligibility hardening, are complete. Hosted UI/live technical qualification is pending; zero-paid Storage verification passed. **The full Stage 14 approved-candidate production exit is not complete.** Do not advance Stage 15 on a technical-only PASS.
+Status: implementation and guarded database deployment, including final owner-approval and terminal-eligibility hardening, are complete. Hosted UI access recovered; the first live technical attempt stopped safely at rejected brief output before image generation. Zero-paid Storage verification passed; successful live image qualification remains pending. **The full Stage 14 approved-candidate production exit is not complete.** Do not advance Stage 15 on a technical-only PASS.
 
 ## Scope
 
@@ -39,7 +39,18 @@ Full interface and grants: [SQL contract](STAGE_14_SQL_CONTRACT.md).
 
 - Full local check after owner-approval UI hardening: 217 tests, lint, TypeScript, Next.js build and Workflow compilation passed. Hosted terminal-race checks passed before and after the narrowing migration
 - Cost-display regression coverage includes pending reservations, known and unknown receipts, expired runs, composite run/call matching, late read snapshots and conservative max(reservation, reported charge) accounting. Offline tests execute the actual loader and server-rendered page with mocked queries, including each failed ledger read, both failures, run-read failure and a genuinely empty ledger. This changes only owner-readable display logic, without schema, grants or provider execution changes
-- Full local check after cost-display hardening: 232 tests, lint, TypeScript, Next.js build and Workflow compilation passed. Hosted browser verification remains blocked; offline server-render tests are not a substitute for that live check
+- Full local check after cost-display hardening: 232 tests, lint, TypeScript, Next.js build and Workflow compilation passed. The browser was still blocked at that checkpoint; offline server-render tests did not substitute for the later live check
+- Hosted owner Artifacts UI is now verified: separate production eligibility gate, specific technical approval, single launch, stopped-run history and actual/conservative cost display. The first live brief failed local JSON-schema validation and its charge was preserved; image generation never began. The exact rejected field was not retained, so its identity is not claimed
+- Offline reproduction identified provider schema projection stripping length/item limits while the creative prompt supplied only the schema hash. Compact phase limits and stricter semantic requirements are now visible to the model, with all original local validators and byte/token caps retained. Validation failures preserve bounded field diagnostics without storing rejected content
+- Creative execution now throws a terminal Workflow error and explicitly disables step retries. The earlier durable reservation blocked additional paid calls when Workflow retried the failed step; the new behavior avoids those semantic retries and preserves cross-realm failure messages for owner review
+- SQL-shaped fixtures now cover image receipts and a complete previous FAIL review. Prompt-only projection removes redundant audit data after full context validation, references only exact duplicate image prompt/inspection values, and losslessly groups contiguous identical owner policy text. Extra owner fields prevent grouping. Complete knowledge, rights, instructions, every policy category/source and prior review remain available; oversized contexts still stop before reservation
+- Latest local quality gate: 250 tests, lint, TypeScript and Workflow extraction passed. Optimized Next 16.3.8 compilation was killed with exit 137, including a serialized attempt, without a code diagnostic. The exact-commit hosted CI and preview build remain release gates; a killed local build is not a pass
+
+## Dependency security follow-up
+
+The existing Next.js 16.3.0 dependency was affected by [GHSA-vcvr-r3jv-pc5j](https://github.com/advisories/GHSA-vcvr-r3jv-pc5j) and other current audit findings. No application use of `next/og` or `ImageResponse` was found, so exploitation of that specific path is not claimed. Next and its matching ESLint configuration are patched to 16.3.8.
+
+The pre-Stage-14 local lock already contained Workflow 4.8.9 with nanoid 5.1.6 and Undici 7.28.0. Workflow uses fixed-length `customRandom` rather than attacker-controlled nanoid sizes; its HTTP Agent/RetryAgent path does use Undici. Parent-scoped overrides retain Workflow 4.8.9 while applying official same-major fixes: [nanoid 5.1.16](https://github.com/ai/nanoid/releases/tag/5.1.16) under `@workflow/core` and [Undici 7.29.1](https://github.com/nodejs/undici/releases/tag/v7.29.1) under `@workflow/world-local` and `@workflow/world-vercel`. No global override, forced audit fix or breaking Workflow downgrade was used. The post-install audit reported zero vulnerabilities on 2026-09-30; this is a dated dependency result, not a guarantee of application security. Offline compatibility tests exercise the fixed-length generator and HTTP dispatcher construction without network calls.
 - Independent static review found no remaining authorization-boundary blocker under the stated trusted-owner model, including the final owner-production UI and terminal revalidation patch
 - Review fixes covered exact repair scope, billed malformed-text receipts, returned model identity, encoded image-size compatibility and expired-run recovery
 - Mocked worker tests exercise complete scoped knowledge, actual image payloads, independent reviewer route and no fallback; fixtures are not live provider proof
@@ -54,7 +65,7 @@ Full interface and grants: [SQL contract](STAGE_14_SQL_CONTRACT.md).
 
 ## Remaining stage exit
 
-The original technical test can verify generation, storage, traceability and independent pixel review. Full Stage 14 additionally requires a genuinely eligible current owner TEST, a separate candidate-production approval and a successful production-purpose run. Unknown demand, margin or other required evidence cannot be waived, and a technical PASS does not advance Stage 15. Hosted UI verification is currently blocked by blank/loading cloud Chromium pages, CDP focus-emulation timeouts and an unavailable native AT-SPI input provider. Authentication or an application defect has not been established as the cause. No live creative run has started.
+The technical test can verify generation, storage, traceability and independent pixel review. Full Stage 14 additionally requires a genuinely eligible current owner TEST, a separate candidate-production approval and a successful production-purpose run. Unknown demand, margin or other required evidence cannot be waived, and a technical PASS does not advance Stage 15. Cloud browser access recovered after earlier Chromium/CDP/native-input failures. Successful image qualification remains pending after the first brief validation failure; a further authorized test must preserve earlier ledger commitments and fit the shared total allowance.
 
 ## Primary references
 

@@ -1,5 +1,6 @@
 import { FatalError, getWorkflowMetadata } from "workflow";
 import { executeCreativePhase, failCreativeRun, loadCreativeRun } from "./creative-runtime-steps";
+import { creativeFailureMessage } from "../creative/errors";
 
 export type CreativeRuntimeInput = { businessId: string; creativeRunId: string; coreWorkflowRunId: string; runtimeCapability: string };
 export async function creativeRuntimeWorkflow(input: CreativeRuntimeInput) {
@@ -15,7 +16,7 @@ export async function creativeRuntimeWorkflow(input: CreativeRuntimeInput) {
     if (state.status === "running") throw new FatalError("Creative phase budget exhausted.");
     return { creativeRunId: input.creativeRunId, status: state.status, productionReady: state.productionReady, publicationAllowed: false };
   } catch (error) {
-    const message = error instanceof Error ? error.message.slice(0, 500) : "Creative pipeline failed.";
+    const message = creativeFailureMessage(error);
     await failCreativeRun(input, message);
     throw new FatalError(message);
   }
