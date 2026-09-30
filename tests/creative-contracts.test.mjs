@@ -49,6 +49,11 @@ test("independent review binds exact pixels and one bounded repair", () => {
   assert.equal(creativeNextStep(review("FAIL"), inspection, 2), "needs_owner");
   assert.equal(creativeNextStep(review(), { ...inspection, failedCriteria: ["dpi"] }, 1), "needs_owner");
   assert.throws(() => creativeNextStep(review(), inspection, 3), /limit/);
+  assert.equal(creativeNextStep(review(), inspection, 1, 1), "complete");
+  assert.equal(creativeNextStep(review("FAIL"), inspection, 1, 1), "needs_owner");
+  assert.equal(creativeNextStep(review(), { ...inspection, failedCriteria: ["dpi"] }, 1, 1), "needs_owner");
+  assert.throws(() => creativeNextStep(review("FAIL"), inspection, 2, 1), /limit/);
+  for (const limit of [0, 3, 1.5, null, "1"]) assert.throws(() => creativeNextStep(review(), inspection, 1, limit), /limit/);
 });
 test("binary inspection checks actual alpha pixels, dimensions, hash and DPI without upscaling", async () => {
   const background = sharp({ create: { width: 200, height: 200, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } });

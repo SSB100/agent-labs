@@ -7,6 +7,7 @@ import { creativeHash, validateBriefScreen, validateCreativeApproval, validateDe
 import type { CreativeCallKey, CreativeLedger, CreativeModelCallKey } from "../creative/budget";
 import { ImageProviderError, OpenRouterImageAdapter } from "../creative/image-provider";
 import { inspectCreativePng } from "../creative/inspection";
+import { storeCreativeImage, type SourcePreservation, type StoredImageProvenance } from "../creative/stored-image";
 import type { AssetInspection, BriefScreen, CreativeApprovalSnapshot, DesignBrief, DesignReview } from "../creative/types";
 import { executeCreativeWorker } from "../creative/workers";
 import { creativeFailureMessage } from "../creative/errors";
@@ -50,6 +51,7 @@ async function executeCreativePhaseOnce(input: CreativeRuntimeInput, callKey: Cr
   const state = await transition(input, "load") as CreativeState;
   if (state.status !== "running" || state.phaseKey !== callKey) return;
   validateCreativeApproval(state.approval);
+  if (callKey.endsWith(":2") && state.approval.maximumGenerations === 1) throw new FatalError("This approval permits one image only; no repair phase is authorized.");
   if (state.approval.purpose === "simulation") throw new FatalError("Hosted simulation requires the separate mocked executor; paid adapters cannot accept simulation input.");
   const costs = ledger(input);
   if (!callKey.startsWith("generate:")) {
@@ -83,23 +85,28 @@ async function executeCreativePhaseOnce(input: CreativeRuntimeInput, callKey: Cr
   if (!reserved.shouldExecute) throw new FatalError("Image generation was already reserved; uncertain charges cannot be retried automatically.");
   let generated: Awaited<ReturnType<OpenRouterImageAdapter["generate"]>> | null = null;
   let inspection: AssetInspection;
+  let provenance: StoredImageProvenance;
+  const sourceProgress: { current: SourcePreservation | null } = { current: null };
   const storagePath = `${input.businessId}/${input.creativeRunId}/version-${generation}.png`;
   try {
     generated = await adapter.generate({ prompt }, { quote, reservationId: `${input.creativeRunId}:${callKey}`, reservedMicrousd: quote.estimatedMicrousd, preauthorized: true });
-    // Preserve original provider bytes and embedded provenance. Never upsample or strip marks.
-    const uploaded = await storageClient(input).upload(storagePath, generated.bytes, { contentType: "image/png", upsert: false, cacheControl: "0" });
-    if (uploaded.error) throw new Error("Generated image upload could not be confirmed. The provider attempt remains reserved; no regeneration is allowed.");
-    inspection = await inspectCreativePng(generated.bytes, state.approval.printSpecification);
+    const declared = generated.declaredMediaType;
+    const stored = await storeCreativeImage({ bytes: generated.bytes, mediaType: generated.mediaType,
+      declaredMediaType: declared === "absent" ? null : declared,
+      storagePath, specification: state.approval.printSpecification, storage: storageClient(input),
+      onSourceProgress: progress => { sourceProgress.current = progress; } });
+    inspection = stored.inspection;
+    provenance = stored.provenance;
   } catch (error) {
     const receipt = generated?.receipt ?? (error instanceof ImageProviderError ? error.receipt : null);
     await costs.record(callKey, receipt?.reportedMicrousd ?? null, receipt?.providerRequestId ?? null,
       { ...(receipt ?? {}), model: quote.modelId, provider: "openrouter", providerRequestId: receipt?.providerRequestId ?? null, outputValidated: false, executionMode: "image.generate", mockProvider: false,
-        storagePath, failure: error instanceof Error ? error.message.slice(0, 500) : "Image generation failed" });
+        storagePath, sourcePreservation: sourceProgress.current ? { ...sourceProgress.current } : null, failure: error instanceof Error ? error.message.slice(0, 500) : "Image generation failed" });
     throw new FatalError(error instanceof Error ? error.message : "Image generation failed.");
   }
   await costs.record(callKey, generated.receipt.reportedMicrousd, generated.receipt.providerRequestId,
-    { ...generated.receipt, model: quote.modelId, provider: "openrouter", outputValidated: true, executionMode: "image.generate", mockProvider: false });
-  await transition(input, "persist_phase", { callKey, output: { inspection: { ...inspection }, storagePath, prompt, model: quote.modelId, provider: "openrouter", generatedAt: new Date().toISOString() } });
+    { ...generated.receipt, provenance: { ...provenance }, model: quote.modelId, provider: "openrouter", outputValidated: true, executionMode: "image.generate", mockProvider: false });
+  await transition(input, "persist_phase", { callKey, output: { inspection: { ...inspection }, provenance: { ...provenance }, storagePath, prompt, model: quote.modelId, provider: "openrouter", generatedAt: new Date().toISOString() } });
 }
 export async function failCreativeRun(input: CreativeRuntimeInput, reason: string) {
   "use step";

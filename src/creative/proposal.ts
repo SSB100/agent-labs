@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { CREATIVE_BUDGET, fetchCreativeModelQuote } from "./budget";
 import { OpenRouterImageAdapter } from "./image-provider";
-import { MAX_CREATIVE_PNG_BYTES, SCREEN_CATEGORIES, type CreativeApprovalSnapshot, type PrintSpecification } from "./types";
+import { MAX_CREATIVE_PNG_BYTES, SCREEN_CATEGORIES, type CreativeApprovalSnapshot, type CreativeGenerationLimit, type PrintSpecification } from "./types";
 
 export const CREATIVE_PROVIDER_TERMS = "https://www.recraft.ai/legal/developer-terms";
 export type CreativeDesignInput = { concept: string; audience: string; designInstructions: string };
@@ -13,7 +13,8 @@ export const TECHNICAL_PRINT_SPECIFICATION: PrintSpecification = {
   verifiedAt: "2026-09-30T10:36:00.000Z", maximumWidthInches: 15, maximumHeightInches: 18, designWidthInches: 6.5, designHeightInches: 6.5,
   minimumDpi: 150, colorSpace: "srgb", background: "opaque", maximumBytes: MAX_CREATIVE_PNG_BYTES,
 };
-export function technicalCreativeApproval(businessId: string, candidateId: string, maximumMicrousd: number, design: CreativeDesignInput, approvalId: string = randomUUID()): CreativeApprovalSnapshot {
+export function technicalCreativeApproval(businessId: string, candidateId: string, maximumMicrousd: number, design: CreativeDesignInput, approvalId: string = randomUUID(), maximumGenerations: CreativeGenerationLimit = 2): CreativeApprovalSnapshot {
+  if (![1, 2].includes(maximumGenerations)) throw new Error("Creative generation limit must be one or two.");
   const now = Date.now();
   return { approvalId, businessId, candidateId, decisionId: null, purpose: "technical_qualification", concept: design.concept,
     audience: design.audience, designInstructions: design.designInstructions, candidateAssessment: null, originalDesign: true,
@@ -23,9 +24,10 @@ export function technicalCreativeApproval(businessId: string, candidateId: strin
         : "The owner confirms their original creative intent excludes named brands, likenesses, protected characters, logos and copied reference artwork. The exact final brief still requires independent screening before generation.",
       sourceUrls: ["https://www.etsy.com/legal/creativity/", CREATIVE_PROVIDER_TERMS] })),
     printSpecification: structuredClone(TECHNICAL_PRINT_SPECIFICATION), approvedBy: "owner", approvedAt: new Date(now).toISOString(),
-    expiresAt: new Date(now + 7 * 86400000).toISOString(), maximumMicrousd, maximumGenerations: 2, publicationAllowed: false };
+    expiresAt: new Date(now + 7 * 86400000).toISOString(), maximumMicrousd, maximumGenerations, publicationAllowed: false };
 }
-export async function currentCreativeQuote() {
+export async function currentCreativeQuote(maximumGenerations: CreativeGenerationLimit = 2) {
+  if (![1, 2].includes(maximumGenerations)) throw new Error("Creative generation limit must be one or two.");
   const [image, director, reviewer] = await Promise.all([new OpenRouterImageAdapter().preflight({ prompt: "Pricing check for one owner-approved original design; no image generation is requested by this preflight." }),
     fetchCreativeModelQuote("openai/gpt-5.6-luna"), fetchCreativeModelQuote("anthropic/claude-haiku-4.5")]);
   const maxText = CREATIVE_BUDGET.maximumTextRequestBytes + CREATIVE_BUDGET.formattingTokenAllowance;
@@ -37,6 +39,6 @@ export async function currentCreativeQuote() {
   };
   return { version: CREATIVE_BUDGET.version, verifiedAt: new Date().toISOString(), sourceUrls: [CREATIVE_BUDGET.pricingSource, image.source, CREATIVE_PROVIDER_TERMS],
     generatorModel: image.modelId, directorModel: director.modelId, reviewerModel: reviewer.modelId, maximaMicrousd,
-    maximumEstimateMicrousd: maximaMicrousd.brief + maximaMicrousd.screen + 2 * maximaMicrousd.generation + 2 * maximaMicrousd.review,
-    maximumCalls: 6, estimateOnly: true, providerInvoiceGuarantee: false };
+    maximumEstimateMicrousd: maximaMicrousd.brief + maximaMicrousd.screen + maximumGenerations * (maximaMicrousd.generation + maximaMicrousd.review),
+    maximumCalls: 2 + 2 * maximumGenerations, estimateOnly: true, providerInvoiceGuarantee: false };
 }

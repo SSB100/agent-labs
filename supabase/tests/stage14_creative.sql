@@ -27,8 +27,21 @@ create function pg_temp.creative_approval(p_candidate uuid) returns jsonb langua
  from public.product_candidates c where c.id=p_candidate;
 $$;
 -- These helper lookups are admin-only synthetic test scaffolding, never public APIs.
+create function pg_temp.creative_provenance(p_output jsonb,p_webp boolean default false) returns jsonb language sql as $$
+ select jsonb_build_object('version','creative-image-normalization-1.0',
+ 'providerMediaType',case when p_webp then 'image/webp' else 'image/png' end,'detectedMediaType',case when p_webp then 'image/webp' else 'image/png' end,
+ 'originalSha256',case when p_webp then repeat('b',64) else p_output->'inspection'->>'sha256' end,'normalizedSha256',p_output->'inspection'->>'sha256',
+ 'originalBytes',case when p_webp then 1024 else (p_output->'inspection'->>'bytes')::integer end,'normalizedBytes',p_output->'inspection'->'bytes',
+ 'width',p_output->'inspection'->'width','height',p_output->'inspection'->'height',
+ 'conversion',case when p_webp then 'lossless_webp_to_png' else 'none' end,'verification',case when p_webp then 'decoded_pixels_equal' else 'byte_identity' end,
+ 'decodedPixelSha256',case when p_webp then repeat('c',64) else null end,'normalizedDecodedPixelSha256',case when p_webp then repeat('c',64) else null end,
+ 'decodedChannels',case when p_webp then 3 else null end,'decodedHasAlpha',case when p_webp then false else null end,
+ 'decoder','sharp@fixture;vips@fixture','encoder',case when p_webp then 'sharp@fixture;png@fixture' else null end,
+ 'originalStoragePath',case when p_webp then regexp_replace(p_output->>'storagePath','\.png$','.original.webp') else p_output->>'storagePath' end,
+ 'normalizedStoragePath',p_output->>'storagePath');
+$$;
 create function pg_temp.creative_output(p_run uuid,p_key text,p_fail boolean default false,p_binary_fail boolean default false) returns jsonb language plpgsql security definer set search_path='' as $$
-declare r public.creative_runs%rowtype; a public.creative_approvals%rowtype; brief jsonb; bh text; v integer:=split_part(p_key,':',2)::integer; phase text:=split_part(p_key,':',1); ih text; repair text;
+declare r public.creative_runs%rowtype; a public.creative_approvals%rowtype; brief jsonb; bh text; v integer:=split_part(p_key,':',2)::integer; phase text:=split_part(p_key,':',1); ih text; repair text; generated jsonb;
 begin
  select * into strict r from public.creative_runs where id=p_run;
  select * into strict a from public.creative_approvals where id=r.approval_id;
@@ -42,8 +55,9 @@ begin
  'outcome',case when p_fail then 'NEEDS_OWNER' else 'PASS' end);
  elsif phase='generate' then
  select x.review->>'repairInstruction' into repair from public.creative_reviews x join public.creative_assets v on v.id=x.asset_id where v.creative_run_id=r.id and v.version=1;
- return jsonb_build_object('inspection',jsonb_build_object('sha256',private.stage13_hash('synthetic-png-'||r.id||':'||v),'mediaType','image/png','bytes',2048,'width',case when p_binary_fail then 100 else 1024 end,'height',1024,'colorSpace','srgb','hasAlpha',false,'transparentPixelFraction',0,'effectiveDpi',case when p_binary_fail then 15.38 else 157.53 end,'failedCriteria',case when p_binary_fail then '["effective_dpi"]'::jsonb else '[]'::jsonb end),
+ generated:=jsonb_build_object('inspection',jsonb_build_object('sha256',private.stage13_hash('synthetic-png-'||r.id||':'||v),'mediaType','image/png','bytes',2048,'width',case when p_binary_fail then 100 else 1024 end,'height',1024,'colorSpace','srgb','hasAlpha',false,'transparentPixelFraction',0,'effectiveDpi',case when p_binary_fail then 15.38 else 157.53 end,'failedCriteria',case when p_binary_fail then '["effective_dpi"]'::jsonb else '[]'::jsonb end),
  'storagePath',r.business_id::text||'/'||r.id::text||'/version-'||v||'.png','prompt',(brief->>'imagePrompt')||case when v=2 then E'\n\nRepair instruction: '||repair else '' end,'model','recraft/recraft-v4.1-pro','provider','openrouter','generatedAt',now());
+ return generated||jsonb_build_object('provenance',pg_temp.creative_provenance(generated));
  else
  select asset_hash into strict ih from public.creative_assets where creative_run_id=r.id and version=v;
  return jsonb_build_object('version','1.0','assetHash',ih,'briefHash',bh,
@@ -70,12 +84,13 @@ begin
  end if;
  return public.creative_runtime_transition(p_run,p_business,p_cap,'reserve_call',jsonb_build_object('callKey',p_key,'reservedMicrousd',amount,'requestHash',request_hash,'model',model,'provider','openrouter','estimate',estimate));
 end; $$;
-create function pg_temp.creative_record(p_run uuid,p_business uuid,p_cap text,p_key text,p_actual bigint default 1000,p_valid boolean default true,p_no_id boolean default false) returns jsonb language sql as $$
+create function pg_temp.creative_record(p_run uuid,p_business uuid,p_cap text,p_key text,p_actual bigint default 1000,p_valid boolean default true,p_no_id boolean default false,p_provenance jsonb default null) returns jsonb language sql as $$
  select public.creative_runtime_transition(p_run,p_business,p_cap,'record_call',jsonb_build_object('callKey',p_key,'reportedMicrousd',p_actual,
  'providerRequestId',case when p_no_id then null else 'stage14-rollback-'||p_run||':'||p_key end,
  'receipt',jsonb_build_object('model',case split_part(p_key,':',1) when 'brief' then 'openai/gpt-5.6-luna' when 'generate' then 'recraft/recraft-v4.1-pro' else 'anthropic/claude-haiku-4.5' end,
  'provider','openrouter','providerRequestId',case when p_no_id then null else 'stage14-rollback-'||p_run||':'||p_key end,'outputValidated',p_valid,'mockProvider',false,
- 'executionMode',case when split_part(p_key,':',1)='generate' then 'image.generate' else 'creative.model' end)));
+ 'executionMode',case when split_part(p_key,':',1)='generate' then 'image.generate' else 'creative.model' end)||
+ case when split_part(p_key,':',1)='generate' and p_valid then jsonb_build_object('provenance',coalesce(p_provenance,pg_temp.creative_output(p_run,p_key)->'provenance')) else '{}'::jsonb end));
 $$;
 create function pg_temp.creative_phase(p_run uuid,p_business uuid,p_cap text,p_key text,p_fail boolean default false,p_binary_fail boolean default false,p_actual bigint default 1000) returns jsonb language plpgsql security definer set search_path='' as $$
 declare output jsonb; result jsonb;
@@ -86,8 +101,24 @@ begin
    -- Fake object metadata ONLY; no bytes are uploaded by this rollback suite.
    insert into storage.objects(bucket_id,name,metadata) values('creative-assets',output->>'storagePath','{"mimetype":"image/png","size":2048}') on conflict do nothing;
  end if;
- perform pg_temp.creative_record(p_run,p_business,p_cap,p_key,p_actual);
+ perform pg_temp.creative_record(p_run,p_business,p_cap,p_key,p_actual,true,false,output->'provenance');
  return public.creative_runtime_transition(p_run,p_business,p_cap,'persist_phase',jsonb_build_object('callKey',p_key,'output',output));
+end; $$;
+
+-- Each rejection uses an exception subtransaction, so an invalid synthetic
+-- settlement cannot prevent subsequent positive fixtures from using this run.
+create function pg_temp.creative_reject_generation(p_run uuid,p_business uuid,p_cap text,p_output jsonb,p_receipt_provenance jsonb default null,p_expected text default null)
+returns void language plpgsql security definer set search_path='' as $$
+declare denied boolean:=false; message text;
+begin
+ begin
+   perform pg_temp.creative_record(p_run,p_business,p_cap,'generate:1',210000,true,false,coalesce(p_receipt_provenance,p_output->'provenance'));
+   perform public.creative_runtime_transition(p_run,p_business,p_cap,'persist_phase',jsonb_build_object('callKey','generate:1','output',p_output));
+ exception when others then denied:=true; message:=sqlerrm; end;
+ assert denied,'Invalid generation provenance must not persist';
+ assert p_expected is null or position(p_expected in message)>0,'Rejection must exercise its intended boundary';
+ assert not exists(select 1 from public.creative_cost_settlements where creative_run_id=p_run and call_key='generate:1'),'Rejected fixture rolls its settlement back';
+ assert not exists(select 1 from public.creative_phase_outputs where creative_run_id=p_run and call_key='generate:1'),'Rejected fixture cannot append output';
 end; $$;
 
 select set_config('request.jwt.claim.sub',current_setting('stage14.owner'),true);
@@ -265,7 +296,7 @@ do $$ begin
 end; $$;
 reset role;
 do $$ declare denied boolean:=false; begin
- assert (select not public and file_size_limit=7000000 and allowed_mime_types=array['image/png'] from storage.buckets where id='creative-assets'),'Private PNG-only7MB bucket';
+ assert (select not public and file_size_limit=7000000 and allowed_mime_types=array['image/png','image/webp'] from storage.buckets where id='creative-assets'),'Private PNG/WebP-only 7MB-per-object bucket';
  assert not has_function_privilege('anon','public.approve_creative_candidate(uuid,jsonb,jsonb)','execute');
  assert not has_function_privilege('authenticated','public.creative_runtime_transition(uuid,uuid,text,text,jsonb)','execute');
  assert not has_function_privilege('service_role','public.creative_runtime_transition(uuid,uuid,text,text,jsonb)','execute');
@@ -510,5 +541,274 @@ begin
   assert has_function_privilege('anon','public.creative_runtime_transition(uuid,uuid,text,text,jsonb)','execute');
   assert not has_function_privilege('authenticated','public.creative_runtime_transition(uuid,uuid,text,text,jsonb)','execute');
   assert not has_function_privilege('service_role','public.creative_runtime_transition(uuid,uuid,text,text,jsonb)','execute');
+end; $$;
+-- Original WebP provenance and Storage authorization. All objects below are
+-- synthetic metadata only: API byte limits, actual decoding and read-back hashes
+-- require separate zero-paid HTTP/offline binary tests.
+select set_config('request.jwt.claim.sub',current_setting('stage14.owner'),true);
+do $$
+declare b uuid:=current_setting('stage14.business')::uuid; candidate jsonb; approved jsonb; launched jsonb; r uuid;
+ cap text:=repeat('webp-capability-',3);
+begin
+ candidate:=public.create_product_candidate(b,jsonb_build_object('concept','Synthetic WebP provenance fixture','audience','Adult synthetic image audience',
+   'hypothesis','Original-source storage contract fixture only, without market evidence.','originalDesign',true,'rightsStatus','confirmed','sourceDomains',jsonb_build_array('etsy.com')));
+ approved:=public.approve_creative_candidate((candidate->>'candidateId')::uuid,pg_temp.creative_approval((candidate->>'candidateId')::uuid),pg_temp.creative_quote());
+ launched:=public.begin_creative_run((approved->>'approvalId')::uuid,gen_random_uuid(),cap); r:=(launched->>'creativeRunId')::uuid;
+ perform set_config('stage14.webp_run',r::text,true);
+ perform public.creative_runtime_transition(r,b,cap,'load',jsonb_build_object('runtimeRunId','webp-fixture-'||r));
+end; $$;
+select set_config('request.jwt.claim.sub','',true);
+set local role anon;
+do $$ declare path text:=current_setting('stage14.business')||'/'||current_setting('stage14.webp_run')||'/version-1.original.webp'; denied boolean:=false; begin
+ perform set_config('request.headers',jsonb_build_object('x-creative-capability',repeat('webp-capability-',3))::text,true);
+ begin insert into storage.objects(bucket_id,name,metadata) values('creative-assets',path,'{"mimetype":"image/webp","size":1024}'); exception when insufficient_privilege then denied:=true; end;
+ assert denied,'Original upload requires screened and reserved active generation';
+end; $$;
+reset role;
+do $$
+declare r uuid:=current_setting('stage14.webp_run')::uuid; b uuid:=current_setting('stage14.business')::uuid; cap text:=repeat('webp-capability-',3); output jsonb;
+begin
+ perform pg_temp.creative_phase(r,b,cap,'brief:1'); perform pg_temp.creative_phase(r,b,cap,'screen:1'); perform pg_temp.creative_reserve(r,b,cap,'generate:1');
+ output:=pg_temp.creative_output(r,'generate:1'); output:=output||jsonb_build_object('provenance',pg_temp.creative_provenance(output,true));
+ perform pg_temp.creative_reject_generation(r,b,cap,output,null,'Immutable PNG upload');
+ insert into storage.objects(bucket_id,name,metadata) values('creative-assets',output->>'storagePath','{"mimetype":"image/png","size":2048}');
+ perform pg_temp.creative_reject_generation(r,b,cap,output,null,'original private object');
+end; $$;
+set local role anon;
+do $$
+declare r uuid:=current_setting('stage14.webp_run')::uuid; b uuid:=current_setting('stage14.business')::uuid; cap text:=repeat('webp-capability-',3);
+ path text:=b::text||'/'||r::text||'/version-1.original.webp'; bad_path text; mime text; denied boolean;
+begin
+ foreach bad_path in array array['',repeat('wrong-webp-capability-',3)] loop
+   perform set_config('request.headers',jsonb_build_object('x-creative-capability',bad_path)::text,true);
+   denied:=false; begin insert into storage.objects(bucket_id,name,metadata) values('creative-assets',path,'{"mimetype":"image/webp","size":1024}'); exception when insufficient_privilege then denied:=true; end;
+   assert denied,'Missing or wrong capability cannot upload source';
+   assert (select count(*) from storage.objects where bucket_id='creative-assets' and name like b::text||'/'||r::text||'/%')=0,'Missing or wrong capability cannot read source or PNG';
+ end loop;
+ perform set_config('request.headers',jsonb_build_object('x-creative-capability',cap)::text,true);
+ foreach bad_path in array array[
+   b::text||'/'||r::text||'/version-2.original.webp',b::text||'/'||r::text||'/version-2.png',
+   current_setting('stage14.foreign')||'/'||r::text||'/version-1.original.webp',b::text||'/'||gen_random_uuid()::text||'/version-1.original.webp',
+   b::text||'/'||r::text||'/version-3.original.webp',b::text||'/'||r::text||'/version-1.webp',
+   b::text||'/'||r::text||'/version-1.original.webp/extra',b::text||'/'||r::text||'/../version-1.original.webp',
+   b::text||'/'||r::text||'/version-1.original.webp.png',b::text||'/'||r::text||'/VERSION-1.original.webp'] loop
+   denied:=false; begin insert into storage.objects(bucket_id,name,metadata) values('creative-assets',bad_path,'{"mimetype":"image/webp","size":1024}'); exception when insufficient_privilege then denied:=true; end;
+   assert denied,'Source path cannot cross run/Business, name an inactive generation, or broaden its exact suffix';
+ end loop;
+ foreach mime in array array['image/png','application/octet-stream','image/jpeg'] loop
+   denied:=false; begin insert into storage.objects(bucket_id,name,metadata) values('creative-assets',path,jsonb_build_object('mimetype',mime,'size',1024)); exception when insufficient_privilege then denied:=true; end;
+   assert denied,'Original WebP suffix requires WebP MIME';
+ end loop;
+ denied:=false; begin insert into storage.objects(bucket_id,name,metadata) values('creative-assets',path,'{"size":1024}'); exception when insufficient_privilege then denied:=true; end; assert denied,'Source MIME cannot be omitted';
+ denied:=false; begin insert into storage.objects(bucket_id,name,metadata) values('creative-assets',b::text||'/'||r::text||'/version-1.png','{"mimetype":"image/webp","size":1024}'); exception when insufficient_privilege then denied:=true; end; assert denied,'PNG suffix cannot carry WebP MIME';
+ insert into storage.objects(bucket_id,name,metadata) values('creative-assets',path,'{"mimetype":"image/webp","size":1024}');
+ assert (select count(*) from storage.objects where bucket_id='creative-assets' and name like b::text||'/'||r::text||'/%')=2,'Active exact-run capability reads both original and derived metadata';
+ update storage.objects set metadata='{"mimetype":"image/webp","size":999}' where bucket_id='creative-assets' and name=path;
+ assert (select metadata->>'size' from storage.objects where bucket_id='creative-assets' and name=path)='1024','Original metadata cannot be overwritten';
+ denied:=false; begin insert into storage.objects(bucket_id,name,metadata) values('creative-assets',path,'{"mimetype":"image/webp","size":999}') on conflict(bucket_id,name) do update set metadata=excluded.metadata; exception when insufficient_privilege then denied:=true; end;
+ assert denied,'Source upsert has no UPDATE authority';
+ begin delete from storage.objects where bucket_id='creative-assets' and name=path; exception when insufficient_privilege then null; end;
+ assert (select count(*) from storage.objects where bucket_id='creative-assets' and name=path)=1,'Source delete is denied';
+end; $$;
+reset role;
+do $$
+declare r uuid:=current_setting('stage14.webp_run')::uuid; b uuid:=current_setting('stage14.business')::uuid; cap text:=repeat('webp-capability-',3);
+ output jsonb; changed jsonb; provenance jsonb; invalid jsonb; item record; result jsonb; persisted jsonb;
+begin
+ output:=pg_temp.creative_output(r,'generate:1'); provenance:=pg_temp.creative_provenance(output,true); output:=output||jsonb_build_object('provenance',provenance);
+ assert (select count(*) from jsonb_object_keys(provenance))=19,'Stored normalization provenance has exactly 19 bounded keys';
+ perform pg_temp.creative_reject_generation(r,b,cap,output-'provenance',provenance);
+ perform pg_temp.creative_reject_generation(r,b,cap,jsonb_set(output,'{provenance}',provenance-'decoder'));
+ perform pg_temp.creative_reject_generation(r,b,cap,jsonb_set(output,'{provenance}',provenance||'{"unapprovedMetadata":"not permitted"}'::jsonb));
+ perform pg_temp.creative_reject_generation(r,b,cap,output,provenance||jsonb_build_object('originalSha256',repeat('d',64)));
+ for item in select key,value from jsonb_each(jsonb_build_object(
+   'version','unexpected-version','providerMediaType','image/png','detectedMediaType','image/jpeg','originalSha256','bad-hash',
+   'normalizedSha256',repeat('e',64),'originalBytes',1025,'normalizedBytes',2047,'width',1000,'height',1000,
+   'conversion','lossy_reencode','verification','unverified','normalizedDecodedPixelSha256',repeat('f',64),
+   'decodedChannels',4,'decodedHasAlpha',true,'decoder',false,'encoder',false,
+   'originalStoragePath',b::text||'/'||gen_random_uuid()::text||'/version-1.original.webp',
+   'normalizedStoragePath',b::text||'/'||r::text||'/version-2.png')) loop
+   changed:=jsonb_set(output,array['provenance',item.key],item.value);
+   perform pg_temp.creative_reject_generation(r,b,cap,changed);
+ end loop;
+ for invalid in select value from jsonb_array_elements('[null,"1024",0,11,1024.5,7000001]'::jsonb) loop
+   perform pg_temp.creative_reject_generation(r,b,cap,jsonb_set(output,'{provenance,originalBytes}',invalid));
+ end loop;
+ for invalid in select value from jsonb_array_elements('[null,0,1,2,5,"3"]'::jsonb) loop
+   perform pg_temp.creative_reject_generation(r,b,cap,jsonb_set(output,'{provenance,decodedChannels}',invalid));
+ end loop;
+ changed:=pg_temp.creative_output(r,'generate:1');
+ perform pg_temp.creative_reject_generation(r,b,cap,jsonb_set(changed,'{provenance,originalSha256}',to_jsonb(repeat('e',64))));
+ perform pg_temp.creative_reject_generation(r,b,cap,jsonb_set(changed,'{provenance,originalStoragePath}',provenance->'originalStoragePath'));
+ perform pg_temp.creative_reject_generation(r,b,cap,jsonb_set(changed,'{provenance,decodedPixelSha256}',to_jsonb(repeat('c',64))));
+ perform pg_temp.creative_record(r,b,cap,'generate:1',210000,true,false,provenance);
+ result:=public.creative_runtime_transition(r,b,cap,'persist_phase',jsonb_build_object('callKey','generate:1','output',output));
+ assert result->>'phaseKey'='review:1','Verified source and derived PNG advance to independent review';
+ select x.output into persisted from public.creative_phase_outputs x where x.creative_run_id=r and x.call_key='generate:1';
+ assert persisted->'provenance'=provenance,'Exact source/derived provenance is immutable output';
+ assert (select asset_hash=output->'inspection'->>'sha256' and asset_hash<>provenance->>'originalSha256' from public.creative_assets where creative_run_id=r and version=1),'Asset and review hash bind derived PNG, separately from original';
+ assert (select receipt->'provenance'=provenance from public.creative_cost_settlements where creative_run_id=r and call_key='generate:1');
+ result:=pg_temp.creative_phase(r,b,cap,'review:1'); assert result->>'status'='completed' and result->'productionReady'='false','WebP technical PASS is not production authority';
+ result:=public.creative_runtime_transition(r,b,cap,'persist_phase',jsonb_build_object('callKey','generate:1','output',output)); assert result->>'status'='completed','Original/derived provenance replay cannot reopen a terminal run';
+end; $$;
+set local role anon;
+do $$ declare path text:=current_setting('stage14.business')||'/'||current_setting('stage14.webp_run')||'/version-1.original.webp'; denied boolean:=false; begin
+ assert (select count(*) from storage.objects where bucket_id='creative-assets' and name=path)=0,'Terminal capability cannot read original';
+ begin insert into storage.objects(bucket_id,name,metadata) values('creative-assets',replace(path,'version-1','version-2'),'{"mimetype":"image/webp","size":1024}'); exception when insufficient_privilege then denied:=true; end;
+ assert denied,'Terminal capability cannot upload another original';
+end; $$;
+reset role;
+select set_config('request.headers','{}',true);
+select set_config('request.jwt.claim.sub',current_setting('stage14.owner'),true);
+set local role authenticated;
+do $$ declare prefix text:=current_setting('stage14.business')||'/'||current_setting('stage14.webp_run')||'/'; begin
+ assert (select count(*) from storage.objects where bucket_id='creative-assets' and name like prefix||'%')=2,'Owner retains both immutable original and PNG after completion';
+ begin delete from storage.objects where bucket_id='creative-assets' and name like prefix||'%'; exception when insufficient_privilege then null; end;
+ assert (select count(*) from storage.objects where bucket_id='creative-assets' and name like prefix||'%')=2,'Owner cannot delete either original or PNG';
+end; $$;
+reset role;
+select set_config('request.jwt.claim.sub',current_setting('stage14.other'),true);
+set local role authenticated;
+do $$ begin
+ assert (select count(*) from storage.objects where bucket_id='creative-assets' and name like current_setting('stage14.business')||'/'||current_setting('stage14.webp_run')||'/%')=0,'Foreign owner cannot read original or PNG';
+end; $$;
+reset role;
+
+-- Failed conversion and hard expiry retain original evidence without allowing
+-- another upload or a paid retry. These remain synthetic rollback fixtures.
+select set_config('request.jwt.claim.sub',current_setting('stage14.owner'),true);
+do $$
+declare b uuid:=current_setting('stage14.business')::uuid; candidate jsonb; approved jsonb; launched jsonb; r uuid;
+ cap text:=repeat('source-retention-capability-',3); scenario text; path text; failure_receipt jsonb; result jsonb;
+begin
+ foreach scenario in array array['conversion_failed','expired'] loop
+   candidate:=public.create_product_candidate(b,jsonb_build_object('concept','Synthetic source-retention fixture '||scenario,'audience','Adult synthetic image audience',
+     'hypothesis','Preservation and expiry test only, without real provider output or market evidence.','originalDesign',true,'rightsStatus','confirmed','sourceDomains',jsonb_build_array('etsy.com')));
+   approved:=public.approve_creative_candidate((candidate->>'candidateId')::uuid,pg_temp.creative_approval((candidate->>'candidateId')::uuid),pg_temp.creative_quote());
+   launched:=public.begin_creative_run((approved->>'approvalId')::uuid,gen_random_uuid(),cap); r:=(launched->>'creativeRunId')::uuid;
+   perform set_config('stage14.source_'||scenario,r::text,true);
+   perform public.creative_runtime_transition(r,b,cap,'load',jsonb_build_object('runtimeRunId','source-retention-'||r));
+   perform pg_temp.creative_phase(r,b,cap,'brief:1'); perform pg_temp.creative_phase(r,b,cap,'screen:1'); perform pg_temp.creative_reserve(r,b,cap,'generate:1');
+   path:=b::text||'/'||r::text||'/version-1.original.webp';
+   insert into storage.objects(bucket_id,name,metadata) values('creative-assets',path,'{"mimetype":"image/webp","size":1024}');
+   if scenario='conversion_failed' then
+     failure_receipt:=jsonb_build_object('model','recraft/recraft-v4.1-pro','provider','openrouter','providerRequestId','source-retention-'||r,
+       'outputValidated',false,'mockProvider',false,'executionMode','image.generate','failure','Synthetic conversion failure after original retention',
+       'sourcePreservation',jsonb_build_object('storagePath',path,'mediaType','image/webp','bytes',1024,'sha256',repeat('b',64),'uploadConfirmed',true,'downloadVerified',true));
+     perform public.creative_runtime_transition(r,b,cap,'record_call',jsonb_build_object('callKey','generate:1','reportedMicrousd',210000,'providerRequestId','source-retention-'||r,'receipt',failure_receipt));
+     result:=public.creative_runtime_transition(r,b,cap,'fail','{"reason":"Synthetic conversion failure retains original evidence"}');
+     assert result->>'status'='needs_owner';
+     assert (select x.receipt=failure_receipt from public.creative_cost_settlements x where x.creative_run_id=r and x.call_key='generate:1'),'Failure receipt retains safe source metadata';
+     assert not exists(select 1 from public.creative_assets where creative_run_id=r),'Unvalidated original is never promoted to reviewed PNG';
+     assert not exists(select 1 from public.creative_phase_outputs where creative_run_id=r and call_key='generate:1');
+     assert private.stage14_committed_cost(r)=351296,'Failed conversion retains the full paid reservation';
+   end if;
+ end loop;
+end; $$;
+alter table public.creative_runs disable trigger creative_runs_immutable;
+update public.creative_runs set capability_expires_at=now()-interval '1 second' where id=current_setting('stage14.source_expired')::uuid;
+alter table public.creative_runs enable trigger creative_runs_immutable;
+select set_config('request.jwt.claim.sub','',true);
+set local role anon;
+do $$
+declare r uuid; cap text:=repeat('source-retention-capability-',3); scenario text; path text; denied boolean;
+begin
+ perform set_config('request.headers',jsonb_build_object('x-creative-capability',cap)::text,true);
+ foreach scenario in array array['conversion_failed','expired'] loop
+   r:=current_setting('stage14.source_'||scenario)::uuid; path:=current_setting('stage14.business')||'/'||r::text||'/version-1.original.webp';
+   assert (select count(*) from storage.objects where bucket_id='creative-assets' and name=path)=0,'Stopped or expired capability cannot read retained original';
+   denied:=false; begin insert into storage.objects(bucket_id,name,metadata) values('creative-assets',replace(path,'.original.webp','.png'),'{"mimetype":"image/png","size":2048}'); exception when insufficient_privilege then denied:=true; end;
+   assert denied,'Stopped or expired capability cannot upload a derivative';
+   denied:=false; begin perform public.creative_runtime_transition(r,current_setting('stage14.business')::uuid,cap,'prepare','{"callKey":"generate:1"}'); exception when others then denied:=true; end;
+   assert denied,'Stopped or expired source cannot authorize another image attempt';
+ end loop;
+end; $$;
+reset role;
+select set_config('request.headers','{}',true);
+select set_config('request.jwt.claim.sub',current_setting('stage14.owner'),true);
+set local role authenticated;
+do $$ declare scenario text; r uuid; result jsonb; begin
+ foreach scenario in array array['conversion_failed','expired'] loop
+   r:=current_setting('stage14.source_'||scenario)::uuid;
+   assert (select count(*) from storage.objects where bucket_id='creative-assets' and name=current_setting('stage14.business')||'/'||r::text||'/version-1.original.webp')=1,'Owner can inspect retained source after failure or expiry';
+ end loop;
+ result:=public.close_expired_creative_run(current_setting('stage14.source_expired')::uuid);
+ assert result->>'status'='needs_owner','Existing owner expiry recovery preserves original without renewing authority';
+end; $$;
+reset role;
+
+-- Explicit one-image approvals keep all four reviewed phases and stop after
+-- review:1, without granting a repair or restarting any prior approved run.
+select set_config('request.jwt.claim.sub',current_setting('stage14.owner'),true);
+do $$
+declare b uuid:=current_setting('stage14.business')::uuid; candidate jsonb; c uuid; approval jsonb; quote jsonb; created jsonb; launch jsonb;
+  r uuid; result jsonb; context jsonb; replay jsonb; key text; op text; invalid jsonb; denied boolean; scenario text;
+  cap text:=repeat('single-image-capability-',3); original_run jsonb; original_approval jsonb; original_cost bigint;
+begin
+  select to_jsonb(x) into original_run from public.creative_runs x where x.id=current_setting('stage14.run')::uuid;
+  select to_jsonb(x) into original_approval from public.creative_approvals x where x.id=current_setting('stage14.approval')::uuid;
+  original_cost:=private.stage14_committed_cost(current_setting('stage14.run')::uuid);
+  quote:=pg_temp.creative_quote()||'{"maximumEstimateMicrousd":483176,"maximumCalls":4}'::jsonb;
+  candidate:=public.create_product_candidate(b,jsonb_build_object('concept','One-image bounded quote fixture','audience','Adult synthetic limit audience',
+    'hypothesis','Synthetic bound validation only, not real buyer demand.','originalDesign',true,'rightsStatus','confirmed','sourceDomains',jsonb_build_array('etsy.com')));
+  c:=(candidate->>'candidateId')::uuid;
+  approval:=pg_temp.creative_approval(c)||'{"maximumGenerations":1,"maximumMicrousd":500000}'::jsonb;
+  -- A four-call quote cannot authorize two images; a six-call quote cannot stand
+  -- in for the explicitly selected one-image bound, even with enough money.
+  denied:=false; begin perform public.approve_creative_candidate(c,approval||'{"maximumMicrousd":1000000}'::jsonb,pg_temp.creative_quote()); exception when others then denied:=true; end; assert denied,'Quote call count must match one-image approval';
+  denied:=false; begin perform public.approve_creative_candidate(c,approval||'{"maximumGenerations":2}'::jsonb,quote); exception when others then denied:=true; end; assert denied,'Four calls cannot authorize a two-image approval';
+  denied:=false; begin perform public.approve_creative_candidate(c,approval,quote||'{"maximumEstimateMicrousd":483175}'::jsonb); exception when others then denied:=true; end; assert denied,'Quote must include full brief, screen, image and review';
+  denied:=false; begin perform public.approve_creative_candidate(c,approval||'{"maximumMicrousd":483175}'::jsonb,quote); exception when others then denied:=true; end; assert denied,'Single-image estimate still must fit allowance';
+  for invalid in select value from jsonb_array_elements('[0,3,-1,1.5,"1",null]'::jsonb) loop
+    denied:=false; begin perform public.approve_creative_candidate(c,approval||jsonb_build_object('maximumGenerations',invalid),quote); exception when others then denied:=true; end;
+    assert denied,'Only explicit numeric one or two is a valid image limit';
+  end loop;
+  denied:=false; begin perform public.approve_creative_candidate(c,approval-'maximumGenerations',quote); exception when others then denied:=true; end; assert denied,'Database approval cannot omit its image limit';
+  assert not exists(select 1 from public.creative_approvals where candidate_id=c),'Rejected approvals leave no spending scope';
+  foreach scenario in array array['fail','pass','binary_failure'] loop
+    candidate:=public.create_product_candidate(b,jsonb_build_object('concept','One-image terminal fixture '||scenario,'audience','Adult synthetic limit audience',
+      'hypothesis','Synthetic no-repair fixture only, not actual buyer evidence.','originalDesign',true,'rightsStatus','confirmed','sourceDomains',jsonb_build_array('etsy.com')));
+    c:=(candidate->>'candidateId')::uuid;
+    approval:=pg_temp.creative_approval(c)||'{"maximumGenerations":1,"maximumMicrousd":500000}'::jsonb;
+    created:=public.approve_creative_candidate(c,approval,quote);
+    launch:=public.begin_creative_run((created->>'approvalId')::uuid,gen_random_uuid(),cap); r:=(launch->>'creativeRunId')::uuid;
+    assert launch->'shouldStart'='true';
+    assert (select count(*) from public.workflow_stage_runs where workflow_run_id=(launch->>'workflowRunId')::uuid)=4,'No unauthorized repair stages are scheduled';
+    perform public.creative_runtime_transition(r,b,cap,'load',jsonb_build_object('runtimeRunId','single-image-'||r));
+    context:=public.creative_runtime_transition(r,b,cap,'prepare','{"callKey":"brief:1"}');
+    assert context->'context'->'taskContract'->'escalationRules'->'maximumGenerations'='1','Worker contract carries exact owner limit';
+    foreach key in array array['generate:2','review:2'] loop
+      denied:=false; begin perform private.stage14_prepare(r,key); exception when others then denied:=true; end; assert denied,'Private preparation cannot create an unapproved repair';
+      denied:=false; begin perform pg_temp.creative_reserve(r,b,cap,key); exception when others then denied:=true; end; assert denied,'No second-phase reservation before the first review';
+    end loop;
+    perform pg_temp.creative_phase(r,b,cap,'brief:1');
+    perform pg_temp.creative_phase(r,b,cap,'screen:1');
+    perform pg_temp.creative_phase(r,b,cap,'generate:1',false,scenario='binary_failure');
+    result:=pg_temp.creative_phase(r,b,cap,'review:1',scenario='fail');
+    assert result->>'status'=case when scenario='pass' then 'completed' else 'needs_owner' end,'No-repair outcome is terminal after review one';
+    assert result->'phaseKey'='null'::jsonb and result->'productionReady'='false';
+    assert (select count(*) from public.creative_assets where creative_run_id=r)=1,'Paid first image is retained';
+    assert (select count(*) from public.creative_reviews where creative_run_id=r)=1,'Paid first review is retained, including failure';
+    assert (select count(*) from public.creative_cost_reservations where creative_run_id=r)=4;
+    assert (select count(*) from public.creative_cost_settlements where creative_run_id=r)=4;
+    assert (select risk->'maxGenerations'='1'::jsonb from public.action_intents where workflow_run_id=(launch->>'workflowRunId')::uuid and action_type='creative.image.generate'),'Action intent records the exact one-image authority';
+    assert private.stage14_committed_cost(r)=483176,'Full four-call reservation remains committed';
+    foreach key in array array['generate:2','review:2'] loop
+      foreach op in array array['prepare','reserve_call','record_call','persist_phase'] loop
+        denied:=false; begin perform public.creative_runtime_transition(r,b,cap,op,jsonb_build_object('callKey',key)); exception when others then denied:=true; end;
+        assert denied,'No operation can consume a repair slot after a one-image review';
+      end loop;
+    end loop;
+    replay:=public.creative_runtime_transition(r,b,cap,'persist_phase',jsonb_build_object('callKey','review:1','output',pg_temp.creative_output(r,'review:1',scenario='fail')));
+    assert replay->>'status'=result->>'status','Review replay cannot reopen a no-repair run';
+    replay:=public.begin_creative_run((created->>'approvalId')::uuid,gen_random_uuid(),repeat('different-capability-',3));
+    assert replay->'shouldStart'='false' and replay->>'creativeRunId'=r::text,'Begin replay cannot buy another image';
+    replay:=public.approve_creative_candidate(c,approval||jsonb_build_object('approvalId',gen_random_uuid()),quote);
+    assert replay->>'approvalId'=created->>'approvalId','New form UUID does not reset the same one-image scope';
+    assert not exists(select 1 from public.creative_cost_reservations where creative_run_id=r and call_key in ('generate:2','review:2'));
+  end loop;
+  assert (select to_jsonb(x)=original_run from public.creative_runs x where x.id=current_setting('stage14.run')::uuid),'Prior two-image run is unchanged';
+  assert (select to_jsonb(x)=original_approval from public.creative_approvals x where x.id=current_setting('stage14.approval')::uuid),'Prior approval and quote are unchanged';
+  assert private.stage14_committed_cost(current_setting('stage14.run')::uuid)=original_cost,'Prior paid and reserved history is unchanged';
 end; $$;
 rollback;

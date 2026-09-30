@@ -43,6 +43,11 @@ export type ImageGenerationAuthorization = {
   preauthorized: true;
   quote: ImageGenerationQuote;
 };
+export type ImageResponseDiagnostics = {
+  reason: string; dataCount: number | null; declaredMediaType: "image/png" | "image/webp" | "image/jpeg" | "image/svg+xml" | "absent" | "other";
+  encodedBytes: number | null; decodedBytes: number | null; detectedMediaType: "image/png" | "image/webp" | "unknown";
+  originalSha256: string | null; created: number | null;
+};
 export type ImageGenerationReceipt = {
   capability: "image.generate";
   provider: "openrouter";
@@ -60,10 +65,13 @@ export type ImageGenerationReceipt = {
   inputTokens: number | null;
   outputTokens: number | null;
   totalTokens: number | null;
+  imageResponse?: ImageResponseDiagnostics;
 };
 export type ImageGenerationResult = {
   bytes: Uint8Array;
-  mediaType: "image/png";
+  /** Provider source bytes: full decoding/normalization and print validation occur after immutable source storage. */
+  mediaType: "image/png" | "image/webp";
+  declaredMediaType: ImageResponseDiagnostics["declaredMediaType"];
   receipt: ImageGenerationReceipt;
 };
 export interface ImageProviderAdapter {
@@ -150,6 +158,10 @@ export function parseImageGenerationQuote(
   return { ...fields, quoteId: hash(canonical(fields)) };
 }
 
+function safeProviderId(value: unknown): string | null {
+  return typeof value === "string" && /^[a-zA-Z0-9_.:-]{1,300}$/.test(value) ? value : null;
+}
+
 function optionalNonnegative(value: unknown): number | null {
   const parsed = typeof value === "string" && value.trim() ? Number(value) : value;
   return typeof parsed === "number" && Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
@@ -159,20 +171,42 @@ function optionalTokens(value: unknown): number | null {
   return number !== null && Number.isSafeInteger(number) ? number : null;
 }
 
-function imageBytes(body: Record<string, unknown>): Uint8Array {
-  const fail = () => new ImageProviderError("malformed_image_output", "The provider did not return exactly one valid bounded PNG image.");
-  if (!Array.isArray(body.data) || body.data.length !== 1 || !record(body.data[0])) throw fail();
-  const output = body.data[0];
-  if (output.media_type !== "image/png" || typeof output.b64_json !== "string" || output.url !== undefined || output.image_url !== undefined) throw fail();
-  const encoded = output.b64_json;
+function imageBytes(body: Record<string, unknown>, receipt: ImageGenerationReceipt): { bytes: Uint8Array; mediaType: "image/png" | "image/webp"; declaredMediaType: ImageResponseDiagnostics["declaredMediaType"] } {
+  const output = Array.isArray(body.data) && body.data.length === 1 && record(body.data[0]) ? body.data[0] : null;
+  const mime = output?.media_type;
+  const diagnostics: ImageResponseDiagnostics = {
+    reason: "envelope", dataCount: Array.isArray(body.data) ? body.data.length : null,
+    declaredMediaType: mime === undefined ? "absent" : ["image/png", "image/webp", "image/jpeg", "image/svg+xml"].includes(mime as string) ? mime as ImageResponseDiagnostics["declaredMediaType"] : "other",
+    encodedBytes: typeof output?.b64_json === "string" ? output.b64_json.length : null,
+    decodedBytes: null, detectedMediaType: "unknown", originalSha256: null,
+    created: typeof body.created === "number" && Number.isSafeInteger(body.created) && body.created >= 0 ? body.created : null,
+  };
+  receipt.imageResponse = diagnostics;
+  const fail = (reason: string): never => {
+    diagnostics.reason = reason;
+    throw new ImageProviderError("malformed_image_output", `The provider image failed bounded source validation (${reason}).`);
+  };
+  if (!output) return fail("image_count_or_envelope");
+  if (typeof output.b64_json !== "string") fail("missing_base64");
+  if (output.url !== undefined || output.image_url !== undefined) fail("remote_image_url_rejected");
+  const encoded = output.b64_json as string;
   // Buffer.from alone tolerates truncated/non-base64 input, so verify canonical base64 too.
-  if (!encoded.length || encoded.length > Math.ceil(IMAGE_GENERATION_POLICY.maximumPngBytes / 3) * 4 || encoded.length % 4 !== 0 ||
-      !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)) throw fail();
+  if (!encoded.length || encoded.length > Math.ceil(IMAGE_GENERATION_POLICY.maximumPngBytes / 3) * 4) fail("encoded_size");
+  if (encoded.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)) fail("invalid_base64");
   const bytes = Buffer.from(encoded, "base64");
-  if (bytes.length < 33 || bytes.length > IMAGE_GENERATION_POLICY.maximumPngBytes || bytes.toString("base64") !== encoded ||
-      !bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) throw fail();
-  // Full decode, dimensions, alpha, content screening, and durable storage belong to the caller.
-  return bytes;
+  diagnostics.decodedBytes = bytes.length;
+  if (bytes.length > IMAGE_GENERATION_POLICY.maximumPngBytes || bytes.length < 12) fail("decoded_size");
+  if (bytes.toString("base64") !== encoded) fail("noncanonical_base64");
+  const mediaType = bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) ? "image/png" :
+    bytes.toString("ascii", 0, 4) === "RIFF" && bytes.toString("ascii", 8, 12) === "WEBP" ? "image/webp" : null;
+  if (!mediaType) return fail("unsupported_image_magic");
+  diagnostics.detectedMediaType = mediaType;
+  diagnostics.originalSha256 = createHash("sha256").update(bytes).digest("hex");
+  if (mediaType === "image/png" && bytes.length < 33) fail("decoded_size");
+  diagnostics.reason = mime !== undefined && mime !== mediaType ? "bounded_source_media_type_conflict" : "bounded_source_only";
+  // This is not a validation PASS. Store the source privately, then fully decode,
+  // normalize only static lossless WebP, and inspect the resulting original-size PNG.
+  return { bytes, mediaType, declaredMediaType: diagnostics.declaredMediaType };
 }
 
 async function readBoundedJson(response: Response, limit: number): Promise<Record<string, unknown>> {
@@ -237,7 +271,7 @@ export class OpenRouterImageAdapter implements ImageProviderAdapter {
     try {
       return await Promise.race([timeout, (async () => {
         const response = await this.fetcher(url, { ...init, cache: "no-store", redirect: "error", signal: controller.signal });
-        requestId = response.headers.get("x-request-id") || response.headers.get("x-openrouter-request-id");
+        requestId = safeProviderId(response.headers.get("x-generation-id")) || safeProviderId(response.headers.get("x-request-id")) || safeProviderId(response.headers.get("x-openrouter-request-id"));
         if (!response.ok) {
           await response.body?.cancel();
           const category = response.status === 401 || response.status === 403 ? "authentication_required" :
@@ -304,7 +338,7 @@ export class OpenRouterImageAdapter implements ImageProviderAdapter {
       const reportedMicrousd = reportedCostUsd === null ? null : Math.ceil(reportedCostUsd * 1_000_000);
       receipt = {
         capability: "image.generate", provider: "openrouter", upstreamProvider: "recraft", modelId: IMAGE_GENERATION_POLICY.modelId,
-        providerRequestId: response.requestId ?? (typeof response.body.id === "string" ? response.body.id : null),
+        providerRequestId: response.requestId ?? safeProviderId(response.body.id),
         reservationId, quoteId: quote.quoteId, promptHash: quote.promptHash, requestHash: quote.requestHash,
         elapsedMs: Math.max(0, this.now() - startedAt), estimatedMicrousd: IMAGE_GENERATION_POLICY.estimatedMicrousd,
         reportedCostUsd, reportedMicrousd: reportedMicrousd !== null && Number.isSafeInteger(reportedMicrousd) ? reportedMicrousd : null,
@@ -314,7 +348,7 @@ export class OpenRouterImageAdapter implements ImageProviderAdapter {
           (response.body.provider !== undefined && response.body.provider !== "recraft" && response.body.provider !== "Recraft")) {
         throw new ImageProviderError("malformed_image_output", "The image response contains an error or unexpected provider/model identity.");
       }
-      return { bytes: imageBytes(response.body), mediaType: "image/png", receipt };
+      return { ...imageBytes(response.body, receipt), receipt };
     } catch (error) {
       const failure = error instanceof ImageProviderError ? error : new ImageProviderError("malformed_image_output", "The image response could not be validated.");
       failure.requestDispatched = true;

@@ -20,6 +20,7 @@ export type PrintSpecification = {
   colorSpace: "srgb"; background: "transparent" | "opaque"; maximumBytes: number;
 };
 /** Technical qualifications do not replace a Product Candidate decision. */
+export type CreativeGenerationLimit = 1 | 2;
 export type CreativePurpose = "candidate_production" | "technical_qualification" | "simulation";
 export type CreativeApprovalSnapshot = {
   approvalId: string; businessId: string; candidateId: string; decisionId: string | null;
@@ -28,7 +29,7 @@ export type CreativeApprovalSnapshot = {
   originalDesign: boolean; rightsStatement: string; rightsConfirmed: boolean;
   policyScreen: PolicyScreen[]; printSpecification: PrintSpecification;
   approvedBy: "owner"; approvedAt: string; expiresAt: string;
-  maximumMicrousd: number; maximumGenerations: 2; publicationAllowed: false;
+  maximumMicrousd: number; maximumGenerations: CreativeGenerationLimit; publicationAllowed: false;
 };
 export type DesignBrief = {
   version: "1.0"; approvalId: string; audience: string; concept: string; style: string;

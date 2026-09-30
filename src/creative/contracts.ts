@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { DIMENSIONS } from "../products/types";
-import { MAX_CREATIVE_PNG_BYTES, REVIEW_CRITERIA, SAFE_REPAIR_INSTRUCTIONS, SCREEN_CATEGORIES, type AssetInspection, type BriefScreen, type CreativeApprovalSnapshot, type CreativeNextStep, type DesignBrief, type DesignReview, type PrintSpecification } from "./types";
+import { MAX_CREATIVE_PNG_BYTES, REVIEW_CRITERIA, SAFE_REPAIR_INSTRUCTIONS, SCREEN_CATEGORIES, type AssetInspection, type BriefScreen, type CreativeApprovalSnapshot, type CreativeGenerationLimit, type CreativeNextStep, type DesignBrief, type DesignReview, type PrintSpecification } from "./types";
 
 const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 const text = (v: unknown, min = 3, max = 1000): v is string => typeof v === "string" && v.trim().length >= min && v.length <= max;
@@ -35,7 +35,7 @@ export function validateCreativeApproval(approval: CreativeApprovalSnapshot, now
   if (!record(approval) || ![approval.approvalId, approval.businessId, approval.candidateId].every(id => uuidPattern.test(id)) ||
     !["candidate_production", "technical_qualification", "simulation"].includes(approval.purpose) || !text(approval.concept, 3, 160) || !text(approval.audience, 3, 160) || !text(approval.designInstructions, 50, 1500) ||
     approval.originalDesign !== true || approval.rightsConfirmed !== true || !text(approval.rightsStatement, 30, 1500) || approval.approvedBy !== "owner" ||
-    approval.publicationAllowed !== false || approval.maximumGenerations !== 2 || !Number.isInteger(approval.maximumMicrousd) || approval.maximumMicrousd < 0 || approval.maximumMicrousd > 2_000_000 ||
+    approval.publicationAllowed !== false || ![1, 2].includes(approval.maximumGenerations) || !Number.isInteger(approval.maximumMicrousd) || approval.maximumMicrousd < 0 || approval.maximumMicrousd > 2_000_000 ||
     !Number.isFinite(Date.parse(approval.approvedAt)) || !Number.isFinite(Date.parse(approval.expiresAt)) || Date.parse(approval.approvedAt) > now + 300000 ||
     Date.parse(approval.expiresAt) <= now || Date.parse(approval.expiresAt) > Date.parse(approval.approvedAt) + 7 * 86400000) throw new Error("Explicit, unexpired creative approval is required.");
   if (approval.purpose === "simulation" && approval.maximumMicrousd !== 0) throw new Error("Simulation cannot authorize provider spending.");
@@ -74,13 +74,13 @@ export function validateBriefScreen(screen: BriefScreen, brief: DesignBrief, app
     screen.checks.some(check => !["clear", "concern", "unknown"].includes(check.status) || !text(check.rationale, 15, 700)) ||
     screen.outcome !== (screen.checks.every(check => check.status === "clear") ? "PASS" : "NEEDS_OWNER")) throw new Error("Final brief must pass an independent, hash-bound IP/policy screen before generation.");
 }
-export function creativeNextStep(review: DesignReview, inspection: AssetInspection, generation: number): CreativeNextStep {
-  if (![1, 2].includes(generation)) throw new Error("Creative generation limit exceeded.");
+export function creativeNextStep(review: DesignReview, inspection: AssetInspection, generation: number, maximumGenerations: CreativeGenerationLimit = 2): CreativeNextStep {
+  if (![1, 2].includes(maximumGenerations) || ![1, 2].includes(generation) || generation > maximumGenerations) throw new Error("Creative generation limit exceeded.");
   validateDesignReview(review, inspection.sha256, review.briefHash);
   if (review.outcome === "PASS" && inspection.failedCriteria.length === 0) return "complete";
   // Technical binary failures cannot be overridden by a model PASS.
-  return generation === 1 && review.outcome === "FAIL" ? "repair" : "needs_owner";
+  return generation < maximumGenerations && review.outcome === "FAIL" ? "repair" : "needs_owner";
 }
 export function productionReady(approval: CreativeApprovalSnapshot, review: DesignReview, inspection: AssetInspection): boolean {
-  return approval.purpose === "candidate_production" && creativeNextStep(review, inspection, 1) === "complete";
+  return approval.purpose === "candidate_production" && creativeNextStep(review, inspection, 1, approval.maximumGenerations) === "complete";
 }

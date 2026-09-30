@@ -32,7 +32,7 @@ function fixture({ failures = [], empty = false, settled = false, unknown = fals
     snapshot: { concept: 'Synthetic cost fixture', audience: 'Adult fixture audience' }, maximum_microusd: 1_000_000, approved_at: time, expires_at: '2026-09-08T10:00:00.000Z' };
   const run = { id: 'run-fixture', business_id: 'business-fixture', approval_id: approval.id, workflow_run_id: 'workflow-fixture', created_at: time, capability_expires_at: '2000-01-01T00:00:00.000Z' };
   const rows = {
-    creative_approvals: [approval], creative_runs: [run], creative_assets: [], creative_reviews: [],
+    creative_approvals: [approval], creative_runs: [run], creative_assets: [], creative_reviews: [], creative_phase_outputs: [],
     workflow_runs: [{ id: run.workflow_run_id, status: 'needs_owner', current_stage_key: 'brief:1', state: { productionReady: false } }],
     creative_cost_reservations: empty ? [] : [{ creative_run_id: run.id, call_key: 'brief:1', reserved_microusd: 90_000, created_at: time }],
     creative_cost_settlements: !settled || empty ? [] : [{ creative_run_id: run.id, call_key: 'brief:1', reported_microusd: unknown ? null : 20_000, provider_request_id: 'mock-receipt', created_at: time }],
@@ -124,4 +124,25 @@ test('successful empty cost reads alone display no calls recorded', async () => 
   const html = await renderWorkspace(context, data);
   assert.match(html, /No calls recorded/);
   assert.doesNotMatch(html, /ledger could not be fully loaded|charge\(s\) remain unknown/);
+});
+
+
+test('derived PNG gallery distinguishes retained provider WebP and its immutable source hash', async () => {
+  const { context } = fixture({ empty: true });
+  const data = await loadCreativeWorkspace(context);
+  data.assets = [{ id: 'asset-fixture', creative_run_id: 'run-fixture', business_id: 'business-fixture', candidate_id: 'candidate-fixture',
+    version: 1, brief_hash: 'a'.repeat(64), asset_hash: 'b'.repeat(64), storage_path: 'private-fixture/version-1.png',
+    inspection: { width: 1024, height: 1024, effectiveDpi: 157.53, colorSpace: 'srgb', failedCriteria: [] },
+    prompt: 'Synthetic original instruction fixture', provider: 'openrouter', model: 'recraft/recraft-v4.1-pro', generated_at: '2026-09-01T10:00:00Z',
+    signedUrl: 'https://example.invalid/private-derived', sourceSignedUrl: 'https://example.invalid/private-original',
+    provenance: { conversion: 'lossless_webp_to_png', detectedMediaType: 'image/webp', originalSha256: 'c'.repeat(64),
+      version: 'creative-image-normalization-1.0', verification: 'decoded_pixels_equal', decoder: 'fixture-decoder', encoder: 'fixture-encoder' } }];
+  const html = await renderWorkspace(context, data);
+  assert.match(html, /Provider returned lossless WebP/);
+  assert.match(html, /derived print\/review representation/);
+  assert.match(html, /Original SHA-256/);
+  assert.match(html, /c{64}/);
+  assert.match(html, /b{64}/);
+  assert.match(html, /Open original provider file/);
+  assert.match(html, /Pixel equality does not claim/);
 });

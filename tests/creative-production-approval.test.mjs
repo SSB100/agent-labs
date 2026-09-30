@@ -56,6 +56,9 @@ test('production approval separately binds candidate identity, explicit rights a
   const approval = productionCreativeApproval(f, input);
   assert.equal(approval.purpose, 'candidate_production'); assert.equal(approval.candidateId, f.candidate.id); assert.equal(approval.decisionId, f.decision.id);
   assert.equal(approval.businessId, f.candidate.business_id); assert.equal(approval.concept, f.candidate.concept); assert.equal(approval.audience, f.candidate.audience);
+  assert.equal(approval.maximumGenerations, 2);
+  assert.equal(productionCreativeApproval(f, { ...input, maximumGenerations: 1 }).maximumGenerations, 1);
+  assert.throws(() => productionCreativeApproval(f, { ...input, maximumGenerations: 3 }), /generation limit/);
   assert.deepEqual(approval.candidateAssessment, f.decision.assessment); assert.equal(approval.publicationAllowed, false);
   assert.throws(() => productionCreativeApproval(f, { ...input, rightsStatement: '' }), /approval/);
   assert.throws(() => productionCreativeApproval(f, { ...input, policyScreen: [] }), /eight/);

@@ -1,6 +1,6 @@
 # Stage 14 — Creative pipeline
 
-Status: implementation and guarded database deployment, including final owner-approval and terminal-eligibility hardening, are complete. Hosted UI access recovered; the first live technical attempt stopped safely at rejected brief output before image generation. Zero-paid Storage verification passed; successful live image qualification remains pending. **The full Stage 14 approved-candidate production exit is not complete.** Do not advance Stage 15 on a technical-only PASS.
+Status: implementation and guarded database deployment, including final owner-approval and terminal-eligibility hardening, are complete. Hosted UI access recovered. The first live attempt stopped at brief validation; a later attempt passed brief/screen and stopped after a billed image response failed the PNG-only decoder. Original rejected response bytes were not retained, so the exact rejected field is unknown. Format/source-retention hardening passed offline review and its approved migrations are applied; successful live image qualification remains pending. **The full Stage 14 approved-candidate production exit is not complete.** Do not advance Stage 15 on a technical-only PASS.
 
 ## Scope
 
@@ -8,8 +8,8 @@ Status: implementation and guarded database deployment, including final owner-ap
 - Business-private, append-only owner approvals, Design Briefs, asset versions, actual binary inspection, review reports and cost records
 - Exact approved concept, audience, art instructions, rights declaration and print-spec snapshot are pinned to the run. Owner-entered designs and generated images are not global knowledge
 - Independent final-brief IP/policy screen precedes generation. Reviewer receives the actual stored PNG pixels plus scoped brief/knowledge
-- One initial image and at most one repair; repair text is chosen from an exact, shared SQL/TypeScript safe-template allowlist. It cannot introduce new subjects, names or references
-- Private PNG originals retain their provider provenance. Inspection verifies decoded dimensions, sRGB interpretation, physical DPI, alpha when required and SHA-256. No silent upscaling or metadata stripping
+- One initial image and an explicitly selected limit of zero or one repair; repair text is chosen from an exact, shared SQL/TypeScript safe-template allowlist. It cannot introduce new subjects, names or references
+- Private provider originals are retained before full decoding, with separate source and review-PNG hashes. Static lossless WebP may be decoded and encoded as a derived PNG only after exact decoded-pixel/alpha equality is verified; no resize, upscale or aesthetic edits occur. Embedded metadata remains in the original; derived-PNG metadata preservation is not implied
 - Artifacts workspace shows private previews, exact prompts/hashes, UTC dates, version/review state and provider receipts
 - The visible cost ledger joins durable reservations with settlements. Missing receipts and unknown charges remain visible after run expiry; settled charges are not added to their reservations twice. Failed ledger reads are explicitly unavailable rather than presented as zero spend
 - A separate owner production-approval form accepts only current, fresh evidence-backed TEST candidates. Candidate identity and assessment are fetched server-side; explicit rights, eight source-linked policy/IP screens, print specification and a separate creative allowance are required
@@ -61,11 +61,11 @@ The pre-Stage-14 local lock already contained Workflow 4.8.9 with nanoid 5.1.6 a
 - Rehearsal corrected one PL/pgSQL block-label reference and Storage test assumptions about deletion protection and current partial/versioned unique indexes. No production records were deleted
 - Actual function ACLs match four authenticated owner actions, one anonymous runtime endpoint, and one private Storage helper; remaining new functions have no client execution grant
 - Security advisors: expected public definer notices increased from 17/16 to 18/20 (anonymous/authenticated). Existing leaked-password warning remains. One INFO marks the deliberately policy-less private capability table, which has no client grants
-- Actual HTTP Storage upload/download and SHA-256 proof passed, including missing/wrong/foreign capability denials, no overwrite/delete and reserved-version enforcement. Terminal and naturally expired capability denial and owner-only expiry recovery also passed. Preview UI and the approved real technical image run remain pending. No full Stage 14 exit or production readiness is claimed
+- Actual HTTP Storage upload/download and SHA-256 proof passed, including missing/wrong/foreign capability denials, no overwrite/delete and reserved-version enforcement. Terminal and naturally expired capability denial and owner-only expiry recovery also passed. The later preview UI check passed, but successful real image qualification remains pending. No full Stage 14 exit or production readiness is claimed
 
 ## Remaining stage exit
 
-The technical test can verify generation, storage, traceability and independent pixel review. Full Stage 14 additionally requires a genuinely eligible current owner TEST, a separate candidate-production approval and a successful production-purpose run. Unknown demand, margin or other required evidence cannot be waived, and a technical PASS does not advance Stage 15. Cloud browser access recovered after earlier Chromium/CDP/native-input failures. Successful image qualification remains pending after the first brief validation failure; a further authorized test must preserve earlier ledger commitments and fit the shared total allowance.
+The technical test can verify generation, storage, traceability and independent pixel review. Full Stage 14 additionally requires a genuinely eligible current owner TEST, a separate candidate-production approval and a successful production-purpose run. Unknown demand, margin or other required evidence cannot be waived, and a technical PASS does not advance Stage 15. Cloud browser access recovered after earlier Chromium/CDP/native-input failures. Successful image qualification remains pending after brief-validation and image-contract failures; a further authorized test must preserve earlier ledger commitments and fit the shared total allowance.
 
 ## Primary references
 
@@ -78,3 +78,22 @@ The technical test can verify generation, storage, traceability and independent 
 - [Printful product-specific large-front placement](https://help.printful.com/hc/en-us/articles/50263171283217-What-should-I-know-about-the-standard-15-18-print-placement-for-DTG-products)
 
 Detailed candidate designs, account identifiers, actual provider invoices and generated files remain Business-private, not in repository closeout notes.
+
+
+## Image response contract hardening
+
+- Recraft documents lossless WebP as its native raster default. The pinned OpenRouter route does not advertise PNG-format selection, so the earlier PNG-only assumption was not guaranteed. No claim is made that the discarded live response was specifically WebP
+- Bounded canonical base64 with independently recognized PNG/WebP signatures is retained privately before full validation, including a conflicting declared MIME. Such a source remains unvalidated; MIME conflicts, unsupported metadata, animation, lossy encodings and malformed bytes cannot produce an accepted asset
+- Source and derived Storage uploads are immutable and immediately downloaded/hash-checked. Conversion failure retains the original and failed receipt; it never starts another provider call
+- OpenRouter's X-Generation-Id is retained when present. Rejected image envelopes record only bounded reason codes, counts, sizes, detected/declared MIME categories and hashes; no raw provider bytes, secrets or arbitrary echoed fields enter logs
+- The owner may explicitly select one image with no repair. The same brief/screen/image/review pipeline then uses four quoted calls; the server rejects every second-generation operation and ends a first-review FAIL at needs_owner. Default two-generation behavior remains supported. This is a new independent approval, not reopening or editing a terminal run
+- The specifically approved source-storage delta adds only image/webp and exact version-[12].original.webp paths, with the same owner/expiring-run boundaries and 7,000,000-byte per-object cap (up to14 MB total per generation). Public access, overwrite, deletion, new principals and new credentials remain prohibited
+- Applied migrations: 20260930194838_stage14_single_image_limit and 20260930194904_stage14_source_image_provenance. Existing function signatures/ACLs and the terminal eligibility guard are retained. Both were applied after isolated SQL/RLS rehearsal and independent review; hosted owners/ACLs/security settings match the prior boundaries
+- Existing paid/uncertain commitments remain immutable. A further call requires a fresh quote that fits the remaining shared allowance, successful gates, and the selected owner-approved scope. No full six-call rerun is assumed affordable
+- Recovery of the already billed image is being checked through existing provider logs only. Logging must already have been enabled; no new logging/data-sharing setting is authorized or implied
+
+Additional primary references: [Recraft raster format default](https://www.recraft.ai/docs/api-reference/image-inputs-and-results#image-format), [OpenRouter stored-content prerequisites](https://openrouter.ai/docs/guides/features/input-output-logging), [OpenRouter generation logs](https://openrouter.ai/docs/guides/features/logs).
+
+- Latest source-retention offline gate:293 tests, lint and TypeScript (final exact snapshot awaiting hosted build). Independent review covered source-loss and PNG ancillary-metadata regression fixes
+- Isolated PostgreSQL18.3/PGlite0.5.8 replayed all63 prior migrations and both new migrations, then passed Stage1 RLS and all Stage10–14 suites. Stage14 executed93 statements with182 assertions. Outer rollback restored53 table data hashes and108 function definitions. Supabase Auth/Storage interfaces were minimal local stubs; this does not replace hosted Storage HTTP verification
+- Hosted post-apply inspection confirmed unchanged function owners, signatures, ACLs, definer settings and empty search paths. Bucket remains private,7MB per object, now PNG+WebP only. Advisor categories/counts remain unchanged from baseline; the existing leaked-password warning persists

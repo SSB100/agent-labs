@@ -9,7 +9,7 @@ export async function creativeRuntimeWorkflow(input: CreativeRuntimeInput) {
   try {
     let state = await loadCreativeRun(input, workflowRunId);
     // Explicit finite phase machine: brief, screen, image/review, optional image/review.
-    for (let phase = 0; phase < 6 && state.status === "running"; phase++) {
+    for (let phase = 0; phase < 2 + 2 * state.approval.maximumGenerations && state.status === "running"; phase++) {
       await executeCreativePhase(input, state.phaseKey);
       state = await loadCreativeRun(input, workflowRunId);
     }

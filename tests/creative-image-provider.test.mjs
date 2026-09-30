@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import sharp from "sharp";
 import images from "../.core-tests/creative/image-provider.js";
 
 const { IMAGE_GENERATION_POLICY: policy, OpenRouterImageAdapter, ImageProviderError, parseImageGenerationQuote } = images;
@@ -67,7 +68,10 @@ test("reserved image.generate rechecks prices then makes one fixed pinned reques
   assert.equal(paidCalls()[0].init.headers.Authorization, "Bearer mock-only-key");
   assert.equal(result.mediaType, "image/png");
   assert.deepEqual(Buffer.from(result.bytes), png);
-  assert.deepEqual(result.receipt, { capability: "image.generate", provider: "openrouter", upstreamProvider: "recraft",
+  const { imageResponse, ...costReceipt } = result.receipt;
+  assert.equal(imageResponse.reason, "bounded_source_only");
+  assert.equal(imageResponse.originalSha256, createHash("sha256").update(png).digest("hex"));
+  assert.deepEqual(costReceipt, { capability: "image.generate", provider: "openrouter", upstreamProvider: "recraft",
     modelId: policy.modelId, providerRequestId: "image-request-1", reservationId: "creative:attempt-1", quoteId: quote.quoteId,
     promptHash: quote.promptHash, requestHash: quote.requestHash, elapsedMs: 0, estimatedMicrousd: 210000,
     reportedCostUsd: 0.21, reportedMicrousd: 210000, inputTokens: 12, outputTokens: 0, totalTokens: 12 });
@@ -175,8 +179,7 @@ test("missing usage remains unknown, while safe string usage and zero charges re
 
 test("invalid image output is rejected without retries and retains the paid response receipt", async () => {
   const invalidOutputs = [
-    [], [...success().data, ...success().data], [{ ...success().data[0], media_type: "image/jpeg" }],
-    [{ ...success().data[0], media_type: undefined }], [{ b64_json: "https://example.com/image.png", media_type: "image/png" }],
+    [], [...success().data, ...success().data], [{ b64_json: "https://example.com/image.png", media_type: "image/png" }],
     [{ ...success().data[0], url: "https://example.com/image.png" }],
     [{ ...success().data[0], b64_json: `${png.toString("base64")}!` }],
     [{ ...success().data[0], b64_json: png.toString("base64").slice(0, -1) }],
@@ -267,5 +270,63 @@ test("failed or oversized catalog validation never sends a paid request", async 
 test("configuration cannot send credentials to other origins or raise the hard timeout", () => {
   for (const options of [{ config: { ...config, baseUrl: "https://attacker.example/api/v1" } }, { timeoutMs: 120001 }, { timeoutMs: 0 }, { timeoutMs: Infinity }]) {
     assert.throws(() => new OpenRouterImageAdapter({ config, ...options }), isError("configuration_required"));
+  }
+});
+
+
+test("bounded source accepts documented omitted MIME but records the actual detected bytes", async () => {
+  const { adapter } = fixture({ fetcher: (_url, init) => json(init.method === "GET" ? catalog : {
+    ...success(), created: 1790795681, data: [{ b64_json: png.toString("base64") }],
+  }, { headers: { "x-generation-id": "gen-retained-source", "x-request-id": "generic-request" } }) });
+  const result = await adapter.generate(request, authorization(await adapter.preflight(request)));
+  assert.equal(result.mediaType, "image/png");
+  assert.equal(result.receipt.providerRequestId, "gen-retained-source");
+  assert.equal(result.receipt.imageResponse.declaredMediaType, "absent");
+  assert.equal(result.receipt.imageResponse.detectedMediaType, "image/png");
+  assert.equal(result.receipt.imageResponse.created, 1790795681);
+});
+
+test("bounded WebP source is distinctly labelled for preservation before full normalization", async () => {
+  const original = await sharp({ create: { width: 16, height: 16, channels: 4, background: '#abc' } }).webp({ lossless: true }).toBuffer();
+  const { adapter, paidCalls } = fixture({ fetcher: (_url, init) => json(init.method === "GET" ? catalog : {
+    ...success(), data: [{ b64_json: original.toString("base64"), media_type: "image/webp" }],
+  }) });
+  const result = await adapter.generate(request, authorization(await adapter.preflight(request)));
+  assert.equal(result.mediaType, "image/webp");
+  assert.deepEqual(Buffer.from(result.bytes), original);
+  assert.equal(result.receipt.imageResponse.reason, "bounded_source_only");
+  assert.equal(result.receipt.imageResponse.originalSha256, createHash("sha256").update(original).digest("hex"));
+  assert.equal(paidCalls().length, 1);
+});
+
+test("source failures retain bounded diagnostic reasons, never arbitrary MIME or raw image data", async () => {
+  for (const [patch, reason] of [
+    [{ b64_json: 'secret-image-blob' }, 'invalid_base64'],
+    [{ url: 'https://secret.example/file' }, 'remote_image_url_rejected'],
+  ]) {
+    const { adapter } = fixture({ fetcher: (_url, init) => json(init.method === "GET" ? catalog : {
+      ...success(), data: [{ ...success().data[0], ...patch }],
+    }, { headers: { 'x-generation-id': 'gen-failed-source' } }) });
+    await assert.rejects(adapter.generate(request, authorization(await adapter.preflight(request))), error => {
+      assert.equal(error.receipt.imageResponse.reason, reason);
+      assert.equal(error.receipt.reportedMicrousd, 210000);
+      assert.equal(error.providerRequestId, 'gen-failed-source');
+      assert.doesNotMatch(JSON.stringify(error.receipt), /secret-provider|secret-image|secret.example/);
+      return true;
+    });
+  }
+});
+
+
+test("recognized bounded source is retained for private storage even when its declared MIME conflicts", async () => {
+  for (const media_type of ['image/jpeg', null, 'secret-provider-value']) {
+    const { adapter } = fixture({ fetcher: (_url, init) => json(init.method === 'GET' ? catalog : {
+      ...success(), data: [{ ...success().data[0], media_type }],
+    }) });
+    const result = await adapter.generate(request, authorization(await adapter.preflight(request)));
+    assert.deepEqual(Buffer.from(result.bytes), png);
+    assert.equal(result.mediaType, 'image/png');
+    assert.equal(result.receipt.imageResponse.reason, 'bounded_source_media_type_conflict');
+    assert.doesNotMatch(JSON.stringify(result.receipt), /secret-provider-value/);
   }
 });

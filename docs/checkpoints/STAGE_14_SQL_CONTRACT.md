@@ -1,6 +1,6 @@
 # Stage 14 creative SQL contract
 
-Status: migration 20260930113942 is approved and applied. Independent security review conditionally passed under the documented trusted-owner model. Full local checks and hosted Stage 10–14 rollback regressions passed before and after apply. Actual zero-paid Storage HTTP upload/download, byte-hash, missing/wrong/foreign capability, immutable-path, terminal and expired-capability denial tests passed. Owner expiry recovery was verified. Hosted application UI and the single approved real technical image run remain pending; no paid provider call or full Stage 14 exit is claimed.
+Status: migration 20260930113942 is approved and applied. Independent security review conditionally passed under the documented trusted-owner model. Full local checks and hosted Stage 10–14 rollback regressions passed before and after apply. Actual zero-paid Storage HTTP upload/download, byte-hash, missing/wrong/foreign capability, immutable-path, terminal and expired-capability denial tests passed. Owner expiry recovery was verified. Hosted application UI is verified. Paid technical attempts have occurred, including a billed image whose discarded response failed the PNG-only contract; successful live image qualification and the full Stage14 exit remain pending. Detailed private costs and designs are retained outside this repository.
 
 ## Files and scope
 
@@ -19,7 +19,7 @@ Owner-only, `authenticated`:
    - Owner, Business and candidate identity are checked; server records owner/time and the persisted production assessment rather than trusting caller-supplied assessment
    - Returns `{approvalId, approvalHash, snapshot}`
    - Same approval UUID replay returns its original immutable snapshot; changed substantive content is rejected
-   - A canonical scope fingerprint also prevents refreshed UUIDs, approval/expiry timestamps, Printful verification timestamps or quote timestamps from resetting identical intent into another two-image allowance. Fingerprint includes the candidate/purpose/design/rights/screens/physical specification/budget and model identities. Candidate-row locking serializes concurrent form submissions
+   - A canonical scope fingerprint also prevents refreshed UUIDs, approval/expiry timestamps, Printful verification timestamps or quote timestamps from resetting identical intent into another allowance. Fingerprint includes the candidate/purpose/design/rights/screens/physical specification/budget and model identities. Candidate-row locking serializes concurrent form submissions
 2. `begin_creative_run(p_approval_id uuid, p_launch_nonce uuid, p_runtime_capability text)`
    - Revalidates rights, sources, production evidence when applicable, and approval expiry
    - Returns `{creativeRunId, workflowRunId, shouldStart, snapshot, approvalHash, quote}`
@@ -46,17 +46,17 @@ Runtime-only, `anon` publishable client with exact run secret:
 | `persist_phase` | `{callKey,output}` | Requires outputValidated=true receipt and all deterministic phase gates; returns `{status,phaseKey,artifactId,productionReady,interventionId}` |
 | `fail` | `{reason}` | Retains every reservation/receipt/asset; makes Needs You; terminal completion is never overwritten |
 
-There are only six call keys, each reservable once:
+There are at most six call keys, each reservable once:
 
 `brief:1 → screen:1 → generate:1 → review:1 → completed`, or a failed review permits exactly `generate:2 → review:2 → completed / needs_owner`.
 
-A model PASS with deterministic image/print failure goes to Needs You. The first review FAIL may authorize a single exact repair. Every repeated failure stops. A non-clear screen stops before generation.
+A model PASS with deterministic image/print failure goes to Needs You. With the explicitly selected two-image limit, the first review FAIL may authorize a single exact repair. A one-image/no-repair approval has only four phases and ends at Needs You after the first review FAIL; all second-version operations are denied. Every repeated failure stops. A non-clear screen stops before generation.
 
 ## Payload details
 
 - Brief: `DesignBrief`
 - Screen: `BriefScreen`, hash-bound to canonical final brief and immutable owner approval
-- Generation: `{inspection,storagePath,prompt,model,provider,generatedAt}`
+- Generation: `{inspection,provenance,storagePath,prompt,model,provider,generatedAt}` after source-retention hardening
 - Review: `DesignReview`, hash-bound to the exact persisted asset and brief
 - `load.assets`: generation payload plus `version: 1|2`
 - `load.reviews`: `{version: 1|2, output: DesignReview}`
@@ -76,7 +76,7 @@ Image generation is a trusted capability, not a falsely labeled Creative Directo
 - Current approved total and per-phase bounds come from the app quote, not a hardcoded price-consent assumption
 - Approved fixed models: Luna `openai/gpt-5.6-luna`, independent reviewer `anthropic/claude-haiku-4.5`, image model `recraft/recraft-v4.1-pro`
 - Generator can never review its own image
-- The current app quote uses conservative six-call estimate 825,056 micro-USD, with phase ceilings 33,992 / 107,304 / 210,000 / 131,880; SQL checks supplied arithmetic and ceiling rather than treating that quote as an invoice guarantee
+- The current app quote uses a conservative six-call estimate of 825,056 micro-USD (483,176 for four calls with no repair), with phase ceilings 33,992 / 107,304 / 210,000 / 131,880; SQL checks supplied arithmetic and ceiling rather than treating that quote as an invoice guarantee
 - Every call's fresh quote must match its approved model and exact official OpenRouter catalog URL, within five minutes
 - Text estimates preserve byte count, formatting/image allowance, bounded output token limit, and current token/cache-write rates. SQL recomputes the reservation and limits serialized text to 24,576 bytes
 - Image estimates bind exact request hash, prompt hash, quoted charge, pricing fingerprint and quote ID
@@ -100,15 +100,17 @@ The owner-facing production form uses this same approved RPC. It never creates o
 
 ## Storage boundary requiring approval
 
-Private bucket `creative-assets`, PNG only, 7 MB maximum. Exact immutable paths:
+Private bucket `creative-assets`, 7MB per object. The approved source-retention delta adds only WebP source objects beside PNG review/print representations, up to 14MB per generation. Exact immutable paths:
 
 `<BusinessUUID>/<CreativeRunUUID>/version-1.png`
 
 `<BusinessUUID>/<CreativeRunUUID>/version-2.png`
 
+Approved additional original-source paths: `<BusinessUUID>/<CreativeRunUUID>/version-1.original.webp` and `version-2.original.webp`
+
 - Business owner can SELECT their private assets after completion
 - Runtime reads/inserts use `x-creative-capability`; helper compares its SHA-256 to a private table, binds Business/run/path, checks active status and hard expiry ≤2 hours
-- INSERT is only the currently reserved generation version, after independent final-brief screen PASS, before that version is persisted
+- INSERT is only the currently reserved generation version, after independent final-brief screen PASS, before that version is persisted. Both INSERT predicates require exact path-extension/MIME agreement
 - No UPDATE, DELETE, upsert or public bucket; restrictive companion policies prevent other permissive policies widening access
 - Runtime uses only publishable credentials and a short-lived run capability; no service-role secret is used or distributed
 - Supabase service-role administration inherently bypasses Storage RLS; this is not claimed to defend against database administrators. App and runtime are forbidden that credential
@@ -133,3 +135,17 @@ References consulted: Supabase changelog (`https://supabase.com/changelog.md`, i
 - Provenance is application-recorded provider metadata verified by the normal runtime, not cryptographic attestation against a malicious owner. An owner can choose a run secret and author internally consistent records for their own Business through its guarded API. This inherited trusted-owner limitation grants no cross-Business access, global qualification promotion or publication authority. Future autonomy may require separate server attestation
 
 Image catalog requests use at most 10 seconds, paid image requests at most 120 seconds, and each Storage HTTP operation at most 60 seconds. The five-minute admission margin covers this bounded request chain with settlement/inspection headroom. An expired secret never regains active authority; owner-only expiry recovery remains available. Returned model and explicitly reported unexpected upstream identities are rejected while their known charges and reported identity are preserved.
+
+
+## Source retention and one-image changes (applied)
+
+The two approved, applied migrations dated 20260930194838 and20260930194904 replace existing function bodies without changing signatures or EXECUTE grants. The second changes only the specifically approved bucket MIME/path scope and existing INSERT checks. It asserts the prior private 7 MB PNG-only bucket configuration before changing it. Restrictive SELECT/UPDATE/DELETE boundaries and capability expiry remain intact.
+
+Generation provenance is a closed 19-field object: normalization version, declared/detected MIME, original/normalized byte counts and hashes, dimensions, conversion/verification method, two matching decoded-pixel hashes, channels/alpha facts, decoder/encoder versions and exact source/PNG paths. SQL binds it to the immutable receipt, PNG inspection and Storage metadata. Provider PNG is the byte-identity case with one object. WebP requires a separate source object and verified lossless conversion to the PNG used by all existing review hashes.
+
+Paid receipts remain recordable even when output/provenance is invalid, preserving spend. Receipt storage alone does not advance or approve an asset: persist_phase independently requires complete matching provenance and both private objects. Invalid source bytes are retained privately and never presented as a validated asset. Actual byte hashing and full decoding remain trusted-runtime work; SQL cannot independently hash Storage contents.
+
+Rollback must retain owner-read access to previously stored originals and all immutable provenance/charges. Disable new WebP inserts and new launches before rolling back runtime support; do not delete source objects or relabel them as PNG. A schema-only rollback that strands original files is not acceptable.
+
+
+Applied 2026-09-30 after independent review and isolated PostgreSQL18.3 rehearsal. All65 migrations and Stage1/10–14 tests passed locally; outer rollback restored baseline data and function definitions exactly. Hosted post-apply function ACL/owner/definer/config and private bucket checks matched the approved delta; security-advisor categories/counts were unchanged. Actual WebP Storage HTTP verification and live provider qualification remain pending. No hosted rollback execution with the new definitions is claimed.

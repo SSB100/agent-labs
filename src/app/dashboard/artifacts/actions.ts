@@ -6,7 +6,7 @@ import { start } from "workflow/api";
 import { validateCreativeApproval } from "@/creative/contracts";
 import { currentCreativeQuote, TECHNICAL_HYPOTHESIS, technicalCreativeApproval } from "@/creative/proposal";
 import { currentProductionCandidate, productionCreativeApproval } from "@/creative/production-approval";
-import { SCREEN_CATEGORIES } from "@/creative/types";
+import { SCREEN_CATEGORIES, type CreativeGenerationLimit } from "@/creative/types";
 import type { ProductCandidate, ProductDecision, ProductExperiment } from "@/products/types";
 import { requireOwnerUiContext } from "@/lib/core-ui/data";
 import { creativeRuntimeWorkflow } from "@/workflows/creative-runtime";
@@ -14,6 +14,13 @@ import { creativeRuntimeWorkflow } from "@/workflows/creative-runtime";
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const value = (form: FormData, key: string) => typeof form.get(key) === "string" ? String(form.get(key)).trim() : "";
 function error(message: string): never { redirect(`/dashboard/artifacts?error=${encodeURIComponent(message.slice(0, 350))}`); }
+function generationLimit(form: FormData): CreativeGenerationLimit {
+  const limit = value(form, "maximumGenerations");
+  // Older forms keep the historical two-image bound; new forms explicitly select it.
+  if (!limit) return 2;
+  if (limit !== "1" && limit !== "2") error("Choose one image with no repair, or up to two images with one repair.");
+  return limit === "1" ? 1 : 2;
+}
 function success(message: string): never { revalidatePath("/dashboard/artifacts"); revalidatePath("/dashboard/products"); redirect(`/dashboard/artifacts?message=${encodeURIComponent(message)}`); }
 
 export async function approveCreativeCandidate(form: FormData) {
@@ -22,16 +29,16 @@ export async function approveCreativeCandidate(form: FormData) {
   if (!["confirmOriginalIntent", "confirmTechnicalOnly", "confirmPrintSpec", "confirmTerms", "confirmBudget"].every(key => value(form, key) === "on")) error("Confirm the specific original design, technical scope, print specification, provider terms and total allowance.");
   const design = { concept: value(form, "concept"), audience: value(form, "audience"), designInstructions: value(form, "designInstructions") };
   if (design.concept.length < 3 || design.concept.length > 160 || design.audience.length < 3 || design.audience.length > 160 || design.designInstructions.length < 50 || design.designInstructions.length > 1500) error("Provide the specific original concept, audience and 50–1500 character design instructions.");
-  const maximumMicrousd = Math.round(Number(value(form, "budgetUsd")) * 1_000_000);
+  const maximumGenerations = generationLimit(form), maximumMicrousd = Math.round(Number(value(form, "budgetUsd")) * 1_000_000);
   if (!Number.isInteger(maximumMicrousd) || maximumMicrousd < 1 || maximumMicrousd > 1_000_000) error("This technical test allows at most US$1 total across all phases.");
   let quote: Awaited<ReturnType<typeof currentCreativeQuote>>;
-  try { quote = await currentCreativeQuote(); } catch (cause) { error(cause instanceof Error ? cause.message : "Provider quote unavailable."); }
+  try { quote = await currentCreativeQuote(maximumGenerations); } catch (cause) { error(cause instanceof Error ? cause.message : "Provider quote unavailable."); }
   if (quote.maximumEstimateMicrousd > maximumMicrousd) error("Current conservative estimate exceeds the allowance; no provider call was made.");
   const candidate = await context.supabase.rpc("create_product_candidate", { p_business_id: businessId, p_candidate: {
     concept: design.concept, audience: design.audience, hypothesis: TECHNICAL_HYPOTHESIS,
     originalDesign: true, rightsStatus: "confirmed", sourceDomains: ["etsy.com", "printful.com"] } });
   if (candidate.error || !candidate.data?.candidateId) error(candidate.error?.message ?? "Unable to preserve the original concept.");
-  const approval = technicalCreativeApproval(businessId, candidate.data.candidateId, maximumMicrousd, design, approvalId);
+  const approval = technicalCreativeApproval(businessId, candidate.data.candidateId, maximumMicrousd, design, approvalId, maximumGenerations);
   try { validateCreativeApproval(approval); } catch (cause) { error(cause instanceof Error ? cause.message : "Invalid approval."); }
   const saved = await context.supabase.rpc("approve_creative_candidate", { p_candidate_id: candidate.data.candidateId, p_approval: approval, p_quote: quote });
   if (saved.error) error(saved.error.message);
@@ -68,13 +75,13 @@ export async function approveProductionCreativeCandidate(form: FormData) {
   const experimentResult = await context.supabase.from("product_experiments").select("*").eq("id", selected.experiment_id).eq("candidate_id", candidate.id).eq("business_id", candidate.business_id).maybeSingle();
   const choice = experimentResult.error ? null : currentProductionCandidate(candidate, decisions, experimentResult.data ? [experimentResult.data as ProductExperiment] : []);
   if (!choice) error("Current evidence-backed owner TEST and fresh completed research are required. Unknown evidence cannot be waived by creative approval.");
-  const maximumMicrousd = Math.round(Number(value(form, "budgetUsd")) * 1_000_000);
+  const maximumGenerations = generationLimit(form), maximumMicrousd = Math.round(Number(value(form, "budgetUsd")) * 1_000_000);
   if (!Number.isInteger(maximumMicrousd) || maximumMicrousd < 1 || maximumMicrousd > 1_000_000) error("This bounded creative run allows at most US$1 across all phases.");
   let approval: ReturnType<typeof productionCreativeApproval>, quote: Awaited<ReturnType<typeof currentCreativeQuote>>;
   try {
-    approval = productionCreativeApproval(choice, { approvalId, designInstructions: value(form, "designInstructions"), rightsStatement: value(form, "rightsStatement"), maximumMicrousd,
+    approval = productionCreativeApproval(choice, { approvalId, designInstructions: value(form, "designInstructions"), rightsStatement: value(form, "rightsStatement"), maximumMicrousd, maximumGenerations,
       policyScreen: SCREEN_CATEGORIES.map(category => ({ category, status: "clear", rationale: value(form, `rationale_${category}`), sourceUrls: value(form, `sources_${category}`).split(/\r?\n/).map(url => url.trim()).filter(Boolean) })) });
-    quote = await currentCreativeQuote();
+    quote = await currentCreativeQuote(maximumGenerations);
   } catch (cause) { error(cause instanceof Error ? cause.message : "Unable to validate the exact production approval."); }
   if (quote.maximumEstimateMicrousd > maximumMicrousd) error("Current conservative estimate exceeds the allowance; no provider call was made.");
   const saved = await context.supabase.rpc("approve_creative_candidate", { p_candidate_id: candidate.id, p_approval: approval, p_quote: quote });

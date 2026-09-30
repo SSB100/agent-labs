@@ -38,3 +38,15 @@ test('Artifacts loads reservations and receipts without dropping expired runs or
   assert.match(page, /!data\.costsAvailable \? "Unavailable"/);
   assert.match(page, /The cost ledger could not be fully loaded/);
 });
+
+
+test('owner explicitly selects the image bound and history keeps each saved bound visible', () => {
+  assert.equal((page.match(/name="maximumGenerations"/g) ?? []).length, 2);
+  assert.equal((page.match(/name="maximumGenerations" required defaultValue="2"/g) ?? []).length, 2);
+  assert.match(page, /One image, no repair \(up to 4 provider calls\)/);
+  assert.match(page, /Image limit: \{a.snapshot.maximumGenerations\}/);
+  assert.match(page, /No repair; a failed review stops for owner review/);
+  assert.equal((actions.match(/currentCreativeQuote\(maximumGenerations\)/g) ?? []).length, 2);
+  assert.match(actions, /technicalCreativeApproval\(businessId, candidate.data.candidateId, maximumMicrousd, design, approvalId, maximumGenerations\)/);
+  assert.match(actions, /limit !== "1" && limit !== "2"/);
+});
