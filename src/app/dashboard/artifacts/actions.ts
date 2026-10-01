@@ -8,7 +8,7 @@ import { currentCreativeQuote, TECHNICAL_HYPOTHESIS, technicalCreativeApproval }
 import { currentProductionCandidate, productionCreativeApproval } from "@/creative/production-approval";
 import { FLUX_KLEIN_PNG_POLICY } from "@/creative/image-provider";
 import { SCREEN_CATEGORIES, type CreativeGenerationLimit } from "@/creative/types";
-import type { ProductCandidate, ProductDecision, ProductExperiment } from "@/products/types";
+import type { ProductCandidate, ProductDecisionRecord, ProductExperimentRecord } from "@/products/types";
 import { requireOwnerUiContext } from "@/lib/core-ui/data";
 import { creativeRuntimeWorkflow } from "@/workflows/creative-runtime";
 
@@ -79,11 +79,19 @@ export async function approveProductionCreativeCandidate(form: FormData) {
   const candidate = candidateResult.data as ProductCandidate | null;
   if (candidateResult.error || !candidate || !context.businesses.some(b => b.id === candidate.business_id)) error("Owned candidate not found.");
   const decisionsResult = await context.supabase.from("product_decisions").select("*").eq("candidate_id", candidate.id).eq("business_id", candidate.business_id).order("created_at", { ascending: false }).limit(2);
-  const decisions = (decisionsResult.data ?? []) as ProductDecision[], selected = decisions.find(d => d.id === decisionId);
+  const decisions = (decisionsResult.data ?? []) as ProductDecisionRecord[], selected = decisions.find(d => d.id === decisionId);
   if (decisionsResult.error || !selected || selected.id !== decisions[0]?.id) error("The candidate decision changed. Review the current evidence before approving.");
-  const experimentResult = await context.supabase.from("product_experiments").select("*").eq("id", selected.experiment_id).eq("candidate_id", candidate.id).eq("business_id", candidate.business_id).maybeSingle();
-  const choice = experimentResult.error ? null : currentProductionCandidate(candidate, decisions, experimentResult.data ? [experimentResult.data as ProductExperiment] : []);
-  if (!choice) error("Current evidence-backed owner TEST and fresh completed research are required. Unknown evidence cannot be waived by creative approval.");
+  const experimentResult = await context.supabase.from("product_experiments").select("*",{count:"exact"}).eq("candidate_id", candidate.id).eq("business_id", candidate.business_id).order("created_at",{ascending:false}).limit(1001);
+  const experiments=(experimentResult.data??[]) as ProductExperimentRecord[];
+  if(experimentResult.error||experiments.length>1000||experimentResult.count!==experiments.length)error("The complete candidate evaluation history could not be checked.");
+  const selectedExperiment=experiments.find(e=>e.id===selected.experiment_id);
+  if(selectedExperiment?.parent_discovery_id){
+    const root=await context.supabase.from("product_experiments").select("*").eq("id",selectedExperiment.parent_discovery_id).eq("business_id",candidate.business_id).maybeSingle();
+    if(root.error||!root.data)error("The reviewed discovery root could not be checked.");
+    experiments.push(root.data as ProductExperimentRecord);
+  }
+  const choice = currentProductionCandidate(candidate, decisions, experiments);
+  if (!choice) error("A current evidence-backed reviewed TEST is required. Unresolved blockers cannot be waived by creative approval.");
   const maximumGenerations = generationLimit(form), maximumMicrousd = Math.round(Number(value(form, "budgetUsd")) * 1_000_000);
   if (!Number.isInteger(maximumMicrousd) || maximumMicrousd < 1 || maximumMicrousd > 1_000_000) error("This bounded creative run allows at most US$1 across all phases.");
   let approval: ReturnType<typeof productionCreativeApproval>, quote: Awaited<ReturnType<typeof currentCreativeQuote>>;

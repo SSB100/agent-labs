@@ -1,6 +1,6 @@
 # Stage 14 — Creative pipeline
 
-Status: Stage 14 remains in technical qualification. A real provider original was preserved and hash-verified, but its embedded C2PA credentials cannot be stripped during conversion. It remains an unreviewed private source. A separately approved native-PNG provider route is implemented and independently reviewed; exact hosted build and live qualification remain gates. **The full Stage 14 approved-candidate production exit is not complete.** Do not advance Stage 15 on a technical-only PASS.
+Status: A real native-PNG technical run has passed generation, immutable source preservation, print-spec validation and independent pixel review. The approved source remained byte-identical, including its opaque embedded content credentials. **The full Stage14 approved-candidate production exit is not complete.** Stage13 geographic discovery and substantive strategy/review require the corrective v2 implementation described in ADR001. A technical-only PASS does not advance Stage15.
 
 ## Scope
 
@@ -21,7 +21,7 @@ The image adapter uses the existing OpenRouter connection with Recraft V4.1 Pro,
 
 Creative Director uses the fixed Luna route; final-brief screen and visual review use the fixed independent Claude Haiku route. Provider/model identity and observed cost are retained even for malformed paid responses. No automatic retry or fallback is permitted. A timeout or uncertain response consumes its durable reservation. Replaying a call or identical approval cannot reset the allowance.
 
-The pending bounded technical qualification uses the shared US$1 total allowance for all future tests. That pool is reserved for this test until its known and uncertain charges are reconciled; it is not an additional per-test allowance. At verified 2026-09-30 prices, the declared maximum six-call estimate is US$0.825056: one brief, one screen, two images and two visual reviews. Each text request is limited to 24,576 serialized text bytes plus 8,192 formatting-token allowance; a visual request adds 8,192 image tokens. Brief output is capped at 2,500 tokens; screen/review output at 1,800. Current prices are checked before every call. This is a conservative estimate, not a provider-enforced invoice guarantee. It does not authorize another experiment.
+Every test remains subject to its explicit approval, fresh complete quote and the owner's aggregate allowance. The native-PNG qualification used one image with no repair. Earlier failed attempts, actual receipts and reserved estimates remain intact. Final known charges and pending/unknown exposure must be distinguished; an estimate is not a provider-enforced invoice guarantee. Private run identifiers, artwork, receipts and the user's remaining allowance are not published here.
 
 Public image-price checks time out after 10 seconds, image requests after 120 seconds and Storage operations after 60 seconds. A new call requires at least five minutes of remaining capability lifetime. Accepted PNG files are limited to 7,000,000 bytes to fit the visual request envelope.
 
@@ -65,7 +65,9 @@ The pre-Stage-14 local lock already contained Workflow 4.8.9 with nanoid 5.1.6 a
 
 ## Remaining stage exit
 
-The technical test can verify generation, storage, traceability and independent pixel review. Full Stage 14 additionally requires a genuinely eligible current owner TEST, a separate candidate-production approval and a successful production-purpose run. Unknown demand, margin or other required evidence cannot be waived, and a technical PASS does not advance Stage 15. Cloud browser access recovered after earlier Chromium/CDP/native-input failures. Successful image qualification remains pending after brief-validation and image-contract failures; a further authorized test must preserve earlier ledger commitments and fit the shared total allowance.
+The technical test has verified generation, private storage, source/asset traceability and independent pixel review. Full Stage14 still requires a current evidence-backed, substantively reviewed TEST, a separate candidate-production approval and a successful production-purpose run. The v2 decision is a bounded learning recommendation with explicit uncertainty; it does not require invented numeric certainty or a universal seven-day wait. Concept-specific rights/IP, current critical evidence, print constraints, latest-decision identity and separate spending authority remain hard execution gates.
+
+Before any shared v2 rows, the seven-file legacy-reader compatibility prerequisite was released through PR19 and verified in production. It retains existing v1 records and handles null-candidate roots/new decision formats without converting them to numeric scores. The research correction and its database/runtime qualification remain separately gated.
 
 ## Primary references
 

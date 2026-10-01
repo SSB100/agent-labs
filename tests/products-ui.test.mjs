@@ -17,7 +17,7 @@ test("Workflow Products preserves experiment scope, and running state is bound b
   const data = read("src/products/data.ts"), runtime = read("src/workflows/installed-pack-runtime-steps.ts");
   assert.match(data, /decisionQuery\.in\("experiment_id", experiments\.map/);
   assert.match(runtime, /p_operation: "scope"/);
-  assert.match(runtime, /scoped\.data\?\.experimentId !== input\.productExperimentId/);
+  assert.match(runtime, /scoped\.data\?\.experimentId!==productScope\.experimentId/);
   assert.match(read("src/components/stage7/app-shell.tsx"), /href: "\/dashboard\/products"/);
   assert.match(read("src/components/stage7/live-refresh.tsx"), /product_candidates/);
   assert.match(read("src/components/stage7/workflow-workspace.tsx"), /<ProductsWorkspace data=\{productData\}/);

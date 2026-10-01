@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import Link from "next/link";
 
 import { AppShell, PageHeader } from "@/components/stage7/app-shell";
@@ -5,6 +6,11 @@ import { CoreIcon } from "@/components/stage7/icons";
 import { ProductsWorkspace, ProductSubmitButton } from "@/components/stage13/products-workspace";
 import { requireOwnerUiContext } from "@/lib/core-ui/data";
 import { loadProductWorkspace } from "@/products/data";
+import { productHistorySummary } from "@/products/history";
+import { DiscoveryGoalForm, DiscoveryGoalResults, type DiscoveryQuotePreview } from "@/components/stage13/discovery-goal-workspace";
+import { loadDiscoveryGoalData } from "@/products/discovery-v2-data";
+import { buildDiscoveryIntentFromGoal, discoveryGoalBudgetScope, DISCOVERY_GOAL_DEFAULT } from "@/products/discovery-v2-goal";
+import { quoteDiscoveryV2, fetchDiscoveryV2ModelQuote, discoveryV2Model } from "@/products/discovery-v2-budget";
 import { createProductCandidate } from "./actions";
 import "./products.css";
 
@@ -21,17 +27,22 @@ function first(value: string | string[] | undefined) {
 export default async function ProductsPage({ searchParams }: ProductsPageProps) {
   const context = await requireOwnerUiContext();
   const [data, query] = await Promise.all([loadProductWorkspace(context), searchParams]);
+  const discovery = await loadDiscoveryGoalData(context,data.experiments);
+  let quotePreview:DiscoveryQuotePreview=null;
+  if(discovery.available&&context.businesses.length){
+    try{
+      const [director,reviewer]=await Promise.all([fetchDiscoveryV2ModelQuote(discoveryV2Model("plan:1")),fetchDiscoveryV2ModelQuote(discoveryV2Model("review:1"))]);
+      const estimate=(maximumCollections:1|2)=>quoteDiscoveryV2(discoveryGoalBudgetScope(buildDiscoveryIntentFromGoal({id:randomUUID(),businessId:context.businesses[0].id,goal:DISCOVERY_GOAL_DEFAULT,maximumMicrousd:1000000,maximumCollections})),{director,reviewer});
+      const one=estimate(1),two=estimate(2);quotePreview={one:one.maximumEstimateMicrousd,two:two.maximumEstimateMicrousd,verifiedAt:one.verifiedAt};
+    }catch{/* Unavailable or unsupported prices keep the start control disabled. */}
+  }
   const message = first(query.message);
   const error = first(query.error);
-  const latestDecisions = new Map<string, (typeof data.decisions)[number]>();
-  for (const decision of [...data.decisions].sort((a, b) => b.created_at.localeCompare(a.created_at))) {
-    if (!latestDecisions.has(decision.candidate_id)) latestDecisions.set(decision.candidate_id, decision);
-  }
-  const needsEvidence = [...latestDecisions.values()].filter((decision) => decision.assessment.outcome === "NEEDS_MORE_EVIDENCE").length;
+  const { needsEvidence, unsupportedAssessments, unrecognizedOutcomes } = productHistorySummary(data.decisions);
   const activeResearch = data.experiments.filter((experiment) => ["reserved", "researching"].includes(experiment.status)).length;
 
   return <AppShell active="products" context={context}>
-    <PageHeader eyebrow="Commerce · Discovery" title="Products" description="Research a clear hypothesis. Keep the evidence. Learn before producing." actions={<a className="coreButton coreButton-primary" href="#product-concept"><span aria-hidden="true">+</span>Add candidate</a>} />
+    <PageHeader eyebrow="Commerce · Discovery" title="Products" description="Give a goal. Get a researched market recommendation, alternatives and clear next steps." actions={<a className="coreButton coreButton-primary" href="#discovery-goal"><span aria-hidden="true">+</span>Research a goal</a>} />
     {message ? <p className="coreNotice coreNotice-success" role="status">{message}</p> : null}
     {error ? <p className="coreNotice coreNotice-danger" role="alert">{error}</p> : null}
 
@@ -47,9 +58,12 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
       <div><dt>Needs more evidence</dt><dd>{needsEvidence}</dd><small>Latest decision per candidate</small></div>
       <div><dt>Preserved experiments</dt><dd>{data.experiments.length}</dd><small>History prevents repeated loops</small></div>
     </dl>
+    {unsupportedAssessments ? <p className="productSubtle">{unsupportedAssessments} latest decision(s) use a newer or unrecognized assessment format. Their preserved contents remain visible in the workspace; they are not converted into legacy scores.{unrecognizedOutcomes ? ` ${unrecognizedOutcomes} outcome(s) cannot be interpreted and are not included in the needs-evidence count.` : ""}</p> : null}
 
-    <details className="productCreate" id="new-candidate" open={!data.candidates.length}>
-      <summary><span><span aria-hidden="true">+</span><strong>Add a product candidate</strong></span><span>Define the question before research</span></summary>
+    <DiscoveryGoalForm businesses={context.businesses} available={discovery.available} quote={quotePreview}/>
+    <DiscoveryGoalResults data={discovery}/>
+    <details className="productCreate" id="new-candidate">
+      <summary><span><span aria-hidden="true">+</span><strong>Legacy manual candidate entry</strong></span><span>Optional advanced record keeping</span></summary>
       {context.businesses.length ? <form action={createProductCandidate} className="productForm productCreateForm">
         <div className="productFormGrid">
           <label htmlFor="product-business">Business<select id="product-business" name="businessId" required defaultValue={context.businesses[0]?.id}>{context.businesses.map((business) => <option key={business.id} value={business.id}>{business.name}</option>)}</select></label>

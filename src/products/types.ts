@@ -40,8 +40,14 @@ export type ProductDecision = {
   id: string; business_id: string; candidate_id: string; experiment_id: string;
   assessment: CandidateAssessment; created_at: string;
 };
+/** Database history is versioned independently of this reader. Keep v1 write contracts above narrow. */
+export type ProductExperimentRecord = Omit<ProductExperiment, "candidate_id" | "measurement_plan"> & {
+  candidate_id: string | null; measurement_plan: unknown;
+  discovery_version?: string; parent_discovery_id?: string | null;
+};
+export type ProductDecisionRecord = Omit<ProductDecision, "assessment"> & { assessment: unknown };
 export type ProductWorkspaceData = {
-  candidates: ProductCandidate[]; experiments: ProductExperiment[]; decisions: ProductDecision[]; errors: string[];
+  candidates: ProductCandidate[]; experiments: ProductExperimentRecord[]; decisions: ProductDecisionRecord[]; errors: string[];
 };
 export const DEFAULT_MEASUREMENT_PLAN: MeasurementPlan = {
   metric: "qualified_interest_count", minimumSampleSize: 30, minimumDays: 7, successThreshold: 5,

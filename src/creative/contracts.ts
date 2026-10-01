@@ -1,4 +1,7 @@
 import { createHash } from "node:crypto";
+import { REVIEWER_DECISION_V2_SCHEMA } from "../products/discovery-v2-worker-contract";
+import { REVIEW_CHECKS_V2, DISCOVERY_V2, DISCOVERY_V2_MODELS, type ReviewerDecisionV2 } from "../products/discovery-v2";
+import { assertJsonSchemaValue } from "../workers/schema-validator";
 import { DIMENSIONS } from "../products/types";
 import { MAX_CREATIVE_PNG_BYTES, REVIEW_CRITERIA, SAFE_REPAIR_INSTRUCTIONS, SCREEN_CATEGORIES, type AssetInspection, type BriefScreen, type CreativeApprovalSnapshot, type CreativeGenerationLimit, type CreativeNextStep, type DesignBrief, type DesignReview, type PrintSpecification } from "./types";
 
@@ -31,6 +34,16 @@ export function validatePrintSpecification(spec: PrintSpecification, now = Date.
   }
   if (spec.designWidthInches > spec.maximumWidthInches || spec.designHeightInches > spec.maximumHeightInches || !Number.isFinite(spec.minimumDpi) || spec.minimumDpi < 150 || spec.minimumDpi > 300) throw new Error("Design placement exceeds verified print constraints.");
 }
+/** Snapshot preflight only; the owner/runtime RPC revalidates persisted dossier and provider lineage. */
+export function isReviewedDiscoveryTest(value:unknown,candidateId:string):value is ReviewerDecisionV2{
+  try{assertJsonSchemaValue(REVIEWER_DECISION_V2_SCHEMA,value,"Reviewed discovery decision");}catch{return false;}
+  const review=value as ReviewerDecisionV2;
+  return review.version===DISCOVERY_V2&&review.outcome==="TEST"&&review.candidateId===candidateId&&review.marketCountryCode!==null&&
+    review.execution.modelId===DISCOVERY_V2_MODELS.reviewer&&review.execution.primaryOnly===true&&!/(mock|fixture|simulation)/i.test(review.execution.providerRequestId)&&
+    review.dimensions.length===DIMENSIONS.length&&DIMENSIONS.every(d=>review.dimensions.filter(item=>item.dimension===d).length===1)&&
+    review.dimensions.every(d=>!["blocking","known_failure"].includes(d.verdict))&&review.additionalUncertainties.every(u=>!u.blockingForTest)&&
+    REVIEW_CHECKS_V2.every(check=>review.checks.filter(item=>item.check===check&&item.outcome==="PASS").length===1);
+}
 export function validateCreativeApproval(approval: CreativeApprovalSnapshot, now = Date.now()): void {
   if (!record(approval) || ![approval.approvalId, approval.businessId, approval.candidateId].every(id => uuidPattern.test(id)) ||
     !["candidate_production", "technical_qualification", "simulation"].includes(approval.purpose) || !text(approval.concept, 3, 160) || !text(approval.audience, 3, 160) || !text(approval.designInstructions, 50, 1500) ||
@@ -41,8 +54,10 @@ export function validateCreativeApproval(approval: CreativeApprovalSnapshot, now
   if (approval.purpose === "simulation" && approval.maximumMicrousd !== 0) throw new Error("Simulation cannot authorize provider spending.");
   if (approval.purpose === "candidate_production") {
     const d = approval.candidateAssessment;
-    if (!approval.decisionId || !uuidPattern.test(approval.decisionId) || !d || d.outcome !== "TEST" || d.assessmentOrigin !== "owner_assessment" ||
-      d.missingEvidence.length !== 0 || d.totalScore === null || d.totalScore < 65 || d.dimensions.length !== DIMENSIONS.length ||
+    if (!approval.decisionId || !uuidPattern.test(approval.decisionId) || !d || d.outcome !== "TEST") throw new Error("Creative production requires a current evidence-backed TEST decision.");
+    if("version" in d){
+      if(!isReviewedDiscoveryTest(d,approval.candidateId))throw new Error("The v2 candidate needs its current independent, nonblocking reviewed TEST.");
+    }else if(d.assessmentOrigin !== "owner_assessment" || d.missingEvidence.length !== 0 || d.totalScore === null || d.totalScore < 65 || d.dimensions.length !== DIMENSIONS.length ||
       DIMENSIONS.some(key => !d.dimensions.some(item => item.dimension === key && item.score !== null && item.evidenceIds.length > 0))) throw new Error("Creative production requires a separate evidence-backed TEST decision; unknown market evidence cannot be waived by this approval.");
   }
   if (!Array.isArray(approval.policyScreen) || approval.policyScreen.length !== SCREEN_CATEGORIES.length ||

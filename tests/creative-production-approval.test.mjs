@@ -65,3 +65,38 @@ test('production approval separately binds candidate identity, explicit rights a
   assert.throws(() => productionCreativeApproval(f, { ...input, policyScreen: input.policyScreen.map((s, i) => i ? s : { ...s, status: 'unknown' }) }), /eight/);
   assert.throws(() => productionCreativeApproval(f, { ...input, policyScreen: input.policyScreen.map((s, i) => i ? s : { ...s, sourceUrls: ['http://localhost/private'] }) }), /eight/);
 });
+
+test('newer versioned or malformed decisions fail closed without reviving an earlier owner TEST', () => {
+  const f = fixture();
+  for (const assessment of [null, { version: 'pod-discovery-2.0', outcome: 'TEST' }, { scoringVersion: 'future', outcome: 'TEST' }]) {
+    const newer = { ...f.decision, id: id(60), created_at: new Date(Date.parse(f.decision.created_at) + 1).toISOString(), assessment };
+    assert.equal(currentProductionCandidate(f.candidate, [f.decision, newer], [f.experiment]), null);
+  }
+  assert.equal(currentProductionCandidate(f.candidate, [f.decision], [{ ...f.experiment, discovery_version: 'pod-discovery-2.0', parent_discovery_id: id(61) }]), null);
+});
+
+test('a later unselected v2 candidate evaluation blocks an older legacy TEST without inventing a verdict',()=>{
+  const f=fixture();const later={...f.experiment,id:id(30),discovery_version:'pod-discovery-2.0',parent_discovery_id:id(31),completed_at:new Date(Date.parse(f.decision.created_at)+1000).toISOString(),measurement_plan:{version:'pod-discovery-2.0',testPlan:null}};
+  assert.equal(currentProductionCandidate(f.candidate,[f.decision],[f.experiment,later]),null);
+  assert.ok(currentProductionCandidate(f.candidate,[f.decision],[f.experiment,{...later,candidate_id:id(99)}]));
+  assert.ok(currentProductionCandidate(f.candidate,[f.decision],[f.experiment,{...later,business_id:id(99)}]));
+  assert.ok(currentProductionCandidate(f.candidate,[f.decision],[f.experiment,{...later,completed_at:new Date(Date.parse(f.decision.created_at)-1000).toISOString()}]));
+});
+function v2Fixture(){
+  const f=fixture(),{REVIEW_CHECKS_V2,DISCOVERY_V2_EXECUTION_PREREQUISITES}=require('../.core-tests/products/discovery-v2.js');
+  const rootId=id(80),created=new Date().toISOString(),descriptor={version:'pod-discovery-2.0',intentId:rootId,dossierArtifactId:id(81),strategyArtifactId:id(82),reviewArtifactId:id(83)};
+  const review={version:'pod-discovery-2.0',intentId:rootId,dossierHash:'a'.repeat(64),assessmentHash:'b'.repeat(64),execution:{modelId:'anthropic/claude-haiku-4.5',providerRequestId:'example-observed-review-request',primaryOnly:true},marketCountryCode:'US',candidateId:f.candidate.id,outcome:'TEST',sufficiencyRationale:'Synthetic UI contract fixture only: a bounded learning proposal preserves its uncertainty and must still pass authoritative persisted-source validation.',dimensions:DIMENSIONS.map(dimension=>({dimension,verdict:'sufficient_for_test',rationale:'Synthetic UI contract rationale only; actual source lineage is independently enforced by the owner RPC.',evidenceRefs:[]})),checks:REVIEW_CHECKS_V2.map(check=>({check,outcome:'PASS',rationale:'Synthetic independent-review contract fixture for the read-only approval preflight.'})),executionPrerequisites:DISCOVERY_V2_EXECUTION_PREREQUISITES,additionalUncertainties:[],missingQuestions:[],publicationAllowed:false,commerceAllowed:false};
+  const root={...f.experiment,id:rootId,candidate_id:null,discovery_version:'pod-discovery-2.0',parent_discovery_id:null,created_at:created,source_artifact_id:id(81),variables:{intent:{expiresAt:new Date(Date.now()+3600000).toISOString()}},evidence_pack:descriptor,measurement_plan:{version:'pod-discovery-2.0',testPlan:null}};
+  const child={...f.experiment,id:id(84),discovery_version:'pod-discovery-2.0',parent_discovery_id:rootId,created_at:created,source_artifact_id:id(81),evidence_pack:descriptor,measurement_plan:{version:'pod-discovery-2.0',testPlan:{maximumGenerations:1,budgetStatus:'proposal_only'}}};
+  const decision={...f.decision,id:id(85),experiment_id:child.id,assessment:review};
+  return{candidate:f.candidate,root,child,decision};
+}
+test('versioned reviewed TEST preflight retains its qualitative record and separate owner approval boundary',()=>{
+  const f=v2Fixture(),choice=currentProductionCandidate(f.candidate,[f.decision],[f.root,f.child]);assert.ok(choice);assert.equal(choice.maximumGenerations,1);
+  const input={approvalId:id(86),designInstructions:'Create an original simplified garden illustration on an intentional opaque cream square, without text or protected elements.',rightsStatement:'Synthetic owner rights declaration for this original concept, not a legal clearance.',policyScreen:SCREEN_CATEGORIES.map(category=>({category,status:'clear',rationale:'Synthetic concept-specific screen for this unit test only.',sourceUrls:['https://www.etsy.com/legal/creativity/']})),maximumMicrousd:500000,maximumGenerations:1};
+  const approval=productionCreativeApproval(choice,input);assert.deepEqual(approval.candidateAssessment,f.decision.assessment);assert.equal(approval.purpose,'candidate_production');assert.equal(approval.maximumGenerations,1);assert.equal(approval.publicationAllowed,false);assert.equal(approval.candidateAssessment.totalScore,undefined);
+  assert.throws(()=>productionCreativeApproval(choice,{...input,maximumGenerations:2}),/image count/);
+  assert.throws(()=>productionCreativeApproval({...choice,maximumGenerations:undefined},{...input,maximumGenerations:2}),/image count/);
+  assert.throws(()=>productionCreativeApproval({...choice,maximumGenerations:2},{...input,maximumGenerations:2}),/image count/);
+  for(const mutate of [f=>{f.root.status='researching';},f=>{f.root.variables.intent.expiresAt=new Date(Date.now()-1).toISOString();},f=>{f.decision.assessment.outcome='NEEDS_MORE_EVIDENCE';},f=>{f.decision.assessment.dimensions[0].verdict='blocking';},f=>{f.decision.assessment.checks[0].outcome='FAIL';},f=>{f.decision.assessment.execution.modelId='openai/gpt-5.6-luna';},f=>{f.child.evidence_pack={...f.child.evidence_pack,intentId:id(90)};}]){const x=v2Fixture();mutate(x);assert.equal(currentProductionCandidate(x.candidate,[x.decision],[x.root,x.child]),null);}
+});

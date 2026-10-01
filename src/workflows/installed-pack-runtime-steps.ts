@@ -1,6 +1,7 @@
 import { FatalError } from "workflow";
 import type { JsonObject } from "../core/contracts";
 import { createRuntimeClient } from "../lib/supabase/runtime";
+import { ModelProviderError } from "../models/types";
 import { OpenRouterAdapter } from "../models/openrouter";
 import { buildWorkerModelMessages } from "../models/prompt";
 import { runModelRoute } from "../models/router";
@@ -17,6 +18,8 @@ import type { ResearchCollection, ResearchRequest } from "../research/types";
 import { executeWorkerPack, validateWorkerInvocationContext } from "../workers/runtime";
 import { assertJsonSchemaValue } from "../workers/schema-validator";
 import type { WorkerExecutionSuccess, WorkerInvocationContext } from "../workers/types";
+import { readProductRuntimeScope, collectPreparedDiscoveryV2, executePreparedDiscoveryV2 } from "../products/discovery-v2-runtime";
+import { DISCOVERY_V2_QUALIFICATION } from "../products/discovery-v2-packs";
 import type { InstalledPackRuntimeInput } from "./installed-pack-runtime";
 
 async function transition(input: InstalledPackRuntimeInput, operation: string, payload: JsonObject = {}) {
@@ -28,15 +31,26 @@ async function transition(input: InstalledPackRuntimeInput, operation: string, p
   return data as Record<string, unknown>;
 }
 
+async function stopDiscoveryFailure(input:InstalledPackRuntimeInput,error:unknown):Promise<never>{
+  const message=error instanceof Error?error.message.slice(0,500):"Discovery phase failed its contract.";
+  const details=error instanceof ModelProviderError?error.details:{};
+  // Persist safe actual accounting evidence before the workflow engine serializes the thrown error.
+  // No request bodies, image bytes, connection credentials or owner profile enter this payload.
+  const receipt=details.providerReceipt;
+  await transition(input,"fail",{category:"discovery_phase_failed",message,
+    ...(receipt&&typeof receipt==='object'&&!Array.isArray(receipt)?{providerReceipt:receipt}:{}),
+    ...(typeof details.requestedModel==='string'?{requestedModel:details.requestedModel}:{}),
+    ...(typeof details.settlementRecorded==='boolean'?{settlementRecorded:details.settlementRecorded}:{})});
+  throw new FatalError(message);
+}
+
 export async function loadInstalledPack(input: InstalledPackRuntimeInput, runtimeRunId: string): Promise<string[]> {
   "use step";
   const loaded = await transition(input,"load",{runtimeRunId});
-  if (input.productExperimentId) {
-    const scoped = await createRuntimeClient().rpc("product_discovery_runtime", {
-      p_workflow_run_id: input.coreWorkflowRunId, p_business_id: input.businessId,
-      p_runtime_capability: input.runtimeCapability, p_operation: "scope",
-    });
-    if (scoped.error || scoped.data?.experimentId !== input.productExperimentId) throw new FatalError("Product experiment scope does not match this runtime.");
+  const productScope = readProductRuntimeScope(loaded,input.businessId,input.productExperimentId);
+  if(productScope?.version==="pod-discovery-1.0"&&loaded.status!=="completed"){
+    const scoped=await createRuntimeClient().rpc("product_discovery_runtime",{p_workflow_run_id:input.coreWorkflowRunId,p_business_id:input.businessId,p_runtime_capability:input.runtimeCapability,p_operation: "scope"});
+    if(scoped.error||scoped.data?.experimentId!==productScope.experimentId)throw new FatalError("Product experiment differs from its persisted runtime binding.");
   }
   const snapshot = loaded.snapshot as PackSnapshot;
   const root = snapshot.releases.find(r=>r.id === snapshot.rootPackId);
@@ -45,7 +59,9 @@ export async function loadInstalledPack(input: InstalledPackRuntimeInput, runtim
   const qualification = input.qualification === "stage11" && (snapshot as PackSnapshot & {platformQualification?:string}).platformQualification === "stage11" && root.manifest.packKey === "workflow.web-research";
   const simulation = input.qualification === "stage12" && input.mode === "simulation";
   if (simulation) assertEtsySimulationSnapshot(snapshot);
-  const resolved = resolvePackDependencies(snapshot.releases,{packKey:root.manifest.packKey,version:root.manifest.version},qualification || simulation);
+  const discovery = productScope?.version === "pod-discovery-2.0" && (snapshot as PackSnapshot & {platformQualification?:string}).platformQualification === DISCOVERY_V2_QUALIFICATION && root.manifest.packKey === "workflow.product-discovery-v2";
+  if ((root.manifest.packKey === "workflow.product-discovery-v2") !== discovery) throw new FatalError("V2 discovery requires its persisted qualification scope.");
+  const resolved = resolvePackDependencies(snapshot.releases,{packKey:root.manifest.packKey,version:root.manifest.version},qualification || simulation || discovery);
   validateResolvedDefinitions(resolved);
   const declared = root.manifest.workflows.find(w=>w.key === snapshot.workflow.key);
   if (!declared || JSON.stringify(declared) !== JSON.stringify(snapshot.workflow)) throw new FatalError("Pinned workflow does not match its release.");
@@ -57,7 +73,11 @@ export async function executeInstalledPackStage(input: InstalledPackRuntimeInput
   "use step";
   if (input.qualification === "stage12") throw new FatalError("Use the dedicated simulation worker.");
   const prepared = await transition(input,"prepare",{stageKey});
+  const productScope = readProductRuntimeScope(prepared,input.businessId,input.productExperimentId);
   if (prepared.completed === true) return;
+  if (productScope?.version === "pod-discovery-2.0") {
+    try{return await executePreparedDiscoveryV2(productScope,prepared,stageKey,{ledger:runtimeResearchBudget(input)});}catch(error){return stopDiscoveryFailure(input,error);}
+  }
   const worker = prepared.worker as PackWorker;
   const context = prepared.context as WorkerInvocationContext;
   let result: WorkerExecutionSuccess;
@@ -66,8 +86,9 @@ export async function executeInstalledPackStage(input: InstalledPackRuntimeInput
     const stageInput = context.inputArtifacts.find(a=>a.artifactType === "pack.stage-input");
     if (!stageInput) throw new Error("Scoped stage input is missing.");
     assertJsonSchemaValue(worker.manifest.inputSchema,stageInput.content,"Stage input");
+    if (productScope?.version === "pod-discovery-1.0" && worker.execution.kind !== "web.research") throw new Error("V1 product scope permits only its metered research worker.");
     result = worker.execution.kind === "web.research"
-      ? await executeMarketResearcher(worker,context,input.productExperimentId ? new BudgetedResearchAdapter(runtimeResearchBudget(input)) : new OpenRouterAdapter(),input.productExperimentId ? { maxOutputTokens: 1000 } : {})
+      ? await executeMarketResearcher(worker,context,productScope ? new BudgetedResearchAdapter(runtimeResearchBudget(input)) : new OpenRouterAdapter(),productScope ? { maxOutputTokens: 1000 } : {})
       : worker.execution.kind === "structured.mapping"
       ? executePackMapping(worker,context)
       : await (async () => {
@@ -92,7 +113,11 @@ export async function persistInstalledPackStage(input: InstalledPackRuntimeInput
 export async function collectInstalledPackResearch(input: InstalledPackRuntimeInput, stageKey: string): Promise<ResearchCollection | null> {
   "use step";
   const prepared=await transition(input,"prepare",{stageKey});
+  const productScope=readProductRuntimeScope(prepared,input.businessId,input.productExperimentId);
   if (prepared.completed===true) return null;
+  if (productScope?.version === "pod-discovery-2.0") {
+    try{return await collectPreparedDiscoveryV2(productScope,prepared,stageKey,{ledger:runtimeResearchBudget(input)});}catch(error){return stopDiscoveryFailure(input,error);}
+  }
   const worker=prepared.worker as PackWorker;
   if (worker.execution.kind!=="web.research") return null;
   const context=prepared.context as WorkerInvocationContext;
@@ -102,7 +127,7 @@ export async function collectInstalledPackResearch(input: InstalledPackRuntimeIn
   const stageInput=context.inputArtifacts.find(a=>a.artifactType==="pack.stage-input")?.content;
   if (!stageInput) throw new FatalError("Research input is missing.");
   const request:ResearchRequest={query:stageInput.question as string,allowedDomains:stageInput.sourceDomains as string[]};
-  try { return await collectResearch(new OpenRouterResearchProvider(input.productExperimentId ? new BudgetedResearchAdapter(runtimeResearchBudget(input)) : new OpenRouterAdapter()),request); }
+  try { return await collectResearch(new OpenRouterResearchProvider(productScope ? new BudgetedResearchAdapter(runtimeResearchBudget(input)) : new OpenRouterAdapter()),request); }
   catch(error) { throw new FatalError(error instanceof Error?error.message:"Web Research failed."); }
 }
 
@@ -117,13 +142,14 @@ export async function completeInstalledPack(input: InstalledPackRuntimeInput) {
   "use step";
   // Validate the terminal artifact against the pinned Workflow output contract.
   const candidate = await transition(input,"output");
+  const productScope = readProductRuntimeScope(candidate,input.businessId,input.productExperimentId);
   assertJsonSchemaValue(candidate.schema as JsonObject,candidate.output,"Workflow output");
   if (input.qualification === "stage11") {
     const {data,error}=await createRuntimeClient().rpc("record_web_research_qualification",{p_workflow_run_id:input.coreWorkflowRunId,p_business_id:input.businessId,p_runtime_capability:input.runtimeCapability});
     if (error) throw new Error(`Unable to record Web Research qualification: ${error.message}`);
     return data;
   }
-  if (input.productExperimentId) {
+  if (productScope?.version === "pod-discovery-1.0") {
     const { data, error } = await createRuntimeClient().rpc("product_discovery_runtime", {
       p_workflow_run_id: input.coreWorkflowRunId, p_business_id: input.businessId,
       p_runtime_capability: input.runtimeCapability, p_operation: "finalize",
@@ -137,11 +163,5 @@ export async function completeInstalledPack(input: InstalledPackRuntimeInput) {
 export async function failInstalledPack(input: InstalledPackRuntimeInput, message: string) {
   "use step";
   await transition(input,"fail",{category:"pack_execution_failed",message});
-  if (input.productExperimentId) {
-    const { error } = await createRuntimeClient().rpc("product_discovery_runtime", {
-      p_workflow_run_id: input.coreWorkflowRunId, p_business_id: input.businessId,
-      p_runtime_capability: input.runtimeCapability, p_operation: "fail",
-    });
-    if (error) throw new Error(`Unable to preserve discovery failure: ${error.message}`);
-  }
+  // The authenticated database transition projects linked v1/v2 failures atomically.
 }

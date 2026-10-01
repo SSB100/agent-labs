@@ -122,8 +122,8 @@ test("bounded structured requests forward token cap and reject unsafe bounds bef
 });
 test("candidate runtime reuses research, finalizes before completion and records bounded failures", () => {
   const runtime = fs.readFileSync("src/workflows/installed-pack-runtime-steps.ts", "utf8"), actions = fs.readFileSync("src/app/dashboard/products/actions.ts", "utf8");
-  assert.match(runtime, /input\.productExperimentId \? \{ maxOutputTokens: 1000 \} : \{\}/);
-  assert.match(runtime, /p_operation: "finalize"/); assert.match(runtime, /p_operation: "fail"/);
+  assert.match(runtime, /productScope \? \{ maxOutputTokens: 1000 \} : \{\}/);
+  assert.match(runtime, /p_operation: "finalize"/); assert.match(runtime, /transition\(input,"fail"/);
   assert.match(actions, /begin_product_discovery/); assert.match(actions, /fail_product_discovery_launch/);
   assert.doesNotMatch(actions, /invokeWebSearch|invokeStructured|service.role|image\.generate|marketplace\.publish/);
 });

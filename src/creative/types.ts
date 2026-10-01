@@ -1,3 +1,4 @@
+import type { ReviewerDecisionV2 } from "../products/discovery-v2";
 import type { CandidateAssessment } from "../products/types";
 
 export const CREATIVE_VERSION = "creative-pipeline-1.0";
@@ -25,7 +26,7 @@ export type CreativePurpose = "candidate_production" | "technical_qualification"
 export type CreativeApprovalSnapshot = {
   approvalId: string; businessId: string; candidateId: string; decisionId: string | null;
   purpose: CreativePurpose; concept: string; audience: string; designInstructions: string;
-  candidateAssessment: CandidateAssessment | null;
+  candidateAssessment: CandidateAssessment | ReviewerDecisionV2 | null;
   originalDesign: boolean; rightsStatement: string; rightsConfirmed: boolean;
   policyScreen: PolicyScreen[]; printSpecification: PrintSpecification;
   approvedBy: "owner"; approvedAt: string; expiresAt: string;

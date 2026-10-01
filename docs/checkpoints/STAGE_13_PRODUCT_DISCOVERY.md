@@ -1,5 +1,7 @@
 # Stage 13: Product discovery and experiment system
 
+Current correction: the shipped v1 release qualified source collection and the append-only candidate registry, but deterministic provisional assessment plus an owner score form did not complete the intended autonomous Product Strategist/Reviewer behavior. ADR001 defines the bounded geographic discovery correction. Historical v1 outputs remain unchanged. PR19 is the backwards-compatible reader prerequisite; v2 implementation, independent review, database rehearsal and live qualification remain gates.
+
 ## Status and boundaries
 
 Implements Stage 13 of the unchanged authoritative implementation plan, after Stage 12 production commit `018b4652d575ef8975421bd38d48dfd05bf0f67f` ([PR 16](https://github.com/SSB100/agent-labs/pull/16)). Initial scope is original print-on-demand T-shirts.
