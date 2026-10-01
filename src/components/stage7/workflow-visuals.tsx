@@ -106,6 +106,7 @@ export function NeedsYouCard({
   workflowName,
 }: NeedsYouCardProps) {
   const simulationReview = intervention.intervention_type === "etsy_simulation_review";
+  const publicationReconcile = intervention.intervention_type === "etsy.publication.reconcile";
   const browserDecision =
     intervention.intervention_type === "browser_takeover"
       ? "take_control"
@@ -119,7 +120,7 @@ export function NeedsYouCard({
         <CoreIcon name={browserDecision ? "browser" : "needs-you"} />
       </span>
       <div className="needsYouCopy">
-        <p className="coreEyebrow">{browserDecision ? "Browser control" : "Needs your decision"}</p>
+        <p className="coreEyebrow">{browserDecision ? "Browser control" : publicationReconcile ? "Publication verification" : "Needs your decision"}</p>
         <h3>{intervention.title}</h3>
         <p>{intervention.description}</p>
         {simulationReview && intervention.workflow_run_id ? <Link href={`/dashboard/workflows/${intervention.workflow_run_id}`}>View simulated output and receipts</Link> : null}
@@ -129,7 +130,9 @@ export function NeedsYouCard({
             .join(" · ")}
         </small>
       </div>
-      {browserDecision ? (
+      {publicationReconcile ? (
+        <Link className="coreButton coreButton-primary" href={`/dashboard/etsy?business=${encodeURIComponent(intervention.business_id)}&publicationRequest=${encodeURIComponent(intervention.id)}#publication-history`}>Check existing listing</Link>
+      ) : browserDecision ? (
         <form action={resumeBrowserControl} className="needsYouActions">
           <input name="interventionId" type="hidden" value={intervention.id} />
           <input name="returnTo" type="hidden" value={returnTo} />

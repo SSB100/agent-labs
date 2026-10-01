@@ -26,6 +26,8 @@ Stage 12 includes five source-backed knowledge packs and a verified mock-only Pr
 
 **Stage 17 implementation:** fact-linked listing contracts, a durable independently reviewed package executor, a separately budgeted trusted qualification workflow, current policy knowledge and fail-closed Stage 16 intake are implemented. Release and live qualification remain separate gates; see [Stage 17 checkpoint](docs/checkpoints/STAGE_17_LISTING_SPECIALIST.md). Stage 14–16 live prerequisites remain open.
 
+**Stage 18 offline implementation:** a guarded one-attempt existing-draft publication executor, exact independent readback and owner readiness/history controls are prepared. Current all-in fee authority is unavailable, so activation remains blocked. No live publication or qualification is claimed; see [Stage 18 checkpoint](docs/checkpoints/STAGE_18_ASSISTED_PUBLICATION.md).
+
 Authoritative scope: [V2 implementation plan](docs/AGENT_LABS_V2_IMPLEMENTATION_PLAN.md). Verified stage evidence: [checkpoints](docs/checkpoints/).
 
 ## Private application model
