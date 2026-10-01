@@ -10,13 +10,13 @@ This section is the current status; the dated verification/provider sections bel
 | Required evidence | Current result |
 | --- | --- |
 | Native-PNG technical generation, source preservation, print validation and independent pixel review | Passed in a real technical-only run |
-| Bounded v2 geographic research through source collection, strategy and independent review | Not qualified: both real attempts failed in planning |
+| Bounded v2 geographic research through source collection, strategy and independent review | Not qualified: latest continuation passed planning and research, then failed strategy; independent review did not run |
 | Current, evidence-backed independently reviewed TEST candidate | No v2 decision exists in the hosted registry |
 | Separate candidate-production approval | None recorded |
 | Production-purpose creative run and reviewed product-ready asset | Not achieved |
 | Stage 17 Listing Specialist | Not started; owner requested Stage 14 cleanup first |
 
-Read-only hosted inspection on 2026-10-01 confirmed both research attempts are terminal, their planning charges are settled, and neither reached source collection. The first failed the exact audience boundary; the later schema failure did not retain its rejected response or field diagnostics. Its cause cannot be reconstructed from the saved records. Do not describe the audience correction as resolving that later failure.
+Before the first authenticated continuation, read-only hosted inspection on 2026-10-01 confirmed the two earlier research attempts were terminal, their planning charges settled, and neither reached source collection. The first failed the exact audience boundary; the later schema failure did not retain its rejected response or field diagnostics. Its cause cannot be reconstructed from the saved records. Do not describe the audience correction as resolving that later failure.
 
 The existing implementation now preserves bounded schema field/category diagnostics in the durable workflow failure message and actual provider accounting evidence before workflow error serialization. The added synthetic regression exercises the real structured-response adapter, planner validation, metering and installed-workflow failure path together. It checks audience, length and extra-property rejection, redaction of rejected text, and suppression of a duplicate provider call. This is regression evidence only, not another live attempt or proof of model competence.
 
@@ -39,6 +39,20 @@ The planner correction adds explicit focus-suffix guidance to the system prompt 
 Synthetic regression verifies that guidance survives provider schema projection, valid examples fit one/two collection scopes, exact maximum-length suffixes retain the complete scope and values one character over the limit are rejected. The installed-workflow regression now covers the exact query-focus diagnostic, redaction, finalized charge preservation and suppression of a second provider call. Local focused tests, lint and full TypeScript check passed; the final exact-commit release gate is recorded in the release PR. Local checks used Node 24; hosted CI uses the required Node 22.
 
 This is an implementation correction awaiting live qualification, not a Stage 14 exit. The single prior continuation approval has been consumed; a further live round needs specific new approval within the unchanged remaining allowance. Stage 15 live implementation/qualification and Stage 16's real-draft exit remain open. Stage 17 has not started.
+
+## Later approved continuation and fee-scenario contract correction, 2026-10-01
+
+After [PR 26](https://github.com/SSB100/agent-labs/pull/26) deployed as `aa80decc7857b51c0c1992a09fa9c666380c07c2`, the owner specifically approved one further focused continuation of at most five calls with the same goal/evidence, providers and remaining original research allowance. The fresh complete quote fit. Exactly one round was launched through the authenticated focused-refresh action, retaining the original budget-authority root and every terminal attempt.
+
+Planning passed. One real source retrieval and exact-quotation selection completed, retaining a hash-bound Evidence Pack and three proposed concepts. The sources provided limited operational guidance; their publication dates and candidate-specific demand remained unknown. These are preserved research inputs, not qualified products or a TEST decision.
+
+Strategy stopped with the durable diagnostic `Invalid fee scenarios count.` Its paid receipt is settled, as are the three earlier calls in this round. Independent review was skipped. Read-only accounting found no uncertain call, and no extra paid request was made. Rejected strategist output was not retained, so no unrecorded recommendation or reasoning is reconstructed.
+
+Bounded source inspection identified a model/domain contract mismatch: the compact strategist schema allowed zero hypothetical fee scenarios, while the unchanged domain validator requires at least one per market when seller bank country is unknown. The correction makes the model-facing minimum conditional on the verified bank-country context, pins the actual bank-country field to that context (including null), and provides scenario guidance in both the provider-visible schema and system prompt. Hypothetical countries do not establish the owner's actual bank country or fee rates; unknown applicable fees remain unknown. Domain validation, evidence linkage, cost settlement, budgets, byte/token caps and no-retry behavior are unchanged.
+
+Focused regression exercises the real schema projection, request limits and compact-to-domain normalization: unknown country plus an empty scenario list is rejected; a labelled hypothetical scenario is accepted; a known country permits an empty list but cannot be changed or cleared by the model. The final exact-commit release checks and deployment evidence are recorded in the release PR.
+
+This correction still needs live qualification. All four research rounds remain terminal history; the latest specific continuation approval was consumed. Any later paid round requires new specific approval and a fresh complete quote fitting the immutable remaining research allowance. Preserved evidence must be reused where valid. No v2 decision, production-design approval, real Product Package or Etsy draft exists; Stages 14–16 remain open and Stage 17 has not started.
 
 ## Scope
 

@@ -93,6 +93,35 @@ test('compact strategy uses deterministic short keys and restores immutable iden
   assert.equal(restored.execution.providerRequestId, f.execution.providerRequestId);
   assert.equal(restored.commerceAllowed, false);
 });
+test('unknown bank country requires hypothetical fee scenarios in both model and domain contracts', () => {
+  const f = preparedFixture(), contract = worker.strategistResponseSchemaV2(f.prepared);
+  const market = contract.properties.marketComparisons.items.properties;
+  assert.equal(market.sellerBankCountry.const, null);
+  assert.equal(market.feeScenarios.minItems, 1);
+  const projected = modelProvider.projectProviderJsonSchema(contract).properties.marketComparisons.items.properties;
+  assert.deepEqual(projected.sellerBankCountry.enum, [null]);
+  assert.match(projected.feeScenarios.description, /at least one explicitly hypothetical/);
+  assert.match(projected.feeScenarios.description, /do not invent fee rates/);
+  const request = worker.buildStrategistRequestV2(f.prepared, now);
+  assert.match(request.messages[0].content, /every market needs at least one/);
+  assert.match(JSON.parse(request.messages[1].content).outputLimits, /marketComparisons\[\]\.feeScenarios: 1–4 items/);
+  const empty = structuredClone(f.compact); empty.marketComparisons[0].feeScenarios = [];
+  assert.throws(() => worker.normalizeStrategistResponseV2(f.prepared, empty, f.execution, now), /JSON schema/);
+  const inferred = structuredClone(f.compact); inferred.marketComparisons[0].sellerBankCountry = 'NZ';
+  assert.throws(() => worker.normalizeStrategistResponseV2(f.prepared, inferred, f.execution, now), /JSON schema/);
+  assert.deepEqual(worker.normalizeStrategistResponseV2(f.prepared, f.compact, f.execution, now), f.assessment);
+});
+test('known bank country is pinned while an empty hypothetical scenario list remains valid', () => {
+  const f = fixture(); f.context.sellerBankCountry = 'GB';
+  for (const market of f.assessment.marketComparisons) { market.sellerBankCountry = 'GB'; market.feeScenarios = []; }
+  const prepared = worker.prepareDiscoveryWorkerContextV2(f.intent, f.dossier, f.context, f.refs, now);
+  const compact = worker.compactStrategistAssessmentV2(prepared, f.assessment);
+  const market = worker.strategistResponseSchemaV2(prepared).properties.marketComparisons.items.properties;
+  assert.equal(market.sellerBankCountry.const, 'GB'); assert.equal(market.feeScenarios.minItems, 0);
+  assert.deepEqual(worker.normalizeStrategistResponseV2(prepared, compact, f.execution, now), f.assessment);
+  compact.marketComparisons[0].sellerBankCountry = null;
+  assert.throws(() => worker.normalizeStrategistResponseV2(prepared, compact, f.execution, now), /JSON schema/);
+});
 test('compact independent reviewer preserves all unanswered questions and binds actual distinct execution', () => {
   const f = preparedFixture(), response = compactReview(f);
   response.additionalUncertainties.push({dimension:'production_complexity',question:'Which observed shipping service meets this target market delivery promise?',blockingForTest:false,reason:'Actual commercial delivery promises are outside this private original-design learning test.'});
