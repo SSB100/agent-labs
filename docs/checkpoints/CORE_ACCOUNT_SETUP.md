@@ -1,6 +1,6 @@
 # Core account setup and Stage 15 connection completion
 
-Status: implemented for offline verification and independent review. This fills the account setup/storage gap in implementation-plan §§4.4, 7.10, 13.2 and 15.6. It does not promote Stage 19, qualify the product/mockup pipeline, install credentials, create a real external account or authorize a paid browser session.
+Status: implementation independently reviewed, hosted checks passed, and reviewed database installation approved/applied; provider activation remains separately gated. This fills the account setup/storage gap in implementation-plan §§4.4, 7.10, 13.2 and 15.6. It does not promote Stage 19, qualify the product/mockup pipeline, install credentials, create a real external account or authorize a paid browser session.
 
 ## Owner experience
 
@@ -43,13 +43,13 @@ Planner observation and action boundaries classify secrets using type, name, ID,
 
 ## Database and verification
 
-See [the exact SQL authority contract](ACCOUNT_SETUP_SQL_CONTRACT.md) for the eight new private RLS tables, the sole new authenticated owner-plus-server RPC, unchanged old tables/functions/grants, isolated migration and rollback evidence, and remaining hosted security-approval gate.
+See [the exact SQL authority contract](ACCOUNT_SETUP_SQL_CONTRACT.md) for the eight new private RLS tables, the sole new authenticated owner-plus-server RPC, unchanged old tables/functions/grants, isolated migration and rollback evidence, and remaining provider/security activation gates.
 
 Focused tests exercise actual encryption, provider parsing, one-store/scope verification, exact profile consent, cancellation between steps, stale DOM mutation, safe error reporting, independent Etsy readback, password/token separation, browser termination readback and safe owner UI states. Hosted Chromium source-rendered layout checks use fixtures and block external networking. They are UI verification, not real provider qualification. Local Chromium cannot start under this execution sandbox's socket restriction; those checks must run in hosted CI.
 
 No live browser session, account signup, provider token submission, mailbox creation, product configuration, paid order, model call, Etsy publication or live qualification is part of offline testing. The separate product/mockup and account-specific fee-authority gaps remain open.
 
-The final local `npm run check` passed: ESLint, application TypeScript, all **941 executable Node tests** (zero failures; six browser checks reserved for hosted CI), Workflow generation and the Next.js 16.3.8 optimized production build. Local Node was 24.19; hosted CI must verify the repository's Node 22 target. Independent review found six issues that were corrected and rechecked, including exact node identity across identical-control reordering, cancellation before further disclosure, atomic Etsy revision-safe disconnect and terminal browser-release readback. The final focused independent review passed 127 tests with zero failures and three local browser skips.
+Hosted Node 22 validation passed all **947 tests with zero failures or skips**, including all six Chromium checks, and the optimized build. A secure-form accessible-label issue found in the first hosted run was corrected and the exact gate rerun. The final local `npm run check` passed: ESLint, application TypeScript, all **941 executable Node tests** (zero failures; six browser checks reserved for hosted CI), Workflow generation and the Next.js 16.3.8 optimized production build. Local Node was 24.19; hosted CI must verify the repository's Node 22 target. Independent review found six issues that were corrected and rechecked, including exact node identity across identical-control reordering, cancellation before further disclosure, atomic Etsy revision-safe disconnect and terminal browser-release readback. The final focused independent review passed 127 tests with zero failures and three local browser skips.
 
 ## Official references checked 2026-10-01
 

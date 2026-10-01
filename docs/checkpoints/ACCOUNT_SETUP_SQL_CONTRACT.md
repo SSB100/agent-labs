@@ -1,8 +1,8 @@
 # Account setup: database contract and authority checkpoint
 
-Status: **code-only implementation, not applied or activated**. The exact SQL authority delta below requires separate approval before any hosted database application. No account, credential, key, Browserbase session, provider request, paid operation, new OAuth grant or migration was created in a hosted system.
+Status: **database installation approved and applied; account/provider activation remains gated**. The exact reviewed SQL body was applied through the native confirmation flow. No account, credential, key, Browserbase session, provider request, paid operation or new OAuth grant was created by this rollout.
 
-Migration: `20261001203742_account_setup_workflow.sql`, created by `supabase migration new account_setup_workflow` using Supabase CLI 2.101.0. Parent baseline is `253d108f`.
+Migration: `20261001215606_account_setup_workflow.sql`, created by `supabase migration new account_setup_workflow` using Supabase CLI 2.101.0. Parent baseline is `253d108f`. The filename was aligned to the hosted migration version after application; SQL bytes are unchanged (SHA-256 `5d122dbc876fa1e26a99d733e7d3bd8b1729abd4d6bcb7818a5003ab20ebcf05`).
 
 ## Exact additive authority delta
 
@@ -104,7 +104,7 @@ The account suite exercises owner/cross-Business/role denial, no private direct 
 
 ## Remaining gates
 
-1. Independent review and explicit approval of this exact database authority delta before hosted apply
+1. Independent review and explicit database approval completed; hosted permissions verified
 2. Separately approved server/vault/key configuration and narrowly enabled authority provisioning
 3. Secure user-entered provider credentials/access grants and Browserbase entitlement/budget/activation approval when required
 4. Hosted role/ACL/advisor verification and provider-specific live qualification
