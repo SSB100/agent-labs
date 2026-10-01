@@ -39,7 +39,7 @@ export async function createEtsyDraft(form: FormData) {
   if (field(form, "draftConsent") !== "on" || field(form, "assetConsent") !== "on") done("draft-consent-required");
   let status = "needs_owner";
   try {
-    const prepared = await prepareEtsyDraft(context, businessId, field(form, "packageId"));
+    const prepared = await prepareEtsyDraft(context, businessId, field(form, "packageId"), field(form, "packageHash"));
     const result = await runEtsyDraft(context, businessId, String(prepared.runId)); status = result.status;
   } catch { done("draft-blocked"); }
   done(status === "verified" ? "draft-verified" : "draft-needs-review");

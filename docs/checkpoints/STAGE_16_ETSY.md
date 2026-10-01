@@ -30,10 +30,11 @@ An active request runs within the bounded server action. Its durable operation j
 
 ## Verification
 
-- 26 focused native-source tests passed locally: complete synthetic draft execution, duplicate replay/concurrency, invalid/stale/cross-Business packages, access revision changes, uncertain creation, partial/lost uploads, property reconciliation, cancellation, final receipt mismatch, draft-only transport, OAuth PKCE/scopes and encryption context isolation.
+- 27 focused native-source tests passed locally: complete synthetic draft execution, duplicate replay/concurrency, invalid/stale/cross-Business packages, access revision changes, uncertain creation, partial/lost uploads, property reconciliation, cancellation, final receipt mismatch, draft-only transport, OAuth PKCE/scopes and encryption context isolation.
 - `supabase/tests/stage16_etsy.sql` passed on the hosted database and rolled back all fixtures. Covers owner and secret boundaries, OAuth replay, refresh uncertainty, stale/invented packages, private-table denial, forged Core mappings, revoked access, duplicate leases, revision/history/identity guards, partial mappings, uncertainty receipts, cancellation and rejected completion.
 - Migration `20261001023310_stage16_etsy_drafts.sql` applied successfully. Authority table remains empty; no account activated.
-- Hosted full release gate and rendered UI/action tests: pending PR checks. Local dependency installation was blocked by environment network access, not recorded as a pass.
+- Hosted lint, typecheck, 493 of 494 tests and Chromium desktop/mobile consent checks passed on the prior PR head. One historical assertion incorrectly treated the Etsy provider OAuth secret name as a broad database credential; its database prohibition is retained with a scoped pattern. Final gate pending after that correction and the stale-form approval check. Local dependency installation was blocked by environment network access, not recorded as a pass.
+- Draft processing profiles omitted by the listing response are independently read from inventory offerings. Missing production-partner or other required metadata fails verification; it is never filled from the requested package. Live readback compatibility remains unqualified.
 - Real owner-browser/provider workflow: not yet qualified. No substitute claim based on mocks.
 
 ## API references checked

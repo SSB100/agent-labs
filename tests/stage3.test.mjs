@@ -110,7 +110,9 @@ test("Stage 3 uses a one-run capability rather than a broad database secret", as
   const runtime = await readProjectFile("src/lib/supabase/runtime.ts");
   const steps = await readProjectFile("src/workflows/synthetic-runtime-steps.ts");
 
-  assert.doesNotMatch(env, /SECRET|SERVICE_ROLE/);
+  // Provider OAuth app secrets do not grant database administration. Keep this
+  // assertion scoped to the broad database credentials the Stage 3 rule bans.
+  assert.doesNotMatch(env, /(?:SUPABASE|DATABASE)[A-Z_]*(?:SECRET|SERVICE_ROLE)|SERVICE_ROLE/);
   assert.match(runtime, /getSupabasePublicConfig/);
   assert.match(steps, /p_runtime_capability: input\.runtimeCapability/);
   assert.doesNotMatch(steps, /service_role|secretKey|createAdminClient/i);

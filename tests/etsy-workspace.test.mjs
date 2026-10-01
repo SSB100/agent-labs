@@ -6,10 +6,10 @@ import { runInNewContext } from 'node:vm';
 import { packageFixture } from './etsy-fixtures.mjs';
 const require=createRequire(import.meta.url),ts=require('typescript'),React=require('react');
 const {renderToStaticMarkup}=require('react-dom/server');
-function load(path,deps){const source=ts.transpileModule(readFileSync(path,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true}}).outputText;
-  const fixtureModule={exports:{}};runInNewContext(`(function(require,module,exports){${source}\n})`)(name=>{assert.ok(name in deps,`Unexpected dependency: ${name}`);return deps[name];},fixtureModule,fixtureModule.exports);return fixtureModule.exports;}
+function load(path,deps,globals={}){const source=ts.transpileModule(readFileSync(path,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true}}).outputText;
+  const fixtureModule={exports:{}};runInNewContext(`(function(require,module,exports){${source}\n})`,globals)(name=>{assert.ok(name in deps,`Unexpected dependency: ${name}`);return deps[name];},fixtureModule,fixtureModule.exports);return fixtureModule.exports;}
 const noop=async()=>{};
-const {EtsyWorkspace}=load('src/app/dashboard/etsy/workspace.tsx',{'react/jsx-runtime':require('react/jsx-runtime'),'next/link':({children,href})=>React.createElement('a',{href},children),'./actions':{connectEtsy:noop,disconnectEtsy:noop,createEtsyDraft:noop,reconcileEtsyDraft:noop,stopEtsyDraft:noop}});
+const {EtsyWorkspace}=load('src/app/dashboard/etsy/workspace.tsx',{'@/etsy/contracts':require('../.core-tests/etsy/contracts.js'),'react/jsx-runtime':require('react/jsx-runtime'),'next/link':({children,href})=>React.createElement('a',{href},children),'./actions':{connectEtsy:noop,disconnectEtsy:noop,createEtsyDraft:noop,reconcileEtsyDraft:noop,stopEtsyDraft:noop}});
 const base={businessId:'fixture-business',businessName:'Fixture Business',configured:false,unavailable:false,connection:null,packages:[],runs:[]};
 const render=data=>renderToStaticMarkup(React.createElement(EtsyWorkspace,{data}));
 test('unconfigured UI explains upstream blockers and cannot connect or create',()=>{
@@ -35,6 +35,14 @@ test('draft server action requires both consents before preparing or executing',
 });
 
 const chrome='/usr/bin/google-chrome';
+test('server preparation rejects a package changed since the owner reviewed the form',async()=>{
+  const {package:p}=packageFixture(),calls=[];
+  const account={businessId:p.businessId,connectionId:'16000002-1111-4111-8111-111111111111',revision:'16000003-1111-4111-8111-111111111111',shopId:100,userId:101,currency:'NZD',expiresAt:p.expiresAt,accessToken:'fixture-token'};
+  const context={businesses:[{id:p.businessId}],supabase:{from(){return{select(){return this;},eq(){return this;},async maybeSingle(){return{data:{content:{etsyDraftEnvelope:'fixture-package'}}};}};},async rpc(name,args){calls.push(args.p_operation);return{data:args.p_operation==='connection'?{id:account.connectionId,revision:account.revision,shopId:100,currency:'NZD',envelope:'fixture-account'}:{}};}}};
+  const {prepareEtsyDraft}=load('src/etsy/server.ts',{'server-only':{},'node:crypto':require('node:crypto'),'./adapter':{},'./contracts':require('../.core-tests/etsy/contracts.js'),'./oauth':{},'./vault':{unseal:(_,context)=>context.startsWith('account:')?account:p},'./engine':{}},{process:{env:{ETSY_KEYSTRING:'fixture',ETSY_SHARED_SECRET:'fixture',ETSY_REDIRECT_URI:'https://example.com/api/etsy/callback',ETSY_VAULT_KEY:'1'.repeat(64),ETSY_SERVER_KEY:'fixture-only'.repeat(4)}}});
+  await assert.rejects(prepareEtsyDraft(context,p.businessId,p.id,'old-package-hash'),/stale_package_or_approval/);
+  assert.ok(!calls.includes('prepare'));
+});
 test('browser renders owner controls and enforces both native consent fields at desktop and mobile widths', {skip:!process.env.CI || !existsSync(chrome)},async()=>{
   const {chromium}=require('playwright-core');
   const browser=await chromium.launch({executablePath:chrome,headless:true,args:['--no-sandbox']});

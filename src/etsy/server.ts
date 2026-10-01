@@ -72,9 +72,10 @@ export async function eligibleEtsyPackages(context: OwnerUiContext, businessId: 
   }
   return choices;
 }
-export async function prepareEtsyDraft(context: OwnerUiContext, businessId: string, artifactId: string) {
+export async function prepareEtsyDraft(context: OwnerUiContext, businessId: string, artifactId: string, approvedPackageHash: string) {
   const loaded = await loadEtsyPackage(context, businessId, artifactId), connection = await resolveEtsyConnection(context, businessId);
   const p = loaded.package;
+  requireEtsy(hash(p) === approvedPackageHash, "stale_package_or_approval");
   return etsyRpc(context, businessId, "prepare", { package: p, packageEnvelope: loaded.envelope, packageHash: hash(p),
     identity: draftIdentity(connection, p), connectionRevision: connection.revision, approveDraft: true, approveAssetSharing: true });
 }
