@@ -41,7 +41,10 @@
     "src/products/discovery-v2-packs.ts",
     "src/products/discovery-v2-runtime.ts",
     "src/products/discovery-v2-goal.ts",
-    "src/creative/**/*.ts"
+    "src/creative/**/*.ts",
+    "src/printful/**/*.ts",
+    "src/app/dashboard/printful/preview.ts",
+    "src/app/dashboard/printful/pricing-form.ts"
   ],
   "exclude": [
     "src/creative/data.ts"
