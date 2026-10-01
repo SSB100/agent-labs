@@ -1,6 +1,6 @@
 # Stage 16: Etsy Capability Pack
 
-Status: implementation under release verification; full live exit OPEN. Stage 17 has not started.
+Status: Stage 16 code release is tracked in [PR 23](https://github.com/SSB100/agent-labs/pull/23), including the exact final CI and production identifiers. Full live exit OPEN. Stage 17 has not started.
 
 ## Scope and starting point
 
@@ -33,9 +33,9 @@ An active request runs within the bounded server action. Its durable operation j
 - 27 focused native-source tests passed locally: complete synthetic draft execution, duplicate replay/concurrency, invalid/stale/cross-Business packages, access revision changes, uncertain creation, partial/lost uploads, property reconciliation, cancellation, final receipt mismatch, draft-only transport, OAuth PKCE/scopes and encryption context isolation.
 - `supabase/tests/stage16_etsy.sql` passed on the hosted database and rolled back all fixtures. Covers owner and secret boundaries, OAuth replay, refresh uncertainty, stale/invented packages, private-table denial, forged Core mappings, revoked access, duplicate leases, revision/history/identity guards, partial mappings, uncertainty receipts, cancellation and rejected completion.
 - Migration `20261001023310_stage16_etsy_drafts.sql` applied successfully. Authority table remains empty; no account activated.
-- Hosted lint, typecheck, 493 of 494 tests and Chromium desktop/mobile consent checks passed on the prior PR head. One historical assertion incorrectly treated the Etsy provider OAuth secret name as a broad database credential; its database prohibition is retained with a scoped pattern. Final gate pending after that correction and the stale-form approval check. Local dependency installation was blocked by environment network access, not recorded as a pass.
+- Preview deployment `dpl_CjiDBU2vZbh53BrUJe6mFewRrcaF` is READY for code commit `7e942b0ed2670ad986725dca449b174c59c3c5ba`, including lint, TypeScript, tests and optimized build. Hosted Chromium verified desktop/mobile controls and separate native consent requirements. Server-action tests cover missing consent and a package changed after the form was displayed. The required final `npm run check` result and exact release commit are retained in PR 23. Earlier lint/compiler issues and the historical database-secret-name assertion were corrected. Local dependency installation was blocked by environment network access, not recorded as a pass.
 - Draft processing profiles omitted by the listing response are independently read from inventory offerings. Missing production-partner or other required metadata fails verification; it is never filled from the requested package. Live readback compatibility remains unqualified.
-- Real owner-browser/provider workflow: not yet qualified. No substitute claim based on mocks.
+- Preview HTTP checks passed: unauthenticated `/dashboard/etsy` redirects to sign-in; unconfigured `/api/etsy/callback` returns safely to sign-in without a server error. An authenticated production browser session is not available in this execution environment. The real owner/provider workflow remains unqualified; source-rendered Chromium checks are not a substitute. Database readback confirmed zero authority keys, connections, runs or remaining synthetic test users.
 
 ## API references checked
 
