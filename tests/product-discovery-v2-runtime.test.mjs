@@ -68,3 +68,60 @@ test('actual paid failure receipt is persisted before workflow error serializati
   assert.equal(calls[1].p_payload.request,undefined);assert.equal(calls[1].p_payload.output,undefined);
 });
 function baseBusiness(){return id(2);}
+
+
+test('rejected paid plan reaches the durable workflow failure with safe diagnostics and cannot replay its charge',async()=>{
+  const {OpenRouterAdapter}=require('../.core-tests/models/openrouter.js');
+  const {ModelProviderError}=require('../.core-tests/models/types.js');
+  for(const scenario of ['audience','length','extra_property']){
+    const f=fixture(),transitions=[],settlements=[],reserved=new Set();
+    const privateText='private rejected wording that must never enter a workflow receipt';
+    const output=structuredClone(f.output);
+    if(scenario==='audience')output.proposals[0].audience=privateText;
+    if(scenario==='length')output.comparisonRationale=privateText.repeat(20);
+    if(scenario==='extra_property')output[privateText]=privateText;
+    let providerCalls=0;
+    const adapter=new OpenRouterAdapter({
+      config:{apiKey:'synthetic-only',baseUrl:'https://provider.invalid/api/v1',appUrl:'https://app.invalid',appName:'Synthetic fixture'},
+      fetcher:async()=>{
+        providerCalls++;
+        return new Response(JSON.stringify({id:'synthetic-paid-invalid-plan',model:'openai/gpt-5.6-luna',provider:'OpenAI',
+          choices:[{message:{content:JSON.stringify(output)},finish_reason:'stop'}],
+          usage:{prompt_tokens:100,completion_tokens:50,cost:.001181}}),{status:200});
+      },
+    });
+    const ledger={
+      reserve:async reservation=>{
+        const shouldCall=!reserved.has(reservation.attemptKey);reserved.add(reservation.attemptKey);
+        return{shouldCall,totalReservedMicrousd:reservation.reservedMicrousd};
+      },
+      settle:async(...args)=>{settlements.push(args);},
+    };
+    const steps=loadSteps({
+      'workflow':{FatalError:Error},
+      '../lib/supabase/runtime':{createRuntimeClient:()=>({rpc:async(_name,args)=>{
+        transitions.push(args);return{data:args.p_operation==='prepare'?f.prepared:{status:'failed'},error:null};
+      }})},
+      '../products/discovery-v2-runtime':{...runtime,executePreparedDiscoveryV2:(scope,prepared,stage,services)=>
+        runtime.executePreparedDiscoveryV2(scope,prepared,stage,{...services,provider:adapter,
+          prices:async modelId=>({modelId,verifiedAt:new Date().toISOString(),source:'https://openrouter.ai/api/v1/models',inputPerMillion:.4,outputPerMillion:1.8,cacheWritePerMillion:.5})})},
+      '../models/types':{ModelProviderError},
+      '../research/runtime-budget':{runtimeResearchBudget:()=>ledger},
+    });
+    const input={businessId:baseBusiness(),coreWorkflowRunId:id(5),runtimeCapability:'synthetic-capability'};
+    await assert.rejects(()=>steps.executeInstalledPackStage(input,'plan'),/JSON schema/);
+    const failure=transitions.find(t=>t.p_operation==='fail').p_payload;
+    const diagnostic=scenario==='audience'?'$.proposals[0].audience:enum':scenario==='length'?'$.comparisonRationale:max_length':'$:additional_property';
+    assert.ok(failure.message.includes(diagnostic),failure.message);
+    assert.equal(failure.settlementRecorded,true);
+    assert.equal(failure.providerReceipt.providerRequestId,'synthetic-paid-invalid-plan');
+    assert.equal(failure.providerReceipt.usage.reportedCostUsd,.001181);
+    assert.equal(failure.providerReceipt.providerModelId,'openai/gpt-5.6-luna');
+    assert.equal(failure.output,undefined);assert.equal(failure.request,undefined);
+    assert.ok(!JSON.stringify(failure).includes(privateText));
+    assert.deepEqual(settlements,[['plan:1',1181,'synthetic-paid-invalid-plan']]);
+    await assert.rejects(()=>steps.executeInstalledPackStage(input,'plan'),/already reserved/);
+    assert.equal(providerCalls,1);assert.equal(settlements.length,1);
+    assert.deepEqual(transitions.map(t=>t.p_operation),['prepare','fail','prepare','fail']);
+  }
+});
