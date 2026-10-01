@@ -1,0 +1,40 @@
+[
+  {
+    "frameworkVersion": "1.0",
+    "packKey": "capability.etsy",
+    "version": "1.0.0",
+    "name": "Etsy Drafts",
+    "kind": "capability",
+    "description": "Experimental API-first draft preparation with owner account authorization, durable write claims and readback receipts. Live qualification remains open.",
+    "dependencies": [],
+    "ui": {
+      "category": "Commerce",
+      "summary": "Approved products become verified drafts. No publication, orders or paid actions.",
+      "supportedBusinessTypes": [
+        "etsy-pod"
+      ]
+    },
+    "evals": [
+      "owner-isolation",
+      "oauth-pkce",
+      "package-freshness",
+      "duplicate-prevention",
+      "uncertain-writes",
+      "partial-images",
+      "cancellation",
+      "readback",
+      "draft-only",
+      "live-draft"
+    ],
+    "capabilities": [
+      {
+        "key": "marketplace.etsy",
+        "adapter": "etsy.drafts",
+        "description": "Dedicated server-only Etsy draft adapter. Installing the pack does not connect an account or grant generic workers execution access."
+      }
+    ],
+    "knowledge": [],
+    "workers": [],
+    "workflows": []
+  }
+]

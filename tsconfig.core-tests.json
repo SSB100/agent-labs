@@ -43,6 +43,12 @@
     "src/products/discovery-v2-goal.ts",
     "src/creative/**/*.ts",
     "src/printful/**/*.ts",
+    "src/etsy/contracts.ts",
+    "src/etsy/adapter.ts",
+    "src/etsy/oauth.ts",
+    "src/etsy/vault.ts",
+    "src/etsy/engine.ts",
+    "src/etsy/packs.ts",
     "src/app/dashboard/printful/preview.ts",
     "src/app/dashboard/printful/pricing-form.ts"
   ],
