@@ -10,7 +10,7 @@ This section is the current status; the dated verification/provider sections bel
 | Required evidence | Current result |
 | --- | --- |
 | Native-PNG technical generation, source preservation, print validation and independent pixel review | Passed in a real technical-only run |
-| Bounded v2 geographic research through source collection, strategy and independent review | Not qualified: latest continuation passed planning and research, then failed strategy; independent review did not run |
+| Bounded v2 geographic research through source collection, strategy and independent review | Not qualified: latest continuation completed planning and source retrieval, then exact-span selection returned invalid JSON; strategy and independent review did not run |
 | Current, evidence-backed independently reviewed TEST candidate | No v2 decision exists in the hosted registry |
 | Separate candidate-production approval | None recorded |
 | Production-purpose creative run and reviewed product-ready asset | Not achieved |
@@ -77,6 +77,18 @@ The funding RPC requires Business ownership, the latest terminal round, known co
 Local Node 24 verification passed 55 focused tests, lint and TypeScript. An isolated PostgreSQL/PGlite 0.5.8 replay applied all 79 migrations and passed ten relevant Stage 1/13/14 suites, including the new additional-funding regression. Rollback restored all 55 application table hashes and every public/private function definition. Existing replaced-function owners, ACLs, definer flags and search paths were unchanged. Local Auth/Storage interfaces were stubs; they do not qualify hosted provider execution. The older 0.3.14 rehearsal hit a memory error in the Stage 14 decision suite before the current-version replay passed.
 
 Migration `20261001073349_stage13_v2_additional_funding` was applied. Hosted comparison confirmed unchanged existing function metadata, enabled owner-only RLS on the new table and unchanged security-advisor categories/counts. Immediately after migration, no funding record or research call had been created and the old accounting balance was unchanged. The exact-head application release gate, authenticated funding activation and any bounded live continuation belong in the release closeout. Stage 14 production qualification, Stage 15 implementation/live execution and Stage 16's real draft exit remain open; Stage 17 has not started.
+
+## Funded continuation and selector correction, 2026-10-01
+
+[PR 29](https://github.com/SSB100/agent-labs/pull/29) passed its exact-head hosted release gate (507 tests, no skips, lint, TypeScript and optimized build on Node 22), merged as `1c2b945a5bbe8e954f12c228185a51d4dc01d08e`, and deployed READY. Authenticated activation appended the owner’s US$2 total research ceiling for the same authority root, including all earlier research charges. It left original intents, histories and receipts unchanged. One fresh quoted, focused continuation then launched exactly once.
+
+That continuation completed planning and source retrieval. Exact-span selection returned invalid JSON after using all 1,000 output tokens, including 733 reasoning tokens. Its finish reason was not retained, so truncation is a plausible diagnosis, not a proven historical termination category. Three actual calls settled; no uncertain charge remains. Strategy and independent review were skipped and no v2 decision was created. The retained source collection consists of Etsy investor reports and broad marketplace/operational statistics, not candidate-specific observed prices or demand. Business-private balances and provider identities remain in durable accounting.
+
+The targeted correction disables reasoning only for exact-span selection on the pinned Luna model, whose current official OpenRouter metadata supports `none`. Its 1,000-token bound, exact quote checks, provider routing and immutable request hash remain enforced. Other discovery phases cannot use this control. Future malformed responses retain a bounded provider finish reason with the actual accounting receipt; raw rejected text and parser messages containing it are excluded. A selector failure also retains its validated kickoff Evidence Pack references before dossier creation; missing or foreign referenced evidence blocks the next launch. An optional 20–200-character refresh focus can target a genuine evidence gap within the preserved goal. It changes neither scope nor funding, and every further round still needs an explicit kickoff and fresh complete quote.
+
+Focused synthetic regressions cover provider transmission, refusal before calls, immutable request hashing, unchanged token limits, exact source reuse without a new collection at the selector API, private-text redaction and bounded focus. These do not qualify the deployed workflow or implement cross-round reuse of an unselected raw collection. That runtime gap remains open: the owner refresh currently imports validated Evidence Packs, not raw collections from a terminal selector failure. Do not reopen that failure or repeat its search merely to retry selection. A substantively new evidence question can use a separately bounded new round; an exact selector continuation needs a new durable reuse path.
+
+Stage 14's independently reviewed research and production-purpose design exits remain open. Stages 15–16 retain implementation/account/live qualification work. Stage 17 has not started. The correction's exact-head release and live outcome belong in its PR closeout.
 
 ## Scope
 

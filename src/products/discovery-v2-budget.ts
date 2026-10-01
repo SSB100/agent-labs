@@ -71,7 +71,7 @@ export function reserveDiscoveryV2(scope: DiscoveryV2BudgetScope, key: Discovery
   if (request.model.providerModelId !== discoveryV2Model(key) || request.model.provider !== "openrouter") throw fail("Discovery cannot change its primary model or provider.");
   const kind = phase(key), bytes = Buffer.byteLength(JSON.stringify(request), "utf8");
   const allowedKeys = kind === "search" ? ["model", "query", "allowedDomains", "providerPriceLimit", "providerOnly", "requireReturnedModel"]
-    : ["model", "schemaName", "outputSchema", "messages", "requestMetadata", "maxOutputTokens", "providerPriceLimit", "providerOnly", "requireReturnedModel"];
+    : ["model", "schemaName", "outputSchema", "messages", "requestMetadata", "maxOutputTokens", "reasoning", "providerPriceLimit", "providerOnly", "requireReturnedModel"];
   if (Object.keys(request).some(key => !allowedKeys.includes(key))) throw fail("Discovery request shape does not match its reserved phase.");
   if (kind === "search") {
     if (!("query" in request) || "messages" in request) throw fail("Search requires an exact bounded research request.");
@@ -80,6 +80,7 @@ export function reserveDiscoveryV2(scope: DiscoveryV2BudgetScope, key: Discovery
   } else {
     if (!("messages" in request) || "query" in request || request.messages.some(message => (message.images?.length ?? 0) > 0)) throw fail("Discovery model stages accept scoped text only.");
     const bounds = DISCOVERY_V2_BUDGET.phases[kind];
+    if (request.reasoning !== undefined && (kind !== "select" || Object.keys(request.reasoning).length !== 1 || request.reasoning.effort !== "none")) throw fail("Only exact-span selection may disable reasoning within its existing output bound.");
     if (bytes > bounds.maximumRequestBytes || request.maxOutputTokens !== bounds.outputTokens) throw fail("Discovery request exceeds its declared phase input/output bound.");
     const upstream = key === "review:1" ? "anthropic" : "openai";
     if (request.providerOnly && (request.providerOnly.length !== 1 || request.providerOnly[0] !== upstream)) throw fail("Discovery upstream routing differs from its primary policy.");

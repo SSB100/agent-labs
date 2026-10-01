@@ -172,14 +172,13 @@ function parseJsonObject(content: string): JsonObject {
   let parsed: unknown;
   try {
     parsed = JSON.parse(withoutFence);
-  } catch (error) {
+  } catch {
     throw new ModelProviderError(
       "malformed_model_output",
       "OpenRouter returned content that was not valid JSON.",
       true,
       {
-        parseError: error instanceof Error ? error.message : "JSON parse failed",
-        contentPreview: withoutFence.slice(0, 400),
+        parseError: "invalid_json",
       },
     );
   }
@@ -415,6 +414,10 @@ export class OpenRouterAdapter implements ModelProviderAdapter {
   async invokeStructured(
     request: StructuredModelRequest,
   ): Promise<ModelProviderResponse> {
+    if (request.reasoning !== undefined && (request.model.providerModelId !== "openai/gpt-5.6-luna" ||
+      Object.keys(request.reasoning).length !== 1 || request.reasoning.effort !== "none")) {
+      throw new ModelProviderError("provider_rejected", "Unsupported bounded reasoning configuration.", false);
+    }
     if (request.maxOutputTokens !== undefined && (!Number.isInteger(request.maxOutputTokens) || request.maxOutputTokens < 1 || request.maxOutputTokens > request.model.maxOutputTokens)) {
       throw new ModelProviderError("provider_rejected", "Invalid bounded output-token limit.", false);
     }
@@ -437,6 +440,7 @@ export class OpenRouterAdapter implements ModelProviderAdapter {
     const response = await this.post({
       model: request.model.providerModelId,
       ...(request.maxOutputTokens === undefined ? {} : { max_tokens: request.maxOutputTokens }),
+      ...(request.reasoning === undefined ? {} : { reasoning: { effort: request.reasoning.effort } }),
       messages: request.messages.map((message) => ({
         role: message.role,
         content: message.images ? [{ type: "text", text: message.content }, ...message.images.map(picture => ({ type: "image_url", image_url: { url: `data:${picture.mediaType};base64,${picture.base64}` } }))] : message.content,
@@ -464,6 +468,11 @@ export class OpenRouterAdapter implements ModelProviderAdapter {
       providerRequestId: typeof response.body.id === "string" ? response.body.id : response.requestId,
       latencyMs: response.latencyMs, usage: { ...readUsage(request.model, response.body) },
     };
+    const returnedChoice = Array.isArray(response.body.choices) && isRecord(response.body.choices[0]) ? response.body.choices[0] : {};
+    // Retain only documented termination categories, never rejected model text.
+    const finishReason = typeof returnedChoice.finish_reason === "string" &&
+      ["stop", "length", "content_filter", "tool_calls", "error"].includes(returnedChoice.finish_reason) ? returnedChoice.finish_reason : null;
+    receivedReceipt.finishReason = finishReason;
     try {
     if (request.requireReturnedModel && typeof response.body.model !== "string") throw new ModelProviderError("malformed_model_output", "The provider did not return a verifiable model identity.", false);
     const choices = Array.isArray(response.body.choices)
@@ -510,7 +519,7 @@ export class OpenRouterAdapter implements ModelProviderAdapter {
       },
     };
     } catch (error) {
-      if (error instanceof ModelProviderError) throw new ModelProviderError(error.category, error.message, error.retryable, { ...error.details, providerReceipt: receivedReceipt });
+      if (error instanceof ModelProviderError) throw new ModelProviderError(error.category, error.message, error.retryable, { ...error.details, finishReason, providerReceipt: receivedReceipt });
       throw error;
     }
   }

@@ -343,3 +343,26 @@ test("OpenRouter tool qualification requires the only supplied tool", async () =
   assert.equal(result.toolName, "stage5_tool_probe");
   assert.equal(result.arguments.token, "proof-token");
 });
+
+test('OpenRouter forwards the bounded selector reasoning control and refuses unsupported shapes before calling',async()=>{
+ let requestBody,calls=0;
+ const adapter=new OpenRouterAdapter({config:{apiKey:'test-key',baseUrl:'https://openrouter.invalid/api/v1',appUrl:'https://agent-labs.example',appName:'Test'},fetcher:async(_url,init)=>{
+  calls++;requestBody=JSON.parse(init.body);
+  return new Response(JSON.stringify({id:'selector-test-receipt',model:'openai/gpt-5.6-luna',choices:[{finish_reason:'stop',message:{content:'{}'}}],usage:{prompt_tokens:100,completion_tokens:30,total_tokens:130,cost:.0001}}),{status:200});
+ }});
+ const request={model:resolveModelRoute('standard.default').primary,maxOutputTokens:1000,reasoning:{effort:'none'},schemaName:'test_selector',outputSchema:{type:'object'},messages:[{role:'user',content:'Exact retained excerpts.'}],requestMetadata:{}};
+ await adapter.invokeStructured(request);
+ assert.deepEqual(requestBody.reasoning,{effort:'none'});assert.equal(requestBody.max_tokens,1000);
+ for(const reasoning of [{effort:'high'},{effort:'none',exclude:true}])await assert.rejects(adapter.invokeStructured({...request,reasoning}),/Unsupported bounded reasoning/);
+ await assert.rejects(adapter.invokeStructured({...request,model:resolveModelRoute('reviewer.independent').primary}),/Unsupported bounded reasoning/);
+ assert.equal(calls,1);
+});
+test('malformed JSON retains bounded finish reason and actual charge without retaining rejected text',async()=>{
+ const rejected='private rejected content';
+ const adapter=new OpenRouterAdapter({config:{apiKey:'test-key',baseUrl:'https://openrouter.invalid/api/v1',appUrl:'https://agent-labs.example',appName:'Test'},fetcher:async()=>new Response(JSON.stringify({id:'selector-truncated-test',model:'openai/gpt-5.6-luna',choices:[{finish_reason:'length',message:{content:rejected}}],usage:{prompt_tokens:100,completion_tokens:1000,total_tokens:1100,cost:.001,completion_tokens_details:{reasoning_tokens:733}}}),{status:200})});
+ await assert.rejects(adapter.invokeStructured({model:resolveModelRoute('standard.default').primary,maxOutputTokens:1000,schemaName:'test_selector',outputSchema:{type:'object'},messages:[{role:'user',content:'Exact retained excerpts.'}],requestMetadata:{}}),error=>{
+  assert.equal(error.details.finishReason,'length');assert.equal(error.details.providerReceipt.providerRequestId,'selector-truncated-test');
+  assert.equal(error.details.providerReceipt.usage.reportedCostUsd,.001);assert.equal(error.details.providerReceipt.usage.reasoningTokens,733);
+  assert.equal(JSON.stringify(error.details).includes(rejected),false);return true;
+ });
+});

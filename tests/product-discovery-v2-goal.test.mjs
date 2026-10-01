@@ -59,3 +59,24 @@ test('funding is separate from the bounded research launch and does not advertis
   const markup=renderToStaticMarkup(React.createElement(DiscoveryGoalResults,{data:{available:true,errors:[],records:[{root:{id:base.id,workflow_run_id:base.id,status:'failed',created_at:'2026-10-01',failure:'Known failed call.'},intent,dossier:null,strategy:null,review:null,sourcePacks:[]}]}}));
   assert.match(markup,/Total research ceiling \(USD\)/);assert.match(markup,/confirmFunding/);assert.match(markup,/confirmResearch/);assert.match(markup,/does not start research or approve images, listings or purchases/);assert.match(markup,/at most one collection and five paid calls/);assert.match(markup,/approved remaining allowance/);
 });
+
+test('refresh focus retains a bounded evidence question without changing goal authority',()=>{
+ const intent=goal.buildDiscoveryIntentFromGoal(base),before=structuredClone(intent);
+ assert.equal(goal.boundedDiscoveryRefreshFocus('  Find dated US nature-shirt buyer reviews and current displayed item prices.  '),'Find dated US nature-shirt buyer reviews and current displayed item prices.');
+ assert.equal(goal.boundedDiscoveryRefreshFocus('   '),'');
+ assert.throws(()=>goal.boundedDiscoveryRefreshFocus('Too short'),/20–200/);
+ assert.throws(()=>goal.boundedDiscoveryRefreshFocus('x'.repeat(201)),/20–200/);
+ assert.deepEqual(intent,before);
+});
+
+test('a selector failure carries its validated kickoff Evidence Packs forward before a dossier exists',async()=>{
+ const {loadDiscoveryGoalData}=loadData();
+ const root={id:base.id,business_id:base.businessId,workflow_run_id:'failed-selector-run',discovery_version:'pod-discovery-2.0',candidate_id:null,parent_discovery_id:null,status:'failed',variables:{intent:goal.buildDiscoveryIntentFromGoal(base),priorArtifactIds:['prior-pack']}};
+ const run=async businessId=>{
+  const rows={packs:[{data:{status:'experimental'},error:null}],artifacts:[{data:[],error:null},{data:[{id:'prior-pack',business_id:businessId,workflow_run_id:'earlier-research',artifact_type:'worker.output',content:{evidencePack:{question:'Preserved observed evidence'}},metadata:{stageKey:'research1'}}],error:null}]};
+  const supabase={from(table){const result=rows[table].shift(),q={select(){return q;},eq(){return q;},in(){return q;},maybeSingle(){return q;},then(resolve){return Promise.resolve(result).then(resolve);}};return q;}};
+  return loadDiscoveryGoalData({supabase,businesses:[{id:base.businessId}]},[root]);
+ };
+ const owned=await run(base.businessId);assert.deepEqual(owned.errors,[]);assert.equal(owned.records[0].dossier,null);assert.deepEqual(owned.records[0].sourcePacks.map(p=>p.id),['prior-pack']);
+ const foreign=await run('foreign-business');assert.equal(foreign.records[0].sourcePacks.length,0);assert.match(foreign.errors[0],/missing or outside this Business/);
+});

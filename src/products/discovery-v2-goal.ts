@@ -1,6 +1,11 @@
 import { DISCOVERY_V2, discoveryV2Hash, validateDiscoveryIntentV2, type DiscoveryIntentV2 } from "./discovery-v2";
 export const DISCOVERY_GOAL_DEFAULT = "Research the best-supported starting geographic market for original nature T-shirts, recommend up to three concepts, and prepare the strongest for review.";
 export const DISCOVERY_MARKET_SCOPE = "Compare the United States, United Kingdom, Australia and New Zealand as a bounded English-language starting set. Check dated marketplace observations, delivered prices and fulfilment constraints separately; this is not a claim about every possible market.";
+export function boundedDiscoveryRefreshFocus(value:string){
+  const focus=value.trim();
+  if(focus && (focus.length<20 || focus.length>200))throw new Error("An optional research focus must contain 20–200 characters within this preserved goal.");
+  return focus;
+}
 export function buildDiscoveryIntentFromGoal(options: {id:string;businessId:string;goal:string;audienceHint?:string;maximumMicrousd:number;maximumCollections:1|2;now?:number}): DiscoveryIntentV2 {
   const goal=options.goal.trim(),audience=options.audienceHint?.trim() || "Adult outdoor and nature enthusiasts";
   // Products supplies the declared original-shirt context, so "research the best market" is sufficient.

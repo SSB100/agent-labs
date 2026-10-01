@@ -44,3 +44,12 @@ test('paid schema failure retains bounded field/category diagnostics without rej
   assert.ok(hostile.details.validationIssues.every(issue=>issue.path==='$'&&issue.category==='schema_mismatch'));
   assert.ok(!JSON.stringify(hostile.details).includes(privateValue));
 });
+test('selector reasoning control is hashed, bounded and refused for analysis or arbitrary settings',()=>{
+ const req=request('select:1'),q=quote(req.model.providerModelId);
+ const original=reserveDiscoveryV2(scope,'select:1',req,q);
+ const disabled=reserveDiscoveryV2(scope,'select:1',{...req,reasoning:{effort:'none'}},q);
+ assert.notEqual(disabled.requestHash,original.requestHash);
+ assert.equal(disabled.estimate.outputTokens,original.estimate.outputTokens);
+ for(const reasoning of [{effort:'high'},{effort:'none',exclude:true},{max_tokens:100}]) assert.throws(()=>reserveDiscoveryV2(scope,'select:1',{...req,reasoning},q),/Only exact-span/);
+ assert.throws(()=>reserveDiscoveryV2(scope,'strategy:1',{...request('strategy:1'),reasoning:{effort:'none'}},q),/Only exact-span/);
+});
