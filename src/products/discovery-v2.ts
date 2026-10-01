@@ -148,7 +148,7 @@ export function validateDiscoveryIntentV2(intent: DiscoveryIntentV2, now = Date.
   validateResearchRequest({ query: u.selectionQuestion, allowedDomains: u.sourceDomains });
   shape(intent.limits, "maximumAlternatives,maximumNewCollections,maximumMicrousd,maximumGenerations", "discovery limits");
   if (intent.limits.maximumAlternatives !== 3 || ![1, 2].includes(intent.limits.maximumNewCollections) || ![1, 2].includes(intent.limits.maximumGenerations)) fail("Finite discovery bounds required.");
-  integer(intent.limits.maximumMicrousd, 1, 1_000_000, "approved discovery research envelope");
+  integer(intent.limits.maximumMicrousd, 1, 2_000_000, "approved discovery research envelope");
   if (!Number.isFinite(Date.parse(intent.expiresAt)) || Date.parse(intent.expiresAt) <= now) fail("Discovery intent expired.");
 }
 function snapshotBytes(value: unknown, maximum: number, label: string) {

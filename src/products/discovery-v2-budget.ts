@@ -10,7 +10,7 @@ import { JsonSchemaValidationError } from "../workers/schema-validator";
 export const DISCOVERY_V2_CALLS = ["plan:1", "search:1", "select:1", "search:2", "select:2", "strategy:1", "review:1"] as const;
 export type DiscoveryV2Call = (typeof DISCOVERY_V2_CALLS)[number];
 export const DISCOVERY_V2_BUDGET = {
-  version: "discovery-estimate-2.0", maximumMicrousd: 1_000_000, formattingTokenAllowance: 8192,
+  version: "discovery-estimate-2.0", maximumMicrousd: 2_000_000, formattingTokenAllowance: 8192,
   maximumSearchRequestBytes: 8192, searchInputTokenAllowance: 128_000, searchOutputTokenAllowance: 8000, exaFastSearchFeeMicrousd: 7000,
   pricingSource: "https://openrouter.ai/api/v1/models",
   toolPricingSource: "https://openrouter.ai/docs/guides/features/server-tools/web-search",

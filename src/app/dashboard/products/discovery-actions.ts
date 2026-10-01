@@ -12,6 +12,25 @@ import {validateDiscoveryIntentV2} from "@/products/discovery-v2";
 import {installedPackRuntimeWorkflow} from "@/workflows/installed-pack-runtime";
 const text=(form:FormData,key:string)=>typeof form.get(key)==='string'?String(form.get(key)).trim():'';
 function fail(message:string):never{redirect(`/dashboard/products?error=${encodeURIComponent(message.slice(0,350))}`);}
+export async function approveGeographicResearchFunding(form:FormData){
+  const context=await requireOwnerUiContext(),rootId=text(form,'rootId');
+  if(text(form,'confirmFunding')!=='on')fail('Confirm the total USD research ceiling, including prior charges.');
+  const result=await context.supabase.from('product_experiments').select('*').eq('id',rootId).eq('discovery_version','pod-discovery-2.0').is('parent_discovery_id',null).maybeSingle();
+  const root=result.data as ProductExperimentRecord|null;
+  if(result.error||!root||!context.businesses.some(b=>b.id===root.business_id))fail('Research goal not found.');
+  let maximum,balance;
+  try{
+    maximum=parseDiscoveryAllowance(text(form,'maximumUsd'),2_000_000);
+    balance=await loadDiscoveryChainBalance(context,root);
+  }catch(error){fail(error instanceof Error?error.message:'Funding history could not be verified.');}
+  const replay=await context.supabase.from('product_research_funding_approvals').select('previous_maximum_microusd').eq('id',text(form,'approvalId')).eq('business_id',root.business_id).maybeSingle();
+  if(replay.error)fail('The prior funding approval could not be verified.');
+  const approved=await context.supabase.rpc('approve_product_research_funding',{p_root_id:root.id,p_approval_id:text(form,'approvalId'),p_expected_maximum_microusd:replay.data?.previous_maximum_microusd??balance.maximumMicrousd,p_maximum_microusd:maximum,
+    p_reason:'Owner explicitly approved a total USD research ceiling, retaining the original goal and all existing charges.'});
+  if(approved.error)fail(approved.error.message);
+  revalidatePath('/dashboard/products');
+  redirect(`/dashboard/products?message=${encodeURIComponent(`Research funding recorded: total USD ${(maximum/1e6).toFixed(6)} for the preserved goal, including prior charges. No research was started.`)}`);
+}
 export async function startGeographicDiscovery(form:FormData){
   const context=await requireOwnerUiContext(),businessId=text(form,'businessId');
   if(!context.businesses.some(b=>b.id===businessId))fail('Business not found.');
@@ -56,7 +75,7 @@ export async function refreshGeographicDiscovery(form:FormData){
     validateDiscoveryIntentV2(intent);
     const [director,reviewer]=await Promise.all([fetchDiscoveryV2ModelQuote(discoveryV2Model('plan:1')),fetchDiscoveryV2ModelQuote(discoveryV2Model('review:1'))]);
     quote=quoteDiscoveryV2(discoveryGoalBudgetScope(intent),{director,reviewer});
-    if(quote.maximumEstimateMicrousd>balance.remainingMicrousd)throw new Error('The complete focused follow-up estimate exceeds the original remaining allowance. This goal cannot start more calls.');
+    if(quote.maximumEstimateMicrousd>balance.remainingMicrousd)throw new Error('The complete focused follow-up estimate exceeds the approved remaining allowance. This goal cannot start more calls.');
     const refs=record.dossier?.packRefs.map(p=>p.artifactId)??[];
     priorArtifactIds=[...new Set([...record.sourcePacks.map(p=>p.id),...refs])];
     if(priorArtifactIds.length>4)throw new Error('This follow-up exceeds the bounded prior-evidence dossier; a reviewed evidence selection is needed before more research.');
