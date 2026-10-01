@@ -36,7 +36,10 @@ export async function loadDiscoveryChainBalance(context:OwnerUiContext,root:Prod
   if(typeof authorityId!=='string')throw new Error('The immutable shared research authority could not be loaded.');
   const authority=await context.supabase.from('product_experiments').select('id,variables').eq('id',authorityId).eq('business_id',root.business_id).maybeSingle();
   const maximum=authority.data?.variables?.intent?.limits?.maximumMicrousd;
-  if(authority.error||!Number.isSafeInteger(maximum)||maximum<1)throw new Error('The original research allowance is unavailable.');
+  if(authority.error||!Number.isSafeInteger(maximum)||maximum<1||maximum>2_000_000)throw new Error('The original research allowance is unavailable.');
+  const funding=await context.supabase.from('product_research_funding_approvals').select('maximum_microusd',{count:'exact'}).eq('business_id',root.business_id).eq('authority_root_id',authorityId).limit(1001);
+  if(funding.error||!funding.data||funding.data.length>1000||funding.count!==funding.data.length||funding.data.some(a=>!Number.isSafeInteger(a.maximum_microusd)||a.maximum_microusd<=maximum||a.maximum_microusd>2_000_000))throw new Error('The complete approved funding history is unavailable.');
+  const fundedMaximum=Math.max(maximum,...funding.data.map(a=>a.maximum_microusd));
   const chain=await context.supabase.from('product_experiments').select('id',{count:'exact'}).eq('business_id',root.business_id).eq('discovery_version','pod-discovery-2.0').is('parent_discovery_id',null).eq('variables->>budgetAuthorityRootId',authorityId).limit(1001);
   if(chain.error||!chain.data?.length||chain.data.length>1000||chain.count!==chain.data.length)throw new Error('The complete research allowance history is unavailable.');
   const reservations=await context.supabase.from('product_research_cost_reservations').select('id,reserved_microusd',{count:'exact'}).eq('business_id',root.business_id).in('experiment_id',chain.data.map(r=>r.id)).limit(10001);
@@ -47,5 +50,5 @@ export async function loadDiscoveryChainBalance(context:OwnerUiContext,root:Prod
   for(const reservation of reservations.data){const known=settlements.data.filter(s=>s.reservation_id===reservation.id&&Number.isSafeInteger(s.reported_microusd)&&s.reported_microusd>=0&&typeof s.provider_request_id==='string');
     if(known.length)knownMicrousd+=Math.max(...known.map(s=>s.reported_microusd));
     else{pendingExposureMicrousd+=reservation.reserved_microusd;hasUncertainCosts=true;}}
-  return{maximumMicrousd:maximum,knownMicrousd,pendingExposureMicrousd,remainingMicrousd:Math.max(0,maximum-knownMicrousd-pendingExposureMicrousd),hasUncertainCosts};
+  return{maximumMicrousd:fundedMaximum,knownMicrousd,pendingExposureMicrousd,remainingMicrousd:Math.max(0,fundedMaximum-knownMicrousd-pendingExposureMicrousd),hasUncertainCosts};
 }

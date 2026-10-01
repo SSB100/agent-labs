@@ -14,7 +14,7 @@ export function buildDiscoveryIntentFromGoal(options: {id:string;businessId:stri
   validateDiscoveryIntentV2(intent,options.now);return intent;
 }
 export function discoveryGoalBudgetScope(intent:DiscoveryIntentV2){return{intentId:intent.id,maximumCollections:intent.limits.maximumNewCollections,maximumMicrousd:intent.limits.maximumMicrousd,policyHash:discoveryV2Hash(intent)};}
-export function parseDiscoveryAllowance(value:string){
-  if(!/^(?:0|1)(?:\.\d{1,6})?$/.test(value))throw new Error("Enter a research allowance in US dollars, up to US$1.");
-  const amount=Math.round(Number(value)*1e6);if(amount<1 || amount>1e6)throw new Error("The research allowance must be positive and at most US$1.");return amount;
+export function parseDiscoveryAllowance(value:string,maximumMicrousd=1_000_000){
+  if(![1_000_000,2_000_000].includes(maximumMicrousd)||!/^[0-2](?:\.\d{1,6})?$/.test(value))throw new Error("Enter an explicit bounded research allowance in US dollars.");
+  const amount=Math.round(Number(value)*1e6);if(amount<1 || amount>maximumMicrousd)throw new Error(`The research allowance must be positive and at most US$${maximumMicrousd/1e6}.`);return amount;
 }
