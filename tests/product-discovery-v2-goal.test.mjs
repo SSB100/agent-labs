@@ -73,10 +73,32 @@ test('a selector failure carries its validated kickoff Evidence Packs forward be
  const {loadDiscoveryGoalData}=loadData();
  const root={id:base.id,business_id:base.businessId,workflow_run_id:'failed-selector-run',discovery_version:'pod-discovery-2.0',candidate_id:null,parent_discovery_id:null,status:'failed',variables:{intent:goal.buildDiscoveryIntentFromGoal(base),priorArtifactIds:['prior-pack']}};
  const run=async businessId=>{
-  const rows={packs:[{data:{status:'experimental'},error:null}],artifacts:[{data:[],error:null},{data:[{id:'prior-pack',business_id:businessId,workflow_run_id:'earlier-research',artifact_type:'worker.output',content:{evidencePack:{question:'Preserved observed evidence'}},metadata:{stageKey:'research1'}}],error:null}]};
+  const rows={packs:[{data:{status:'experimental'},error:null},{data:{status:'experimental'},error:null}],artifacts:[{data:[],error:null},{data:[{id:'prior-pack',business_id:businessId,workflow_run_id:'earlier-research',artifact_type:'worker.output',content:{evidencePack:{question:'Preserved observed evidence'}},metadata:{stageKey:'research1'}}],error:null}]};
   const supabase={from(table){const result=rows[table].shift(),q={select(){return q;},eq(){return q;},in(){return q;},maybeSingle(){return q;},then(resolve){return Promise.resolve(result).then(resolve);}};return q;}};
   return loadDiscoveryGoalData({supabase,businesses:[{id:base.businessId}]},[root]);
  };
  const owned=await run(base.businessId);assert.deepEqual(owned.errors,[]);assert.equal(owned.records[0].dossier,null);assert.deepEqual(owned.records[0].sourcePacks.map(p=>p.id),['prior-pack']);
  const foreign=await run('foreign-business');assert.equal(foreign.records[0].sourcePacks.length,0);assert.match(foreign.errors[0],/missing or outside this Business/);
+});
+
+test('analysis round copies exact preserved goal with new identity and zero collections, without mutating failed intent',()=>{
+ const prior=goal.buildDiscoveryIntentFromGoal(base),original=structuredClone(prior),id='33333333-3333-4333-8333-333333333333';
+ const next=goal.buildDiscoveryAnalysisIntent({prior,id,maximumMicrousd:2000000});
+ assert.deepEqual(prior,original);assert.equal(next.id,id);assert.equal(next.limits.maximumNewCollections,0);assert.equal(next.limits.maximumMicrousd,2000000);
+ assert.deepEqual(next.comparisonUniverse,prior.comparisonUniverse);assert.equal(next.objective,prior.objective);assert.equal(next.businessId,prior.businessId);
+ assert.throws(()=>goal.buildDiscoveryIntentFromGoal({...base,maximumCollections:0}),/one or two/);
+});
+
+test('failed dossier shows separate two-call evidence-reuse approval with fresh quote, no source picker and unavailable lane disabled',()=>{
+ const {DiscoveryGoalResults}=loadView(),intent=goal.buildDiscoveryIntentFromGoal(base);
+ const record={root:{id:base.id,workflow_run_id:base.id,status:'failed',created_at:'2026-10-01',failure:'Strategy bound failed.'},intent,dossier:{packRefs:[{artifactId:'p1'},{artifactId:'p2'},{artifactId:'p3'},{artifactId:'p4'}]},strategy:null,review:null,sourcePacks:[]};
+ for(const analysisAvailable of [false,true]){
+  const markup=renderToStaticMarkup(React.createElement(DiscoveryGoalResults,{data:{available:true,analysisAvailable,errors:[],records:[record]},quote:{one:370395,two:530914,analysis:180000,verifiedAt:'2026-10-01T09:00:00Z'}}));
+  assert.match(markup,/all 4 preserved Evidence Packs/);assert.match(markup,/Exactly two paid calls/);assert.match(markup,/No new search, selection or planning/);
+  assert.match(markup,/name="confirmAnalysis"/);assert.match(markup,/name="quotedMaximum" value="180000"/);assert.match(markup,/The failed attempt stays unchanged/);
+  assert.doesNotMatch(markup,/name="(?:planArtifactId|priorArtifactIds|dossierArtifactId)"/);
+  if(!analysisAvailable)assert.match(markup,/evidence-reuse workflow is not available yet/);
+ }
+ const historical=renderToStaticMarkup(React.createElement(DiscoveryGoalResults,{data:{available:true,analysisAvailable:true,errors:[],records:[{...record,hasSuccessor:true}]}}));
+ assert.doesNotMatch(historical,/name="confirmAnalysis"/);
 });

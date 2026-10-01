@@ -2,13 +2,14 @@ import type { OwnerUiContext } from "../lib/core-ui/data";
 import type { JsonObject } from "../core/contracts";
 import type { ProductExperimentRecord } from "./types";
 import type { DiscoveryIntentV2, DiscoveryDossierV2, StrategistAssessmentV2, ReviewerDecisionV2 } from "./discovery-v2";
-export type DiscoveryGoalRecord={root:ProductExperimentRecord;intent:DiscoveryIntentV2|null;dossier:DiscoveryDossierV2|null;strategy:StrategistAssessmentV2|null;review:ReviewerDecisionV2|null;sourcePacks:{id:string;content:JsonObject}[]};
-export type DiscoveryGoalData={available:boolean;records:DiscoveryGoalRecord[];errors:string[]};
+export type DiscoveryGoalRecord={root:ProductExperimentRecord;hasSuccessor?:boolean;intent:DiscoveryIntentV2|null;dossier:DiscoveryDossierV2|null;strategy:StrategistAssessmentV2|null;review:ReviewerDecisionV2|null;sourcePacks:{id:string;content:JsonObject}[]};
+export type DiscoveryGoalData={available:boolean;analysisAvailable?:boolean;records:DiscoveryGoalRecord[];errors:string[]};
 function object(v:unknown):v is Record<string,unknown>{return !!v&&typeof v==='object'&&!Array.isArray(v);}
 export async function loadDiscoveryGoalData(context:OwnerUiContext,experiments:ProductExperimentRecord[]):Promise<DiscoveryGoalData>{
   const catalog=await context.supabase.from("packs").select("id,status").eq("pack_key","workflow.product-discovery-v2").eq("version","1.0.0").maybeSingle();
+  const analysisCatalog=await context.supabase.from("packs").select("id,status").eq("pack_key","workflow.product-discovery-v2-analysis").eq("version","1.0.0").maybeSingle();
   const roots=experiments.filter(e=>e.discovery_version==='pod-discovery-2.0'&&e.candidate_id===null&&!e.parent_discovery_id);
-  const empty={available:!catalog.error&&['experimental','qualified'].includes(catalog.data?.status??''),records:[],errors:catalog.error?["The geographic discovery workflow could not be checked."]:[]};
+  const empty={analysisAvailable:!analysisCatalog.error&&analysisCatalog.data?.status==='experimental',available:!catalog.error&&['experimental','qualified'].includes(catalog.data?.status??''),records:[],errors:catalog.error?["The geographic discovery workflow could not be checked."]:[]};
   if(!roots.length)return empty;
   const results=await context.supabase.from("artifacts").select("id,business_id,workflow_run_id,artifact_type,content,metadata").in("business_id",context.businesses.map(b=>b.id)).in("workflow_run_id",roots.map(e=>e.workflow_run_id)).in("artifact_type",["worker.output","product.discovery-dossier.v2"]);
   if(results.error)return{...empty,records:roots.map(root=>({root,intent:null,dossier:null,strategy:null,review:null,sourcePacks:[]})),errors:[...empty.errors,"Saved discovery artifacts could not be loaded; their absence is not a negative result."]};
@@ -25,7 +26,7 @@ export async function loadDiscoveryGoalData(context:OwnerUiContext,experiments:P
     const dossier=(own.find(a=>a.artifact_type==='product.discovery-dossier.v2')?.content??null) as DiscoveryDossierV2|null;
     const refIds=new Set([...kickoffRefs(root),...dossier?.packRefs?.map(ref=>ref.artifactId)??[]]);
     if([...refIds].some(id=>!allSources.some(a=>a.id===id&&a.business_id===root.business_id&&a.artifact_type==='worker.output'&&object(a.content)&&object(a.content.evidencePack))))empty.errors.push('A preserved prior Evidence Pack is missing or outside this Business; research continuation is blocked.');
-    return{root,intent:object(variables.intent)&&variables.intent.version==='pod-discovery-2.0'?variables.intent as unknown as DiscoveryIntentV2:null,
+    return{root,hasSuccessor:roots.some(next=>next.business_id===root.business_id&&object(next.variables.ownerKickoff)&&object(next.variables.ownerKickoff.followUpBasis)&&next.variables.ownerKickoff.followUpBasis.rootId===root.id),intent:object(variables.intent)&&variables.intent.version==='pod-discovery-2.0'?variables.intent as unknown as DiscoveryIntentV2:null,
       dossier,
       strategy:object(strategy)&&strategy.version==='pod-discovery-2.0'?strategy as unknown as StrategistAssessmentV2:null,
       review:object(review)&&review.version==='pod-discovery-2.0'?review as unknown as ReviewerDecisionV2:null,

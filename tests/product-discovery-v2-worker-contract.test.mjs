@@ -73,6 +73,14 @@ function preparedFixture() {
   const compact = worker.compactStrategistAssessmentV2(prepared, f.assessment);
   return { ...f, prepared, compact };
 }
+function threeCandidateFixture() {
+  const f = fixture(), third = { ...f.candidate, id: id(9), concept: 'Original forest-trail line illustration T-shirt' };
+  f.dossier.shortlist.push(third); f.context.candidates.set(third.id, third);
+  f.assessment.candidates.push({ ...structuredClone(f.assessment.candidates[0]), candidateId: third.id, identityHash: v2.discoveryV2Hash(third) });
+  f.assessment.recommendation.alternatives.push({ candidateId: third.id, rationale: 'This concept remains a third plausible alternative, but its specific buyer interest is not established.', evidenceRefs: [f.refs[0]] });
+  f.assessment.dossierHash = v2.discoveryV2Hash(f.dossier);
+  return f;
+}
 function compactReview(f) {
   const key = ref => f.prepared.evidencePool.find(e => v2.discoveryV2Hash(e.reference) === v2.discoveryV2Hash(ref)).key;
   return { marketCountryCode: f.review.marketCountryCode, candidateKey: f.prepared.candidateKeys.find(c => c.candidateId === f.review.candidateId).key, outcome: f.review.outcome,
@@ -206,7 +214,7 @@ test('prepared context is snapshot-isolated and tampered pools/expired sources s
 });
 test('oversized complete reviewer context is rejected without silent truncation', () => {
   const f = preparedFixture();
-  // Keep the persisted assessment inside its own32KB cap, but grow all model-facing explanations.
+  // Keep the persisted assessment inside its storage cap, but exceed the unchanged request cap.
   for (const c of f.assessment.candidates) for (const d of c.dimensions) {
     d.rationale = 'A'.repeat(440);
     for (const u of d.uncertainties) u.reason = 'B'.repeat(295);
@@ -218,11 +226,7 @@ test('oversized complete reviewer context is rejected without silent truncation'
 });
 
 test('three complete concept alternatives and four geographies fit the unchanged compact request bounds', () => {
-  const f = fixture(), third = { ...f.candidate, id: id(9), concept: 'Original forest-trail line illustration T-shirt' };
-  f.dossier.shortlist.push(third); f.context.candidates.set(third.id, third);
-  f.assessment.candidates.push({ ...structuredClone(f.assessment.candidates[0]), candidateId: third.id, identityHash: v2.discoveryV2Hash(third) });
-  f.assessment.recommendation.alternatives.push({ candidateId: third.id, rationale: 'This concept remains a third plausible alternative, but its specific buyer interest is not established.', evidenceRefs: [f.refs[0]] });
-  f.assessment.dossierHash = v2.discoveryV2Hash(f.dossier);
+  const f = threeCandidateFixture();
   const prepared = worker.prepareDiscoveryWorkerContextV2(f.intent, f.dossier, f.context, f.refs, now);
   const compact = worker.compactStrategistAssessmentV2(prepared, f.assessment);
   const restored = worker.normalizeStrategistResponseV2(prepared, compact, f.execution, now);
@@ -239,6 +243,82 @@ test('three complete concept alternatives and four geographies fit the unchanged
   }) })) };
   delete restoredCompact.rowEncoding;
   assert.deepEqual(restoredCompact, compact, 'every assessment fact, rationale, flag and uncertainty survives row encoding');
+});
+
+test('three-candidate normalized evidence can exceed 32 KiB while the complete review request stays bounded and lossless', () => {
+  const f = threeCandidateFixture();
+  const extraRefs = f.refs.map(ref => ({ ...ref, end: ref.end - 1 }));
+  for (const market of f.assessment.marketComparisons) market.evidenceRefs.push(f.refs[0]);
+  for (const candidate of f.assessment.candidates) for (const dimension of candidate.dimensions) {
+    dimension.rationale = 'The source supports only a narrow, uncertain comparison.';
+    if (dimension.facts.length) {
+      const index = f.refs.findIndex(ref => v2.discoveryV2Hash(ref) === v2.discoveryV2Hash(dimension.facts[0].reference));
+      dimension.facts[0].relevance = 'This source offers limited context for the stated comparison.';
+      dimension.facts.push({ reference: extraRefs[index], relevance: 'This span does not establish candidate sales or viability.' });
+    }
+    for (const uncertainty of dimension.uncertainties) uncertainty.reason = 'This private visual test cannot resolve commercial demand; retain the question for any later launch.';
+  }
+  const prepared = worker.prepareDiscoveryWorkerContextV2(f.intent, f.dossier, f.context, [...f.refs, ...extraRefs], now);
+  const compact = worker.compactStrategistAssessmentV2(prepared, f.assessment);
+  const before = JSON.stringify(compact);
+  const restored = worker.normalizeStrategistResponseV2(prepared, compact, f.execution, now);
+  const bytes = v2.discoveryV2SnapshotByteLength(restored);
+  assert.ok(Buffer.byteLength(JSON.stringify(restored), 'utf8') > 32768, 'the old application snapshot gate also rejected this complete assessment');
+  assert.ok(bytes > 32768, `Expanded snapshot must reproduce the old storage failure, got ${bytes}`);
+  assert.ok(bytes <= 65536);
+  assert.deepEqual(restored, f.assessment);
+  assert.equal(JSON.stringify(compact), before);
+  const request = worker.buildReviewerRequestV2(prepared, restored, f.execution, now);
+  assert.ok(Buffer.byteLength(JSON.stringify(request), 'utf8') <= 32768);
+  assert.equal(request.maxOutputTokens, 4000);
+  const input = JSON.parse(request.messages[1].content);
+  assert.deepEqual(input.assessment, worker.tabulateStrategistAssessmentV2(compact));
+  assert.deepEqual(input.missingQuestions, restored.missingQuestions);
+  assert.deepEqual(input.evidence, prepared.evidencePool.map(({ key, quote, url, retrievedAt, expiresAt }) => ({ key, quote, url, retrievedAt, expiresAt })));
+});
+
+test('review schema and projected provider schema pin the exact recommendation for every outcome', () => {
+  const f = preparedFixture(), contract = worker.reviewerResponseSchemaV2(f.prepared, f.assessment);
+  const projected = modelProvider.projectProviderJsonSchema(contract);
+  assert.equal(contract.properties.candidateKey.const, 'C1');
+  assert.equal(contract.properties.marketCountryCode.const, 'US');
+  assert.deepEqual(projected.properties.candidateKey.enum, ['C1']);
+  assert.deepEqual(projected.properties.marketCountryCode.enum, ['US']);
+  assert.equal(contract.properties.dimensions.minItems, 9); assert.equal(contract.properties.dimensions.maxItems, 9);
+  const request = worker.buildReviewerRequestV2(f.prepared, f.assessment, f.execution, now);
+  assert.deepEqual(request.outputSchema, contract);
+  assert.deepEqual(JSON.parse(request.messages[1].content).reviewScope, { candidateKey: 'C1', marketCountryCode: 'US' });
+  assert.match(request.messages[0].content, /disagree by changing the outcome/);
+  for (const outcome of ['TEST', 'REJECT', 'NEEDS_MORE_EVIDENCE']) {
+    const response = { ...compactReview(f), outcome };
+    assert.equal(worker.normalizeReviewerResponseV2(f.prepared, f.assessment, response, { strategist: f.execution, reviewer: f.reviewExecution }, now).outcome, outcome);
+    for (const changed of [{ candidateKey: 'C2' }, { candidateKey: null }, { marketCountryCode: 'GB' }, { marketCountryCode: null }, { dimensions: [] }]) {
+      assert.throws(() => worker.normalizeReviewerResponseV2(f.prepared, f.assessment, { ...response, ...changed }, { strategist: f.execution, reviewer: f.reviewExecution }, now), /JSON schema/);
+    }
+  }
+});
+
+test('review binding follows a nonfirst selected candidate and handles an explicitly unselected recommendation', () => {
+  const f = preparedFixture(), candidateId = f.dossier.shortlist[1].id;
+  f.assessment.recommendation.candidateId = candidateId;
+  f.assessment.recommendation.marketCountryCode = 'GB';
+  f.assessment.recommendation.alternatives[0].candidateId = f.candidate.id;
+  f.review.candidateId = candidateId; f.review.marketCountryCode = 'GB';
+  const selected = worker.reviewerResponseSchemaV2(f.prepared, f.assessment);
+  assert.equal(selected.properties.candidateKey.const, 'C2'); assert.equal(selected.properties.marketCountryCode.const, 'GB');
+  worker.normalizeReviewerResponseV2(f.prepared, f.assessment, compactReview(f), { strategist: f.execution, reviewer: f.reviewExecution }, now);
+  f.assessment.recommendation.proposedOutcome = 'NEEDS_MORE_EVIDENCE';
+  f.assessment.recommendation.candidateId = null; f.assessment.recommendation.marketCountryCode = null; f.assessment.testPlan = null;
+  f.assessment.recommendation.alternatives.push({ candidateId, rationale: prose, evidenceRefs: [f.refs[0]] });
+  const contract = worker.reviewerResponseSchemaV2(f.prepared, f.assessment), projected = modelProvider.projectProviderJsonSchema(contract);
+  assert.equal(contract.properties.candidateKey.const, null); assert.equal(contract.properties.marketCountryCode.const, null);
+  assert.deepEqual(projected.properties.candidateKey.enum, [null]); assert.deepEqual(projected.properties.marketCountryCode.enum, [null]);
+  assert.equal(contract.properties.dimensions.minItems, 0); assert.equal(contract.properties.dimensions.maxItems, 0);
+  const response = { ...compactReview(f), candidateKey: null, marketCountryCode: null, dimensions: [], outcome: 'NEEDS_MORE_EVIDENCE' };
+  const review = worker.normalizeReviewerResponseV2(f.prepared, f.assessment, response, { strategist: f.execution, reviewer: f.reviewExecution }, now);
+  assert.equal(review.candidateId, null); assert.deepEqual(review.missingQuestions, f.assessment.missingQuestions);
+  assert.throws(() => worker.normalizeReviewerResponseV2(f.prepared, f.assessment, { ...response, outcome: 'TEST' }, { strategist: f.execution, reviewer: f.reviewExecution }, now), /No candidate was selected/);
+  assert.throws(() => schema.assertJsonSchemaValue(contract, { ...response, dimensions: compactReview(f).dimensions }), /JSON schema/);
 });
 test('new reviewer uncertainty cannot be appended to TEST without an explicit nonblocking reason', () => {
   const f = preparedFixture(), response = compactReview(f);
@@ -349,7 +429,7 @@ test('research phase receives the full guidance-only evidence guide from the sam
 });
 
 test('review rationale character guidance survives provider projection and overlength output remains rejected',()=>{
- const f=preparedFixture(),contract=worker.reviewerResponseSchemaV2(f.prepared),projected=modelProvider.projectProviderJsonSchema(contract);
+ const f=preparedFixture(),contract=worker.reviewerResponseSchemaV2(f.prepared,f.assessment),projected=modelProvider.projectProviderJsonSchema(contract);
  for(const field of ['dimensions','checks']){
   assert.equal(contract.properties[field].items.properties.rationale.maxLength,240);
   assert.match(projected.properties[field].items.properties.rationale.description,/30–240 characters including spaces/);

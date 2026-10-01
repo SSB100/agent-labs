@@ -3,6 +3,20 @@
 Status: A real native-PNG technical run has passed generation, immutable source preservation, print-spec validation and independent pixel review. The approved source remained byte-identical, including its opaque embedded content credentials. **The full Stage14 approved-candidate production exit is not complete.** The ADR001 geographic discovery correction is deployed, including the exact-audience schema and safe failure diagnostics, but its live end-to-end qualification remains open. A technical-only PASS cannot authorize production-purpose creative work or satisfy downstream live exits.
 
 
+## Preserved-evidence analysis continuation — 2026-10-01
+
+Read-only recovery confirmed production at `37a9f57aea7712352aa21a92e4f47ce7e45c33d6` (PR 31), no newer research launch, a terminal strategy-size failure and fully settled research accounting. The funded total ceiling remains attached to the original goal; balances and provider identities stay Business-private. The latest failed round retains its completed plan, three immutable candidate identities, dossier and four validated Evidence Packs. No rejected strategy is reconstructed or accepted.
+
+This correction adds a separate experimental `product.discovery-v2.analysis` workflow with exactly two paid phases: strategy and independent review. It reuses the latest failed round’s complete plan/dossier/evidence through a newly approved, separately quoted round. Planning, source collection and quotation selection are prohibited in this lane. Existing manifests, terminal histories, original funding and every charge are preserved. Fresh source validation, immutable lineage, current/latest-round checks, the locked shared allowance and no-overlap/duplicate guards remain required.
+
+Normalized strategist storage increases from 32 KiB to a finite 64 KiB to hold expanded references across three candidates and nine dimensions. TypeScript accounts for PostgreSQL JSONB separator spacing and UTF-8. The reviewer and dossier bounds remain 16 KiB; complete provider requests remain 32 KiB, with unchanged token and spending limits. Nothing is truncated. The reviewer’s candidate and geography are pinned to the proposed scope, including null; its TEST/REJECT/NEEDS_MORE_EVIDENCE outcome remains independent.
+
+The authority delta is reviewed explicitly: the existing owner kickoff and runtime endpoints recognize one new bounded workflow key, while a private helper validates original plan/task/worker/provider settlement and exact source hashes. The helper has no client grant. Existing endpoint signatures, principals and ACLs are retained, and the owner explicitly approved this guarded database expansion and one separately capped two-call continuation. Funding and deployment alone still do not authorize another round.
+
+Focused Node 22 verification passed 94 tests, TypeScript and lint. The aggregate quality gate passed 527 tests with one existing CI-only browser check skipped locally. Independent authority review passed. Isolated PostgreSQL18.3/PGlite0.5.8 replay passed all12 relevant suites (431 lexical ASSERT statements, including47 continuation assertions and exact64KiB/+1 storage boundaries). Atomic success/failure/drift rollback restored schema/data hashes; all155 existing function metadata entries and116 seeded rows remained unchanged. Auth/Storage services were local stubs.
+
+Migration `20261001093430_stage13_v2_evidence_analysis_continuation` was applied after approval. Hosted readback confirmed unchanged117 public/private function signatures/ACLs/owners/security settings, the new private helper restricted to postgres, and unchanged research/settlement/run/experiment/artifact/decision/funding counts. Exact-head hosted release checks and deployed UI evidence are recorded in the release closeout. These offline results do not qualify the live workflow, produce a TEST decision or advance Stages 14–16. Stage 17 remains unstarted.
+
 ## Current qualification boundary — 2026-10-01 cleanup
 
 This section is the current status; the dated verification/provider sections below preserve historical evidence and prices, not new execution authority.
@@ -10,7 +24,7 @@ This section is the current status; the dated verification/provider sections bel
 | Required evidence | Current result |
 | --- | --- |
 | Native-PNG technical generation, source preservation, print validation and independent pixel review | Passed in a real technical-only run |
-| Bounded v2 geographic research through source collection, strategy and independent review | Not qualified: latest continuation completed planning, exact-span research and strategy; reviewer response exceeded six rationale character limits and no independent decision was accepted |
+| Bounded v2 geographic research through source collection, strategy and independent review | Not qualified: latest continuation completed planning and exact-span research, retained four validated Evidence Packs, and stopped because the normalized three-candidate strategy exceeded its stored snapshot limit; independent review did not run |
 | Current, evidence-backed independently reviewed TEST candidate | No v2 decision exists in the hosted registry |
 | Separate candidate-production approval | None recorded |
 | Production-purpose creative run and reviewed product-ready asset | Not achieved |

@@ -59,8 +59,8 @@ export async function loadInstalledPack(input: InstalledPackRuntimeInput, runtim
   const qualification = input.qualification === "stage11" && (snapshot as PackSnapshot & {platformQualification?:string}).platformQualification === "stage11" && root.manifest.packKey === "workflow.web-research";
   const simulation = input.qualification === "stage12" && input.mode === "simulation";
   if (simulation) assertEtsySimulationSnapshot(snapshot);
-  const discovery = productScope?.version === "pod-discovery-2.0" && (snapshot as PackSnapshot & {platformQualification?:string}).platformQualification === DISCOVERY_V2_QUALIFICATION && root.manifest.packKey === "workflow.product-discovery-v2";
-  if ((root.manifest.packKey === "workflow.product-discovery-v2") !== discovery) throw new FatalError("V2 discovery requires its persisted qualification scope.");
+  const discovery = productScope?.version === "pod-discovery-2.0" && (snapshot as PackSnapshot & {platformQualification?:string}).platformQualification === DISCOVERY_V2_QUALIFICATION && ["workflow.product-discovery-v2", "workflow.product-discovery-v2-analysis"].includes(root.manifest.packKey);
+  if ((["workflow.product-discovery-v2", "workflow.product-discovery-v2-analysis"].includes(root.manifest.packKey)) !== discovery) throw new FatalError("V2 discovery requires its persisted qualification scope.");
   const resolved = resolvePackDependencies(snapshot.releases,{packKey:root.manifest.packKey,version:root.manifest.version},qualification || simulation || discovery);
   validateResolvedDefinitions(resolved);
   const declared = root.manifest.workflows.find(w=>w.key === snapshot.workflow.key);

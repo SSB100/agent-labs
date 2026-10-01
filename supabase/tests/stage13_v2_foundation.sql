@@ -119,7 +119,7 @@ begin
   assert scope->'committedMicrousd'='1200' and scope->'hasUncertainCosts'='false','Committed budget uses the greater reservation or reported charge';
   foreach payload in array array[
     '{"limits":{"maximumAlternatives":3,"maximumNewCollections":3,"maximumMicrousd":1000000,"maximumGenerations":1}}'::jsonb,
-    '{"limits":{"maximumAlternatives":3,"maximumNewCollections":1,"maximumMicrousd":1000001,"maximumGenerations":1}}'::jsonb,
+    '{"limits":{"maximumAlternatives":3,"maximumNewCollections":1,"maximumMicrousd":2000001,"maximumGenerations":1}}'::jsonb,
     jsonb_build_object('expiresAt',now()-interval '1 second')
   ] loop
     denied:=false; begin other_root:=pg_temp.v2_foundation_root(b,1,payload); perform private.stage13v2_validate_persisted(other_root,false); exception when others then denied:=true; end;
