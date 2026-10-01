@@ -10,7 +10,7 @@ This section is the current status; the dated verification/provider sections bel
 | Required evidence | Current result |
 | --- | --- |
 | Native-PNG technical generation, source preservation, print validation and independent pixel review | Passed in a real technical-only run |
-| Bounded v2 geographic research through source collection, strategy and independent review | Not qualified: latest continuation completed planning and source retrieval, then exact-span selection returned invalid JSON; strategy and independent review did not run |
+| Bounded v2 geographic research through source collection, strategy and independent review | Not qualified: latest continuation completed planning, exact-span research and strategy; reviewer response exceeded six rationale character limits and no independent decision was accepted |
 | Current, evidence-backed independently reviewed TEST candidate | No v2 decision exists in the hosted registry |
 | Separate candidate-production approval | None recorded |
 | Production-purpose creative run and reviewed product-ready asset | Not achieved |
@@ -89,6 +89,14 @@ The targeted correction disables reasoning only for exact-span selection on the 
 Focused synthetic regressions cover provider transmission, refusal before calls, immutable request hashing, unchanged token limits, exact source reuse without a new collection at the selector API, private-text redaction and bounded focus. These do not qualify the deployed workflow or implement cross-round reuse of an unselected raw collection. That runtime gap remains open: the owner refresh currently imports validated Evidence Packs, not raw collections from a terminal selector failure. Do not reopen that failure or repeat its search merely to retry selection. A substantively new evidence question can use a separately bounded new round; an exact selector continuation needs a new durable reuse path.
 
 Stage 14's independently reviewed research and production-purpose design exits remain open. Stages 15–16 retain implementation/account/live qualification work. Stage 17 has not started. The correction's exact-head release and live outcome belong in its PR closeout.
+
+## Live selector/strategy pass and reviewer length correction, 2026-10-01
+
+[PR 30](https://github.com/SSB100/agent-labs/pull/30) passed exact-head hosted CI: 513 tests with no failures/skips, lint, TypeScript and optimized build on Node 22. It merged as `dd1f75e5827e5d09ca70d5812feca4c823ea0527`; the exact tested tree deployed READY. The authenticated refresh form retained the two validated incoming Evidence Packs after the earlier selector failure.
+
+One new bounded round investigated a substantive gap: dated adjacent nature-shirt buyer observations and displayed prices, excluding investor totals and resale. Its fresh five-call quote fit the existing funded goal. Planning, retrieval, exact-span selection and strategy completed. The collection retained adjacent listings, seller guidance and a euro display price, while publication dates, candidate demand and destination-specific delivered costs remained unverified. Strategy proposed NEEDS_MORE_EVIDENCE, but this is not an accepted independent outcome.
+
+Independent review returned parsed JSON which failed six durable max-length diagnostics in dimension/check rationale fields. All five calls settled; no uncertain liability remains. The rejected response was not retained or repaired, the failed root remains terminal and no decision was created. The targeted correction exposes the unchanged 30–240-character rationale requirement in provider-visible descriptions and the reviewer system prompt. Exact character/domain validation, the complete evidence context, 32KB request bound and 4,000-token output ceiling remain unchanged. Synthetic projection/boundary regression and complete-context request tests must pass before release; any later paid round still requires a fresh bounded kickoff. Stage 14's research/production exits and the Stage 15–16 live gates remain open. Stage 17 has not started.
 
 ## Scope
 
