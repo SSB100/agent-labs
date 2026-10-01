@@ -299,7 +299,7 @@ export default async function AccountsPage({ searchParams }: AccountsPageProps) 
 
       <section className="dashboardSection" aria-labelledby="printful-account-title">
         <div className="sectionTitleRow">
-          <div><p className="coreEyebrow">Stage 15 foundation</p><h2 id="printful-account-title">Printful</h2></div>
+          <div><p className="coreEyebrow">Stage 15 foundation</p><h2 id="printful-account-title">Print fulfilment · Printful</h2></div>
           <StatusPill status="experimental" />
         </div>
         <div className="browserQualificationPanel">
