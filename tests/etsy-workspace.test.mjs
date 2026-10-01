@@ -31,7 +31,14 @@ test('draft server action requires both consents before preparing or executing',
   const {createEtsyDraft}=load('src/app/dashboard/etsy/actions.ts',deps);
   const form=new FormData();form.set('businessId','business');form.set('packageId','package');form.set('draftConsent','on');
   await assert.rejects(createEtsyDraft(form),/draft-consent-required/);assert.equal(calls.length,0);
-  form.set('assetConsent','on');await assert.rejects(createEtsyDraft(form),/draft-verified/);assert.equal(calls.length,2);
+  form.set('assetConsent','on');await assert.rejects(createEtsyDraft(form),/business=business&message=draft-verified/);assert.equal(calls.length,2);
+});
+test('disconnect, resume and stop retain the selected Business on success and failure',async()=>{
+  let fail=false;
+  const {disconnectEtsy,reconcileEtsyDraft,stopEtsyDraft}=load('src/app/dashboard/etsy/actions.ts',{'next/headers':{},'next/navigation':{redirect:url=>{throw new Error(url);}},'next/cache':{revalidatePath:()=>{}},'@/lib/core-ui/data':{requireOwnerUiContext:async()=>({userId:'owner'})},'@/etsy/server':{etsyRpc:async()=>{if(fail)throw new Error('fixture');return{};},runEtsyDraft:async()=>{if(fail)throw new Error('fixture');return{status:'verified'};}},'@/etsy/oauth':{},'@/etsy/vault':{}});
+  const form=new FormData();form.set('businessId','second-business');form.set('runId','run');
+  for(const action of [disconnectEtsy,reconcileEtsyDraft,stopEtsyDraft]){await assert.rejects(action(form),/business=second-business&message=/);}
+  fail=true;for(const action of [disconnectEtsy,reconcileEtsyDraft,stopEtsyDraft]){await assert.rejects(action(form),/business=second-business&message=/);}
 });
 
 const chrome='/usr/bin/google-chrome';

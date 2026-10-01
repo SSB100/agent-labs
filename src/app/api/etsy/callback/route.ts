@@ -19,6 +19,7 @@ export async function GET(request: Request) {
     const browser = unseal<{ businessId: string; ownerId: string; state: string; browserNonce: string }>(cookie, "oauth-cookie", config.vaultKey);
     requireEtsy(browser.ownerId === context.userId && query.get("state") === browser.state && (query.get("code")?.length ?? 0) >= 8 && (query.get("code")?.length ?? 0) <= 4096, "oauth_state_mismatch");
     ownerBusiness(context, browser.businessId);
+    destination.searchParams.set("business", browser.businessId);
     const stateHash = secretHash(browser.state);
     const consumed = await etsyRpc(context, browser.businessId, "oauth_consume", { stateHash });
     const binding = unseal<{ businessId: string; ownerId: string; browserNonceHash: string; verifier: string }>(String(consumed.envelope), `oauth:${browser.businessId}:${stateHash}`, config.vaultKey);
