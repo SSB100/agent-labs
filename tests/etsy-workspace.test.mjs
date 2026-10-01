@@ -42,6 +42,14 @@ test('disconnect, resume and stop retain the selected Business on success and fa
 });
 
 const chrome='/usr/bin/google-chrome';
+test('declined OAuth retains its authorized Business and rejects a mismatched state before provider access',async()=>{
+  const calls=[];
+  const {GET}=load('src/app/api/etsy/callback/route.ts',{'next/headers':{cookies:async()=>({get:()=>({value:'fixture-cookie'}),delete:()=>{}})},'next/server':{NextResponse:{redirect:url=>({url:String(url),headers:new Headers()})}},'@/lib/core-ui/data':{requireOwnerUiContext:async()=>({userId:'fixture-owner'})},'@/etsy/server':{etsyConfig:()=>({vaultKey:'fixture-key'}),ownerBusiness:()=>{},etsyRpc:async()=>{calls.push('rpc');throw new Error('Unexpected provider path');}},'@/etsy/vault':{unseal:()=>({ownerId:'fixture-owner',businessId:'second-business',state:'fixture-state'})},'@/etsy/oauth':{},'@/etsy/contracts':require('../.core-tests/etsy/contracts.js'),'node:crypto':require('node:crypto')},{URL});
+  const declined=await GET({url:'https://example.com/api/etsy/callback?state=fixture-state&error=access_denied'});
+  assert.equal(new URL(declined.url).searchParams.get('business'),'second-business');assert.equal(new URL(declined.url).searchParams.get('message'),'connection-unavailable');assert.equal(calls.length,0);
+  const invalid=await GET({url:'https://example.com/api/etsy/callback?state=wrong&code=fixture-code'});
+  assert.equal(new URL(invalid.url).searchParams.has('business'),false);assert.equal(calls.length,0);
+});
 test('server preparation rejects a package changed since the owner reviewed the form',async()=>{
   const {package:p}=packageFixture(),calls=[];
   const account={businessId:p.businessId,connectionId:'16000002-1111-4111-8111-111111111111',revision:'16000003-1111-4111-8111-111111111111',shopId:100,userId:101,currency:'NZD',expiresAt:p.expiresAt,accessToken:'fixture-token'};
