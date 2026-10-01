@@ -118,6 +118,8 @@ export type ProviderPriceLimit = { prompt: number; completion: number; request: 
 export type WebSearchModelRequest = { model: ModelDefinition; query: string; allowedDomains: string[]; providerPriceLimit?: ProviderPriceLimit; providerOnly?: readonly string[]; requireReturnedModel?: boolean };
 
 export type StructuredModelRequest = {
+  /** Exact-span selection can reserve its output budget for visible JSON. */
+  reasoning?: { effort: "none" };
   requireReturnedModel?: boolean;
   providerPriceLimit?: ProviderPriceLimit;
   providerOnly?: readonly string[];

@@ -59,3 +59,12 @@ test('funding is separate from the bounded research launch and does not advertis
   const markup=renderToStaticMarkup(React.createElement(DiscoveryGoalResults,{data:{available:true,errors:[],records:[{root:{id:base.id,workflow_run_id:base.id,status:'failed',created_at:'2026-10-01',failure:'Known failed call.'},intent,dossier:null,strategy:null,review:null,sourcePacks:[]}]}}));
   assert.match(markup,/Total research ceiling \(USD\)/);assert.match(markup,/confirmFunding/);assert.match(markup,/confirmResearch/);assert.match(markup,/does not start research or approve images, listings or purchases/);assert.match(markup,/at most one collection and five paid calls/);assert.match(markup,/approved remaining allowance/);
 });
+
+test('refresh focus retains a bounded evidence question without changing goal authority',()=>{
+ const intent=goal.buildDiscoveryIntentFromGoal(base),before=structuredClone(intent);
+ assert.equal(goal.boundedDiscoveryRefreshFocus('  Find dated US nature-shirt buyer reviews and current displayed item prices.  '),'Find dated US nature-shirt buyer reviews and current displayed item prices.');
+ assert.equal(goal.boundedDiscoveryRefreshFocus('   '),'');
+ assert.throws(()=>goal.boundedDiscoveryRefreshFocus('Too short'),/20–200/);
+ assert.throws(()=>goal.boundedDiscoveryRefreshFocus('x'.repeat(201)),/20–200/);
+ assert.deepEqual(intent,before);
+});

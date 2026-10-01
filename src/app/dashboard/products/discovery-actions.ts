@@ -4,7 +4,7 @@ import {redirect} from "next/navigation";
 import {revalidatePath} from "next/cache";
 import {start} from "workflow/api";
 import {requireOwnerUiContext} from "@/lib/core-ui/data";
-import {buildDiscoveryIntentFromGoal,discoveryGoalBudgetScope,parseDiscoveryAllowance} from "@/products/discovery-v2-goal";
+import {buildDiscoveryIntentFromGoal,discoveryGoalBudgetScope,parseDiscoveryAllowance,boundedDiscoveryRefreshFocus} from "@/products/discovery-v2-goal";
 import {fetchDiscoveryV2ModelQuote,quoteDiscoveryV2,discoveryV2Model} from "@/products/discovery-v2-budget";
 import {loadDiscoveryGoalData,loadDiscoveryChainBalance} from "@/products/discovery-v2-data";
 import type {ProductExperimentRecord} from "@/products/types";
@@ -66,8 +66,9 @@ export async function refreshGeographicDiscovery(form:FormData){
   if(!record?.intent||saved.errors.length)fail('The preserved goal and evidence could not be verified.');
   const acceptedReason=root.status==='failed'&&reason==='retry_after_known_failed_call'||root.status==='completed'&&record.review?.outcome==='NEEDS_MORE_EVIDENCE'&&record.review.missingQuestions.includes(reason);
   if(!acceptedReason)fail('Choose an exact unanswered question from this goal. A new reason cannot reset its authority.');
-  let intent,quote,priorArtifactIds:string[];
+  let intent,quote,priorArtifactIds:string[],additionalFocus:string;
   try{
+    additionalFocus=boundedDiscoveryRefreshFocus(text(form,'focus'));
     const balance=await loadDiscoveryChainBalance(context,root);
     if(balance.hasUncertainCosts)throw new Error('A prior charge is still unknown. No further call is permitted.');
     intent=structuredClone(record.intent);intent.id=randomUUID();intent.expiresAt=new Date(Date.now()+86400000).toISOString();
@@ -81,7 +82,8 @@ export async function refreshGeographicDiscovery(form:FormData){
     if(priorArtifactIds.length>4)throw new Error('This follow-up exceeds the bounded prior-evidence dossier; a reviewed evidence selection is needed before more research.');
   }catch(error){fail(error instanceof Error?error.message:'The focused continuation could not be verified.');}
   const runtimeCapability=`${randomUUID()}${randomUUID()}`,nonce=randomUUID();
-  const focus=reason==='retry_after_known_failed_call'?'Continue the preserved goal after the known failed call, retaining every validated source.':`Answer this missing question: ${reason}`;
+  const basisFocus=reason==='retry_after_known_failed_call'?'Continue the preserved goal after the known failed call, retaining every validated source.':`Answer this missing question: ${reason}`;
+  const focus=additionalFocus?`${basisFocus} Additional evidence focus within the same goal: ${additionalFocus}`:basisFocus;
   const reserved=await context.supabase.rpc('begin_installed_pack_run',{p_business_id:root.business_id,p_installation_id:null,p_workflow_key:'product.discovery-v2.one',p_input:{intent,quote,ownerKickoff:{confirmed:true,focus,followUpBasis:{rootId:root.id,reason}},priorArtifactIds},p_idempotency_key:`discovery:${intent.id}`,p_launch_nonce:nonce,p_runtime_capability:runtimeCapability});
   if(reserved.error)fail(reserved.error.message);
   const launch=reserved.data as{workflowRunId:string;shouldStart:boolean};
