@@ -34,3 +34,28 @@ test('planner exposes exact audience identities to the provider instead of invit
   }
   assert.equal(f.intent.comparisonUniverse.audiences[0],'Adult nature enthusiasts');
 });
+
+test('query-focus suffix guidance survives provider projection while assembled questions retain their exact bound',()=>{
+  const {projectProviderJsonSchema}=require('../.core-tests/models/openrouter.js');
+  for(const count of [1,2]){
+    const f=fixture();f.intent.limits.maximumNewCollections=count;
+    // Use the actual failed live run's declared scope, not its discarded response.
+    f.intent.comparisonUniverse.audiences=['Adult outdoor and nature enthusiasts'];
+    f.output.proposals[0].audience=f.intent.comparisonUniverse.audiences[0];
+    const schema=discoveryPlanModelSchemaV2(f.intent),focus=schema.properties.queryFocus;
+    const projected=projectProviderJsonSchema(schema).properties.queryFocus;
+    assert.equal(projected.items.maxLength,undefined);
+    assert.match(projected.description,/suffix.*not complete research questions/);
+    assert.ok(projected.items.description.includes(`30 to ${focus.items.maxLength} characters including spaces`));
+    assert.match(projected.items.description,/Do not repeat the country comparison/);
+    const phrase=projected.items.description.split('Example: ')[1];
+    const example={...f.output,queryFocus:Array(count).fill(phrase)};
+    assert.equal(normalizeDiscoveryPlanV2(f.intent,example).queries.length,count);
+    const atLimit={...f.output,queryFocus:Array(count).fill('x'.repeat(focus.items.maxLength))};
+    const plan=normalizeDiscoveryPlanV2(f.intent,atLimit);
+    assert.ok(plan.queries.every(q=>q.question.length<=800));
+    assert.ok(plan.queries.every(q=>q.question.includes('US, GB, AU, NZ')&&q.question.includes(f.intent.comparisonUniverse.audiences[0])));
+    assert.ok(plan.queries.every(q=>q.question.endsWith('Do not infer sales from listing or shop counts. Return inspectable public source excerpts only.')));
+    assert.throws(()=>normalizeDiscoveryPlanV2(f.intent,{...atLimit,queryFocus:Array(count).fill('x'.repeat(focus.items.maxLength+1))}),/JSON schema/);
+  }
+});
