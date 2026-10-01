@@ -347,3 +347,13 @@ test('research phase receives the full guidance-only evidence guide from the sam
   assert.equal(projected.knowledge[0].version, original.version);
   assert.equal(projected.knowledge[0].verifiedAt, original.verifiedAt);
 });
+
+test('review rationale character guidance survives provider projection and overlength output remains rejected',()=>{
+ const f=preparedFixture(),contract=worker.reviewerResponseSchemaV2(f.prepared),projected=modelProvider.projectProviderJsonSchema(contract);
+ for(const field of ['dimensions','checks']){
+  assert.equal(contract.properties[field].items.properties.rationale.maxLength,240);
+  assert.match(projected.properties[field].items.properties.rationale.description,/30–240 characters including spaces/);
+  const response=compactReview(f);response[field][0].rationale='x'.repeat(241);
+  assert.throws(()=>schema.assertJsonSchemaValue(contract,response,'Compact reviewer response'),error=>error.issues.some(issue=>issue.path===`$.${field}[0].rationale`&&/no more than 240/.test(issue.message)));
+ }
+});
