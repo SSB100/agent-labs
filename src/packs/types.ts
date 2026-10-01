@@ -2,7 +2,7 @@ import type { JsonObject, JsonValue, QualificationStatus } from "../core/contrac
 import type { WorkerPackManifest } from "../workers/types";
 
 export type PackDependency = { packKey: string; version: string };
-export type PackCapability = { key: string; adapter: "structured.mapping" | "web.research" | "image.generate" | "printful.foundation"; description: string };
+export type PackCapability = { key: string; adapter: "structured.mapping" | "web.research" | "image.generate" | "printful.foundation" | "etsy.drafts"; description: string };
 export type PackKnowledge = {
   key: string; version: string; name: string; source: string;
   verifiedAt: string; freshnessDays: number; content: JsonObject;

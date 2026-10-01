@@ -297,6 +297,11 @@ export default async function AccountsPage({ searchParams }: AccountsPageProps) 
         )}
       </section>
 
+      <section className="dashboardSection" aria-labelledby="etsy-account-title">
+        <div className="sectionTitleRow"><div><p className="coreEyebrow">Draft-only capability</p><h2 id="etsy-account-title">Etsy drafts</h2></div><StatusPill status="experimental" /></div>
+        <div className="browserQualificationPanel"><div><h3>Prepare listings from approved products</h3><p>Connect your shop securely, approve a qualified product, and track verified draft preparation. Upstream product and artwork checks remain required.</p><small>Public activation, orders and paid actions are unavailable.</small></div><Link className="coreButton coreButton-primary" href="/dashboard/etsy">Open Etsy drafts</Link></div>
+      </section>
+
       <section className="dashboardSection" aria-labelledby="printful-account-title">
         <div className="sectionTitleRow">
           <div><p className="coreEyebrow">Stage 15 foundation</p><h2 id="printful-account-title">Print fulfilment · Printful</h2></div>
