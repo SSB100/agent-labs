@@ -122,3 +122,13 @@ Primary references: [Klein endpoint contract](https://openrouter.ai/api/v1/image
 The approved native-PNG migration was applied as `20260930210155_stage14_native_png_provider_binding`. Hosted inspection confirmed unchanged function owners, signatures, execution ACLs, definer settings and empty search paths. The bucket is still private, PNG/WebP only and 7 MB per object. Security-advisor categories/counts match the prior baseline, including the existing leaked-password warning.
 
 Final native-PNG local quality gate: 326 tests, lint and TypeScript passed. Synthetic BFL/max1 live-shaped prompts used 19,801 / 20,558 / 22,037 text bytes for brief/screen/review under the unchanged 24,576-byte cap, retaining complete rights/brief/knowledge and exact pixel/hash bindings. Hosted build and live native-PNG result remain pending at publication.
+
+## Discovery correction integration — 2026-10-01
+
+The later native-PNG technical run passed; the earlier pending entries above are historical checkpoints. The full candidate-production exit remains open.
+
+The minimum ADR001 geographic discovery correction is published separately within the draft Stage14 change. Its final local Node22 gate passed 409 tests, TypeScript and lint; exact-head hosted CI also passed the build. Independent review cleared version-dispatch, tenant/metering, complete-chain source novelty and latest-candidate eligibility boundaries.
+
+All ten reviewed migrations were applied through the migration tool, from `20261001002837_stage13_v2_discovery_foundation` through `20261001003214_stage14_v2_decision_dispatch`. Their SQL bytes are unchanged from the isolated rehearsal; filenames match the actual hosted migration history. The isolated PostgreSQL18.3/PGlite rehearsal passed all16 Stage1/10–14 and v2 regression suites, with complete outer rollback restoring the baseline table hashes and function definitions.
+
+Hosted comparison confirmed unchanged existing function ACLs/definer settings/search paths, table grants/RLS and policies. Four new private helpers have only postgres execution and no client grant. Existing product-history counts did not change. Security-advisor findings are unchanged, including the existing leaked-password warning. Hosted end-to-end research and the separate production-purpose creative run remain required; no automatic qualification promotion or Stage15 advancement follows from these offline/database gates.
