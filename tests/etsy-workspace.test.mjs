@@ -13,7 +13,7 @@ const {EtsyWorkspace}=load('src/app/dashboard/etsy/workspace.tsx',{'@/etsy/contr
 const base={businessId:'fixture-business',businessName:'Fixture Business',configured:false,unavailable:false,connection:null,packages:[],runs:[]};
 const render=data=>renderToStaticMarkup(React.createElement(EtsyWorkspace,{data}));
 test('unconfigured UI explains upstream blockers and cannot connect or create',()=>{
-  const html=render(base);assert.match(html,/No qualified Product Package available/);assert.match(html,/Synthetic examples and technical image tests do not satisfy/);assert.match(html,/disabled="">Connect Etsy securely/);assert.doesNotMatch(html,/>Create draft</);
+  const html=render(base);assert.match(html,/No qualified Product Package available/);assert.match(html,/raw artwork is not a product mockup/);assert.match(html,/Synthetic examples and technical image tests do not satisfy/);assert.match(html,/disabled="">Connect Etsy securely/);assert.doesNotMatch(html,/>Create draft</);
 });
 test('qualified fixture has separate draft and asset-sharing approvals without implementation inputs',()=>{
   const {package:p}=packageFixture();const html=render({...base,configured:true,connection:{shopName:'Fixture shop',status:'connected',currency:'NZD'},packages:[p]});
@@ -54,9 +54,16 @@ test('server preparation rejects a package changed since the owner reviewed the 
   const {package:p}=packageFixture(),calls=[];
   const account={businessId:p.businessId,connectionId:'16000002-1111-4111-8111-111111111111',revision:'16000003-1111-4111-8111-111111111111',shopId:100,userId:101,currency:'NZD',expiresAt:p.expiresAt,accessToken:'fixture-token'};
   const context={businesses:[{id:p.businessId}],supabase:{from(){return{select(){return this;},eq(){return this;},async maybeSingle(){return{data:{content:{etsyDraftEnvelope:'fixture-package'}}};}};},async rpc(name,args){calls.push(args.p_operation);return{data:args.p_operation==='connection'?{id:account.connectionId,revision:account.revision,shopId:100,currency:'NZD',envelope:'fixture-account'}:{}};}}};
-  const {prepareEtsyDraft}=load('src/etsy/server.ts',{'server-only':{},'node:crypto':require('node:crypto'),'./adapter':{},'./contracts':require('../.core-tests/etsy/contracts.js'),'./oauth':{},'./vault':{unseal:(_,context)=>context.startsWith('account:')?account:p},'./engine':{}},{process:{env:{ETSY_KEYSTRING:'fixture',ETSY_SHARED_SECRET:'fixture',ETSY_REDIRECT_URI:'https://example.com/api/etsy/callback',ETSY_VAULT_KEY:'1'.repeat(64),ETSY_SERVER_KEY:'fixture-only'.repeat(4)}}});
+  const {prepareEtsyDraft}=load('src/etsy/server.ts',{'server-only':{},'node:crypto':require('node:crypto'),'./adapter':{},'./contracts':require('../.core-tests/etsy/contracts.js'),'./oauth':{},'./vault':{unseal:(_,context)=>context.startsWith('account:')?account:p},'./engine':{},'../listing/intake':{authenticateListingReview:()=>{}}},{process:{env:{ETSY_KEYSTRING:'fixture',ETSY_SHARED_SECRET:'fixture',ETSY_REDIRECT_URI:'https://example.com/api/etsy/callback',ETSY_VAULT_KEY:'1'.repeat(64),ETSY_SERVER_KEY:'fixture-only'.repeat(4)}}});
   await assert.rejects(prepareEtsyDraft(context,p.businessId,p.id,'old-package-hash'),/stale_package_or_approval/);
   assert.ok(!calls.includes('prepare'));
+});
+
+test('Stage16 authoritative intake stops before connection or draft preparation without authenticated review',async()=>{
+ const {package:p}=packageFixture(),calls=[];
+ const context={businesses:[{id:p.businessId}],supabase:{from(){return{select(){return this;},eq(){return this;},async maybeSingle(){return{data:{content:{etsyDraftEnvelope:'fixture-package',listingReviewEnvelope:{verdict:'APPROVE',mode:'live'}}}};}};},async rpc(name,args){calls.push(args.p_operation);return{data:{}};}}};
+ const {loadEtsyPackage}=load('src/etsy/server.ts',{'server-only':{},'node:crypto':require('node:crypto'),'./adapter':{},'./contracts':require('../.core-tests/etsy/contracts.js'),'./oauth':{},'./vault':{unseal:()=>p},'./engine':{},'../listing/intake':require('../.core-tests/listing/intake.js')},{process:{env:{ETSY_KEYSTRING:'fixture',ETSY_SHARED_SECRET:'fixture',ETSY_REDIRECT_URI:'https://example.com/api/etsy/callback',ETSY_VAULT_KEY:'1'.repeat(64),ETSY_SERVER_KEY:'fixture-only'.repeat(4)}}});
+ await assert.rejects(loadEtsyPackage(context,p.businessId,p.id),/authenticated_listing_review_required/);assert.deepEqual(calls,['validate_package']);
 });
 test('browser renders owner controls and enforces both native consent fields at desktop and mobile widths', {skip:!process.env.CI || !existsSync(chrome)},async()=>{
   const {chromium}=require('playwright-core');

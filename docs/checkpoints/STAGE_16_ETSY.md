@@ -1,6 +1,6 @@
 # Stage 16: Etsy Capability Pack
 
-Status: Stage 16 code release is tracked in [PR 23](https://github.com/SSB100/agent-labs/pull/23), including the exact final CI and production identifiers. Full live exit OPEN. Stage 17 has not started.
+Status: Stage 16 code release is tracked in [PR 23](https://github.com/SSB100/agent-labs/pull/23), including the exact final CI and production identifiers. Full live exit OPEN. Stage 17 now has a separately scoped listing/qualification implementation; it does not close this live exit.
 
 ## Scope and starting point
 
@@ -48,4 +48,4 @@ An active request runs within the bounded server action. Its durable operation j
 
 ## Next-stage handoff
 
-Do not claim Stage 16 complete or begin Stage 17 until the real draft exit is evidenced. First complete the narrowly identified Stage 14/15 qualification and secure Etsy activation, approve one exact package and its data sharing, create one draft, read it back and exercise duplicate prevention. Retain all approval, cancellation and no-spend protections. Then Stage 17 can add the listing specialist under the implementation plan; public activation remains separately gated.
+Do not claim Stage 16 complete or Stage 17 live-qualified until the real draft exit is evidenced. First complete the narrowly identified Stage 14/15 qualification and secure Etsy activation, approve one exact package and its data sharing, create one draft, read it back and exercise duplicate prevention. Retain all approval, cancellation and no-spend protections. The [Stage 17 implementation](STAGE_17_LISTING_SPECIALIST.md) adds listing-specialist/reviewer contracts and now requires a separate authenticated, current review envelope at server intake. Its guarded package issuer still requires trusted upstream product/image inputs and actual worker qualification; those live prerequisites remain open. This does not bypass any of the above prerequisites; public activation remains separately gated.

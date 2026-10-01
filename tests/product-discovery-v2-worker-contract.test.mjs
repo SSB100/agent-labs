@@ -81,6 +81,19 @@ function threeCandidateFixture() {
   f.assessment.dossierHash = v2.discoveryV2Hash(f.dossier);
   return f;
 }
+function recommendationFixture(count, selectedIndex, proposedOutcome = 'NEEDS_MORE_EVIDENCE') {
+  const f = threeCandidateFixture();
+  f.dossier.shortlist = f.dossier.shortlist.slice(0, count);
+  f.assessment.candidates = f.assessment.candidates.slice(0, count);
+  f.assessment.dossierHash = v2.discoveryV2Hash(f.dossier);
+  const candidateId = selectedIndex === null ? null : f.dossier.shortlist[selectedIndex].id;
+  f.assessment.recommendation = { ...f.assessment.recommendation, candidateId, proposedOutcome,
+    marketCountryCode: candidateId === null ? null : 'US',
+    alternatives: f.dossier.shortlist.filter(c => c.id !== candidateId).map(c => ({ candidateId: c.id, rationale: prose, evidenceRefs: [] })) };
+  if (proposedOutcome !== 'TEST') f.assessment.testPlan = null;
+  const prepared = worker.prepareDiscoveryWorkerContextV2(f.intent, f.dossier, f.context, f.refs, now);
+  return { ...f, prepared, compact: worker.compactStrategistAssessmentV2(prepared, f.assessment) };
+}
 function compactReview(f) {
   const key = ref => f.prepared.evidencePool.find(e => v2.discoveryV2Hash(e.reference) === v2.discoveryV2Hash(ref)).key;
   return { marketCountryCode: f.review.marketCountryCode, candidateKey: f.prepared.candidateKeys.find(c => c.candidateId === f.review.candidateId).key, outcome: f.review.outcome,
@@ -100,6 +113,83 @@ test('compact strategy uses deterministic short keys and restores immutable iden
   assert.ok(restored.missingQuestions.length > 0);
   assert.equal(restored.execution.providerRequestId, f.execution.providerRequestId);
   assert.equal(restored.commerceAllowed, false);
+});
+test('strategy alternative branches pin the selection and exact remaining keys through provider projection', () => {
+  for (const count of [1, 2, 3]) {
+    const f = recommendationFixture(count, null), contract = worker.strategistResponseSchemaV2(f.prepared);
+    const branches = contract.properties.recommendation.anyOf;
+    const projected = modelProvider.projectProviderJsonSchema(contract).properties.recommendation.anyOf;
+    assert.equal(branches.length, count + 1);
+    for (const [index, branch] of branches.entries()) {
+      const selected = index < count ? `C${index + 1}` : null;
+      const remaining = f.prepared.candidateKeys.map(c => c.key).filter(key => key !== selected);
+      const alternatives = branch.properties.alternatives, wire = projected[index].properties;
+      assert.equal(branch.properties.candidateKey.const, selected);
+      assert.deepEqual(wire.candidateKey.enum, [selected]);
+      if (selected !== null) assert.deepEqual(wire.marketCountryCode.enum, f.intent.comparisonUniverse.markets.map(m => m.countryCode));
+      assert.equal(alternatives.minItems, remaining.length); assert.equal(alternatives.maxItems, remaining.length);
+      assert.equal(wire.alternatives.minItems, undefined); assert.equal(wire.alternatives.maxItems, undefined);
+      if (remaining.length) {
+        assert.deepEqual(alternatives.items.properties.candidateKey.enum, remaining);
+        assert.deepEqual(wire.alternatives.items.properties.candidateKey.enum, remaining);
+        assert.match(wire.alternatives.description, new RegExp(`Exactly ${remaining.length} entries`));
+        assert.match(wire.alternatives.description, /each candidateKey once/);
+        for (const key of remaining) assert.ok(wire.alternatives.description.includes(key));
+      } else {
+        assert.deepEqual(alternatives.const, []); assert.deepEqual(wire.alternatives.enum, [[]]);
+        assert.match(wire.alternatives.description, /empty array/);
+      }
+      assert.ok(limits.workerOutputLimits(contract).includes(`recommendation (anyOf alternative ${index + 1}).alternatives: ${remaining.length}–${remaining.length} items`));
+    }
+    const request = worker.buildStrategistRequestV2(f.prepared, now);
+    assert.match(request.messages[0].content, /every unselected candidate exactly once, never the selected candidate/);
+    assert.match(request.messages[0].content, /If candidateKey is null, explain every candidate exactly once/);
+    assert.match(request.messages[0].content, /all outcomes, including NEEDS_MORE_EVIDENCE/);
+  }
+});
+test('all shortlist sizes accept complete selected and null-selection alternative coverage without rewriting', () => {
+  for (const count of [1, 2, 3]) for (const selected of [...Array.from({ length: count }, (_, index) => index), null]) {
+    for (const outcome of selected === null ? ['REJECT', 'NEEDS_MORE_EVIDENCE'] : ['TEST', 'REJECT', 'NEEDS_MORE_EVIDENCE']) {
+      const f = recommendationFixture(count, selected, outcome), before = JSON.stringify(f.compact);
+      schema.assertJsonSchemaValue(worker.strategistResponseSchemaV2(f.prepared), f.compact, 'strategy');
+      const restored = worker.normalizeStrategistResponseV2(f.prepared, f.compact, f.execution, now);
+      assert.deepEqual(restored, f.assessment);
+      assert.equal(restored.recommendation.alternatives.length, selected === null ? count : count - 1);
+      assert.equal(JSON.stringify(f.compact), before);
+      assert.equal(restored.publicationAllowed, false); assert.equal(restored.commerceAllowed, false);
+    }
+  }
+});
+test('missing, extra, duplicate and selected alternatives remain rejected rather than repaired', () => {
+  for (const selected of [0, 2, null]) {
+    const f = recommendationFixture(3, selected);
+    const mutations = [
+      value => { value.recommendation.alternatives.pop(); },
+      value => { value.recommendation.alternatives.push(structuredClone(value.recommendation.alternatives[0])); },
+      value => { value.recommendation.alternatives[1] = { ...value.recommendation.alternatives[0], rationale: 'A distinct rationale cannot disguise the duplicate candidate identity.' }; },
+      value => { value.recommendation.alternatives[0].candidateKey = 'C999'; },
+      ...(selected === null ? [] : [
+        value => { value.recommendation.alternatives[0].candidateKey = value.recommendation.candidateKey; },
+        value => { value.recommendation.marketCountryCode = null; },
+      ]),
+    ];
+    for (const mutate of mutations) {
+      const value = structuredClone(f.compact); mutate(value); const before = JSON.stringify(value);
+      assert.throws(() => worker.normalizeStrategistResponseV2(f.prepared, value, f.execution, now), /JSON schema|Duplicate alternative explanation/);
+      assert.equal(JSON.stringify(value), before);
+    }
+    // Distinct prose for duplicate keys passes structural typing but must still fail Core's identity invariant.
+    const duplicate = structuredClone(f.compact);
+    duplicate.recommendation.alternatives[1] = { ...duplicate.recommendation.alternatives[0], rationale: 'Different prose does not create another compared candidate.' };
+    schema.assertJsonSchemaValue(worker.strategistResponseSchemaV2(f.prepared), duplicate, 'strategy');
+    assert.throws(() => worker.normalizeStrategistResponseV2(f.prepared, duplicate, f.execution, now), /Duplicate alternative explanation/);
+    const domain = structuredClone(f.assessment); domain.recommendation.alternatives.pop();
+    assert.throws(() => v2.validateStrategistAssessmentV2(f.intent, f.dossier, domain, f.context, f.execution, now), /Invalid alternative explanations count/);
+    if (selected !== null) {
+      const domainSelected = structuredClone(f.assessment); domainSelected.recommendation.alternatives[0].candidateId = domainSelected.recommendation.candidateId;
+      assert.throws(() => v2.validateStrategistAssessmentV2(f.intent, f.dossier, domainSelected, f.context, f.execution, now), /Alternative lies outside comparison universe/);
+    }
+  }
 });
 test('unknown bank country requires hypothetical fee scenarios in both model and domain contracts', () => {
   const f = preparedFixture(), contract = worker.strategistResponseSchemaV2(f.prepared);
@@ -243,6 +333,42 @@ test('three complete concept alternatives and four geographies fit the unchanged
   }) })) };
   delete restoredCompact.rowEncoding;
   assert.deepEqual(restoredCompact, compact, 'every assessment fact, rationale, flag and uncertainty survives row encoding');
+});
+
+test('four-pack three-candidate requests preserve all twelve evidence spans within unchanged bounds', () => {
+  const f = threeCandidateFixture(), refs = [...f.refs];
+  for (let index = 0; index < 3; index++) {
+    const pack = structuredClone(f.persisted);
+    pack.artifactId = id(120 + index); pack.queryId = id(130 + index); pack.workflowRunId = id(140 + index);
+    pack.collectedForIntentId = id(150 + index); pack.lineage.sourceArtifactId = id(160 + index);
+    f.context.packs.set(pack.artifactId, pack);
+    f.dossier.packRefs.push({ ...structuredClone(f.dossier.packRefs[0]), artifactId: pack.artifactId, origin: 'prior',
+      query: { id: pack.queryId, question: pack.question, sourceDomains: pack.sourceDomains } });
+    refs.push(...f.refs.map(ref => ({ ...ref, artifactId: pack.artifactId })));
+  }
+  f.assessment.dossierHash = v2.discoveryV2Hash(f.dossier);
+  // Concise synthetic reasoning is supplied by the fixture, never shortened by production code.
+  for (const candidate of f.assessment.candidates) for (const dimension of candidate.dimensions) {
+    dimension.rationale = 'The retained source supports only this narrow comparison.';
+    for (const fact of dimension.facts) fact.relevance = 'This exact source supports the limited finding.';
+    for (const uncertainty of dimension.uncertainties) uncertainty.reason = 'Commercial claims remain unsupported by this private visual test.';
+  }
+  const prepared = worker.prepareDiscoveryWorkerContextV2(f.intent, f.dossier, f.context, refs, now);
+  const strategy = worker.buildStrategistRequestV2(prepared, now), review = worker.buildReviewerRequestV2(prepared, f.assessment, f.execution, now);
+  assert.equal(prepared.dossier.packRefs.length, 4); assert.equal(prepared.evidencePool.length, 12);
+  for (const request of [strategy, review]) {
+    assert.ok(Buffer.byteLength(JSON.stringify(request), 'utf8') <= 32768);
+    const input = JSON.parse(request.messages[1].content);
+    assert.deepEqual(input.evidence, prepared.evidencePool.map(({ key, quote, url, retrievedAt, expiresAt }) => ({ key, quote, url, retrievedAt, expiresAt })));
+    assert.equal(input.scopedKnowledge.knowledge.length, 4);
+  }
+  assert.equal(strategy.maxOutputTokens, 5000); assert.equal(review.maxOutputTokens, 4000);
+  assert.deepEqual(JSON.parse(review.messages[1].content).assessment, worker.tabulateStrategistAssessmentV2(worker.compactStrategistAssessmentV2(prepared, f.assessment)));
+  assert.ok(!review.messages[0].content.includes('recommendation.alternatives must explain'));
+  const oversized = worker.prepareDiscoveryWorkerContextV2(f.intent, f.dossier, f.context, [...refs, ...refs.map(ref => ({ ...ref, end: ref.end - 1 }))], now);
+  const before = JSON.stringify(oversized.evidencePool);
+  assert.throws(() => worker.buildStrategistRequestV2(oversized, now), /byte bound; nothing was truncated/);
+  assert.equal(JSON.stringify(oversized.evidencePool), before);
 });
 
 test('three-candidate normalized evidence can exceed 32 KiB while the complete review request stays bounded and lossless', () => {
@@ -407,6 +533,7 @@ test('actual provider-projected request still transports complete output limits 
   // The transport fixture may not provide every real routing metadata field; inspect its actual outbound payload either way.
   await adapter.invokeStructured(request).catch(() => undefined);
   assert.equal(sent.length, 1);
+  assert.deepEqual(sent[0].response_format.json_schema.schema.properties.recommendation, modelProvider.projectProviderJsonSchema(request.outputSchema).properties.recommendation);
   const projected = JSON.stringify(sent[0].response_format.json_schema.schema);
   assert.ok(!projected.includes('minLength')); assert.ok(!projected.includes('maxItems')); assert.ok(!projected.includes('\"maximum\":'));
   const input = JSON.parse(sent[0].messages[1].content);
