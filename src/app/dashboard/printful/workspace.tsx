@@ -3,7 +3,7 @@
 import { useActionState, useState } from "react";
 import { previewPrintfulPricing } from "./actions";
 import {
-  initialPricingValues, missingPricingLabels, monetaryPricingFields, pricingFieldNames,
+  initialPricingValues, missingPricingLabels, monetaryPricingFields, pricingFieldNames, preservePricingAssumptions,
   type PricingField, type PricingFormValues, type PricingPreviewState, type PrintfulFixturePreview,
 } from "./types";
 
@@ -121,7 +121,7 @@ export function PricingCalculator() {
   return <section className="printfulPanel" aria-labelledby="printful-pricing-title">
     <div className="printfulSectionHeader"><div><p className="coreEyebrow">02 · Deterministic arithmetic</p><h2 id="printful-pricing-title">Pricing scenario</h2></div><span className="printfulBadge">No provider calls</span></div>
     <p className="printfulNote">All amounts are assumptions in the selected currency. Blank costs stay unknown, never zero. No live price, tax, fee or foreign-exchange lookup is performed.</p>
-    <form action={action} className="printfulPricingForm">
+    <form action={action} onReset={preservePricingAssumptions} className="printfulPricingForm">
       <fieldset disabled={pending} className="printfulFormBody"><legend className="printfulSrOnly">Pricing assumptions</legend>
         <div className="printfulFields">
           <label htmlFor="printful-currency">Scenario currency<select id="printful-currency" name="currency" value={values.currency} onChange={event => update("currency", event.target.value)} aria-describedby="printful-currency-help">{["USD", "GBP", "AUD", "NZD"].map(currency => <option key={currency}>{currency}</option>)}</select><small id="printful-currency-help">Changing currency clears all monetary inputs. There is no FX conversion.</small></label>
