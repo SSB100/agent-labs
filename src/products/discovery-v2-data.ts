@@ -13,7 +13,8 @@ export async function loadDiscoveryGoalData(context:OwnerUiContext,experiments:P
   const results=await context.supabase.from("artifacts").select("id,business_id,workflow_run_id,artifact_type,content,metadata").in("business_id",context.businesses.map(b=>b.id)).in("workflow_run_id",roots.map(e=>e.workflow_run_id)).in("artifact_type",["worker.output","product.discovery-dossier.v2"]);
   if(results.error)return{...empty,records:roots.map(root=>({root,intent:null,dossier:null,strategy:null,review:null,sourcePacks:[]})),errors:[...empty.errors,"Saved discovery artifacts could not be loaded; their absence is not a negative result."]};
   const artifacts=results.data??[];
-  const priorIds=[...new Set(artifacts.flatMap(a=>a.artifact_type==='product.discovery-dossier.v2'&&object(a.content)&&Array.isArray(a.content.packRefs)?a.content.packRefs.flatMap((ref:unknown)=>object(ref)&&typeof ref.artifactId==='string'?[ref.artifactId]:[]):[]))].filter(id=>!artifacts.some(a=>a.id===id));
+  const kickoffRefs=(root:ProductExperimentRecord)=>Array.isArray(root.variables.priorArtifactIds)?root.variables.priorArtifactIds.filter((id):id is string=>typeof id==='string'):[];
+  const priorIds=[...new Set([...roots.flatMap(kickoffRefs),...artifacts.flatMap(a=>a.artifact_type==='product.discovery-dossier.v2'&&object(a.content)&&Array.isArray(a.content.packRefs)?a.content.packRefs.flatMap((ref:unknown)=>object(ref)&&typeof ref.artifactId==='string'?[ref.artifactId]:[]):[])])].filter(id=>!artifacts.some(a=>a.id===id));
   const prior=priorIds.length?await context.supabase.from("artifacts").select("id,business_id,workflow_run_id,artifact_type,content,metadata").in("business_id",context.businesses.map(b=>b.id)).in("id",priorIds).eq("artifact_type","worker.output"):{data:[],error:null};
   if(prior.error)empty.errors.push("Some preserved prior Evidence Packs could not be loaded; inspect the linked workflow history.");
   const allSources=[...artifacts,...prior.data??[]];
@@ -22,7 +23,8 @@ export async function loadDiscoveryGoalData(context:OwnerUiContext,experiments:P
     const strategy=phase('strategy'),review=phase('review');
     const variables=root.variables as Record<string,unknown>;
     const dossier=(own.find(a=>a.artifact_type==='product.discovery-dossier.v2')?.content??null) as DiscoveryDossierV2|null;
-    const refIds=new Set(dossier?.packRefs?.map(ref=>ref.artifactId)??[]);
+    const refIds=new Set([...kickoffRefs(root),...dossier?.packRefs?.map(ref=>ref.artifactId)??[]]);
+    if([...refIds].some(id=>!allSources.some(a=>a.id===id&&a.business_id===root.business_id&&a.artifact_type==='worker.output'&&object(a.content)&&object(a.content.evidencePack))))empty.errors.push('A preserved prior Evidence Pack is missing or outside this Business; research continuation is blocked.');
     return{root,intent:object(variables.intent)&&variables.intent.version==='pod-discovery-2.0'?variables.intent as unknown as DiscoveryIntentV2:null,
       dossier,
       strategy:object(strategy)&&strategy.version==='pod-discovery-2.0'?strategy as unknown as StrategistAssessmentV2:null,

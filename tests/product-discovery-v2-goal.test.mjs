@@ -68,3 +68,15 @@ test('refresh focus retains a bounded evidence question without changing goal au
  assert.throws(()=>goal.boundedDiscoveryRefreshFocus('x'.repeat(201)),/20–200/);
  assert.deepEqual(intent,before);
 });
+
+test('a selector failure carries its validated kickoff Evidence Packs forward before a dossier exists',async()=>{
+ const {loadDiscoveryGoalData}=loadData();
+ const root={id:base.id,business_id:base.businessId,workflow_run_id:'failed-selector-run',discovery_version:'pod-discovery-2.0',candidate_id:null,parent_discovery_id:null,status:'failed',variables:{intent:goal.buildDiscoveryIntentFromGoal(base),priorArtifactIds:['prior-pack']}};
+ const run=async businessId=>{
+  const rows={packs:[{data:{status:'experimental'},error:null}],artifacts:[{data:[],error:null},{data:[{id:'prior-pack',business_id:businessId,workflow_run_id:'earlier-research',artifact_type:'worker.output',content:{evidencePack:{question:'Preserved observed evidence'}},metadata:{stageKey:'research1'}}],error:null}]};
+  const supabase={from(table){const result=rows[table].shift(),q={select(){return q;},eq(){return q;},in(){return q;},maybeSingle(){return q;},then(resolve){return Promise.resolve(result).then(resolve);}};return q;}};
+  return loadDiscoveryGoalData({supabase,businesses:[{id:base.businessId}]},[root]);
+ };
+ const owned=await run(base.businessId);assert.deepEqual(owned.errors,[]);assert.equal(owned.records[0].dossier,null);assert.deepEqual(owned.records[0].sourcePacks.map(p=>p.id),['prior-pack']);
+ const foreign=await run('foreign-business');assert.equal(foreign.records[0].sourcePacks.length,0);assert.match(foreign.errors[0],/missing or outside this Business/);
+});
