@@ -6,10 +6,17 @@ import { EtsyWorkspace, type EtsyWorkspaceData } from "./workspace";
 import "./etsy.css";
 import { loadListingWorkspace, type ListingWorkspaceData } from "@/listing/server";
 import { ListingWorkspace } from "./listing-workspace";
+import { loadPublicationWorkspace, type PublicationWorkspaceData } from "@/etsy-publication/server";
+import { PublicationWorkspace } from "./publication-workspace";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 const messages: Record<string, string> = {
+  "publication-consent-required":"Publication needs separate confirmation of the exact draft, public data, verified total fees and renewal conditions.",
+  "publication-blocked":"Publication is blocked by missing commercial evidence, current review, account setup or verified draft prerequisites. No automatic retry was started.",
+  "publication-verified":"The same Etsy listing is active and its complete approved details were independently verified. Actual Etsy fee charges remain unreconciled.",
+  "publication-needs-review":"The publication outcome needs a read-only check of the existing listing. A request already sent will never be repeated blindly.",
+  "publication-stopped":"Further publication work is stopped. This cannot undo an already sent request, an active listing or a fee already incurred.",
   "qualification-consent-required":"Approve the separate five-call worker evaluation and its total spending limit before starting.",
   "qualification-blocked":"Worker qualification is blocked by setup, current catalog, the fixed test suite or its fresh budget check. No product or Etsy action was requested.",
   "listing-consent-required":"Approve the exact bounded model run and its spending limit before starting.",
@@ -32,18 +39,20 @@ export default async function EtsyPage({ searchParams }: { searchParams: Promise
   const message = typeof query.message === "string" ? messages[query.message] : null;
   let data: EtsyWorkspaceData | null = null;
   let listing: ListingWorkspaceData | null = null;
+  let publication: PublicationWorkspaceData | null = null;
   if (business) {
-    listing = await loadListingWorkspace(context,business.id);
+    [listing,publication] = await Promise.all([loadListingWorkspace(context,business.id),loadPublicationWorkspace(context,business.id,typeof query.publicationRequest === "string" ? query.publicationRequest : null)]);
     data = { businessId: business.id, businessName: business.name, configured: etsyConfigured(), unavailable: false, connection: null, packages: [], runs: [] };
     try {
       const [workspace, packages] = await Promise.all([etsyRpc(context, business.id, "workspace"), eligibleEtsyPackages(context, business.id)]);
       data.connection = workspace.connection as EtsyWorkspaceData["connection"]; data.runs = workspace.runs as EtsyWorkspaceData["runs"]; data.packages = packages;
     } catch { data.unavailable = true; }
   }
-  return <AppShell active="accounts" context={context}><PageHeader eyebrow="Etsy · Experimental" title="Etsy drafts" description="Turn an approved product into a verified draft. Publication stays off." actions={<Link className="coreButton" href="/dashboard/accounts">Back to Accounts</Link>} />
+  return <AppShell active="accounts" context={context}><PageHeader eyebrow="Etsy · Experimental" title="Etsy listings" description="Prepare reviewed drafts and check assisted publication readiness." actions={<Link className="coreButton" href="/dashboard/accounts">Back to Accounts</Link>} />
     {message && <p role="status" className="etsyMessage">{message}</p>}
     {context.businesses.length > 1 && <form className="etsyBusiness" method="get"><label>Business<select name="business" defaultValue={business?.id}>{context.businesses.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></label><button className="coreButton">View</button></form>}
     {listing && <ListingWorkspace data={listing} />}
     {data ? <EtsyWorkspace data={data} /> : <p>Create a Business to prepare Etsy drafts.</p>}
+    {publication && <PublicationWorkspace data={publication} />}
   </AppShell>;
 }

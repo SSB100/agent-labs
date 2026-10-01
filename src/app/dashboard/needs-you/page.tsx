@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { loadPublicationInterventions } from "@/etsy-publication/server";
 
 import { BrowserInterventionCard } from "@/components/stage8/browser-intervention";
 import { AppShell, EmptyPanel, PageHeader } from "@/components/stage7/app-shell";
@@ -37,7 +38,8 @@ function first(value: string | string[] | undefined) {
 
 export default async function NeedsYouPage({ searchParams }: NeedsYouPageProps) {
   const context = await requireOwnerUiContext();
-  const collection = await loadWorkflowCollection(context, { limit: 100 });
+  const [collection,publication] = await Promise.all([loadWorkflowCollection(context, { limit: 100 }),loadPublicationInterventions(context)]);
+  const interventions=[...new Map([...collection.interventions,...publication.records].map(entry=>[entry.id,entry])).values()];
   const query = await searchParams;
   const message = messages[first(query.message) ?? ""];
   const error = errors[first(query.error) ?? ""];
@@ -47,8 +49,8 @@ export default async function NeedsYouPage({ searchParams }: NeedsYouPageProps) 
   const definitionById = new Map(
     collection.definitions.map((definition) => [definition.id, definition]),
   );
-  const open = collection.interventions.filter((entry) => entry.status === "open");
-  const resolved = collection.interventions
+  const open = interventions.filter((entry) => entry.status === "open");
+  const resolved = interventions
     .filter((entry) => entry.status !== "open")
     .slice(0, 12);
 
@@ -67,12 +69,13 @@ export default async function NeedsYouPage({ searchParams }: NeedsYouPageProps) 
 
       {message ? <p className="coreNotice coreNotice-success" role="status">{message}</p> : null}
       {error ? <p className="coreNotice coreNotice-danger" role="alert">{error}</p> : null}
+      {publication.unavailable ? <p className="coreNotice coreNotice-danger" role="alert">Publication verification requests could not be loaded. Unresolved listing outcomes may still need your attention.</p> : null}
 
       <section className={open.length ? "needsYouQueue needsYouQueue-active" : "needsYouQueue"}>
         <div className="sectionTitleRow">
           <div>
             <p className="coreEyebrow">Open queue</p>
-            <h2>{open.length ? `${open.length} decision${open.length === 1 ? "" : "s"} waiting` : "Nothing needs your attention"}</h2>
+            <h2>{open.length ? `${open.length} decision${open.length === 1 ? "" : "s"} waiting` : publication.unavailable ? "Some requests could not be checked" : "Nothing needs your attention"}</h2>
           </div>
           <span className="coreCount">{open.length}</span>
         </div>
@@ -102,8 +105,8 @@ export default async function NeedsYouPage({ searchParams }: NeedsYouPageProps) 
             })}
           </div>
         ) : (
-          <EmptyPanel icon="needs-you" title="No intervention required">
-            <p>Agent Labs will surface decisions here instead of interrupting normal workflow activity.</p>
+          <EmptyPanel icon="needs-you" title={publication.unavailable ? "Publication checks unavailable" : "No intervention required"}>
+            <p>{publication.unavailable ? "Publication outcomes may still need verification. Check the Etsy workspace once its records are available." : "Agent Labs will surface decisions here instead of interrupting normal workflow activity."}</p>
           </EmptyPanel>
         )}
       </section>
