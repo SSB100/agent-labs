@@ -43,3 +43,10 @@ export const missingPricingLabels: Record<string, string> = {
   sellerTaxCostMinor: "Seller tax cost", marketplaceFee: "Marketplace fee",
   paymentFee: "Payment fee", refundReserveBps: "Refund reserve", positive_revenue: "Positive revenue",
 };
+
+/** React form actions request a native reset after success. Keep controlled
+ * assumption selects aligned with the calculation; the explicit Reset button
+ * updates React state itself and does not use the native form-reset mechanism. */
+export function preservePricingAssumptions(event: { preventDefault: () => void }) {
+  event.preventDefault();
+}

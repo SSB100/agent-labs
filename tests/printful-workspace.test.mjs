@@ -137,3 +137,12 @@ test('FormData reader restricts input keys and changed inputs cannot display a s
   assert.match(workspace, /Inputs changed\. Calculate again/);
   assert.match(workspace, /fieldset disabled=\{pending\}/);
 });
+
+test('successful actions cannot natively reset visible fee bases away from the submitted assumptions', () => {
+  const { preservePricingAssumptions } = require('../.core-tests/app/dashboard/printful/types.js');
+  const resetEvent = new Event('reset', {cancelable:true});
+  preservePricingAssumptions(resetEvent);
+  assert.equal(resetEvent.defaultPrevented,true);
+  assert.match(workspace, /<form action=\{action\} onReset=\{preservePricingAssumptions\}/);
+  assert.match(workspace, /type="button" onClick=\{\(\) => setValues\(\{ \.\.\.initialPricingValues \}\)\}/);
+});
