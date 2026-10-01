@@ -7,6 +7,7 @@ export function boundedDiscoveryRefreshFocus(value:string){
   return focus;
 }
 export function buildDiscoveryIntentFromGoal(options: {id:string;businessId:string;goal:string;audienceHint?:string;maximumMicrousd:number;maximumCollections:1|2;now?:number}): DiscoveryIntentV2 {
+  if (![1,2].includes(options.maximumCollections)) throw new Error("A new research goal requires one or two source collections.");
   const goal=options.goal.trim(),audience=options.audienceHint?.trim() || "Adult outdoor and nature enthusiasts";
   // Products supplies the declared original-shirt context, so "research the best market" is sufficient.
   // Obvious unrelated action requests are rejected locally rather than sent to an unlimited planner.
@@ -22,4 +23,15 @@ export function discoveryGoalBudgetScope(intent:DiscoveryIntentV2){return{intent
 export function parseDiscoveryAllowance(value:string,maximumMicrousd=1_000_000){
   if(![1_000_000,2_000_000].includes(maximumMicrousd)||!/^[0-2](?:\.\d{1,6})?$/.test(value))throw new Error("Enter an explicit bounded research allowance in US dollars.");
   const amount=Math.round(Number(value)*1e6);if(amount<1 || amount>maximumMicrousd)throw new Error(`The research allowance must be positive and at most US$${maximumMicrousd/1e6}.`);return amount;
+}
+
+/** Copies the preserved goal, never extends its universe or silently funds another round. */
+export function buildDiscoveryAnalysisIntent(options:{prior:DiscoveryIntentV2;id:string;maximumMicrousd:number;now?:number}):DiscoveryIntentV2{
+  const intent=structuredClone(options.prior);
+  intent.id=options.id;
+  intent.expiresAt=new Date((options.now??Date.now())+86400000).toISOString();
+  intent.limits.maximumNewCollections=0;
+  intent.limits.maximumMicrousd=options.maximumMicrousd;
+  validateDiscoveryIntentV2(intent,options.now);
+  return intent;
 }

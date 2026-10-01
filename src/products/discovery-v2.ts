@@ -13,7 +13,9 @@ export const DISCOVERY_V2_EXECUTION_PREREQUISITES = {
   ownerCreativeApproval: "required", freshBudgetApproval: "required",
   conceptSpecificIpScreen: "required", printValidation: "required",
 } as const;
-export const DISCOVERY_V2_SNAPSHOT_BYTES = { dossier: 16384, strategist: 32768, reviewer: 16384 } as const;
+/** Storage bounds include expanded evidence references across all 3 × 9 evaluations.
+ * These are independent of the unchanged provider request, token and spending caps. */
+export const DISCOVERY_V2_SNAPSHOT_BYTES = { dossier: 16384, strategist: 65536, reviewer: 16384 } as const;
 export const DISCOVERY_V2_MODELS = { strategist: "openai/gpt-5.6-luna", reviewer: "anthropic/claude-haiku-4.5" } as const;
 export type DiscoveryOutcomeV2 = "TEST" | "REJECT" | "NEEDS_MORE_EVIDENCE";
 export type EvidenceStrengthV2 = "direct" | "adjacent" | "guidance" | "none";
@@ -26,7 +28,7 @@ export type CandidateIdentityV2 = {
 export type DiscoveryIntentV2 = {
   version: typeof DISCOVERY_V2; id: string; businessId: string; objective: string;
   comparisonUniverse: { productType: "original_pod_tshirt"; markets: GeographyScopeV2[]; audiences: string[]; sourceDomains: string[]; selectionQuestion: string };
-  limits: { maximumAlternatives: 3; maximumNewCollections: 1 | 2; maximumMicrousd: number; maximumGenerations: 1 | 2 };
+  limits: { maximumAlternatives: 3; maximumNewCollections: 0 | 1 | 2; maximumMicrousd: number; maximumGenerations: 1 | 2 };
   expiresAt: string;
 };
 export type DossierPackRefV2 = {
@@ -147,12 +149,27 @@ export function validateDiscoveryIntentV2(intent: DiscoveryIntentV2, now = Date.
   prose(u.selectionQuestion, "selection question", 20, 800);
   validateResearchRequest({ query: u.selectionQuestion, allowedDomains: u.sourceDomains });
   shape(intent.limits, "maximumAlternatives,maximumNewCollections,maximumMicrousd,maximumGenerations", "discovery limits");
-  if (intent.limits.maximumAlternatives !== 3 || ![1, 2].includes(intent.limits.maximumNewCollections) || ![1, 2].includes(intent.limits.maximumGenerations)) fail("Finite discovery bounds required.");
+  if (intent.limits.maximumAlternatives !== 3 || ![0, 1, 2].includes(intent.limits.maximumNewCollections) || ![1, 2].includes(intent.limits.maximumGenerations)) fail("Finite discovery bounds required.");
   integer(intent.limits.maximumMicrousd, 1, 2_000_000, "approved discovery research envelope");
   if (!Number.isFinite(Date.parse(intent.expiresAt)) || Date.parse(intent.expiresAt) <= now) fail("Discovery intent expired.");
 }
+/** Match PostgreSQL jsonb::text storage gates: one space after each colon/comma.
+ * Count structural separators only; punctuation inside evidence/prose is untouched. */
+export function discoveryV2SnapshotByteLength(value: unknown): number {
+  const spacing = (v: unknown): number => {
+    if (Array.isArray(v)) return Math.max(0, v.length - 1) + v.reduce((total, item) => total + spacing(item), 0);
+    if (record(v)) {
+      const values = Object.values(v);
+      return values.length + Math.max(0, values.length - 1) + values.reduce<number>((total, item) => total + spacing(item), 0);
+    }
+    return 0;
+  };
+  const serialized = JSON.stringify(value);
+  if (serialized === undefined) fail("Non-JSON discovery snapshot.");
+  return Buffer.byteLength(serialized, "utf8") + spacing(value);
+}
 function snapshotBytes(value: unknown, maximum: number, label: string) {
-  if (Buffer.byteLength(JSON.stringify(value), "utf8") > maximum) fail(`${label} exceeds its bounded serialized snapshot.`);
+  if (discoveryV2SnapshotByteLength(value) > maximum) fail(`${label} exceeds its bounded serialized snapshot.`);
 }
 function sameSet(a: readonly string[], b: readonly string[]) { return [...a].sort().join("\n") === [...b].sort().join("\n"); }
 function candidateIdentity(candidate: CandidateIdentityV2) {

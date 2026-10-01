@@ -53,3 +53,21 @@ test('selector reasoning control is hashed, bounded and refused for analysis or 
  for(const reasoning of [{effort:'high'},{effort:'none',exclude:true},{max_tokens:100}]) assert.throws(()=>reserveDiscoveryV2(scope,'select:1',{...req,reasoning},q),/Only exact-span/);
  assert.throws(()=>reserveDiscoveryV2(scope,'strategy:1',{...request('strategy:1'),reasoning:{effort:'none'}},q),/Only exact-span/);
 });
+
+test('evidence-reuse scope quotes exactly strategy and independent review, excluding every research cost',()=>{
+ const analysis={...scope,maximumCollections:0};
+ const q=quoteDiscoveryV2(analysis,{director:quote(discoveryV2Model('strategy:1')),reviewer:quote(discoveryV2Model('review:1'))});
+ assert.equal(q.maximumCollections,0);assert.equal(q.maximumCalls,2);
+ assert.deepEqual(Object.keys(q.ceilings),['strategy:1','review:1']);
+ assert.equal(q.maximumEstimateMicrousd,q.ceilings['strategy:1']+q.ceilings['review:1']);
+ assert.ok(q.maximumEstimateMicrousd<quoteDiscoveryV2({...scope,maximumCollections:1},{director:quote(discoveryV2Model('strategy:1')),reviewer:quote(discoveryV2Model('review:1'))}).maximumEstimateMicrousd);
+ for(const key of ['plan:1','search:1','select:1','search:2','select:2'])assert.throws(()=>reserveDiscoveryV2(analysis,key,request(key),quote(discoveryV2Model(key))),/no plan, search or selection/);
+ for(const key of ['strategy:1','review:1'])assert.equal(reserveDiscoveryV2(analysis,key,request(key),quote(discoveryV2Model(key))).estimate.maximumCollections,0);
+});
+
+test('analysis-only scope cannot send an unquoted research call to provider or ledger',async()=>{
+ for(const key of ['plan:1','search:1','select:1','search:2','select:2']){
+  const f=setup();await assert.rejects(()=>callDiscoveryV2({scope:{...scope,maximumCollections:0},key,request:request(key),ledger:f.ledger,provider:f.provider,prices:async m=>quote(m)}),/no plan, search or selection/);
+  assert.equal(f.reservations.length,0);assert.equal(f.calls.length,0);assert.equal(f.settlements.length,0);
+ }
+});

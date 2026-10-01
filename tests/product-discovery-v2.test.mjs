@@ -178,6 +178,62 @@ test('one collection is permitted, snapshot byte bounds are explicit, and unknow
   f.assessment.candidates[0].dimensions[0].score = 5; rebind(f); assert.throws(() => check(f), /fields/);
 });
 
+test('snapshot sizes count UTF-8 and PostgreSQL structural spaces without counting punctuation in strings', () => {
+  const value = { nested: ['汉😀', { prose: 'Keep commas, colons: and "quotes"\nintact.' }], empty: [], flag: false };
+  const postgresText = '{"nested": ["汉😀", {"prose": "Keep commas, colons: and \\"quotes\\"\\nintact."}], "empty": [], "flag": false}';
+  assert.equal(v2.discoveryV2SnapshotByteLength(value), Buffer.byteLength(postgresText, 'utf8'));
+  assert.equal(v2.discoveryV2SnapshotByteLength(value) - Buffer.byteLength(JSON.stringify(value), 'utf8'), 7);
+  assert.deepEqual(v2.DISCOVERY_V2_SNAPSHOT_BYTES, { dossier: 16384, strategist: 65536, reviewer: 16384 });
+});
+
+test('strategist storage accepts the exact finite bound and rejects one extra byte without truncation', () => {
+  const f = fixture(), adjustable = [];
+  f.assessment.recommendation.proposedOutcome = 'NEEDS_MORE_EVIDENCE'; f.assessment.testPlan = null;
+  for (const market of f.assessment.marketComparisons) {
+    market.assumptions = Array.from({ length: 8 }, (_, i) => `Assumption ${i}: a bounded hypothetical scenario remains unverified.`);
+    market.limitations = Array.from({ length: 8 }, (_, i) => `Limitation ${i}: this source does not establish actual candidate demand.`);
+    for (const list of [market.assumptions, market.limitations]) for (let i = 0; i < list.length; i++) adjustable.push({ target: list, key: i, max: 600 });
+    adjustable.push({ target: market, key: 'assessment', max: 1200 });
+  }
+  for (const candidate of f.assessment.candidates) for (const dimension of candidate.dimensions) adjustable.push({ target: dimension, key: 'rationale', max: 450 });
+  adjustable.push({ target: f.assessment.recommendation, key: 'rationale', max: 1200 });
+  for (const alternative of f.assessment.recommendation.alternatives) adjustable.push({ target: alternative, key: 'rationale', max: 1200 });
+  const maximum = v2.DISCOVERY_V2_SNAPSHOT_BYTES.strategist;
+  let expandable;
+  for (const field of adjustable) {
+    const extra = Math.min(field.max - field.target[field.key].length, maximum - v2.discoveryV2SnapshotByteLength(f.assessment));
+    field.target[field.key] += 'x'.repeat(extra);
+    if (field.target[field.key].length < field.max) expandable = field;
+  }
+  assert.equal(v2.discoveryV2SnapshotByteLength(f.assessment), maximum);
+  assert.ok(expandable, 'the final byte limit, rather than a field limit, is reached');
+  v2.validateStrategistAssessmentV2(f.intent, f.dossier, f.assessment, f.context, f.execution, now);
+  expandable.target[expandable.key] += 'x';
+  assert.equal(v2.discoveryV2SnapshotByteLength(f.assessment), maximum + 1);
+  const before = JSON.stringify(f.assessment);
+  assert.throws(() => v2.validateStrategistAssessmentV2(f.intent, f.dossier, f.assessment, f.context, f.execution, now), /Strategist exceeds its bounded serialized snapshot/);
+  assert.equal(JSON.stringify(f.assessment), before);
+});
+
+test('zero-collection analysis requires retained prior evidence and preserves the prior-pack bound', () => {
+  const f = fixture(); f.intent.limits.maximumNewCollections = 0;
+  assert.throws(() => check(f), /collection budget exceeded/);
+  f.persisted.collectedForIntentId = id(80); f.dossier.packRefs[0].origin = 'prior'; rebind(f); check(f);
+  const empty = structuredClone(f.dossier); empty.packRefs = [];
+  assert.throws(() => v2.validateDiscoveryDossierV2(f.intent, empty, f.context, now), /immutable dossier packs/);
+  const tooMany = structuredClone(f.dossier);
+  tooMany.packRefs = Array.from({ length: 5 }, (_, i) => ({ ...structuredClone(tooMany.packRefs[0]), artifactId: id(100 + i), query: { ...tooMany.packRefs[0].query, id: id(200 + i) } }));
+  assert.throws(() => v2.validateDiscoveryDossierV2(f.intent, tooMany, f.context, now), /collection budget exceeded/);
+});
+
+test('reviewer cannot substitute a candidate or geography for any final outcome', () => {
+  for (const outcome of ['TEST', 'REJECT', 'NEEDS_MORE_EVIDENCE']) for (const field of ['candidateId', 'marketCountryCode']) {
+    const f = fixture(); f.review.outcome = outcome;
+    f.review[field] = field === 'candidateId' ? f.dossier.shortlist[1].id : 'GB';
+    assert.throws(() => check(f), /Review changed its bound assessment or candidate/);
+  }
+});
+
 test('geographic comparison cannot claim best-market selection from a single declared market', () => {
   const f = fixture(); f.intent.comparisonUniverse.markets = f.intent.comparisonUniverse.markets.slice(0, 1);
   assert.throws(() => check(f), /geographic comparison markets/);

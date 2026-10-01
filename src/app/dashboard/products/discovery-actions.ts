@@ -4,7 +4,7 @@ import {redirect} from "next/navigation";
 import {revalidatePath} from "next/cache";
 import {start} from "workflow/api";
 import {requireOwnerUiContext} from "@/lib/core-ui/data";
-import {buildDiscoveryIntentFromGoal,discoveryGoalBudgetScope,parseDiscoveryAllowance,boundedDiscoveryRefreshFocus} from "@/products/discovery-v2-goal";
+import {buildDiscoveryIntentFromGoal,buildDiscoveryAnalysisIntent,discoveryGoalBudgetScope,parseDiscoveryAllowance,boundedDiscoveryRefreshFocus} from "@/products/discovery-v2-goal";
 import {fetchDiscoveryV2ModelQuote,quoteDiscoveryV2,discoveryV2Model} from "@/products/discovery-v2-budget";
 import {loadDiscoveryGoalData,loadDiscoveryChainBalance} from "@/products/discovery-v2-data";
 import type {ProductExperimentRecord} from "@/products/types";
@@ -89,4 +89,37 @@ export async function refreshGeographicDiscovery(form:FormData){
   const launch=reserved.data as{workflowRunId:string;shouldStart:boolean};
   if(launch.shouldStart){try{await start(installedPackRuntimeWorkflow,[{businessId:root.business_id,coreWorkflowRunId:launch.workflowRunId,runtimeCapability}]);}catch{fail('Continuation launch is unconfirmed. Its durable history is preserved; inspect the workflow before another attempt.');}}
   revalidatePath('/dashboard/products');redirect(`/dashboard/workflows/${launch.workflowRunId}`);
+}
+
+
+export async function continueGeographicDiscoveryAnalysis(form:FormData){
+  const context=await requireOwnerUiContext(),rootId=text(form,'rootId');
+  if(text(form,'confirmAnalysis')!=='on')fail('Confirm the separately quoted strategy and independent review round.');
+  const rootResult=await context.supabase.from('product_experiments').select('*').eq('id',rootId).eq('discovery_version','pod-discovery-2.0').is('parent_discovery_id',null).maybeSingle();
+  const root=rootResult.data as ProductExperimentRecord|null;
+  if(rootResult.error||!root||root.status!=='failed'||!context.businesses.some(b=>b.id===root.business_id))fail('An owned failed discovery round is required; its history will remain unchanged.');
+  const saved=await loadDiscoveryGoalData(context,[root]),record=saved.records[0];
+  if(!saved.analysisAvailable||saved.errors.length||!record?.intent||!record.dossier)fail('The registered evidence-reuse workflow and frozen dossier could not be verified.');
+  let intent,quote,priorArtifactIds:string[];
+  try{
+    const approvedEstimate=Number(text(form,'quotedMaximum'));
+    if(!Number.isSafeInteger(approvedEstimate)||approvedEstimate<1||approvedEstimate>2_000_000)throw new Error('Refresh the page for an explicit bounded strategy/review quote.');
+    const balance=await loadDiscoveryChainBalance(context,root);
+    if(balance.hasUncertainCosts)throw new Error('A prior charge remains unknown. No new paid round is permitted.');
+    intent=buildDiscoveryAnalysisIntent({prior:record.intent,id:randomUUID(),maximumMicrousd:balance.maximumMicrousd});
+    const [director,reviewer]=await Promise.all([fetchDiscoveryV2ModelQuote(discoveryV2Model('strategy:1')),fetchDiscoveryV2ModelQuote(discoveryV2Model('review:1'))]);
+    quote=quoteDiscoveryV2(discoveryGoalBudgetScope(intent),{director,reviewer});
+    if(quote.maximumEstimateMicrousd>approvedEstimate)throw new Error('The strategy/review estimate increased. Refresh the page and approve its new quote.');
+    if(quote.maximumEstimateMicrousd>balance.remainingMicrousd)throw new Error('The complete strategy/review quote exceeds the remaining shared goal allowance.');
+    priorArtifactIds=record.dossier.packRefs.map(ref=>ref.artifactId).sort();
+    if(!priorArtifactIds.length||priorArtifactIds.length>4||new Set(priorArtifactIds).size!==priorArtifactIds.length||priorArtifactIds.some(id=>!record.sourcePacks.some(pack=>pack.id===id)))throw new Error('Every frozen Evidence Pack must be present; evidence reuse cannot add, omit or replace sources.');
+  }catch(error){fail(error instanceof Error?error.message:'The evidence-reuse continuation could not be verified.');}
+  const runtimeCapability=`${randomUUID()}${randomUUID()}`,nonce=randomUUID();
+  const reserved=await context.supabase.rpc('begin_installed_pack_run',{p_business_id:root.business_id,p_installation_id:null,p_workflow_key:'product.discovery-v2.analysis',
+    p_input:{intent,quote,ownerKickoff:{confirmed:true,focus:'Re-evaluate the preserved completed plan and every frozen Evidence Pack in a new strategy and independent review round, without further research.',followUpBasis:{rootId:root.id,reason:'reuse_evidence_for_strategy_review'}},priorArtifactIds},
+    p_idempotency_key:`discovery:${intent.id}`,p_launch_nonce:nonce,p_runtime_capability:runtimeCapability});
+  if(reserved.error)fail(reserved.error.message);
+  const launch=reserved.data as{workflowRunId:string;shouldStart:boolean};
+  if(launch.shouldStart){try{await start(installedPackRuntimeWorkflow,[{businessId:root.business_id,coreWorkflowRunId:launch.workflowRunId,runtimeCapability}]);}catch{fail('The strategy/review launch is unconfirmed. Its durable reservation remains; inspect the workflow before another attempt.');}}
+  revalidatePath('/dashboard/products');revalidatePath('/dashboard/workflows');redirect(`/dashboard/workflows/${launch.workflowRunId}`);
 }

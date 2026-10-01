@@ -9,7 +9,7 @@ import { loadProductWorkspace } from "@/products/data";
 import { productHistorySummary } from "@/products/history";
 import { DiscoveryGoalForm, DiscoveryGoalResults, type DiscoveryQuotePreview } from "@/components/stage13/discovery-goal-workspace";
 import { loadDiscoveryGoalData } from "@/products/discovery-v2-data";
-import { buildDiscoveryIntentFromGoal, discoveryGoalBudgetScope, DISCOVERY_GOAL_DEFAULT } from "@/products/discovery-v2-goal";
+import { buildDiscoveryIntentFromGoal, buildDiscoveryAnalysisIntent, discoveryGoalBudgetScope, DISCOVERY_GOAL_DEFAULT } from "@/products/discovery-v2-goal";
 import { quoteDiscoveryV2, fetchDiscoveryV2ModelQuote, discoveryV2Model } from "@/products/discovery-v2-budget";
 import { createProductCandidate } from "./actions";
 import "./products.css";
@@ -33,7 +33,10 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
     try{
       const [director,reviewer]=await Promise.all([fetchDiscoveryV2ModelQuote(discoveryV2Model("plan:1")),fetchDiscoveryV2ModelQuote(discoveryV2Model("review:1"))]);
       const estimate=(maximumCollections:1|2)=>quoteDiscoveryV2(discoveryGoalBudgetScope(buildDiscoveryIntentFromGoal({id:randomUUID(),businessId:context.businesses[0].id,goal:DISCOVERY_GOAL_DEFAULT,maximumMicrousd:1000000,maximumCollections})),{director,reviewer});
-      const one=estimate(1),two=estimate(2);quotePreview={one:one.maximumEstimateMicrousd,two:two.maximumEstimateMicrousd,verifiedAt:one.verifiedAt};
+      const one=estimate(1),two=estimate(2);
+      const prior=buildDiscoveryIntentFromGoal({id:randomUUID(),businessId:context.businesses[0].id,goal:DISCOVERY_GOAL_DEFAULT,maximumMicrousd:1000000,maximumCollections:1});
+      const analysis=quoteDiscoveryV2(discoveryGoalBudgetScope(buildDiscoveryAnalysisIntent({prior,id:randomUUID(),maximumMicrousd:1000000})),{director,reviewer});
+      quotePreview={one:one.maximumEstimateMicrousd,two:two.maximumEstimateMicrousd,analysis:analysis.maximumEstimateMicrousd,verifiedAt:one.verifiedAt};
     }catch{/* Unavailable or unsupported prices keep the start control disabled. */}
   }
   const message = first(query.message);
@@ -61,7 +64,7 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
     {unsupportedAssessments ? <p className="productSubtle">{unsupportedAssessments} latest decision(s) use a newer or unrecognized assessment format. Their preserved contents remain visible in the workspace; they are not converted into legacy scores.{unrecognizedOutcomes ? ` ${unrecognizedOutcomes} outcome(s) cannot be interpreted and are not included in the needs-evidence count.` : ""}</p> : null}
 
     <DiscoveryGoalForm businesses={context.businesses} available={discovery.available} quote={quotePreview}/>
-    <DiscoveryGoalResults data={discovery}/>
+    <DiscoveryGoalResults data={discovery} quote={quotePreview}/>
     <details className="productCreate" id="new-candidate">
       <summary><span><span aria-hidden="true">+</span><strong>Legacy manual candidate entry</strong></span><span>Optional advanced record keeping</span></summary>
       {context.businesses.length ? <form action={createProductCandidate} className="productForm productCreateForm">

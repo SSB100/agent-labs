@@ -20,6 +20,7 @@ function queryPrefix(intent:DiscoveryIntentV2,index:number){
 }
 const QUERY_SUFFIX=" Do not infer sales from listing or shop counts. Return inspectable public source excerpts only.";
 export function discoveryPlanModelSchemaV2(intent:DiscoveryIntentV2):JsonObject{
+  if (intent.limits.maximumNewCollections === 0) throw new Error("Evidence-reuse rounds cannot plan new collections.");
   const maximumFocus=Math.min(300,...Array.from({length:intent.limits.maximumNewCollections},(_,index)=>800-queryPrefix(intent,index).length-QUERY_SUFFIX.length));
   if(maximumFocus<30)throw new Error("The declared audience context leaves insufficient room for a bounded research question.");
   const properties=DISCOVERY_PLAN_MODEL_SCHEMA_V2.properties as JsonObject;

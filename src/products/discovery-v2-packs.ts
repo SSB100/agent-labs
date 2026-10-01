@@ -69,3 +69,20 @@ export function discoveryV2PackManifests():PackManifest[]{
 }
 /** The selector retains the existing Evidence Pack format, with its own worker version/qualification. */
 export const DISCOVERY_RESEARCH_OUTPUT_SCHEMA_V2=RESEARCH_WORKER_OUTPUT_SCHEMA;
+
+/** Separate immutable release: old one/two-collection manifests and qualifications stay unchanged. */
+export function discoveryV2AnalysisPackManifest():PackManifest{
+  const original=discoveryV2PackManifests().find(pack=>pack.packKey==="workflow.product-discovery-v2")!;
+  const pack=structuredClone(original);
+  pack.packKey="workflow.product-discovery-v2-analysis";
+  pack.name="Evidence reuse · strategy and independent review";
+  pack.description="Explicitly quoted two-call continuation of a terminal geographic discovery round, reusing its completed plan and every validated Evidence Pack without new collection or selection. Experimental; no creative or commerce authority.";
+  const workflow=structuredClone(original.workflows[0]);
+  workflow.key="product.discovery-v2.analysis";
+  workflow.name="Preserved evidence · strategy and independent review";
+  workflow.description=pack.description;
+  workflow.stages=workflow.stages.filter(stage=>stage.key==="strategy"||stage.key==="review");
+  workflow.stages[0].inputFrom="workflow";
+  pack.workflows=[workflow];
+  return pack;
+}

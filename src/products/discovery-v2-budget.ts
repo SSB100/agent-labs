@@ -21,7 +21,7 @@ export const DISCOVERY_V2_BUDGET = {
     review: { maximumRequestBytes: 32768, outputTokens: 4000 },
   },
 } as const;
-export type DiscoveryV2BudgetScope = { intentId: string; maximumCollections: 1 | 2; maximumMicrousd: number; policyHash: string };
+export type DiscoveryV2BudgetScope = { intentId: string; maximumCollections: 0 | 1 | 2; maximumMicrousd: number; policyHash: string };
 export type DiscoveryV2Reservation = { attemptKey: DiscoveryV2Call; reservedMicrousd: number; requestHash: string; estimate: JsonObject };
 export interface DiscoveryV2Ledger {
   reserve(value: DiscoveryV2Reservation): Promise<{ shouldCall: boolean; totalReservedMicrousd: number }>;
@@ -34,7 +34,7 @@ const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v ===
 const hash = (v: unknown) => createHash("sha256").update(JSON.stringify(v)).digest("hex");
 function assertScope(scope: DiscoveryV2BudgetScope) {
   if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(scope.intentId) ||
-      ![1, 2].includes(scope.maximumCollections) || !Number.isSafeInteger(scope.maximumMicrousd) || scope.maximumMicrousd < 1 ||
+      ![0, 1, 2].includes(scope.maximumCollections) || !Number.isSafeInteger(scope.maximumMicrousd) || scope.maximumMicrousd < 1 ||
       scope.maximumMicrousd > DISCOVERY_V2_BUDGET.maximumMicrousd || !/^[a-f0-9]{64}$/.test(scope.policyHash)) throw fail("A persisted bounded discovery budget scope is required.");
 }
 function phase(key: DiscoveryV2Call) { return key.split(":")[0] as "plan" | "search" | "select" | "strategy" | "review"; }
@@ -56,7 +56,7 @@ function amount(key: DiscoveryV2Call, quote: CreativeModelQuote, requestBytes?: 
 export const fetchDiscoveryV2ModelQuote = fetchCreativeModelQuote;
 export function quoteDiscoveryV2(scope: DiscoveryV2BudgetScope, quotes: { director: CreativeModelQuote; reviewer: CreativeModelQuote }) {
   assertScope(scope);
-  const calls = DISCOVERY_V2_CALLS.filter(key => scope.maximumCollections === 2 || !key.endsWith(":2"));
+  const calls = DISCOVERY_V2_CALLS.filter(key => scope.maximumCollections === 0 ? key === "strategy:1" || key === "review:1" : scope.maximumCollections === 2 || !key.endsWith(":2"));
   const ceilings = Object.fromEntries(calls.map(key => [key, amount(key, key === "review:1" ? quotes.reviewer : quotes.director).reservedMicrousd]));
   const maximumEstimateMicrousd = Object.values(ceilings).reduce((sum, value) => sum + value, 0);
   if (maximumEstimateMicrousd > scope.maximumMicrousd) throw fail("The complete finite discovery quote exceeds its approved allowance; no paid call is authorized.");
@@ -67,6 +67,7 @@ export function quoteDiscoveryV2(scope: DiscoveryV2BudgetScope, quotes: { direct
 }
 export function reserveDiscoveryV2(scope: DiscoveryV2BudgetScope, key: DiscoveryV2Call, request: StructuredModelRequest | WebSearchModelRequest, quote: CreativeModelQuote): DiscoveryV2Reservation {
   assertScope(scope); assertQuote(key, quote);
+  if (scope.maximumCollections === 0 && key !== "strategy:1" && key !== "review:1") throw fail("Evidence reuse permits only a fresh strategy and independent review; no plan, search or selection call is authorized.");
   if (scope.maximumCollections === 1 && key.endsWith(":2")) throw fail("A second collection is outside this immutable discovery scope.");
   if (request.model.providerModelId !== discoveryV2Model(key) || request.model.provider !== "openrouter") throw fail("Discovery cannot change its primary model or provider.");
   const kind = phase(key), bytes = Buffer.byteLength(JSON.stringify(request), "utf8");

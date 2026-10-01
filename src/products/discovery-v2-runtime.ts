@@ -63,6 +63,7 @@ function phaseContext(scope: V2Scope, prepared: Record<string, unknown>, stageKe
   if (!["plan","research","strategy","review"].includes(expectedKind) || phase.kind !== expectedKind ||
       worker.manifest.worker.workerKey !== `product.discovery-v2.${expectedKind}` || worker.manifest.worker.version !== "1.0.0" ||
       worker.manifest.modelRequirements.primaryOnly !== true || (phase.kind === "research" ? worker.execution.kind !== "web.research" : worker.execution.kind !== "model_router")) fail("The persisted phase requires its exact v2 worker and executor.");
+  if (scope.budgetScope.maximumCollections === 0 && phase.kind !== "strategy" && phase.kind !== "review") fail("Evidence reuse permits only strategy and independent review.");
   if (phase.kind === "plan") {
     exact(phase,"kind,intent,focus,knowledge","plan phase");
     if (discoveryV2Hash(phase.intent) !== discoveryV2Hash(scope.intent)) fail("Planner intent differs from persisted authority.");
