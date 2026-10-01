@@ -22,6 +22,8 @@ Stage 12 includes five source-backed knowledge packs and a verified mock-only Pr
 
 **Stage 14 is in progress:** the bounded creative pipeline, private versioned image storage and independent visual review are implemented and under hosted qualification. Its technical image test does not satisfy the separate evidence-backed approved-candidate production exit.
 
+**Stage 15 safe foundation:** experimental Printful catalog/variant contracts, physical print validation, deterministic pricing, non-executable product proposals, mapping/receipt helpers and an authenticated synthetic workspace are implemented. Live connection, product execution and stage qualification remain open; see [Stage 15 checkpoint](docs/checkpoints/STAGE_15_PRINTFUL.md).
+
 Authoritative scope: [V2 implementation plan](docs/AGENT_LABS_V2_IMPLEMENTATION_PLAN.md). Verified stage evidence: [checkpoints](docs/checkpoints/).
 
 ## Private application model

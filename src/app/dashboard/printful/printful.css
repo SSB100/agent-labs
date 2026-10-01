@@ -1,0 +1,78 @@
+.printfulWorkspace { display:grid; min-width:0; gap:24px; }
+.printfulWorkspace h2 { margin:5px 0 0; font-size:1.12rem; letter-spacing:-.025em; line-height:1.45; }
+.printfulWorkspace h3 { margin:0; font-size:.86rem; line-height:1.6; }
+.printfulIntro { display:flex; align-items:flex-start; justify-content:space-between; gap:24px; padding:25px; border:1px solid var(--core-border-strong); border-radius:16px; background:linear-gradient(110deg,rgba(121,226,167,.08),var(--core-panel)); }
+.printfulIntro h2 { font-size:1.3rem; }
+.printfulIntro p:not(.coreEyebrow) { max-width:790px; margin:12px 0 0; color:var(--core-muted); font-size:.78rem; line-height:1.8; }
+.printfulIntro .coreStatus { flex-shrink:0; }
+.printfulStatusGrid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
+.printfulStatusGrid > div { display:grid; align-content:start; gap:10px; padding:21px; border:1px solid var(--core-border); border-radius:12px; background:var(--core-panel); }
+.printfulStatusGrid span { color:var(--core-muted); font-size:.68rem; }
+.printfulStatusGrid strong { color:var(--core-text); font-size:1.05rem; letter-spacing:-.015em; }
+.printfulStatusGrid small { color:var(--core-faint); font-size:.65rem; line-height:1.6; }
+.printfulPanel { min-width:0; padding:26px; border:1px solid var(--core-border); border-radius:16px; background:var(--core-panel); }
+.printfulSectionHeader { display:flex; align-items:flex-start; justify-content:space-between; flex-wrap:wrap; gap:15px; margin-bottom:16px; }
+.printfulBadge { display:inline-flex; align-items:center; padding:6px 10px; border:1px solid rgba(240,207,126,.22); border-radius:7px; background:rgba(240,207,126,.05); color:var(--core-yellow); font-size:.63rem; line-height:1.6; }
+.printfulNote { margin:0; color:var(--core-muted); font-size:.72rem; line-height:1.8; overflow-wrap:anywhere; }
+.printfulConnectionFooter { display:flex; flex-wrap:wrap; align-items:center; gap:16px; margin:20px 0; }
+.printfulWorkspace .coreButton { line-height:1.5; }
+.printfulWorkspace button:disabled { cursor:not-allowed; opacity:.55; }
+.printfulGatePanel { padding:20px; border:1px solid rgba(240,207,126,.17); border-radius:11px; background:rgba(240,207,126,.025); }
+.printfulGatePanel > h3 { color:var(--core-yellow); }
+.printfulGates { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:24px; margin:18px 0; padding:0; list-style:none; counter-reset:gates; }
+.printfulGates li { display:flex; min-width:0; flex-direction:column; align-items:flex-start; gap:10px; counter-increment:gates; }
+.printfulGates strong { font-size:.73rem; line-height:1.65; }
+.printfulGates strong::before { content:counter(gates) ". "; color:var(--core-yellow); }
+.printfulGates span,.printfulGates small { color:var(--core-muted); font-size:.68rem; line-height:1.8; }
+.printfulGates a,.printfulReferenceLinks a { color:var(--core-accent-strong); font-size:.68rem; line-height:1.8; }
+.printfulGates a { margin-top:auto; }
+.printfulGates a:hover,.printfulReferenceLinks a:hover { text-decoration:underline; text-underline-offset:4px; }
+.printfulCatalogGrid { display:grid; grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr); gap:28px; margin-top:24px; }
+.printfulCatalogSummary { display:grid; align-content:start; gap:20px; }
+.printfulPrintArea { display:grid; min-height:220px; place-items:center; padding:26px; border:1px solid var(--core-border); border-radius:12px; background:repeating-linear-gradient(0deg,transparent,transparent 19px,rgba(255,255,255,.025) 19px,rgba(255,255,255,.025) 20px),repeating-linear-gradient(90deg,transparent,transparent 19px,rgba(255,255,255,.025) 19px,rgba(255,255,255,.025) 20px),var(--core-panel-soft); }
+.printfulPrintArea > div { display:flex; align-items:center; justify-content:center; flex-direction:column; gap:12px; min-height:170px; width:min(190px,100%); border:1px dashed var(--core-accent); border-radius:8px; background:rgba(121,226,167,.045); }
+.printfulPrintArea span { color:var(--core-accent-strong); font-size:.65rem; text-transform:uppercase; letter-spacing:.08em; }
+.printfulPrintArea strong { font-size:1.1rem; font-weight:600; }
+.printfulPrintArea small { color:var(--core-muted); font-size:.6rem; }
+.printfulFacts { display:grid; margin:0; gap:12px; }
+.printfulFacts > div { display:flex; justify-content:space-between; gap:14px; align-items:baseline; }
+.printfulFacts dt { color:var(--core-faint); font-size:.65rem; line-height:1.7; }
+.printfulFacts dd { margin:0; color:var(--core-text); font-size:.68rem; line-height:1.7; text-align:right; overflow-wrap:anywhere; }
+.printfulStack { display:grid; align-content:start; min-width:0; gap:20px; }
+.printfulFields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:17px; }
+.printfulFields label { display:flex; min-width:0; flex-direction:column; gap:8px; color:var(--core-text); font-size:.69rem; font-weight:650; line-height:1.6; }
+.printfulFields small { color:var(--core-faint); font-weight:400; font-size:.62rem; line-height:1.7; }
+.printfulFields input,.printfulFields select { width:100%; min-width:0; min-height:42px; padding:10px 11px; border:1px solid var(--core-border-strong); border-radius:8px; background:var(--core-bg); color:var(--core-text); font:inherit; font-size:.73rem; }
+.printfulFields input::placeholder { color:var(--core-faint); }
+.printfulWorkspace :is(input,select,button,a,summary):focus-visible { outline:2px solid var(--core-accent); outline-offset:4px; }
+.printfulWide { grid-column:1 / -1; }
+.printfulProposal { display:grid; gap:16px; padding:20px; border:1px solid var(--core-border); border-radius:10px; background:var(--core-panel-soft); }
+.printfulProposal > p:not(.coreEyebrow) { margin:0; color:var(--core-muted); font-size:.71rem; line-height:1.8; }
+.printfulDetails { min-width:0; border-top:1px solid var(--core-border); padding-top:16px; }
+.printfulDetails summary { cursor:pointer; font-size:.72rem; font-weight:650; line-height:1.8; }
+.printfulDetails > .printfulNote,.printfulDetails > .printfulFacts { margin-top:16px; }
+.printfulDetails .printfulFacts > div { display:block; }
+.printfulDetails .printfulFacts dd { text-align:left; margin-top:5px; }
+.printfulHash { font-family:monospace; overflow-wrap:anywhere; }
+.printfulList { display:grid; gap:9px; margin:16px 0; padding-left:19px; color:var(--core-muted); font-size:.72rem; line-height:1.8; }
+.printfulPricingForm { display:grid; gap:22px; margin-top:22px; }
+.printfulFormBody { display:grid; min-width:0; gap:26px; padding:0; margin:0; border:0; }
+.printfulPricingColumns { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:28px; }
+.printfulFeeFields { display:grid; min-width:0; gap:14px; margin:0; padding:16px; border:1px solid var(--core-border); border-radius:10px; }
+.printfulFeeFields legend { padding:0 8px; color:var(--core-muted); font-size:.71rem; font-weight:650; }
+.printfulActions { display:flex; align-items:center; flex-wrap:wrap; gap:12px; }
+.printfulTextButton { padding:10px; border:0; color:var(--core-muted); background:none; font:inherit; font-size:.69rem; cursor:pointer; }
+.printfulTextButton:hover { color:var(--core-text); }
+.printfulResult { display:grid; gap:16px; min-width:0; padding:20px; border:1px solid var(--core-border); border-radius:11px; background:var(--core-panel-soft); }
+.printfulResult > p:not(.coreEyebrow) { margin:0; font-size:.74rem; line-height:1.8; }
+.printfulResultMetrics { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; margin:0; padding:12px 0; }
+.printfulResultMetrics dt { color:var(--core-muted); font-size:.68rem; line-height:1.7; }
+.printfulResultMetrics dd { margin:10px 0 0; color:var(--core-text); font-size:1.25rem; font-weight:650; overflow-wrap:anywhere; }
+.printfulTarget { color:var(--core-accent-strong); }
+.printfulTarget-low { color:var(--core-yellow); }
+.printfulCostBreakdown { grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px 30px; border-top:1px solid var(--core-border); padding-top:18px; }
+.printfulReferenceLinks { display:flex; flex-wrap:wrap; gap:10px 20px; margin-top:20px; }
+.printfulSrOnly { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+@media (max-width:1100px) { .printfulGates { grid-template-columns:1fr; gap:18px; } .printfulCatalogGrid { grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr); gap:20px; } .printfulPricingColumns { gap:20px; } }
+@media (max-width:800px) { .printfulCatalogGrid,.printfulPricingColumns { grid-template-columns:1fr; } .printfulCatalogSummary { grid-template-columns:1fr; } .printfulStatusGrid { grid-template-columns:1fr; gap:10px; } .printfulStatusGrid > div { gap:6px; padding:17px; } .printfulPanel,.printfulIntro { padding:20px; } .printfulIntro { flex-direction:column; gap:18px; } }
+@media (max-width:480px) { .printfulFields,.printfulResultMetrics,.printfulCostBreakdown { grid-template-columns:1fr; } .printfulFacts > div { flex-direction:column; gap:3px; } .printfulFacts dd { text-align:left; } .printfulPanel,.printfulIntro { padding:17px; } .printfulGatePanel,.printfulProposal,.printfulResult { padding:15px; } .printfulActions { align-items:stretch; flex-direction:column; } .printfulResultMetrics { gap:18px; } .printfulResultMetrics dd { margin-top:4px; } }

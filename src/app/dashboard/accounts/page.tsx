@@ -297,6 +297,25 @@ export default async function AccountsPage({ searchParams }: AccountsPageProps) 
         )}
       </section>
 
+      <section className="dashboardSection" aria-labelledby="printful-account-title">
+        <div className="sectionTitleRow">
+          <div><p className="coreEyebrow">Stage 15 foundation</p><h2 id="printful-account-title">Printful</h2></div>
+          <StatusPill status="experimental" />
+        </div>
+        <div className="browserQualificationPanel">
+          <div>
+            <p className="coreEyebrow">Not connected · Live qualification open</p>
+            <h3>Catalog, configuration and pricing preview</h3>
+            <p>Explore explicitly synthetic variants and print constraints, then calculate a pricing scenario. Live activation awaits authorized secure credential setup for the intended Business and store.</p>
+            <small>Real configuration requires a current reviewed TEST, production-asset approval and separate owner configuration authority. No products or orders are created by this preview.</small>
+          </div>
+          <div className="browserQualificationActions">
+            <Link className="coreButton coreButton-primary" href="/dashboard/printful">Open Printful workspace</Link>
+            <small>Experimental foundation · No live provider calls</small>
+          </div>
+        </div>
+      </section>
+
       <section className="dashboardSection">
         <div className="sectionTitleRow">
           <div><p className="coreEyebrow">Future account packs</p><h2>Business accounts</h2></div>
@@ -305,7 +324,6 @@ export default async function AccountsPage({ searchParams }: AccountsPageProps) 
         <div className="futureConnectionList">
           {[
             ["Etsy", "Listings, orders, shop health, and marketplace operations."],
-            ["Print fulfilment", "Product configuration, order routing, production, and shipping."],
             ["Social accounts", "Publishing, performance measurement, and connected campaign activity."],
           ].map(([name, description]) => (
             <article key={name}>
