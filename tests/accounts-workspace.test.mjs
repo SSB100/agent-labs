@@ -267,9 +267,9 @@ test('isolated owner registration page alone renders the scoped handoff and safe
   for (const query of [{ business: foreignId, run: runId }, { business: 'malformed', run: runId }, { business: businessId, run: 'malformed' }]) await assert.rejects(registrationPage({ query }), /not-found/);
 });
 
-const chrome = ['/usr/bin/google-chrome', '/usr/bin/chromium'].find(existsSync);
-test('hosted Chromium checks mobile account review and required secure owner form labels', { skip: !process.env.CI }, async () => {
-  assert.ok(chrome, 'Hosted CI must provide Chromium so account UI coverage cannot silently skip');
+const chrome = process.env.ACCOUNT_UI_CHROMIUM_PATH || ['/usr/bin/google-chrome', '/usr/bin/chromium'].find(existsSync);
+test('hosted Chromium checks mobile account review and required secure owner form labels', { skip: !process.env.GITHUB_ACTIONS && !process.env.ACCOUNT_UI_CHROMIUM_PATH }, async () => {
+  assert.ok(chrome, 'GitHub Actions must provide Chromium so account UI coverage cannot silently skip');
   const { chromium } = require('playwright-core');
   const browser = await chromium.launch({ executablePath: chrome, headless: true, args: ['--no-sandbox'] });
   try {
@@ -293,7 +293,7 @@ test('hosted Chromium checks mobile account review and required secure owner for
       await page.setContent(`<html><head><style>${css}</style></head><body>${secure}</body></html>`);
       assert.equal(await page.getByLabel('Printful private token', { exact: true }).getAttribute('type'), 'password');
       assert.equal(await page.getByLabel(/^Intended Printful store ID/).isVisible(), true);
-      assert.equal(await page.getByLabel('Store type', { exact: true }).isVisible(), true);
+      assert.equal(await page.getByLabel('Store type', { exact: true }).isVisible(), true, 'The store selector needs an unambiguous accessible name');
       assert.equal(await page.locator('form.accountSecureForm').evaluate(el => el.checkValidity()), false);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       assert.equal(await page.locator('input[name=credential]').inputValue(), '');
