@@ -12,8 +12,9 @@ function goalTitle(intent:DiscoveryIntentV2|null){return intent?.objective||'Pre
 export function DiscoveryGoalForm({businesses,available,quote}:{businesses:{id:string;name:string}[];available:boolean;quote:DiscoveryQuotePreview}){
   const ready=available&&quote!==null&&businesses.length>0;
   return <section className="productCreate" id="discovery-goal" aria-labelledby="discovery-goal-title">
-    <div className="sectionTitleRow"><div><p className="coreEyebrow">Goal → Research → Strategy → Independent review</p><h2 id="discovery-goal-title">Give your research a goal</h2></div><span className="productTag">Bounded qualification workflow</span></div>
+    <div className="sectionTitleRow"><div><p className="coreEyebrow">Goal → Research → Strategy → Independent review</p><h2 id="discovery-goal-title">Give your research a goal</h2></div><span className="productTag">Experimental · live qualification incomplete</span></div>
     <p>{DISCOVERY_MARKET_SCOPE}</p>
+    <p className="coreNotice">This research workflow has not yet passed live end-to-end qualification. A run may stop without a recommendation; incurred charges and failed-run history remain visible.</p>
     {!available?<p className="coreNotice" role="status">This version is awaiting its registered workflow and safety checks. Saved research remains available below.</p>:null}
     {available&&!quote?<p className="coreNotice" role="status">Current provider prices are unavailable. Research cannot start until its complete quote is verified.</p>:null}
     <form action={startGeographicDiscovery} className="productForm productCreateForm">

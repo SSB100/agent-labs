@@ -4,6 +4,7 @@ import { fetchCreativeModelQuote, type CreativeModelQuote } from "../creative/bu
 import { OpenRouterAdapter } from "../models/openrouter";
 import { ModelProviderError, type ModelProviderResponse, type StructuredModelRequest, type WebSearchModelRequest } from "../models/types";
 import { validateResearchRequest } from "../research/sources";
+import { JsonSchemaValidationError } from "../workers/schema-validator";
 
 /** V2 has a finite phase list. None of these keys authorizes a fallback or retry. */
 export const DISCOVERY_V2_CALLS = ["plan:1", "search:1", "select:1", "search:2", "select:2", "strategy:1", "review:1"] as const;
@@ -99,8 +100,21 @@ function chargedReceipt(error: unknown): { amount: number | null; requestId: str
 }
 /** Safe accounting evidence for a paid response that later fails domain validation. */
 export function discoveryResponseFailure(error:unknown,response:ModelProviderResponse){
-  return new ModelProviderError("malformed_model_output",error instanceof Error?error.message.slice(0,500):"Discovery output failed its domain contract.",false,
-    {settlementRecorded:true,providerReceipt:{provider:response.provider,providerModelId:response.providerModelId,upstreamProvider:response.metadata.actualUpstreamProvider??null,
+  // Keep only bounded validator paths and fixed categories. Additional-property
+  // names can come from untrusted output, so never retain those names or values.
+  const validationIssues=error instanceof JsonSchemaValidationError?error.issues.slice(0,8).map(issue=>({
+    path:issue.message!=="is not an allowed property"&&/^[\w$.[\]-]{1,160}$/.test(issue.path)?issue.path:"$",
+    category:issue.message==="is required"?"required":issue.message==="is not an allowed property"?"additional_property":
+      issue.message==="must match one of the declared enum values"?"enum":issue.message==="must equal the declared constant"?"constant":
+      /^must contain no more than \d+ characters$/.test(issue.message)?"max_length":/^must contain at least \d+ characters$/.test(issue.message)?"min_length":
+      /^must contain no more than \d+ items$/.test(issue.message)?"max_items":/^must contain at least \d+ items$/.test(issue.message)?"min_items":
+      issue.message==="must contain unique items"?"unique_items":issue.message==="does not match the required pattern"?"pattern":
+      issue.message==="must be a UUID"?"uuid":"schema_mismatch",
+  })):[];
+  const message=(error instanceof Error?error.message:"Discovery output failed its domain contract.")+
+    (validationIssues.length?` ${validationIssues.map(issue=>`${issue.path}:${issue.category}`).join("; ")}`:"");
+  return new ModelProviderError("malformed_model_output",message.slice(0,500),false,
+    {settlementRecorded:true,...(validationIssues.length?{validationIssues}:{}),providerReceipt:{provider:response.provider,providerModelId:response.providerModelId,upstreamProvider:response.metadata.actualUpstreamProvider??null,
       providerRequestId:response.providerRequestId,latencyMs:response.latencyMs,usage:{...response.usage}}});
 }
 /** Caller validates/persists output separately. Settlement happens even if that validation fails. */

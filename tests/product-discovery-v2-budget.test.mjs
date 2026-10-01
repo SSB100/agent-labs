@@ -26,3 +26,21 @@ test('failure evidence retains actual or missing model identity instead of relab
 test('non-2xx transport preserves supplied accounting evidence with no assumed model identity',async()=>{const {OpenRouterAdapter}=require('../.core-tests/models/openrouter.js');const adapter=new OpenRouterAdapter({config:{apiKey:'synthetic-test-only',baseUrl:'https://example.invalid/api/v1',appUrl:'https://example.invalid',appName:'Synthetic test'},fetcher:async()=>new Response(JSON.stringify({id:'http-failure-receipt',error:{message:'Provider could not finish'},usage:{cost:.007,prompt_tokens:22}}),{status:502})});await assert.rejects(()=>adapter.invokeStructured({...request('plan:1'),requireReturnedModel:true}),e=>{assert.equal(e.details.providerReceipt.providerModelId,null);assert.equal(e.details.providerReceipt.providerRequestId,'http-failure-receipt');assert.equal(e.details.providerReceipt.usage.reportedCostUsd,.007);assert.equal(e.details.providerReceipt.usage.inputTokens,22);return true;});});
 
 test('parsed wrong identity preserves the original actual receipt after settlement',async()=>{for(const field of ['providerModelId','provider','upstream']){const f=setup(),original=f.provider.invokeStructured;f.provider.invokeStructured=async request=>{const response=await original(request);if(field==='upstream')response.metadata.actualUpstreamProvider='Unexpected upstream';else response[field]='Unexpected identity';return response;};await assert.rejects(()=>callDiscoveryV2({scope,key:'plan:1',request:request('plan:1'),ledger:f.ledger,provider:f.provider,prices:async m=>quote(m)}),error=>{assert.equal(error.details.settlementRecorded,true);assert.equal(error.details.requestedModel,discoveryV2Model('plan:1'));assert.equal(error.details.providerReceipt[field==='upstream'?'upstreamProvider':field],field==='upstream'?'Unexpected upstream':'Unexpected identity');assert.equal(error.details.providerReceipt.usage.reportedCostUsd,.001);assert.ok(error.details.providerReceipt.providerRequestId);return true;});assert.equal(f.settlements.length,1);}});
+
+test('paid schema failure retains bounded field/category diagnostics without rejected values or arbitrary property names',()=>{
+  const {discoveryResponseFailure}=require('../.core-tests/products/discovery-v2-budget.js');
+  const {JsonSchemaValidationError,validateJsonSchemaValue}=require('../.core-tests/workers/schema-validator.js');
+  const privateValue='private rejected model text';
+  const schema={type:'object',additionalProperties:false,required:['audience','focus'],properties:{audience:{type:'string',enum:['Declared audience']},focus:{type:'string',maxLength:5}}};
+  const issues=validateJsonSchemaValue(schema,{audience:privateValue,focus:privateValue,[privateValue]:privateValue});
+  const response={provider:'OpenAI',providerModelId:'openai/gpt-5.6-luna',providerRequestId:'synthetic-paid-receipt',latencyMs:8,metadata:{},output:{privateValue},usage:{reportedCostUsd:.001,inputTokens:3,outputTokens:4,totalTokens:7}};
+  const error=discoveryResponseFailure(new JsonSchemaValidationError('Discovery plan did not match its JSON schema.',issues),response);
+  assert.deepEqual(error.details.validationIssues,[{path:'$',category:'additional_property'},{path:'$.audience',category:'enum'},{path:'$.focus',category:'max_length'}]);
+  assert.match(error.message,/\$\.audience:enum/);assert.match(error.message,/\$\.focus:max_length/);
+  assert.equal(error.details.settlementRecorded,true);assert.equal(error.details.providerReceipt.providerRequestId,response.providerRequestId);
+  assert.ok(!JSON.stringify(error.details).includes(privateValue));assert.ok(!error.message.includes(privateValue));
+  const hostile=discoveryResponseFailure(new JsonSchemaValidationError('Discovery plan did not match its JSON schema.',Array.from({length:20},()=>({path:'$.bad/value',message:privateValue}))),response);
+  assert.equal(hostile.details.validationIssues.length,8);assert.ok(hostile.message.length<=500);
+  assert.ok(hostile.details.validationIssues.every(issue=>issue.path==='$'&&issue.category==='schema_mismatch'));
+  assert.ok(!JSON.stringify(hostile.details).includes(privateValue));
+});
