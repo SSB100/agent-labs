@@ -8,7 +8,7 @@ async function transition(input:ListingQualificationRuntimeInput,operation:strin
   const result=await createRuntimeClient().rpc("listing_qualification_transition",{p_run_id:input.qualificationRunId,p_business_id:input.businessId,p_runtime_capability:input.runtimeCapability,p_operation:operation,p_payload:payload});
   if(result.error)throw new EtsyError("listing_qualification_state_unavailable");return result.data;
 }
-export function listingQualificationRepository(input:ListingQualificationRuntimeInput,runtimeRunId:string):ListingQualificationRepository {
+function listingQualificationRepository(input:ListingQualificationRuntimeInput,runtimeRunId:string):ListingQualificationRepository {
   async function state(operation:"load"|"guard") {
     const result=await transition(input,operation,{runtimeRunId}) as QualificationState&{workflowRunId:string};
     requireEtsy(result.id===input.qualificationRunId && result.businessId===input.businessId && result.workflowRunId===input.coreWorkflowRunId,"listing_qualification_scope_mismatch");

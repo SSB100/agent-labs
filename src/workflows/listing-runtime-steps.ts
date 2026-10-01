@@ -10,7 +10,7 @@ async function transition(input:ListingRuntimeInput,operation:string,payload:Jso
   const result=await createRuntimeClient().rpc("listing_runtime_transition",{p_run_id:input.listingRunId,p_business_id:input.businessId,p_runtime_capability:input.runtimeCapability,p_operation:operation,p_payload:payload});
   if(result.error)throw new EtsyError("listing_runtime_state_unavailable");return result.data;
 }
-export function listingRuntimeRepository(input:ListingRuntimeInput,runtimeRunId:string):ListingRunRepository {
+function listingRuntimeRepository(input:ListingRuntimeInput,runtimeRunId:string):ListingRunRepository {
   async function state(operation:"load"|"guard") {
     const result=await transition(input,operation,{runtimeRunId}) as ListingRunState&{sourceEnvelope:string};
     requireEtsy(result.id===input.listingRunId && result.businessId===input.businessId && result.workflowRunId===input.coreWorkflowRunId,"listing_runtime_scope_mismatch");
