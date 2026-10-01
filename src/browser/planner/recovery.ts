@@ -107,10 +107,7 @@ export async function runBrowserPlannerCycle(
           ? error.failure
           : {
               category: "action_failed" as const,
-              message:
-                error instanceof Error
-                  ? error.message
-                  : "Browser Planner execution failed.",
+              message: "Browser Planner execution failed; provider details were withheld.",
               retryable: true,
               details: {},
             };

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { loadAccountWorkspace } from "@/accounts/server";
 import { AppShell, PageHeader, StatusPill } from "@/components/stage7/app-shell";
 import { requireOwnerUiContext } from "@/lib/core-ui/data";
 import { PRINTFUL_DOCS } from "@/printful/contracts";
@@ -8,9 +9,15 @@ import "./printful.css";
 
 export const dynamic = "force-dynamic";
 
-export default async function PrintfulPage() {
+export default async function PrintfulPage({ searchParams }: { searchParams?: Promise<Record<string, string | string[] | undefined>> } = {}) {
   const context = await requireOwnerUiContext();
   const fixture = buildSyntheticPrintfulPreview();
+  const query = await searchParams ?? {};
+  const business = context.businesses.find(b => b.id === query.business) ?? context.businesses[0];
+  const accounts = business ? await loadAccountWorkspace(context, business.id) : null;
+  const connection = accounts?.accounts.find(a => a.provider === "printful");
+  const connected = connection?.status === "connected";
+  const accountHref = `/dashboard/accounts${business ? `?business=${business.id}` : ""}#business-accounts`;
 
   return <AppShell active="accounts" context={context}>
     <PageHeader eyebrow="Stage 15 · Printful foundation" title="Printful workspace"
@@ -18,18 +25,18 @@ export default async function PrintfulPage() {
       actions={<Link className="coreButton" href="/dashboard/accounts">Back to Accounts</Link>} />
     <div className="printfulWorkspace">
       <section className="printfulIntro" aria-labelledby="printful-foundation-title">
-        <div><p className="coreEyebrow">Experimental · Fixture-only foundation</p><h2 id="printful-foundation-title">Plan with clear boundaries</h2><p>The foundation validates catalog identities, print constraints and deterministic pricing. It has not connected a Printful account, configured a real product, or verified an external result.</p></div>
+        <div><p className="coreEyebrow">Experimental · Fixture-only foundation</p><h2 id="printful-foundation-title">Plan with clear boundaries</h2><p>The foundation validates catalog identities, print constraints and deterministic pricing. Account setup is now available separately below. These examples do not configure a real product or prove a product result.</p></div>
         <StatusPill status="experimental" />
       </section>
       <div className="printfulStatusGrid" aria-label="Printful foundation status">
-        <div><span>Account connection</span><strong>Not connected</strong><small>Secure owner-authorized setup pending</small></div>
+        <div><span>Account connection</span><strong>{accounts?.unavailable ? "Unable to check" : connected ? "Verified connection" : "Not connected"}</strong><small>{connected ? "Catalog read access only" : "Secure owner-authorized setup"}</small></div>
         <div><span>Catalog & configuration</span><strong>Synthetic preview</strong><small>No live product or asset selected</small></div>
         <div><span>Stage 15 qualification</span><strong>Still open</strong><small>Real configuration and receipts unverified</small></div>
       </div>
       <section className="printfulPanel" aria-labelledby="printful-connection-title">
-        <div className="printfulSectionHeader"><div><p className="coreEyebrow">Live activation unavailable</p><h2 id="printful-connection-title">Connect only with explicit authority</h2></div><StatusPill status="not_connected" /></div>
-        <p className="printfulNote">Live activation is unavailable in this foundation. It awaits authorized secure credential setup for the intended Business and Printful store, with minimum necessary access. This workspace has no password or token entry and creates no access grants.</p>
-        <div className="printfulConnectionFooter"><button className="coreButton" type="button" disabled aria-describedby="printful-connection-help">Connect Printful · unavailable</button><p className="printfulNote" id="printful-connection-help">A connection alone would not authorize product changes or spending.</p></div>
+        <div className="printfulSectionHeader"><div><p className="coreEyebrow">Secure account connection</p><h2 id="printful-connection-title">Connect only with explicit authority</h2></div><StatusPill status={accounts?.unavailable ? "unavailable" : connected ? "connected" : "not_connected"} /></div>
+        <p className="printfulNote">Review and approve the intended Business connection in Accounts, then enter the store-specific token yourself in the secure owner form. The server independently checks the token scopes and exact store before saving its encrypted credential.</p>
+        <div className="printfulConnectionFooter"><Link className="coreButton" href={accountHref}>Manage secure Printful connection</Link><p className="printfulNote" id="printful-connection-help">A connection alone would not authorize product changes or spending.</p></div>
         <div className="printfulGatePanel"><h3>Required before a real product can be configured</h3>
           <ol className="printfulGates">
             <li><strong>Current reviewed TEST</strong><span>Revalidate the latest evidence-backed, independently reviewed discovery decision for the same Business. A TEST recommendation is not execution permission.</span><Link href="/dashboard/products">Review Products →</Link></li>

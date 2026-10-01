@@ -317,6 +317,7 @@ test("a planner fail decision stops without retrying or reporting success", asyn
     return invoke(request);
   };
   const page = {
+    async evaluateHandle() { return {evaluate:async()=>true,dispose:async()=>{}}; },
     async evaluate() {
       return READ_ONLY_SITE_OBSERVATION;
     },

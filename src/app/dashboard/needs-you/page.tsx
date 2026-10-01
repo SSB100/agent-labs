@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { loadAccountSetupInterventions } from "@/accounts/server";
 import { loadPublicationInterventions } from "@/etsy-publication/server";
 
 import { BrowserInterventionCard } from "@/components/stage8/browser-intervention";
@@ -38,7 +39,7 @@ function first(value: string | string[] | undefined) {
 
 export default async function NeedsYouPage({ searchParams }: NeedsYouPageProps) {
   const context = await requireOwnerUiContext();
-  const [collection,publication] = await Promise.all([loadWorkflowCollection(context, { limit: 100 }),loadPublicationInterventions(context)]);
+  const [collection,publication,accountSetup] = await Promise.all([loadWorkflowCollection(context, { limit: 100 }),loadPublicationInterventions(context),loadAccountSetupInterventions(context)]);
   const interventions=[...new Map([...collection.interventions,...publication.records].map(entry=>[entry.id,entry])).values()];
   const query = await searchParams;
   const message = messages[first(query.message) ?? ""];
@@ -50,6 +51,8 @@ export default async function NeedsYouPage({ searchParams }: NeedsYouPageProps) 
     collection.definitions.map((definition) => [definition.id, definition]),
   );
   const open = interventions.filter((entry) => entry.status === "open");
+  const waitingCount = open.length + accountSetup.records.length;
+  const unavailable = publication.unavailable || accountSetup.unavailable;
   const resolved = interventions
     .filter((entry) => entry.status !== "open")
     .slice(0, 12);
@@ -71,17 +74,20 @@ export default async function NeedsYouPage({ searchParams }: NeedsYouPageProps) 
       {error ? <p className="coreNotice coreNotice-danger" role="alert">{error}</p> : null}
       {publication.unavailable ? <p className="coreNotice coreNotice-danger" role="alert">Publication verification requests could not be loaded. Unresolved listing outcomes may still need your attention.</p> : null}
 
-      <section className={open.length ? "needsYouQueue needsYouQueue-active" : "needsYouQueue"}>
+      {accountSetup.unavailable ? <p className="coreNotice coreNotice-danger" role="alert">Account setup requests could not be checked. Existing approvals or secure owner steps may still need attention.</p> : null}
+
+      <section className={waitingCount ? "needsYouQueue needsYouQueue-active" : "needsYouQueue"}>
         <div className="sectionTitleRow">
           <div>
             <p className="coreEyebrow">Open queue</p>
-            <h2>{open.length ? `${open.length} decision${open.length === 1 ? "" : "s"} waiting` : publication.unavailable ? "Some requests could not be checked" : "Nothing needs your attention"}</h2>
+            <h2>{waitingCount ? `${waitingCount} decision${waitingCount === 1 ? "" : "s"} waiting` : unavailable ? "Some requests could not be checked" : "Nothing needs your attention"}</h2>
           </div>
-          <span className="coreCount">{open.length}</span>
+          <span className="coreCount">{waitingCount}</span>
         </div>
 
-        {open.length ? (
+        {waitingCount ? (
           <div className="needsYouStack">
+            {accountSetup.records.map(request => <article className="browserQualificationPanel" key={request.runId}><div><p className="coreEyebrow">Account setup</p><h3>{request.provider === "etsy" ? "Etsy" : "Printful"} · {request.status === "pending_approval" ? "Exact request awaiting review" : "Secure owner step or connection verification"}</h3><p>{businessById.get(request.businessId)?.name ?? "Business"}. Review the saved service, data, access and terms in Accounts. No account creation is inferred from approval.</p></div><Link className="coreButton" href={`/dashboard/accounts?business=${request.businessId}#business-accounts`}>Review account setup</Link></article>)}
             {open.map((intervention) => {
               const run = intervention.workflow_run_id
                 ? runById.get(intervention.workflow_run_id)
@@ -105,8 +111,8 @@ export default async function NeedsYouPage({ searchParams }: NeedsYouPageProps) 
             })}
           </div>
         ) : (
-          <EmptyPanel icon="needs-you" title={publication.unavailable ? "Publication checks unavailable" : "No intervention required"}>
-            <p>{publication.unavailable ? "Publication outcomes may still need verification. Check the Etsy workspace once its records are available." : "Agent Labs will surface decisions here instead of interrupting normal workflow activity."}</p>
+          <EmptyPanel icon="needs-you" title={publication.unavailable ? "Publication checks unavailable" : accountSetup.unavailable ? "Account checks unavailable" : "No intervention required"}>
+            <p>{unavailable ? "Account or publication outcomes may still need verification. Check the relevant workspace once its records are available." : "Agent Labs will surface decisions here instead of interrupting normal workflow activity."}</p>
           </EmptyPanel>
         )}
       </section>

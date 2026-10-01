@@ -1,0 +1,18 @@
+.accountWorkspace { scroll-margin-top: 24px; }
+.accountWorkspace > p { color: var(--core-muted); max-width: 850px; }
+.accountProfileForm,.accountRequest,.accountProvider { border: 1px solid var(--core-border); border-radius: 14px; padding: 22px; margin-top: 18px; background: var(--core-panel); }
+.accountFormGrid,.accountProviderGrid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; }
+.accountFormGrid label,.accountProvider label,.accountSecureForm > label { display: flex; flex-direction: column; gap: 7px; font-weight: 600; }
+.accountWorkspace input:not([type=checkbox]),.accountWorkspace select,.accountSecureForm input:not([type=checkbox]),.accountSecureForm select { border: 1px solid var(--core-border-strong); border-radius: 8px; padding: 11px 12px; width: 100%; min-width: 0; font: inherit; background: var(--core-bg); color: var(--core-text); }
+.accountProfileForm button,.accountProvider button { margin-top: 18px; }
+.accountHelp { font-size: 13px; line-height: 1.6; color: var(--core-muted); }
+.accountFacts { display: grid; gap: 10px; font-size: 14px; }.accountFacts div { display: grid; grid-template-columns: 160px minmax(0,1fr); gap: 12px; }.accountFacts dt { color: var(--core-muted); }.accountFacts dd { margin: 0; overflow-wrap: anywhere; }.accountDataValue { display: block; }
+.accountConsentForm,.accountSecureForm { display: grid; gap: 14px; margin: 18px 0; }.accountConsentForm label { display: flex; align-items: flex-start; gap: 10px; font-size: 14px; line-height: 1.5; }.accountConsentForm input { flex: 0 0 auto; margin-top: 4px; }.accountConsentForm button { justify-self: start; }
+.accountWarning { padding: 14px; background: rgba(240,207,126,.07); border: 1px solid rgba(240,207,126,.28); border-radius: 9px; font-size: 14px; line-height: 1.6; }.accountNextStep { padding: 16px 0; }.accountNextStep form { display: inline-block; margin: 10px; }.accountRequest h3,.accountRequest h4 { overflow-wrap: anywhere; }.accountRequests,.accountConnections,.accountHealth { margin-top: 28px; }
+.accountSecurePanel { max-width: 760px; border: 1px solid var(--core-border); border-radius: 16px; padding: 24px; background: var(--core-panel); }.accountSecurePanel p { line-height: 1.6; }.accountSecurePanel a { text-decoration: underline; }
+@media(max-width:650px) { .accountFormGrid,.accountProviderGrid { grid-template-columns: 1fr; }.accountFacts div { grid-template-columns: 1fr; gap: 4px; }.accountProfileForm,.accountRequest,.accountProvider,.accountSecurePanel { padding: 16px; }.accountNextStep form { display: block; margin: 12px 0; } }
+
+.accountWorkspace :is(input,select,button,a):focus-visible,.accountSecurePanel :is(input,select,button,a):focus-visible { outline:2px solid var(--core-accent); outline-offset:4px; }
+.accountWorkspace button:disabled { opacity:.55; cursor:not-allowed; }
+
+.accountRegistrationPanel { max-width:none; }.accountRegistrationFrame { width:100%; height:680px; border:1px solid var(--core-border); border-radius:10px; background:var(--core-bg); }

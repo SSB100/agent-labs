@@ -30,6 +30,8 @@ Stage 12 includes five source-backed knowledge packs and a verified mock-only Pr
 
 Authoritative scope: [V2 implementation plan](docs/AGENT_LABS_V2_IMPLEMENTATION_PLAN.md). Verified stage evidence: [checkpoints](docs/checkpoints/).
 
+**Core account setup:** Business profiles, exact approval/resume, encrypted provider connections and optional owner-entered per-service passwords, independent Etsy/Printful readback, and bounded secure signup preparation are implemented. New database authority and provider/browser activation require separate approval; no live account creation or qualification is claimed. See [account setup checkpoint](docs/checkpoints/CORE_ACCOUNT_SETUP.md).
+
 ## Private application model
 
 Agent Labs is an owner-operated control centre, not a public product website.

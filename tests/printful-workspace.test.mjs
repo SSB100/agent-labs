@@ -18,20 +18,23 @@ function complete(overrides = {}) {
     marketplaceFixed: '0.20', marketplacePercent: '6.5', paymentFixed: '0.25', paymentPercent: '3', refundReservePercent: '2', ...overrides };
 }
 
-test('workspace authenticates both page and arithmetic action, links from Accounts, and keeps activation disabled', () => {
+test('workspace authenticates both page and arithmetic action, links from Accounts, and separates secure account setup from product execution', () => {
   assert.match(page, /await requireOwnerUiContext\(\)/);
   assert.match(actions, /await requireOwnerUiContext\(\)/);
   assert.ok(actions.indexOf('await requireOwnerUiContext()') < actions.indexOf('readPricingForm(form)'));
   assert.match(accounts, /href="\/dashboard\/printful"/);
   assert.match(accounts, /Stage 15 foundation/);
-  assert.match(accounts, /Not connected · Live qualification open/);
-  assert.match(page, /type="button" disabled aria-describedby="printful-connection-help"/);
+  assert.match(accounts, /Secure account setup · Live product qualification open/);
+  assert.match(accounts, /<BusinessAccountWorkspace data=\{accountWorkspace\}/);
+  assert.match(page, /await loadAccountWorkspace\(context, business.id\)/);
+  assert.match(page, /href=\{accountHref\}>Manage secure Printful connection/);
+  assert.match(page, /A connection alone would not authorize product changes or spending/);
   assert.doesNotMatch(actions, /fetch\(|\.rpc\(|\.insert\(|\.update\(|\.delete\(|await start\(/);
   assert.doesNotMatch(`${page}${workspace}`, /type="password"|name="(?:token|password|credential|apiKey)"/);
 });
 
 test('UI keeps fixture provenance, required independent gates and open live qualification visible', () => {
-  for (const text of ['Current reviewed TEST', 'Production-asset approval', 'Separate owner configuration authority', 'Live activation unavailable', 'No provider mutation', 'actual action receipts', 'uncertain write']) assert.ok(page.includes(text), text);
+  for (const text of ['Current reviewed TEST', 'Production-asset approval', 'Separate owner configuration authority', 'Live qualification remains open', 'No provider mutation', 'actual action receipts', 'uncertain write']) assert.ok(page.includes(text), text);
   for (const text of ['Names, IDs, dimensions, prices and artwork below are invented fixtures', 'liveQualified = false', 'No actual approvals', 'Production currency', 'Unknown']) assert.ok(workspace.includes(text), text);
   assert.doesNotMatch(`${actions}${workspace}`, /new PrintfulCatalogAdapter/);
 });
