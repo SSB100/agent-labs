@@ -1,6 +1,12 @@
 # Stage 15 — Printful Capability Pack
 
-Status: the safe capability foundation is implemented; release verification is in progress. This is not a connected or live-qualified capability. The full planned Stage15 exit remains open. Stage14 code is deployed; its approved-candidate/product-ready business exit and geographic-research live qualification remain open. No Stage16 work is included.
+Status: the safe capability foundation is implemented and deployed through [PR 21](https://github.com/SSB100/agent-labs/pull/21) and [PR 22](https://github.com/SSB100/agent-labs/pull/22). This is not a connected or live-qualified capability. The full planned Stage15 exit remains open. Stage14's approved-candidate/product-ready exit and geographic-research live qualification remain open. Stage16 draft-only code is now deployed separately, but its real-draft exit remains blocked on this stage.
+
+## Current reconciliation, 2026-10-01
+
+Remote main `ab2d2031bbcd534271abe667189ba1eeafdc4f7a` and its READY production deployment include the calculator form-reset correction. PR21/22 closeouts retain the passing exact-commit hosted gates and authenticated production pricing acceptance. Their completed release evidence supersedes the historical pending verification entry below, without closing any live implementation gate.
+
+Authenticated Accounts inspection confirms Printful is displayed as an experimental, unconnected foundation. The live connection/vault, exact physical placement, durable authorized product execution, verified mappings/receipts and authenticated Product Package creation remain implementation gaps. No technical-test image or synthetic configuration has been promoted into a real product, and no Printful write or paid fulfilment has been made in this continuation.
 
 ## Plan-item tracking
 

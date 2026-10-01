@@ -73,12 +73,13 @@ function baseBusiness(){return id(2);}
 test('rejected paid plan reaches the durable workflow failure with safe diagnostics and cannot replay its charge',async()=>{
   const {OpenRouterAdapter}=require('../.core-tests/models/openrouter.js');
   const {ModelProviderError}=require('../.core-tests/models/types.js');
-  for(const scenario of ['audience','length','extra_property']){
+  for(const scenario of ['audience','length','query_focus_length','extra_property']){
     const f=fixture(),transitions=[],settlements=[],reserved=new Set();
     const privateText='private rejected wording that must never enter a workflow receipt';
     const output=structuredClone(f.output);
     if(scenario==='audience')output.proposals[0].audience=privateText;
     if(scenario==='length')output.comparisonRationale=privateText.repeat(20);
+    if(scenario==='query_focus_length')output.queryFocus=[privateText.repeat(20)];
     if(scenario==='extra_property')output[privateText]=privateText;
     let providerCalls=0;
     const adapter=new OpenRouterAdapter({
@@ -111,7 +112,7 @@ test('rejected paid plan reaches the durable workflow failure with safe diagnost
     const input={businessId:baseBusiness(),coreWorkflowRunId:id(5),runtimeCapability:'synthetic-capability'};
     await assert.rejects(()=>steps.executeInstalledPackStage(input,'plan'),/JSON schema/);
     const failure=transitions.find(t=>t.p_operation==='fail').p_payload;
-    const diagnostic=scenario==='audience'?'$.proposals[0].audience:enum':scenario==='length'?'$.comparisonRationale:max_length':'$:additional_property';
+    const diagnostic=scenario==='audience'?'$.proposals[0].audience:enum':scenario==='length'?'$.comparisonRationale:max_length':scenario==='query_focus_length'?'$.queryFocus[0]:max_length':'$:additional_property';
     assert.ok(failure.message.includes(diagnostic),failure.message);
     assert.equal(failure.settlementRecorded,true);
     assert.equal(failure.providerReceipt.providerRequestId,'synthetic-paid-invalid-plan');
