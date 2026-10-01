@@ -43,6 +43,7 @@
     "src/products/discovery-v2-goal.ts",
     "src/creative/**/*.ts",
     "src/printful/**/*.ts",
+    "src/listing/**/*.ts",
     "src/etsy/contracts.ts",
     "src/etsy/adapter.ts",
     "src/etsy/oauth.ts",
@@ -53,6 +54,7 @@
     "src/app/dashboard/printful/pricing-form.ts"
   ],
   "exclude": [
-    "src/creative/data.ts"
+    "src/creative/data.ts",
+    "src/listing/server.ts"
   ]
 }

@@ -7,6 +7,7 @@ import { EtsyError, requireEtsy, record, UUID, validatePackage, hash, draftIdent
 import { exchangeOAuth, type EtsyTokens, type OAuthConfig } from "./oauth";
 import { seal, unseal, randomSecret } from "./vault";
 import { executeEtsyDraft, type DraftRepository, type DraftState } from "./engine";
+import { authenticateListingReview } from "../listing/intake";
 
 export function etsyConfigured() {
   return !!(process.env.ETSY_KEYSTRING && process.env.ETSY_SHARED_SECRET && process.env.ETSY_REDIRECT_URI &&
@@ -59,6 +60,9 @@ export async function loadEtsyPackage(context: OwnerUiContext, businessId: strin
   const p = unseal<EtsyProductPackage>(envelope, `product-package:${businessId}:${artifactId}`, etsyConfig().vaultKey);
   validatePackage(p, businessId); requireEtsy(p.id === artifactId, "package_identity_mismatch");
   await etsyRpc(context, businessId, "validate_package", { package: p });
+  // Stage17 review is independently authenticated, current and bound to the exact
+  // rendered package. Neither generic owner JSON nor a synthetic PASS is enough.
+  authenticateListingReview(result.data.content.listingReviewEnvelope, p, etsyConfig().vaultKey);
   return { package: p, envelope };
 }
 export async function eligibleEtsyPackages(context: OwnerUiContext, businessId: string) {
