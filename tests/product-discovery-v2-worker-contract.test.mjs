@@ -122,6 +122,43 @@ test('known bank country is pinned while an empty hypothetical scenario list rem
   compact.marketComparisons[0].sellerBankCountry = null;
   assert.throws(() => worker.normalizeStrategistResponseV2(prepared, compact, f.execution, now), /JSON schema/);
 });
+test('dimension guidance survives projection and unsupported fact/strength combinations still fail', () => {
+  const f = preparedFixture(), contract = worker.strategistResponseSchemaV2(f.prepared);
+  const dimension = modelProvider.projectProviderJsonSchema(contract).properties.candidates.items.properties.dimensions.items.properties;
+  assert.match(dimension.finding.description, /Without cited facts, finding must be uncertain/);
+  assert.match(dimension.evidenceStrength.description, /none exactly when facts is empty/);
+  assert.match(dimension.facts.description, /never add an unrelated citation/);
+  assert.match(dimension.uncertainties.description, /At least one explicit uncertainty/);
+  for (const mutate of [
+    d => { d.evidenceStrength = 'none'; },
+    d => { d.facts = []; },
+    d => { d.facts = []; d.evidenceStrength = 'none'; d.finding = 'supported'; },
+    d => { d.facts = []; d.evidenceStrength = 'none'; d.finding = 'unfavorable'; },
+  ]) {
+    const value = structuredClone(f.compact), d = value.candidates[0].dimensions.find(d => d.dimension === 'demand');
+    mutate(d);
+    assert.throws(() => worker.normalizeStrategistResponseV2(f.prepared, value, f.execution, now), /Unsupported finding cannot become evidence/);
+  }
+  const request = worker.buildStrategistRequestV2(f.prepared, now), input = JSON.parse(request.messages[1].content);
+  assert.equal(input.dimensionConsistencyRules.length, 4);
+  assert.match(input.dimensionConsistencyRules[0], /if and only if/);
+  assert.deepEqual(input.evidence, f.prepared.evidencePool.map(({ key, quote, url, retrievedAt, expiresAt }) => ({ key, quote, url, retrievedAt, expiresAt })));
+});
+test('honest unsupported dimensions normalize to NME without invented facts or a design test', () => {
+  const f = preparedFixture();
+  for (const candidate of f.compact.candidates) for (const d of candidate.dimensions) {
+    d.finding = 'uncertain'; d.evidenceStrength = 'none'; d.facts = []; d.hardFailure = false;
+    d.uncertainties = [{ question: `What retained evidence supports this candidate's ${d.dimension}?`, blockingForTest: true,
+      reason: 'No relevant fact is available for this dimension; resolve it before proposing this specific experiment.' }];
+  }
+  f.compact.recommendation.proposedOutcome = 'NEEDS_MORE_EVIDENCE'; f.compact.testPlan = null;
+  const assessment = worker.normalizeStrategistResponseV2(f.prepared, f.compact, f.execution, now);
+  assert.equal(assessment.recommendation.proposedOutcome, 'NEEDS_MORE_EVIDENCE'); assert.equal(assessment.testPlan, null);
+  assert.ok(assessment.candidates.every(c => c.dimensions.every(d => d.finding === 'uncertain' && d.evidenceStrength === 'none' && d.facts.length === 0)));
+  const missing = structuredClone(f.compact); missing.candidates[0].dimensions[0].uncertainties = [];
+  assert.throws(() => worker.normalizeStrategistResponseV2(f.prepared, missing, f.execution, now), /retain explicit uncertainty/);
+  assert.equal(assessment.commerceAllowed, false); assert.equal(assessment.publicationAllowed, false);
+});
 test('compact independent reviewer preserves all unanswered questions and binds actual distinct execution', () => {
   const f = preparedFixture(), response = compactReview(f);
   response.additionalUncertainties.push({dimension:'production_complexity',question:'Which observed shipping service meets this target market delivery promise?',blockingForTest:false,reason:'Actual commercial delivery promises are outside this private original-design learning test.'});
