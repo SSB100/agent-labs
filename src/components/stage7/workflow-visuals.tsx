@@ -107,6 +107,7 @@ export function NeedsYouCard({
 }: NeedsYouCardProps) {
   const simulationReview = intervention.intervention_type === "etsy_simulation_review";
   const publicationReconcile = intervention.intervention_type === "etsy.publication.reconcile";
+  const printfulProductReconcile = intervention.intervention_type === "printful.product.reconcile";
   const browserDecision =
     intervention.intervention_type === "browser_takeover"
       ? "take_control"
@@ -120,9 +121,10 @@ export function NeedsYouCard({
         <CoreIcon name={browserDecision ? "browser" : "needs-you"} />
       </span>
       <div className="needsYouCopy">
-        <p className="coreEyebrow">{browserDecision ? "Browser control" : publicationReconcile ? "Publication verification" : "Needs your decision"}</p>
+        <p className="coreEyebrow">{browserDecision ? "Browser control" : publicationReconcile ? "Publication verification" : printfulProductReconcile ? "Printful product verification" : "Needs your decision"}</p>
         <h3>{intervention.title}</h3>
         <p>{intervention.description}</p>
+        {printfulProductReconcile ? <p>Partial product/file association receipts still need owner review. They do not establish physical placement, complete qualification or a listing-ready mockup.</p> : null}
         {simulationReview && intervention.workflow_run_id ? <Link href={`/dashboard/workflows/${intervention.workflow_run_id}`}>View simulated output and receipts</Link> : null}
         <small>
           {[businessName, workflowName, formatRelativeTime(intervention.requested_at)]
@@ -130,7 +132,9 @@ export function NeedsYouCard({
             .join(" · ")}
         </small>
       </div>
-      {publicationReconcile ? (
+      {printfulProductReconcile ? (
+        <Link className="coreButton coreButton-primary" href={`/dashboard/printful?business=${encodeURIComponent(intervention.business_id)}&intervention=${encodeURIComponent(intervention.id)}#product-configuration-history`}>Review existing product</Link>
+      ) : publicationReconcile ? (
         <Link className="coreButton coreButton-primary" href={`/dashboard/etsy?business=${encodeURIComponent(intervention.business_id)}&publicationRequest=${encodeURIComponent(intervention.id)}#publication-history`}>Check existing listing</Link>
       ) : browserDecision ? (
         <form action={resumeBrowserControl} className="needsYouActions">

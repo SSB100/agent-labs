@@ -3,11 +3,14 @@ import { loadAccountWorkspace } from "@/accounts/server";
 import { AppShell, PageHeader, StatusPill } from "@/components/stage7/app-shell";
 import { requireOwnerUiContext } from "@/lib/core-ui/data";
 import { PRINTFUL_DOCS } from "@/printful/contracts";
+import { loadPrintfulProductWorkspace } from "@/printful/server";
+import { ProductActionFeedback, ProductConfigurationWorkspace } from "./product-workspace";
 import { buildSyntheticPrintfulPreview } from "./preview";
 import { CatalogConfigurationPreview, PricingCalculator } from "./workspace";
 import "./printful.css";
 
 export const dynamic = "force-dynamic";
+const interventionUuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
 
 export default async function PrintfulPage({ searchParams }: { searchParams?: Promise<Record<string, string | string[] | undefined>> } = {}) {
   const context = await requireOwnerUiContext();
@@ -15,6 +18,8 @@ export default async function PrintfulPage({ searchParams }: { searchParams?: Pr
   const query = await searchParams ?? {};
   const business = context.businesses.find(b => b.id === query.business) ?? context.businesses[0];
   const accounts = business ? await loadAccountWorkspace(context, business.id) : null;
+  const interventionId = typeof query.intervention === "string" && interventionUuid.test(query.intervention) ? query.intervention : undefined;
+  const productWorkspace = business ? await loadPrintfulProductWorkspace(context, business.id, interventionId) : null;
   const connection = accounts?.accounts.find(a => a.provider === "printful");
   const connected = connection?.status === "connected";
   const accountHref = `/dashboard/accounts${business ? `?business=${business.id}` : ""}#business-accounts`;
@@ -46,6 +51,8 @@ export default async function PrintfulPage({ searchParams }: { searchParams?: Pr
           <p className="printfulNote">These are required gates, not a report of your current Business approval state. This page does not load or grant production approvals.</p>
         </div>
       </section>
+      <ProductActionFeedback message={query.productMessage} />
+      {productWorkspace && <ProductConfigurationWorkspace data={productWorkspace} />}
       <CatalogConfigurationPreview fixture={fixture} />
       <PricingCalculator />
       <section className="printfulPanel" aria-labelledby="printful-proof-title">
