@@ -1,6 +1,30 @@
 # Stage 14 — Creative pipeline
 
-Status: A real native-PNG technical run has passed generation, immutable source preservation, print-spec validation and independent pixel review. The approved source remained byte-identical, including its opaque embedded content credentials. **The full Stage14 approved-candidate production exit is not complete.** Stage13 geographic discovery and substantive strategy/review require the corrective v2 implementation described in ADR001. A technical-only PASS does not advance Stage15.
+Status: A real native-PNG technical run has passed generation, immutable source preservation, print-spec validation and independent pixel review. The approved source remained byte-identical, including its opaque embedded content credentials. **The full Stage14 approved-candidate production exit is not complete.** The ADR001 geographic discovery correction is deployed, including the exact-audience schema and safe failure diagnostics, but its live end-to-end qualification remains open. A technical-only PASS cannot authorize production-purpose creative work or satisfy downstream live exits.
+
+
+## Current qualification boundary — 2026-10-01 cleanup
+
+This section is the current status; the dated verification/provider sections below preserve historical evidence and prices, not new execution authority.
+
+| Required evidence | Current result |
+| --- | --- |
+| Native-PNG technical generation, source preservation, print validation and independent pixel review | Passed in a real technical-only run |
+| Bounded v2 geographic research through source collection, strategy and independent review | Not qualified: both real attempts failed in planning |
+| Current, evidence-backed independently reviewed TEST candidate | No v2 decision exists in the hosted registry |
+| Separate candidate-production approval | None recorded |
+| Production-purpose creative run and reviewed product-ready asset | Not achieved |
+| Stage 17 Listing Specialist | Not started; owner requested Stage 14 cleanup first |
+
+Read-only hosted inspection on 2026-10-01 confirmed both research attempts are terminal, their planning charges are settled, and neither reached source collection. The first failed the exact audience boundary; the later schema failure did not retain its rejected response or field diagnostics. Its cause cannot be reconstructed from the saved records. Do not describe the audience correction as resolving that later failure.
+
+The existing implementation now preserves bounded schema field/category diagnostics in the durable workflow failure message and actual provider accounting evidence before workflow error serialization. The added synthetic regression exercises the real structured-response adapter, planner validation, metering and installed-workflow failure path together. It checks audience, length and extra-property rejection, redaction of rejected text, and suppression of a duplicate provider call. This is regression evidence only, not another live attempt or proof of model competence.
+
+The next live operation is an explicitly approved focused continuation of the existing research goal: one collection, at most five paid calls (plan, retrieve, select, strategy, independent review), pinned providers, existing shared allowance, and no automatic retry. Recheck the complete quote and immutable chain balance immediately before launch. Preserve both prior terminal runs and their charges; do not create a fresh initial goal to reset its allowance. The previously unexpired intent does not authorize a new round.
+
+A successful research workflow can honestly return REJECT or NEEDS_MORE_EVIDENCE. Such a result does not qualify candidate production. Only a current evidence-backed TEST can proceed to a separate approval of the actual candidate, instructions, rights/IP screen, print specification, provider data use and fresh creative quote. Do not replace these with the technical-test artwork or synthetic examples.
+
+The next Stage 17 instruction, after resolving this boundary, is: implement Listing Specialist and independent review against the existing Stage 15/16 contracts; evaluate title, description, tags, attributes, image order, disclosures and factual claims; check policy knowledge freshness; remain draft-only. Real draft qualification still depends on live Printful configuration/mappings and an authorized Etsy connection. Stage 18 and publication remain outside scope.
 
 ## Scope
 
@@ -17,7 +41,7 @@ Status: A real native-PNG technical run has passed generation, immutable source 
 
 ## Provider and cost boundary
 
-The image adapter uses the existing OpenRouter connection with Recraft V4.1 Pro, pinned to Recraft, one square raster image per call, without reference images or fallback. Its current fixed catalog price is US$0.21 per image. Recraft's API terms address commercial output use and retention of provenance; they do not guarantee unique or non-infringing output. Original intent and ambiguous content still need review.
+The original image adapter used the existing OpenRouter connection with Recraft V4.1 Pro, pinned to Recraft, one square raster image per call, without reference images or fallback. Its catalog price at that historical checkpoint was US$0.21 per image. New approvals use the native-PNG route described below; all new spending requires refreshed pricing. Recraft's API terms address commercial output use and retention of provenance; they do not guarantee unique or non-infringing output. Original intent and ambiguous content still need review.
 
 Creative Director uses the fixed Luna route; final-brief screen and visual review use the fixed independent Claude Haiku route. Provider/model identity and observed cost are retained even for malformed paid responses. No automatic retry or fallback is permitted. A timeout or uncertain response consumes its durable reservation. Replaying a call or identical approval cannot reset the allowance.
 

@@ -20,7 +20,7 @@ The repository implements:
 
 Stage 12 includes five source-backed knowledge packs and a verified mock-only Product Discovery simulation, now deployed and smoke-tested in production. It does not establish live model competence or authorize commerce. **Stage 13: Product discovery and experiment system** preserves real source-linked research, conservative decisions and experiment history. Its live research proof is complete; the checkpoint and PR record release verification. Stage checkpoints and PR closeouts record deployment evidence.
 
-**Stage 14 is in progress:** the bounded creative pipeline, private versioned image storage and independent visual review are implemented and under hosted qualification. Its technical image test does not satisfy the separate evidence-backed approved-candidate production exit.
+**Stage 14 live qualification remains open:** the deployed native-PNG pipeline passed its real technical test. The ADR001 geographic discovery correction is also deployed, but both real attempts stopped during planning; no v2 decision or production-purpose creative approval exists. The [Stage 14 checkpoint](docs/checkpoints/STAGE_14_CREATIVE_PIPELINE.md) separates current blockers from historical verification. Stage 17 has not started; a technical image PASS does not satisfy the approved-candidate production exit.
 
 **Stage 15 safe foundation:** experimental Printful catalog/variant contracts, physical print validation, deterministic pricing, non-executable product proposals, mapping/receipt helpers and an authenticated synthetic workspace are implemented. Live connection, product execution and stage qualification remain open; see [Stage 15 checkpoint](docs/checkpoints/STAGE_15_PRINTFUL.md).
 
