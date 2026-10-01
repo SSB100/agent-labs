@@ -81,9 +81,14 @@ export function strategistResponseSchemaV2(prepared: DiscoveryWorkerContextV2): 
     description: sellerBankCountry === null
       ? "Include at least one explicitly hypothetical seller-bank-country scenario for each market. The actual seller bank country is unknown and must stay null. Explain which fees remain unknown; do not invent fee rates or infer the owner's country. Evidence may be empty when no applicable fee source was collected."
       : "Zero to four explicitly hypothetical fee scenarios. Keep the actual seller bank country exactly as supplied; scenarios do not establish actual fees." };
-  const dimension = obj({ dimension: en(DIMENSIONS), finding: en(["supported", "uncertain", "unfavorable"]), evidenceStrength: en(["direct", "adjacent", "guidance", "none"]),
-    facts: arr(obj({ evidence: en(prepared.evidencePool.map(e => e.key)), relevance: str(20, 160) }), 0, 3), rationale: str(30, 240),
-    uncertainties: arr(obj({ question: str(15, 180), blockingForTest: { type: "boolean" }, reason: str(30, 200) }), 0, 2), hardFailure: { type: "boolean" } });
+  const dimension = obj({ dimension: en(DIMENSIONS), finding: { ...en(["supported", "uncertain", "unfavorable"]),
+    description: "Without cited facts, finding must be uncertain. A supported or unfavorable finding requires relevant cited facts; missing evidence is not a known failure." },
+    evidenceStrength: { ...en(["direct", "adjacent", "guidance", "none"]),
+      description: "Use none exactly when facts is empty. Every other strength requires at least one fact. Adjacent evidence requires explicit uncertainty; guidance cannot support observed demand, competition, seasonality or marketing potential." },
+    facts: { ...arr(obj({ evidence: en(prepared.evidencePool.map(e => e.key)), relevance: str(20, 160) }), 0, 3),
+      description: "Cite only retained evidence keys relevant to this dimension. If no source supports a fact, return an empty list with evidenceStrength none and finding uncertain; never add an unrelated citation to satisfy a count." }, rationale: str(30, 240),
+    uncertainties: { ...arr(obj({ question: str(15, 180), blockingForTest: { type: "boolean" }, reason: str(30, 200) }), 0, 2),
+      description: "At least one explicit uncertainty is required when finding is uncertain or evidenceStrength is none or adjacent. Explain the missing question and whether it blocks this exact proposed test." }, hardFailure: { type: "boolean" } });
   return obj({ marketComparisons: arr(obj({ countryCode: geographyKey(prepared), currency: en(prepared.intent.comparisonUniverse.markets.map(m => m.currency)), assessment: str(40, 260), evidence,
     assumptions: arr(str(15, 160), 0, 4, true), limitations: arr(str(15, 160), 1, 4, true), sellerBankCountry: { const: sellerBankCountry },
     feeScenarios }), prepared.intent.comparisonUniverse.markets.length, prepared.intent.comparisonUniverse.markets.length),
@@ -158,6 +163,12 @@ function modelContext(prepared: DiscoveryWorkerContextV2, phase: "strategy" | "r
     futureTestProposal: { maximumProposedMicrousd: DISCOVERY_V2_PROPOSAL_CEILING_MICROUSD, budgetStatus: "proposal_only", generationAuthorized: false, spendingAuthorized: false, executionPrerequisites: DISCOVERY_V2_EXECUTION_PREREQUISITES },
     maximumGenerations: prepared.intent.limits.maximumGenerations,
     sellerBankCountry: prepared.validation.sellerBankCountry ?? null,
+    ...(phase === "strategy" ? { dimensionConsistencyRules: [
+      "facts is empty if and only if evidenceStrength is none. Empty facts also requires finding uncertain; supported and unfavorable findings require relevant cited facts.",
+      "finding uncertain, evidenceStrength none, and evidenceStrength adjacent each require at least one explicit uncertainty with question, blockingForTest and reason.",
+      "Demand, competition, seasonality and marketing potential cannot be supported by guidance or none. Policy/help sources are guidance, not observed market interest.",
+      "Known policy/IP or production failure uses unfavorable, direct and hardFailure true. No evidence of safety is not a known failure; retain uncertainty instead.",
+    ] } : {}),
     candidates: prepared.candidateKeys.map(c => { const identity = prepared.dossier.shortlist.find(i => i.id === c.candidateId)!;
       return { key: c.key, concept: identity.concept, audience: identity.audience, originalDesign: identity.originalDesign, rightsStatus: identity.rightsStatus, ownerRightsConfirmed: prepared.validation.ownerRightsConfirmedCandidateIds?.includes(identity.id) ?? false }; }),
     evidence: prepared.evidencePool.map(({ key, quote, url, retrievedAt, expiresAt }) => ({ key, quote, url, retrievedAt, expiresAt })) };
