@@ -1,4 +1,7 @@
 import Link from "next/link";
+import { loadAccountWorkspace } from "@/accounts/server";
+import { BusinessAccountWorkspace, accountMessages } from "./account-workspace";
+import "./accounts.css";
 
 import {
   startBrowserPlannerQualification,
@@ -15,7 +18,7 @@ import type {
 import { AppShell, PageHeader, StatusPill } from "@/components/stage7/app-shell";
 import { CoreIcon } from "@/components/stage7/icons";
 import { requireOwnerUiContext } from "@/lib/core-ui/data";
-import { formatDateTime, humanize } from "@/lib/core-ui/workflows";
+import { formatDateTime } from "@/lib/core-ui/workflows";
 import { isOpenRouterConfigured } from "@/models/openrouter";
 import {
   isSupabaseConfigured,
@@ -82,6 +85,9 @@ export default async function AccountsPage({ searchParams }: AccountsPageProps) 
   const message = messages[first(query.message) ?? ""];
   const error = errors[first(query.error) ?? ""];
   const browserConfigured = isDefaultBrowserProviderConfigured();
+  const selectedBusiness = context.businesses.find(b => b.id === first(query.business)) ?? context.businesses[0];
+  const accountWorkspace = selectedBusiness ? await loadAccountWorkspace(context, selectedBusiness.id) : null;
+  const accountMessage = accountMessages[first(query.accountMessage) ?? ""];
 
   const [providerResult, sessionResult, plannerResult, plannerCaseResult] = await Promise.all([
     context.supabase
@@ -155,6 +161,10 @@ export default async function AccountsPage({ searchParams }: AccountsPageProps) 
 
       {message ? <p className="coreNotice coreNotice-success" role="status">{message}</p> : null}
       {error ? <p className="coreNotice coreNotice-danger" role="alert">{error}</p> : null}
+
+      {accountMessage ? <p className="coreNotice" role="status">{accountMessage}</p> : null}
+      {context.businesses.length > 1 ? <form method="get" className="accountProvider"><label>Business <select name="business" defaultValue={selectedBusiness?.id}>{context.businesses.map(b => <option value={b.id} key={b.id}>{b.name}</option>)}</select></label><button className="coreButton" type="submit">Switch Business</button></form> : null}
+      {accountWorkspace ? <BusinessAccountWorkspace data={accountWorkspace} /> : <p>Create a Business before setting up external accounts.</p>}
 
       <section className="dashboardSection">
         <div className="sectionTitleRow">
@@ -309,36 +319,18 @@ export default async function AccountsPage({ searchParams }: AccountsPageProps) 
         </div>
         <div className="browserQualificationPanel">
           <div>
-            <p className="coreEyebrow">Not connected · Live qualification open</p>
+            <p className="coreEyebrow">Secure account setup · Live product qualification open</p>
             <h3>Catalog, configuration and pricing preview</h3>
-            <p>Explore explicitly synthetic variants and print constraints, then calculate a pricing scenario. Live activation awaits authorized secure credential setup for the intended Business and store.</p>
+            <p>Connect and verify your intended store above, then explore synthetic product and pricing scenarios. A verified account does not qualify product execution.</p>
             <small>Real configuration requires a current reviewed TEST, production-asset approval and separate owner configuration authority. No products or orders are created by this preview.</small>
           </div>
           <div className="browserQualificationActions">
             <Link className="coreButton coreButton-primary" href="/dashboard/printful">Open Printful workspace</Link>
-            <small>Experimental foundation · No live provider calls</small>
+            <small>Product execution remains separately gated</small>
           </div>
         </div>
       </section>
 
-      <section className="dashboardSection">
-        <div className="sectionTitleRow">
-          <div><p className="coreEyebrow">Future account packs</p><h2>Business accounts</h2></div>
-          <span className="coreCount">0</span>
-        </div>
-        <div className="futureConnectionList">
-          {[
-            ["Etsy", "Listings, orders, shop health, and marketplace operations."],
-            ["Social accounts", "Publishing, performance measurement, and connected campaign activity."],
-          ].map(([name, description]) => (
-            <article key={name}>
-              <span className="futureConnectionDot" aria-hidden="true" />
-              <div><strong>{name}</strong><p>{description}</p></div>
-              <small>{humanize("not_installed")}</small>
-            </article>
-          ))}
-        </div>
-      </section>
     </AppShell>
   );
 }

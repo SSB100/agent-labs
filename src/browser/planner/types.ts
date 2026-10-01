@@ -24,6 +24,8 @@ export type BrowserObservedElement = {
   disabled: boolean;
   checked: boolean | null;
   selected: boolean | null;
+  /** True means all interaction requires owner-only secure entry. */
+  sensitive?: boolean;
 };
 
 export type BrowserObservedForm = {
@@ -31,6 +33,7 @@ export type BrowserObservedForm = {
   action: string | null;
   method: string;
   elementIds: string[];
+  sensitive?: boolean;
 };
 
 export type BrowserStructuredObservation = {
@@ -41,6 +44,7 @@ export type BrowserStructuredObservation = {
   controls: BrowserObservedElement[];
   links: BrowserObservedElement[];
   observedAt: string;
+  privacyRedacted?: boolean;
 };
 
 export const BROWSER_PLANNER_ACTION_TYPES = [

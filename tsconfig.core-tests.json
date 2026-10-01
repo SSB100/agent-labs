@@ -52,11 +52,13 @@
     "src/etsy/packs.ts",
     "src/app/dashboard/printful/preview.ts",
     "src/app/dashboard/printful/pricing-form.ts",
-    "src/etsy-publication/**/*.ts"
+    "src/etsy-publication/**/*.ts",
+    "src/accounts/**/*.ts"
   ],
   "exclude": [
     "src/creative/data.ts",
     "src/listing/server.ts",
-    "src/etsy-publication/server.ts"
+    "src/etsy-publication/server.ts",
+    "src/accounts/server.ts"
   ]
 }

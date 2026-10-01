@@ -1,7 +1,8 @@
 import type { JsonObject } from "../../core/contracts";
 import type { Page } from "playwright-core";
 
-import { observeStructuredPage } from "./observation";
+import { observationElementIds, observeStructuredPage, sanitizeStructuredObservation } from "./observation";
+import { assertPlannerActionPrivacy, plannerActionReceipt } from "./privacy";
 import type {
   BrowserPlannerAction,
   BrowserPlannerFailure,
@@ -45,7 +46,7 @@ async function locatorForStableId(page: Page, elementId: string) {
       "invented_element",
       "The planned element is no longer uniquely available in the current observation.",
       true,
-      { elementId, matchCount: count },
+      { matchCount: count },
     );
   }
   return locator;
@@ -57,7 +58,9 @@ export async function executePlannerAction(
   permittedCapabilities: readonly string[],
   before?: BrowserStructuredObservation,
 ): Promise<BrowserPlannerStepResult> {
-  const observation = before ?? (await observeStructuredPage(page));
+  const observation = before ? sanitizeStructuredObservation(before) : await observeStructuredPage(page);
+  assertPlannerActionPrivacy(observation, action);
+  action = plannerActionReceipt(action);
   const requiredCapability = capabilityFor(action);
   if (
     requiredCapability &&
@@ -99,8 +102,37 @@ export async function executePlannerAction(
   }
 
   try {
+    // Check identity before observing again so stale-target recovery remains meaningful.
+    if ((action.type === "type" || action.type === "click") && action.elementId) {
+      await locatorForStableId(page, action.elementId);
+    }
+    // Reinspect immediately before a mutation; never trust a stale safe-field classification.
+    const current = await observeStructuredPage(page);
+    assertPlannerActionPrivacy(current, action);
+    if ((action.type === "type" || action.type === "click") &&
+        (!action.elementId || !observationElementIds(current).has(action.elementId))) {
+      throw failure("invented_element", "The planned element is no longer present.", true);
+    }
+    if (action.type === "type" || action.type === "click") {
+      const before = [...observation.controls, ...observation.links].find(e => e.id === action.elementId);
+      const after = [...current.controls, ...current.links].find(e => e.id === action.elementId);
+      // Positional IDs are observation-local. A DOM reorder must never retarget a
+      // saved action to a different control occupying the previous position.
+      const binding = (element: typeof before) => element && JSON.stringify([element.kind, element.tag, element.role,
+        element.type, element.text, element.name, element.placeholder, element.href]);
+      if (!before || !after || binding(before) !== binding(after)) {
+        throw failure("invented_element", "The planned element binding changed; observe and plan again.", true);
+      }
+    }
+    if ((action.type !== "type" && action.text !== null) ||
+        (action.type !== "navigate" && action.url !== null)) {
+      throw failure("invalid_action", "Browser action includes unrelated input data.", false);
+    }
     if (action.type === "navigate") {
       const target = new URL(action.url ?? "", observation.url);
+      if (!["http:", "https:"].includes(target.protocol)) {
+        throw failure("invalid_action", "Browser navigation is limited to HTTP and HTTPS URLs.", false);
+      }
       await page.goto(target.toString(), {
         waitUntil: "domcontentloaded",
         timeout: 30_000,
@@ -140,9 +172,7 @@ export async function executePlannerAction(
     if (error instanceof BrowserPlannerError) throw error;
     throw failure(
       "action_failed",
-      error instanceof Error
-        ? error.message
-        : "The bounded browser action failed.",
+      "The bounded browser action failed; provider details were withheld.",
       true,
       { actionType: action.type },
     );

@@ -98,10 +98,14 @@ test("Stage 7 Core surfaces remain intact when later stages extend Accounts and 
 
   const accounts = read("src/app/dashboard/accounts/page.tsx");
   assert.match(accounts, /Core connections/);
-  assert.match(accounts, /Business accounts/);
+  assert.match(accounts, /<BusinessAccountWorkspace data=\{accountWorkspace\}/);
+  const businessAccounts = read("src/app/dashboard/accounts/account-workspace.tsx");
+  assert.match(businessAccounts, /Business accounts/);
+  assert.match(businessAccounts, /Reusable account profile/);
+  assert.match(businessAccounts, /Connected account registry/);
   assert.match(accounts, /Etsy/);
   assert.match(accounts, /Print fulfilment/);
-  assert.match(accounts, /Social accounts/);
+  assert.doesNotMatch(accounts, /Social accounts|No Business accounts connected yet/);
 });
 
 test("Stage 7 keeps owner decisions visually prominent and safely routed", () => {
