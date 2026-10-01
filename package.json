@@ -27,6 +27,7 @@
     "playwright-core": "1.63.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
+    "sharp": "0.35.5",
     "workflow": "4.8.9"
   },
   "devDependencies": {
@@ -38,14 +39,8 @@
     "typescript": "6.0.2"
   },
   "overrides": {
-    "@workflow/core": {
-      "nanoid": "5.1.16"
-    },
-    "@workflow/world-local": {
-      "undici": "7.29.1"
-    },
-    "@workflow/world-vercel": {
-      "undici": "7.29.1"
-    }
+    "@workflow/core": { "nanoid": "5.1.16" },
+    "@workflow/world-local": { "undici": "7.29.1" },
+    "@workflow/world-vercel": { "undici": "7.29.1" }
   }
 }

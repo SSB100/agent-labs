@@ -90,6 +90,8 @@ export type ResolvedModelRoute = {
 export type ModelMessage = {
   role: "system" | "user";
   content: string;
+  /** Scoped original asset bytes; arbitrary remote image URLs are not accepted. */
+  images?: readonly { mediaType: "image/png"; base64: string }[];
 };
 
 export type ModelUsage = {
@@ -113,10 +115,12 @@ export type ModelProviderResponse = {
 };
 
 export type ProviderPriceLimit = { prompt: number; completion: number; request: 0 };
-export type WebSearchModelRequest = { model: ModelDefinition; query: string; allowedDomains: string[]; providerPriceLimit?: ProviderPriceLimit };
+export type WebSearchModelRequest = { model: ModelDefinition; query: string; allowedDomains: string[]; providerPriceLimit?: ProviderPriceLimit; providerOnly?: readonly string[]; requireReturnedModel?: boolean };
 
 export type StructuredModelRequest = {
+  requireReturnedModel?: boolean;
   providerPriceLimit?: ProviderPriceLimit;
+  providerOnly?: readonly string[];
   maxOutputTokens?: number;
   model: ModelDefinition;
   schemaName: string;
