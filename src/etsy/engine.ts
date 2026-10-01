@@ -55,7 +55,7 @@ export async function executeEtsyDraft(repository: DraftRepository, provider: Dr
       // marker collision never permits adoption without exact field readback.
       const prior = await provider.findDraft(state.identity);
       if (prior) {
-        state.listingId = verifyListing(prior, state, p, state.identity);
+        state.listingId = verifyListing(await provider.listing(positiveId(record(prior).listing_id)), state, p, state.identity);
         creation = { key: "create", status: "verified", externalId: state.listingId };
         state.operations.push(creation); await repository.save(state);
       } else {
@@ -73,7 +73,7 @@ export async function executeEtsyDraft(repository: DraftRepository, provider: Dr
     if (!state.listingId) {
       const found = await provider.findDraft(state.identity);
       requireEtsy(found, "uncertain_creation_not_found");
-      state.listingId = verifyListing(found, state, p, state.identity); creation.externalId = state.listingId;
+      state.listingId = verifyListing(await provider.listing(positiveId(record(found).listing_id)), state, p, state.identity); creation.externalId = state.listingId;
       await repository.save(state);
     }
     const listingId = state.listingId;

@@ -56,3 +56,8 @@ test('connection changes between authorization and dispatch cannot redirect a wr
   const adapter=new EtsyDraftAdapter({authorize:async()=>({...connection,shopId:++authorizations===1?100:200}),apiKey:'key:secret',fetcher:async()=>{calls++;return json({});}});
   await assert.rejects(adapter.create(p,draftIdentity(connection,p)),/account_scope_mismatch/);assert.equal(calls,0);
 });
+test('draft processing profile is independently read from inventory when listing omits it',async()=>{
+  const {connection}=engineFixture();const calls=[];
+  const adapter=new EtsyDraftAdapter({authorize:async()=>connection,apiKey:'key:secret',fetcher:async url=>{calls.push(url);return json(url.includes('/inventory')?{products:[{is_deleted:false,offerings:[{is_deleted:false,readiness_state_id:22}]}]}:{listing_id:500,readiness_state_id:null});}});
+  const result=await adapter.listing(500);assert.equal(result.readiness_state_id,22);assert.equal(calls.length,2);assert.ok(result.processing_readback);
+});

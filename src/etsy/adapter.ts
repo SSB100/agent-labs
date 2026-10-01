@@ -59,7 +59,27 @@ export class EtsyDraftAdapter {
     requireEtsy(shop.shop_id === connection.shopId && shop.user_id === connection.userId && shop.currency_code === connection.currency, "shop_identity_changed");
     return shop;
   }
-  async listing(id: number) { return this.request(`/listings/${positiveId(id)}?legacy=false`); }
+  async listing(id: number) {
+    const listing = record(await this.request(`/listings/${positiveId(id)}?legacy=false`));
+    // Drafts can omit the listing-level processing profile. Read its actual
+    // offering relationship, never substitute the requested package value.
+    if (listing.readiness_state_id == null) {
+      const inventory = record(await this.request(`/listings/${positiveId(id)}/inventory?legacy=false`));
+      requireEtsy(Array.isArray(inventory.products) && inventory.products.length > 0, "processing_readback_unavailable");
+      const profiles: number[] = [];
+      for (const value of inventory.products) {
+        const product = record(value); if (product.is_deleted === true) continue;
+        requireEtsy(Array.isArray(product.offerings), "processing_readback_unavailable");
+        for (const item of product.offerings) {
+          const offering = record(item); if (offering.is_deleted === true) continue;
+          profiles.push(positiveId(offering.readiness_state_id));
+        }
+      }
+      requireEtsy(profiles.length > 0 && new Set(profiles).size === 1, "processing_readback_unavailable");
+      return { ...listing, readiness_state_id: profiles[0], processing_readback: inventory };
+    }
+    return listing;
+  }
   async listings(offset = 0) {
     requireEtsy(Number.isSafeInteger(offset) && offset >= 0 && offset <= 1900, "listing_scan_limit");
     const connection = await this.authorize();
