@@ -30,6 +30,7 @@ An active request runs within the bounded server action. Its durable operation j
 
 ## Verification
 
+- Initial Stage 16 production release: `1f1d339a601dd8e273f38ea2d9ecb1c562007190`, deployment `dpl_6AQBGmET4YxX9y6xfbFMmrSeAnHd` READY. Final acceptance identified and corrected a return-navigation issue for owners with multiple Businesses. Account callbacks and success/failure returns now retain the selected Business; authorization and external write scopes are unchanged. Final correction checks and deployment identifiers are linked from PR 23.
 - 27 focused native-source tests passed locally: complete synthetic draft execution, duplicate replay/concurrency, invalid/stale/cross-Business packages, access revision changes, uncertain creation, partial/lost uploads, property reconciliation, cancellation, final receipt mismatch, draft-only transport, OAuth PKCE/scopes and encryption context isolation.
 - `supabase/tests/stage16_etsy.sql` passed on the hosted database and rolled back all fixtures. Covers owner and secret boundaries, OAuth replay, refresh uncertainty, stale/invented packages, private-table denial, forged Core mappings, revoked access, duplicate leases, revision/history/identity guards, partial mappings, uncertainty receipts, cancellation and rejected completion.
 - Migration `20261001023310_stage16_etsy_drafts.sql` applied successfully. Authority table remains empty; no account activated.
