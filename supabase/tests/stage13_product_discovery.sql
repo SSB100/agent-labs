@@ -201,7 +201,7 @@ declare b uuid:=current_setting('stage13.business')::uuid; cap text:=repeat('sta
 begin
   r:=current_setting('stage13.failure_run')::uuid;
   perform public.installed_pack_runtime_transition(r,b,cap,'fail','{"message":"Synthetic no-sources failure"}');
-  assert public.product_discovery_runtime(r,b,cap,'fail')->'cached'='false';
+  assert public.product_discovery_runtime(r,b,cap,'fail')->'cached'='true','Legacy explicit failure projection remains idempotent after atomic persistence';
   assert public.product_discovery_runtime(r,b,cap,'fail')->'cached'='true';
   foreach scenario in array array['nonoriginal','unclear'] loop
     r:=current_setting('stage13.'||scenario||'_run')::uuid;
