@@ -1,0 +1,131 @@
+# Agent Labs V2 reuse and evidence crosswalk
+
+Audit baseline: commit `82dc64dc77a4da91a7a83c6230e0867cea72f885`, tree `fe349c955049dab5ec504dc279422cdf0a350ca1`, 2026-10-02. This document records reusable foundations, historical Stage0–28 evidence and unresolved qualification boundaries. It is not an implementation queue. All remaining work is ordered in the [canonical plan](AGENT_LABS_V2_IMPLEMENTATION_PLAN.md).
+
+## Preserved original
+
+The preceding 3,637-line implementation plan is preserved byte-for-byte in [the dated archive](archive/AGENT_LABS_V2_IMPLEMENTATION_PLAN_2026-10-02_82dc64dc.md).
+
+- Original path at baseline: `docs/AGENT_LABS_V2_IMPLEMENTATION_PLAN.md`
+- SHA-256 of original and archive: `2961737ced1d19bbd8f288f4b2619cff5650a07aec4b67d95c469fa01e90339c`
+- Archive role: historical architecture, Stage0–28 objectives, original assumptions and dated corrections; not current next-action instructions
+- Current plan role: only remaining work and its acceptance/dependency contracts
+- Historical checkpoint statements such as “next stage,” “unchanged authoritative plan” or “complete” must be read in their original date and proof scope. The crosswalk below does not upgrade them to current live qualification.
+
+The baseline tracked source and cited checkpoints were inspected for this rewrite. This documentation change did not rerun live providers, query production accounts, apply SQL or repeat paid qualification. Current accepted release facts are carried from release acceptance; older provider results are explicitly historical, not freshly requalified.
+
+## Evidence vocabulary
+
+| Label | Meaning | Does not establish |
+| --- | --- | --- |
+| Current deployed verified | The exact software release and its stated UI/read-only acceptance are recorded as accepted at this planning snapshot | Every provider operation, every route, continuous runtime health or end-to-end profit |
+| Historical proof | A dated checkpoint identifies an actual past hosted/model/provider result or release | Present account authority, unchanged provider behavior, fresh knowledge or a broader capability |
+| Source-only implementation | Relevant code/contracts/tests exist in the inspected baseline | Applied schema, passed deployment gate, live provider result or usable production capability |
+| Partial | Some required sub-contracts or tests exist, but the complete named exit is absent | Completion of the whole original stage |
+| Blocked | A named prerequisite prevents activation or qualification | That the remaining implementation is otherwise complete |
+| Missing | The inspected source/proof set does not supply the required general contract or qualifying outcome | That no useful lower-level primitives exist |
+
+Track evidence along separate axes: source implementation; reviewed/applied schema; exact-head software verification; operation/access authorization; live semantic/provider qualification; complete commercial proof. A row may contain more than one label. Never collapse these axes to a single green “done.”
+
+## Current software snapshot and unreleased work
+
+| Surface | Evidence at this snapshot | Limit and remaining task |
+| --- | --- | --- |
+| Baseline console and Connections | PR43 is merged at the baseline above; compact Connections and secure entry have accepted exact-head hosted and deployed read-only evidence. [PR43](https://github.com/SSB100/agent-labs/pull/43), [guided UI checkpoint](checkpoints/GUIDED_UI.md) | Live secure-page acceptance covered expired-request protection and scoped return. Active credential entry/submission was hosted-fixture coverage, not a live provider connection. This release does not authorize execution; R03/R08 regression |
+| Compact Overview and research sheet | Accepted shell, saved-record truth and research-sheet lifecycle corrections are preserved in [guided UI](checkpoints/GUIDED_UI.md) and [motion integration](CONSOLE_MOTION_INTEGRATION.md) | Current Overview does not select a canonical persistent Quest; R04/R08. Exact desktop/populated/retained navigation remains a per-change gate |
+| Browser centre | The [viewer contract](CONSOLE_BROWSER_VIEWER_CONTRACT.md) and `src/browser/console-view.ts`, `src/browser/console-server.ts` implement saved metadata only | No continuously privacy-safe native stream; R10 |
+| PR44 Decisions current draft | Latest reported head `e6478719` remains unmerged/unaccepted. Desktop filter controls and visible reason/charge fixes now pass their checked cases; mobile/zoom selected-heading focus visibility/occlusion remains open. [PR44](https://github.com/SSB100/agent-labs/pull/44) | R01 must close the outstanding exact-head full release gate and final interaction/visual proof. Do not repeat already-corrected desktop work or promote partial passes to acceptance |
+| PR44 superseded failing snapshot | Earlier head `28c4d288`, tree `47db7689`, recorded 1,626 hosted passes, 10 failures and two skips, including long Business control overflow, hidden reason/cost summary and keyboard/retained-state failures | Historical diagnostic evidence only. The later draft above supersedes these as a repair list; keep final-head regressions |
+| Terminal notice acknowledgment | Migration `20261002095637` was approved/applied for the narrowly reviewed acknowledgment behavior; three existing notices remain untouched | This is not approval for general history pagination or acknowledgment of existing notices; R01. The migration is ahead of baseline source and must be reconciled, not reapplied |
+| Populated/Profile prototypes | Unreleased prototype work and a source/read-contract audit exist; [populated retained-route audit](POPULATED_ROUTE_AUDIT.md) documents concrete defects and candidate remedies | Not accepted, not assumed to be in the baseline, and not authority for a bulk merge. Reconcile in R02/R03/R06/R08 |
+
+## Historical Stage0 to Stage28 crosswalk
+
+The original objective of every stage is retained in the archive. The rightmost column maps only its remaining obligations into the single current queue.
+
+| Original stage | Reusable implementation and source | Status and actual proof boundary | Remaining mapping |
+| --- | --- | --- | --- |
+| 0 Foundation confirmation | Repository structure, original architecture/archive, framework and backend choice | Historical foundation; the original “create Vercel next” language is obsolete. No foundation restart is needed | No restart; retain boundaries in R04–R19 |
+| 1 Cloud application scaffold | `src/app`, `src/lib/supabase`; [identity/Business checkpoint](checkpoints/STAGE_1_IDENTITY_BUSINESS_FOUNDATION.md) | Current deployed foundation with historical Auth/RLS/release proof. Simple Business creation is not persistent operating-rule setup | R03 entry/settings UI; R04 rules and Quest setup |
+| 2 Universal Core data contracts | `src/core/contracts.ts`, `supabase/migrations/20260929011830_universal_core_contracts.sql`; [Core checkpoint](checkpoints/STAGE_2_UNIVERSAL_CORE_CONTRACTS.md) | Goal, workflows/stages/tasks/workers, artifacts, evidence, events, resources, intents, receipts and interventions exist with same-Business relationships. Goal is intent, not authority | R04 canonical Quest linkage; R05 envelope; R06 read contracts; R07 controller |
+| 3 Vercel Workflow runtime | `src/workflows`; [runtime checkpoint](checkpoints/STAGE_3_VERCEL_WORKFLOW_RUNTIME.md) | Historical durable synthetic wait/retry/owner-intervention/completion proof and idempotent scoped runtime. Not a general continuous Quest controller | R07 orchestration and R18 crash/replay qualification |
+| 4 Worker Pack runtime | `src/workers`, task contracts; [worker checkpoint](checkpoints/STAGE_4_WORKER_PACK_RUNTIME.md) | Historical bounded fixture worker execution, schema/failure/context isolation. No unrestricted chat context | Reuse in R07/R12/R13/R16; qualify new workers rather than restart runtime |
+| 5 Model Router | `src/models`; [router checkpoint](checkpoints/STAGE_5_MODEL_ROUTER.md) | Historical live model route, bounded fallback and telemetry proof. Recorded provider/model/price configuration is dated | R07 per-task routing; R12/R13/R16 fresh relevant model qualification and costs |
+| 6 Worker evaluation framework | `src/evaluations`; [evaluation checkpoint](checkpoints/STAGE_6_WORKER_EVALUATION_FRAMEWORK.md) | Historical Generic Researcher Qualified proof tied to exact fingerprints; Assisted/Autonomous are not automatic grants | R07/R13/R16 exact-fingerprint qualification; R18 promotion thresholds |
+| 7 Core UI and live activity | `src/lib/core-ui`, `src/components/console`; [Core UI](checkpoints/STAGE_7_CORE_UI_LIVE_ACTIVITY.md), [guided UI](checkpoints/GUIDED_UI.md) | Current deployed compact shell plus historical Realtime/RLS proof. Whole-app conversion and new Quest workspace remain partial | R01–R03/R06/R08 and route checklist |
+| 8 Browser provider qualification | `src/browser/providers`, browser runtime; [provider checkpoint](checkpoints/STAGE_8_BROWSER_PROVIDER.md) | Historical Steel live session/view/takeover/replay proof. Browserbase adapter exists. This does not establish the newer continuous pixel privacy boundary | R10 safe current viewer; R11 setup prerequisites where needed |
+| 9 Browser Planner qualification | `src/browser/planner`; [planner checkpoint](checkpoints/STAGE_9_BROWSER_PLANNER.md) | Historical four-case live planner proof with actual receipts and released session. Scope/task snapshots are not safe-stream attestation | Reuse bounded planner in relevant qualified tasks; R10/R11/R18 boundaries |
+| 10 Pack framework | `src/packs`, `docs/PACK_FRAMEWORK.md`; [pack checkpoint](checkpoints/STAGE_10_PACK_FRAMEWORK.md) | Historical installed 1.0.0/2.0.0 workflow proof, immutable snapshots and per-Business installations | R07 controller reuses registered finite workflows; R09 reviewed learning; R19 new packs |
+| 11 Web Research capability | `src/research`; [research checkpoint](checkpoints/STAGE_11_WEB_RESEARCH.md) | Historical real evidence/quote/receipt qualification. Does not supply present permission for Etsy-specific automated collection or analysis | R05/R11 source-purpose admission; R12 qualified bounded research |
+| 12 Etsy and POD knowledge foundation | `src/packs/etsy-knowledge.ts`, `packs/etsy-catalog.json`; [knowledge checkpoint](checkpoints/STAGE_12_ETSY_KNOWLEDGE_FOUNDATION.md) | Historical source-attributed versioned knowledge and hosted mocked simulation; domain packs/workers remained experimental. Future-dated policy anomaly is explicitly preserved | R09 freshness/promotion; R11 policy eligibility; R12/R13 domain competence |
+| 13 Product discovery and experiments | `src/products`, `src/products/discovery-v2-*`, shared-budget and continuation migrations; [discovery checkpoint](checkpoints/STAGE_13_PRODUCT_DISCOVERY.md), [ADR001](decisions/ADR_001_BOUNDED_DISCOVERY_V2.md) | Partial. The checkpoint's “complete in production” describes v1 source collection/candidate registry, not the corrected autonomous Strategist/Reviewer exit. v2/continuation implementation and preserved evidence exist; no current qualified production candidate is established by that claim | R04 lineage, R05 global exposure, R06 exact history, R12 real independent TEST/REJECT/NEEDS_MORE_EVIDENCE |
+| 14 Creative pipeline | `src/creative`; [creative checkpoint](checkpoints/STAGE_14_CREATIVE_PIPELINE.md), [SQL contract](checkpoints/STAGE_14_SQL_CONTRACT.md) | Partial. A real native-PNG technical-only run passed generation/source-preservation/print-spec/pixel review. Full approved-candidate production-purpose exit is explicitly open | R12 production-purpose creative qualification; R13 physical/product image evidence |
+| 15 Printful capability | `src/accounts`, `src/printful`; [foundation](checkpoints/STAGE_15_PRINTFUL.md), [product producer](checkpoints/STAGE_15_PRODUCT_PRODUCER.md), [designer probe](checkpoints/STAGE_15_DESIGNER_PROBE.md), [topology](checkpoints/ETSY_PRINTFUL_TOPOLOGY.md) | Partial/blocked. Account setup and product-producer software/schema have release evidence; `catalog.read` is the current connection scope. Native product scope is Manual/API, live dispatch unavailable, uploaded-byte/physical-placement producers absent. Saved-designer observations do not supply them | R11 access/topology; R12/R13 assets/product/linked variants; R15 orders |
+| 16 Etsy capability | `src/etsy`; [draft checkpoint](checkpoints/STAGE_16_ETSY.md) | Partial/blocked. Guarded draft-only API/OAuth/journal/reconciliation implementation and historical SQL/software proof exist. The real reviewed draft exit remains open; source requires authenticated upstream package/image facts | R11 purpose/access; R13 linked-draft adoption/independent readback |
+| 17 Listing Specialist and review | `src/listing`, `supabase/migrations/20261001192632_stage17_listing_durable_runtime.sql`; [listing checkpoint](checkpoints/STAGE_17_LISTING_SPECIALIST.md), [SQL contract](checkpoints/STAGE_17_SQL_CONTRACT.md) | Source implementation and offline review/SQL proof; partial/blocked live exit. The checkpoint does not claim hosted installation/release/live qualification, and its dated status cannot be upgraded solely because files are in main. Five-case worker qualification and two-call preparation are finite subworkflows | R13 trusted input issuers and actual worker/package qualification; verify missing release/schema evidence before any activation |
+| 18 Assisted Etsy publication | `src/etsy-publication`, `supabase/migrations/20261001195246_stage18_etsy_assisted_publication.sql`; [publication checkpoint](checkpoints/STAGE_18_ASSISTED_PUBLICATION.md), [SQL contract](checkpoints/STAGE_18_SQL_CONTRACT.md) | Source implementation and offline proof; blocked live exit. `publicationFeeReadiness` always returns unavailable. No repeated real publications or complete commercial proof established; current guards also lack supplier association/settings qualification | R13 draft, R14 fees/supplier readiness, R15 supported fulfilment, R16 real launch qualification |
+| 19 Autonomous Etsy publication | Existing publication/intents/receipt primitives, archived objective | Missing general envelope-derived publication authority and qualification. Current assisted implementation is not proof of autonomous public selling | R05 before any promotion; R15 then R16 |
+| 20 Social Growth and Instagram | Versioned social-marketing knowledge; archived workflow objective | Partial knowledge foundation; no complete qualified campaign/posting/metrics lifecycle established in the inspected source/proof set | R16 organic promotion; R17 measurement |
+| 21 TikTok | Archived objective and generic account/capability abstractions | Missing qualified TikTok posting/consent/metrics integration | R11 provider review as applicable; R16 compliant qualification |
+| 22 Order and fulfilment | `src/printful/mapping.ts`, pricing/mapping helpers; archived objective/topology checkpoint | Missing operational paid-order ingestion, supplier transport, tracking and realised-profit loop. Mapping preflight explicitly keeps `productionReady:false` and `orderSubmissionAuthorized:false`; provider-native import is insufficient | R05 before spending; R15 before public-selling readiness |
+| 23 Measurement and optimisation | Candidate/experiment registry and proposed measurement plans | Partial lower-level registry; missing actual attributed operating metrics and bounded autonomous optimisation against settled outcomes | R07 plan/controller; R17 measured experiments; R09 reviewed lessons |
+| 24 Money Policy Engine | Shared research authority root/reservations/settlements; creative/listing phase budget contracts | Partial phase-level spending/accounting, principally model-cost ledgers. No general Business/Quest operating envelope or complete commerce ledger | R05 mandatory early subset; R14–R15 commercial currency/fees/settlement; R17 additional categories |
+| 25 Full simulation and production qualification | Bounded simulations, SQL fixtures and historical component proofs | Partial component evidence; missing repeated complete real commerce loop to verified realised profit | R18 after the claimed capability dependencies |
+| 26 Social Growth expansion | Generic pack/runtime/knowledge framework | Missing independent reusable non-Etsy business qualification | R19 first expansion |
+| 27 Shopify Dropshipping | Generic pack/runtime/business framework | Missing scoped Shopify/supplier commercial workflow and qualification | R19 second expansion |
+| 28 Website Builder | Generic pack/runtime/browser/receipt framework | Missing qualified coding/deployment profession pack | R19 third expansion |
+
+## Critical reuse and gap contracts
+
+### Business and Goal are foundations rather than finished onboarding
+
+`src/app/dashboard/actions.ts` currently creates a Business from `name` and `owner_user_id`; existing Settings lists Businesses. It does not persist the proposed operating rules/envelope. Core `goals` already exists, and `workflow_runs.goal_id` has a same-Business foreign key in [the Core migration](../supabase/migrations/20260929011830_universal_core_contracts.sql).
+
+Geographic discovery uses a separate persisted intent/experiment lineage. Its reservation in [shared goal budget SQL](../supabase/migrations/20261001003029_stage13_v2_shared_goal_budget.sql) inserts `input.intentId` and a `product_experiments` root, without populating `workflow_runs.goal_id`. R04 must reconcile those concepts, not create Goal from nothing or rewrite old rounds.
+
+`src/app/dashboard/page.tsx` and `src/components/console/console-overview.tsx` currently derive focus from a bounded owner-wide run collection. The desired selected/current-or-last Quest experience requires explicit persistent linkage and scoped reads; it cannot be achieved truthfully by relabeling the existing latest run.
+
+### Budget reuse is valuable but not a complete money engine
+
+The shared-goal migration and `src/products/discovery-v2-budget.ts` preserve immutable `budgetAuthorityRootId`, semantic goal identity and cumulative actual/pending exposure across rounds. Creative and listing runtimes have their own bounded reservations/settlements. Preserve these authorities and records while composing a future global envelope.
+
+Those receipts principally account for USD model usage. They are not sales/marketplace fee/supplier/refund receipts and do not establish realised profit. Unknown liability remains liability after cancellation. No new Quest, plan version, renamed experiment or retry may reset it.
+
+### Connection state and operation authority are separate
+
+[Account setup SQL](../supabase/migrations/20261001215606_account_setup_workflow.sql) enforces `UNIQUE(business_id, provider)` and `UNIQUE(provider, provider_account_id)`. Its Printful connection requires `catalog.read`, and the saved store identity cannot be reassigned after disconnect. Same-owner ownership does not permit silent cross-Business reuse. [Account SQL contract](checkpoints/ACCOUNT_SETUP_SQL_CONTRACT.md) and [account setup checkpoint](checkpoints/CORE_ACCOUNT_SETUP.md) describe the approved boundary.
+
+The generic connection registry is not a substitute for Etsy's existing private OAuth envelope, exact account revision or a distinct product-write/publication/fulfilment grant. The archived plan's connection-to-broad-authority language is superseded by R04/R05's explicit initial envelope plus current server-checked prerequisites. This rewrite does not broaden today's old approvals.
+
+### Provider terms hold is operational and lacks a general dispatch guard
+
+[Etsy activation gates](ETSY_ACTIVATION_GATES.md) records a dated conservative hold pending exact application-purpose/automation/data-use clarification; it expressly adds no runtime policy. `src/products/discovery-v2-goal.ts` still supplies `etsy.com` and `printful.com` as fixed source domains. Therefore source presence, a qualification flag or a connected account cannot enforce the hold by itself.
+
+R05/R11 must add a separately reviewed source/purpose/operation eligibility check before affected search, browser or API dispatch. Public research that does not use the affected provider must not be unnecessarily coupled to unrelated account setup. Owner intent, Knowledge content and OAuth cannot supply a provider's required written authorization. This is an engineering gate based on the cited dated project decision, not a legal conclusion about every possible use.
+
+### Product and listing readiness have independent missing evidence
+
+`src/printful/production.ts` declares Manual/API `ProductScope` and `PRODUCT_PRODUCER_READINESS.available:false`. Uploaded-byte and physical-placement contracts are consumer seams, not trusted live producers. `src/printful/operations.ts` and `mapping.ts` contain proposal/identity helpers, not a transport that establishes Etsy purchasable variant → Printful fulfilment variant.
+
+`src/listing` can consume authenticated product facts and issue independently reviewed packages only when its real upstream/qualification checks pass. `src/etsy`'s draft content/readback does not create the missing supplier relationship. `src/etsy-publication/policy.ts` makes the fee gate unavailable; account-specific total/currency/tax evidence and current supplier settings remain independent. [Topology](checkpoints/ETSY_PRINTFUL_TOPOLOGY.md) defines these gaps.
+
+Initial draft qualification may use manual supplier confirmation to prevent automatic charges. It is not order fulfilment. R15 must establish a supported fulfilment path, or a separately explicit bounded manual qualification procedure, before R16 public selling. Listing review PASS is never commercial-ready evidence.
+
+### Knowledge and Events need new product contracts
+
+`src/products/discovery-v2-knowledge.ts` and the pack framework already pin exact source/manifest/content versions and freshness, with deliberate per-Business installations. They do not automatically promote lessons, redact tenant evidence, continuously refresh knowledge or authorize a new Business. R09 supplies those missing reviewed lifecycle contracts while keeping historical usage immutable.
+
+Raw Core `events` remain immutable audit records. Proposed owner-facing Events are work episodes backed by Workflow Runs, expandable into actual stages/tasks/Worker Runs/results. R08 must preserve that distinction rather than relabeling an undifferentiated activity feed or inventing agents/progress.
+
+## Evidence gaps to resolve without fabricating completion
+
+- Obtain fresh full exact-head evidence for PR44's latest corrected source, including the remaining mobile/zoom focus issue; prior focused or desktop passes are not a completed hosted/release gate.
+- Recover exact release/schema closeout references for Stage17/18 where checkpoints are intentionally incomplete. Source files and main ancestry alone are insufficient evidence of applied database state or live qualification.
+- Verify current provider/account/knowledge/cost state only when needed and authorized. Past real proof remains historical; no fresh paid run is implied by this documentation audit.
+- Keep private RPC window limits and the unbounded eligible-draft response explicit until R06 changes those contracts. Source-level fixes described by the populated audit are not all deployed.
+- Obtain actual Next client-navigation/transport acceptance. An instrumented React retained-state model is useful but cannot substitute for the application router.
+- Keep privacy-safe live watching, provider-purpose enforcement, product physical evidence, linked variants, fees, supplier settings and fulfilment as independent gates.
+
+## Documentation integrity checks
+
+For this rewrite, verify the archive hash against the original baseline blob, all relative source/checkpoint links, a single contiguous R01–R19 queue, a 29-row Stage0–28 crosswalk and the complete current 21-page route inventory. Ensure only Markdown documentation changes and no code, schema, provider settings, credentials or execution history changes accompany the rewrite.
