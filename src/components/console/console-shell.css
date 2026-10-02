@@ -132,12 +132,12 @@
 .consoleCommandHint { flex: 1; color: var(--console-muted); font-size: 12px; }
 .consoleCommandLink { display: inline-flex; align-items: center; justify-content: center; min-height: 32px; padding: 5px 10px; border: 1px solid var(--console-border); border-radius: 4px; color: var(--console-text); font-size: 12px; }
 
-@media (max-width: 1080px) and (min-width: 761px) {
+@media (max-width: 1080px) and (min-width: 901px) {
   .consoleViewHeading > span { display: none; }
   .consoleViewHeading > strong { padding-left: 0; border-left: 0; }
 }
 
-@media (max-width: 760px) {
+@media (max-width: 900px) {
   .consoleShell { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr) auto; grid-template-areas: "rail" "top" "main" "commands"; height: auto; min-height: 100vh; min-height: 100dvh; padding: 8px 8px 0; overflow: visible; }
   .consoleSidebar { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 8px; overflow: visible; }
   .consoleBrand { grid-column: 1; grid-row: 1; min-height: 44px; padding: 2px; border: 0; }
@@ -189,6 +189,6 @@
   .consoleShell *, .consoleShell *::before, .consoleShell *::after { scroll-behavior: auto; animation: none; transition: none; }
 }
 
-.consoleNavShort{display:none}@media(max-width:800px){.consoleNavFull{display:none}.consoleNavShort{display:inline}.consoleOwnerMenu[open]{grid-row:3}}
+.consoleNavShort{display:none}@media(max-width:900px){.consoleNavFull{display:none}.consoleNavShort{display:inline}.consoleOwnerMenu[open]{grid-row:3}}
 
-@media(max-width:800px){.consoleLiveStatus{min-width:0;max-width:145px}.consoleLiveStatus .liveConnection{white-space:normal}.consoleNavLabel{overflow-wrap:normal}}
+@media(max-width:900px){.consoleLiveStatus{min-width:0;max-width:145px}.consoleLiveStatus .liveConnection{white-space:normal}.consoleNavLabel{overflow-wrap:normal}}

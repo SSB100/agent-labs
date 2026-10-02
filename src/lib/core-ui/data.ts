@@ -58,6 +58,9 @@ export type OwnerUiContext = {
 };
 
 export type WorkflowCollection = {
+  /** Exact owner-scoped run count, separate from the bounded loaded window. */
+  runCount?: number | null;
+  truncated?: boolean;
   runs: WorkflowRunRecord[];
   definitions: WorkflowDefinitionRecord[];
   stages: WorkflowStageRecord[];
@@ -130,21 +133,24 @@ export async function loadWorkflowCollection(
   const businessIds = context.businesses.map((business) => business.id);
   if (!businessIds.length) return { ...EMPTY_COLLECTION, errors: context.businessesUnavailable ? ["Business records could not be loaded"] : [] };
 
+  const runLimit = Math.max(1, Math.min(200, options.limit ?? 60));
   const baseRunQuery = context.supabase
     .from("workflow_runs")
-    .select(WORKFLOW_RUN_SELECT)
+    .select(WORKFLOW_RUN_SELECT, { count: "exact" })
     .in("business_id", businessIds)
     .order("created_at", { ascending: false })
-    .limit(options.limit ?? 60);
+    .limit(runLimit);
   const runResult = options.statuses?.length
     ? await baseRunQuery.in("status", options.statuses)
     : await baseRunQuery;
   const runs = rows<WorkflowRunRecord>(runResult.data);
+  const runCount = typeof runResult.count === "number" ? runResult.count : null;
+  const truncated = runCount === null || runCount > runs.length;
   const errors = runResult.error ? [errorMessage(runResult.error)] : [];
   const runIds = runs.map((run) => run.id);
   const definitionIds = [...new Set(runs.map((run) => run.workflow_definition_id))];
 
-  if (!runIds.length) return { ...EMPTY_COLLECTION, runs, errors };
+  if (!runIds.length) return { ...EMPTY_COLLECTION, runs, errors, runCount, truncated };
 
   const [
     definitionResult,
@@ -226,6 +232,8 @@ export async function loadWorkflowCollection(
 
   return {
     runs,
+    runCount,
+    truncated,
     definitions: rows<WorkflowDefinitionRecord>(definitionResult.data),
     stages: rows<WorkflowStageRecord>(stageResult.data),
     events: rows<WorkflowEventRecord>(eventResult.data),

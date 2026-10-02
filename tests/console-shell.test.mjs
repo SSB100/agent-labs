@@ -164,7 +164,7 @@ test("desktop tokens preserve the compact 180px rail, 48px bars, 8px gaps, and s
 });
 
 test("mobile navigation wraps visibly, content page-scrolls, and controls meet 44px targets", () => {
-  const mobile = css.slice(css.indexOf("@media (max-width: 760px)"));
+  const mobile = css.slice(css.indexOf("@media (max-width: 900px)"));
   assert.match(mobile, /grid-template-columns: repeat\(4, minmax\(0, 1fr\)\)/);
   assert.match(mobile, /\.consoleNavLink \{[^}]*min-height: 48px/);
   for (const selector of ["consoleTechnicalSummary", "consoleTechnicalLink", "consoleOwnerSummary", "consoleSignOut", "consoleCommandLink"]) {

@@ -119,7 +119,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   }
 
   const activeRuns = collection.runs.filter((run) => ACTIVE_WORKFLOW_STATUSES.has(run.status));
-  const workUnavailable = collection.errors.length > 0 || context.businessesUnavailable === true;
+  const workUnavailable = collection.errors.length > 0 || collection.truncated === true || context.businessesUnavailable === true;
   const workingRuns = collection.runs.filter((run) => run.status === "running");
   const completedRuns = collection.runs.filter((run) => run.status === "completed");
   const openInterventions = collection.interventions.filter(

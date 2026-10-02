@@ -99,15 +99,21 @@ export function components() {
   return { workflows, icons, live, shell, visuals, consoleShell };
 }
 
-export async function renderDashboard({ unavailable = false, empty = false, view = "overview", detail = false, sheet = false, knownZero = false, businessesUnavailable = false, mismatchedBusiness = false, reads = [] } = {}) {
+export async function renderDashboard({ unavailable = false, empty = false, view = "overview", detail = false, sheet = false, knownZero = false, businessesUnavailable = false, mismatchedBusiness = false, businessFlow = false, omitBusinessQuery = false, inspect, reads = [] } = {}) {
   const { shell, visuals, icons, workflows, consoleShell } = components();
   const otherBusiness = { ...business, id: "fixture-other-business", name: "Other authorized Business" };
   const context = ownerContext({ needsYouCount: unavailable || empty ? 0 : 1, needsYouUnavailable: unavailable && !knownZero, businessesUnavailable,
-    businesses: businessesUnavailable ? [] : mismatchedBusiness ? [business, otherBusiness] : [business] });
+    businesses: businessesUnavailable ? [] : mismatchedBusiness || businessFlow ? [business, otherBusiness] : [business] });
   const collection = unavailable || empty ? workflowCollection({ runs: [], definitions: [], stages: [], events: [], interventions: [], errors: unavailable ? ["Synthetic workflow read unavailable"] : [] }) : workflowCollection();
-  const accounts = { businessId: business.id, configured: false, unavailable, profile: null, accounts: [], runs: [], healthEvents: [], registrationAvailable: false };
+  const rootRun = businessFlow ? { ...run, business_id: otherBusiness.id } : run;
+  if (businessFlow) {
+    collection.runs = collection.runs.map(item => ({ ...item, business_id: otherBusiness.id }));
+    collection.interventions = collection.interventions.map(item => ({ ...item, business_id: otherBusiness.id }));
+    collection.events = collection.events.map(item => ({ ...item, business_id: otherBusiness.id }));
+  }
+  const accounts = { businessId: rootRun.business_id, configured: false, unavailable, profile: null, accounts: [], runs: [], healthEvents: [], registrationAvailable: false };
   const products = { candidates: [], experiments: [], decisions: [], errors: [] };
-  const costData = { costs: { businessId: business.id, workflowRunId: run.id, source: "model", calls: unavailable ? { status: "unavailable" } : { status: "ready", records: [{ providerRequestId: "fixture-receipt", reportedUsd: .0182 }] } } };
+  const costData = { costs: { businessId: rootRun.business_id, workflowRunId: run.id, source: "model", calls: unavailable ? { status: "unavailable" } : { status: "ready", records: [{ providerRequestId: "fixture-receipt", reportedUsd: .0182 }] } } };
   const questDraft = loadSource("src/lib/core-ui/quest-draft.ts");
   const quest = loadSource("src/components/guided/quest-kickoff.tsx", {
     "@/app/dashboard/products/discovery-actions": { startGeographicDiscovery: noAction }, "@/lib/core-ui/quest-draft": questDraft, "./quest-kickoff.css": {},
@@ -133,7 +139,7 @@ export async function renderDashboard({ unavailable = false, empty = false, view
   const goalUi = loadSource("src/components/stage13/discovery-goal-workspace.tsx", {
     "./products-workspace": { ProductSubmitButton: noAction }, "@/app/dashboard/products/discovery-actions": {}, "@/products/discovery-v2-goal": {},
   });
-  const details = { ...collection, run, definition, business };
+  const details = { ...collection, run: rootRun, definition, business: context.businesses.find(item => item.id === rootRun.business_id) };
   const { default: Page } = loadSource("src/app/dashboard/page.tsx", {
     "next/navigation": { notFound: () => { throw new Error("Fixture record was not found"); } },
     "@/components/console/console-shell": consoleShell, "@/components/console/console-overview": overview,
@@ -142,18 +148,26 @@ export async function renderDashboard({ unavailable = false, empty = false, view
     "@/lib/core-ui/data": { requireOwnerUiContext: async () => context, loadWorkflowCollection: async () => collection, loadWorkflowDetail: async (_context, id) => { assert.equal(id, run.id); return details; } },
     "@/lib/core-ui/run-outcome-data": { loadRunCostData: async () => costData },
     "@/lib/core-ui/console-data": { ...consoleData, loadConsoleResearchQuote: async () => ({ one: 370395, two: 530914, verifiedAt: fixtureTime }) },
-    "@/accounts/server": { loadAccountWorkspace: async () => accounts, loadAccountSetupInterventions: async () => ({ records: [], unavailable: unavailable && !knownZero }) },
+    "@/accounts/server": { loadAccountWorkspace: async (_context, id) => { if (businessFlow) assert.equal(id, otherBusiness.id); return accounts; }, loadAccountSetupInterventions: async () => ({ records: [], unavailable: unavailable && !knownZero }) },
     "@/etsy-publication/server": { loadPublicationInterventions: async () => ({ records: [], unavailable }) },
     "@/printful/server": { loadPrintfulProductInterventions: async () => ({ records: [], unavailable }) },
-    "@/creative/data": { loadCreativeWorkspace: async () => { reads.push("creative"); return creativeLibraryFixture(); } },
+    "@/creative/data": { loadCreativeWorkspace: async scoped => { reads.push("creative");
+      if (businessFlow) assert.deepEqual(Array.from(scoped.businesses, item => item.id), [otherBusiness.id]);
+      const data = creativeLibraryFixture();
+      if (businessFlow) for (const key of ["approvals", "runs", "assets"]) data[key] = data[key].map(item => ({ ...item, business_id: otherBusiness.id }));
+      return data;
+    } },
     "@/products/data": { loadProductWorkspace: async () => { reads.push("products"); return products; } },
     "@/products/discovery-v2-data": { loadDiscoveryGoalData: async () => { reads.push("discovery"); return { available: true, records: [], errors: [] }; } },
     "@/components/stage13/discovery-goal-workspace": goalUi, "./accounts/account-workspace": accountUi,
     "./actions": { createBusiness: noAction }, "./legacy-dashboard": noAction,
     "@/components/console/console-panes.css": {}, "./accounts/accounts.css": {}, "./products/products.css": {},
   });
-  const query = { view, ...(detail ? { run: run.id, business: mismatchedBusiness ? otherBusiness.id : business.id } : {}), ...(sheet ? { sheet: "research" } : {}) };
-  return renderToStaticMarkup(await Page({ searchParams: Promise.resolve(query) }));
+  const query = { view, ...(detail ? { run: run.id } : {}),
+    ...(!omitBusinessQuery && (detail || businessFlow) ? { business: mismatchedBusiness || businessFlow ? otherBusiness.id : business.id } : {}), ...(sheet ? { sheet: "research" } : {}) };
+  const tree = await Page({ searchParams: Promise.resolve(query) });
+  inspect?.(tree);
+  return renderToStaticMarkup(tree);
 }
 
 function creativeLibraryFixture() {

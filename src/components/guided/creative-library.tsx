@@ -6,7 +6,7 @@ import { creativeCostStatus, summarizeCreativeCosts } from "@/creative/cost-disp
 import "./creative-library.css";
 
 type BusinessIdentity = { id: string; name: string };
-type CreativeLibraryProps = { data: CreativeWorkspaceData; businesses: readonly BusinessIdentity[]; now: number };
+type CreativeLibraryProps = { data: CreativeWorkspaceData; businesses: readonly BusinessIdentity[]; now: number; historyInPage?: boolean };
 
 /** Use this id on the existing run-history article, which owns the start/close forms. */
 export function creativeRunHistoryId(runId: string) {
@@ -55,12 +55,13 @@ function printFileState(asset: CreativeAssetRecord) {
   return "Saved file checks passed";
 }
 
-/** Preview-first, read-only Library. Approval and execution actions remain in the page. */
-export function CreativeLibrary({ data, businesses, now }: CreativeLibraryProps) {
+/** Preview-first, read-only Library. Approval and execution actions remain in protected workspaces. */
+export function CreativeLibrary({ data, businesses, now, historyInPage = false }: CreativeLibraryProps) {
+  const historyHref = (anchor: string, businessId?: string) => historyInPage ? `#${anchor}` : `/dashboard/artifacts${businessId ? `?business=${encodeURIComponent(businessId)}` : ""}#${anchor}`;
   return <section className="guidedCreativeLibrary" aria-labelledby="creative-gallery">
     <header className="guidedLibraryHeading">
       <div><h2 id="creative-gallery">Design gallery</h2><p>{data.assets.length} saved {data.assets.length === 1 ? "version" : "versions"} · Private original artwork</p></div>
-      <a className="guidedLibraryTextLink" href="#creative-approvals">Review approvals &amp; run history</a>
+      <a className="guidedLibraryTextLink" href={historyHref("creative-approvals", businesses.length === 1 ? businesses[0].id : undefined)}>Review approvals &amp; run history</a>
     </header>
     {data.errors.length ? <div className="guidedLibraryNotice" role="alert"><strong>Some Library records could not be loaded</strong><p>Showing available records. Missing previews, reviews or receipts do not mean they do not exist. Refresh before relying on an approval or spend total.</p><details><summary>Data read details</summary><ul>{data.errors.map((error, index) => <li key={index}>{error}</li>)}</ul></details></div> : null}
     {data.assets.length ? <div className="guidedLibraryGrid">{data.assets.map(asset => {
@@ -95,7 +96,7 @@ export function CreativeLibrary({ data, businesses, now }: CreativeLibraryProps)
             <div><dt>Product validation</dt><dd>Not established by this artwork</dd></div>
             <div><dt>Listing approval</dt><dd>Separate authority required</dd></div>
           </dl>
-          <nav className="guidedLibraryLinks" aria-label={`${title} version ${asset.version} context`}>{run ? <><Link href={`/dashboard/workflows/${encodeURIComponent(run.workflow_run_id)}`}>Open exact workflow</Link><a href={`#${creativeRunHistoryId(run.id)}`}>Run history &amp; receipts</a></> : <span>Run record unavailable</span>}</nav>
+          <nav className="guidedLibraryLinks" aria-label={`${title} version ${asset.version} context`}>{run ? <><Link href={`/dashboard/workflows/${encodeURIComponent(run.workflow_run_id)}`}>Open exact workflow</Link><a href={historyHref(creativeRunHistoryId(run.id), asset.business_id)}>Run history &amp; receipts</a></> : <span>Run record unavailable</span>}</nav>
         </div>
         <details className="guidedLibraryInspector"><summary>Review, approval &amp; provenance</summary><div className="guidedLibraryInspectorBody">
           <p className="guidedLibraryBoundary">{approval?.purpose === "technical_qualification"
@@ -142,7 +143,7 @@ export function CreativeLibrary({ data, businesses, now }: CreativeLibraryProps)
           </details>
         </div></details>
       </article>;
-    })}</div> : <div className="guidedLibraryEmpty"><h3>{data.errors.length ? "Saved designs unavailable" : "No saved designs yet"}</h3><p>{data.errors.length ? "The current read could not confirm whether any designs exist. Refresh before treating the Library as empty." : "A run can stop before saving a design. Review its history and receipts; failed validation may still incur a charge and retain an unvalidated provider source."}</p><a href="#creative-approvals">Review approvals &amp; run history</a></div>}
+    })}</div> : <div className="guidedLibraryEmpty"><h3>{data.errors.length ? "Saved designs unavailable" : "No saved designs yet"}</h3><p>{data.errors.length ? "The current read could not confirm whether any designs exist. Refresh before treating the Library as empty." : "A run can stop before saving a design. Review its history and receipts; failed validation may still incur a charge and retain an unvalidated provider source."}</p><a href={historyHref("creative-approvals", businesses.length === 1 ? businesses[0].id : undefined)}>Review approvals &amp; run history</a></div>}
   </section>;
 }
 

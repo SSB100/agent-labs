@@ -257,11 +257,14 @@
 .consoleOverview .consolePanelHeader>a{display:inline-flex;align-items:center;justify-content:center;min-width:24px;min-height:24px;padding:2px 3px}
 .consolePanelScroll{scrollbar-gutter:stable}
 .consoleTimelineMore{display:flex;align-items:center;justify-content:space-between;flex:0 0 auto;min-height:24px;border-top:1px solid var(--console-border);padding-top:3px;color:#8ae1ee;font-size:12px}
-@media(min-width:801px){
+@media(min-width:901px){
 .consolePanel[data-console-panel=commands],.consolePanel[data-console-panel=timeline]{padding:8px;gap:4px}
 .consoleQuickCommands{gap:3px;overflow:visible}
 .consoleQuickCommands>a{min-height:25px;padding:2px 6px;font-size:13px}
 .consoleCurrentRun{margin-bottom:4px}.consoleCurrentRun>span{display:none}
 .consoleTimeline li{padding-block:3px}.consoleTimeline li>div{display:flex;align-items:baseline;flex-wrap:wrap;gap:5px}.consoleTimeline small{font-size:12px}
 }
-@media(max-width:800px){.consoleOverview .consolePanelHeader>a,.consoleTimelineMore{min-width:44px;min-height:44px}.consoleOverview .consoleWorkerGrid{grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr))}}
+@media(max-width:900px){.consoleOverview .consolePanelHeader>a,.consoleTimelineMore{min-width:44px;min-height:44px}.consoleOverview .consoleWorkerGrid{grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr))}}
+
+/* At narrow reflow widths, keep every state value readable rather than ellipsized. */
+@media(max-width:380px){.consoleOverview .consoleStatusStack{grid-template-columns:minmax(0,1fr);max-height:none}.consoleOverview .consoleStatusItem strong{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere}.consoleOverview .consoleStatusItem{min-height:54px}}

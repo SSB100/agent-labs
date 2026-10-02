@@ -16,6 +16,7 @@ export type ConsoleShellProps = {
   commandBar?: ReactNode;
   context: OwnerUiContext;
   workflowRunId?: string;
+  navigationBusinessId?: string;
 };
 
 type ConsoleDestination = {
@@ -75,9 +76,11 @@ function DecisionCount({ context }: { context: OwnerUiContext }) {
   );
 }
 
-function WorkspaceContext({ context }: { context: OwnerUiContext }) {
+function WorkspaceContext({ context, selectedBusinessId }: { context: OwnerUiContext; selectedBusinessId?: string }) {
+  const selected = context.businesses.find(business => business.id === selectedBusinessId);
   const name = context.businessesUnavailable
     ? "Business records unavailable"
+    : selected ? selected.name
     : context.businesses.length === 1
       ? context.businesses[0].name
       : context.businesses.length > 1
@@ -110,8 +113,10 @@ function OwnerMenu({ context }: { context: OwnerUiContext }) {
 }
 
 /** Shared frame for both root views and direct detail URLs; URL navigation stays native. */
-export function ConsoleShell({ active, children, commandBar, context, workflowRunId }: ConsoleShellProps) {
+export function ConsoleShell({ active, children, commandBar, context, workflowRunId, navigationBusinessId }: ConsoleShellProps) {
   const currentView = resolveConsoleView(active);
+  const selectedBusinessId = context.businesses.some(business => business.id === navigationBusinessId) ? navigationBusinessId : undefined;
+  const destination = (href: string) => selectedBusinessId ? `${href}&business=${encodeURIComponent(selectedBusinessId)}` : href;
   const currentLabel = consoleNavigation.find(item => item.view === currentView)?.label ?? "Overview";
 
   return (
@@ -119,14 +124,14 @@ export function ConsoleShell({ active, children, commandBar, context, workflowRu
       <a className="consoleSkipLink" href="#main-content">Skip to content</a>
 
       <aside className="consoleSidebar consoleFrame" aria-label="Control centre navigation">
-        <Link className="consoleBrand" href="/dashboard?view=overview" aria-label="Agent Labs control centre">
+        <Link className="consoleBrand" href={destination("/dashboard?view=overview")} aria-label="Agent Labs control centre">
           <span className="consoleBrandMark" aria-hidden="true"><span /></span>
           <span><strong>AGENT LABS</strong><small>Control centre</small></span>
         </Link>
 
         <nav className="consoleNavigation" aria-label="Workspace views">
           {consoleNavigation.map(item => (
-            <Link key={item.view} className="consoleNavLink" href={item.href} aria-label={item.view === "connections" ? "Connections" : undefined} aria-current={item.view === currentView ? "page" : undefined}>
+            <Link key={item.view} className="consoleNavLink" href={destination(item.href)} aria-label={item.view === "connections" ? "Connections" : undefined} aria-current={item.view === currentView ? "page" : undefined}>
               <CoreIcon name={item.icon} />
               <span className="consoleNavLabel">{item.view === "connections" ? <><span className="consoleNavFull">Connections</span><span className="consoleNavShort">Connect</span></> : item.label}</span>
               {item.view === "decisions" ? <DecisionCount context={context} /> : null}
@@ -140,7 +145,7 @@ export function ConsoleShell({ active, children, commandBar, context, workflowRu
 
       <header className="consoleTopBar consoleFrame">
         <div className="consoleViewHeading"><span>Command centre</span><strong>{currentLabel}</strong></div>
-        <WorkspaceContext context={context} />
+        <WorkspaceContext context={context} selectedBusinessId={workflowRunId || currentView === "library" || currentView === "connections" ? selectedBusinessId : undefined} />
         {/* Exactly one subscription, for data updates rather than worker execution. */}
         <div className="consoleLiveStatus" role="status" aria-label="Page update connection">
           <LiveRefresh workflowRunId={workflowRunId} />
@@ -154,8 +159,8 @@ export function ConsoleShell({ active, children, commandBar, context, workflowRu
           <div className="consoleDefaultCommands">
             <span className="consoleCommandLabel"><CoreIcon name="workflow" />Next action</span>
             <span className="consoleCommandHint">Choose work or review a decision</span>
-            <Link className="consoleCommandLink" href="/dashboard?view=work">Open work</Link>
-            <Link className="consoleCommandLink" href="/dashboard?view=decisions">Review decisions</Link>
+            <Link className="consoleCommandLink" href={destination("/dashboard?view=work")}>Open work</Link>
+            <Link className="consoleCommandLink" href={destination("/dashboard?view=decisions")}>Review decisions</Link>
           </div>
         )}
       </footer>

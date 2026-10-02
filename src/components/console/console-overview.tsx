@@ -43,9 +43,11 @@ export type ConsoleOverviewProps = {
   connections?: ConsoleConnections;
   outputPreviews?: ConsoleOutputPreview[];
   researchHref?: string;
+  navigationBusinessId?: string;
 };
 
-const rootLink = (view: "work" | "library" | "decisions" | "connections" | "activity") => `/dashboard?view=${view}`;
+type RootView = "work" | "library" | "decisions" | "connections" | "activity";
+const rootLink = (view: RootView, businessId?: string) => `/dashboard?view=${view}${businessId ? `&business=${encodeURIComponent(businessId)}` : ""}`;
 const runLink = (id: string) => `${rootLink("work")}&run=${encodeURIComponent(id)}`;
 const newestFirst = <T extends { updated_at: string }>(items: readonly T[]) => [...items].sort((a, b) => b.updated_at.localeCompare(a.updated_at));
 const validAmount = (value: number | null | undefined): value is number => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
@@ -58,7 +60,7 @@ function RecordedTime({ value }: { value: string | null | undefined }) {
 
 /** Activity is established by the exact run, task, stage and worker receipts. */
 export function deriveConsoleOverview(context: ConsoleOverviewContext, collection: WorkflowCollection, researchHref = "/dashboard?view=overview&sheet=research") {
-  const unavailable = collection.errors.length > 0 || context.businessesUnavailable === true;
+  const unavailable = collection.errors.length > 0 || context.businessesUnavailable === true || collection.truncated === true;
   const runs = newestFirst(collection.runs);
   const runById = new Map(runs.map(run => [run.id, run]));
   const definitions = new Map(collection.definitions.map(definition => [definition.id, definition]));
@@ -144,16 +146,16 @@ function CoreOrb({ working }: { working: boolean }) {
   </svg>;
 }
 
-function DecisionRow({ intervention }: { intervention: OwnerInterventionRecord }) {
-  return <Link href={rootLink("decisions")} className="consoleDecision" data-intervention-id={intervention.id}><span className="consoleIconBox" data-tone="attention"><CoreIcon name="needs-you"/></span><span><strong title={intervention.title}>{intervention.title}</strong><small>{stageLabel(intervention.intervention_type)} · needs you</small></span><span aria-hidden="true">›</span></Link>;
+function DecisionRow({ intervention, businessId }: { intervention: OwnerInterventionRecord; businessId?: string }) {
+  return <Link href={rootLink("decisions", businessId)} className="consoleDecision" data-intervention-id={intervention.id}><span className="consoleIconBox" data-tone="attention"><CoreIcon name="needs-you"/></span><span><strong title={intervention.title}>{intervention.title}</strong><small>{stageLabel(intervention.intervention_type)} · needs you</small></span><span aria-hidden="true">›</span></Link>;
 }
 
-function CostPanel({ costs }: { costs: ConsoleCosts }) {
+function CostPanel({ costs, businessId }: { costs: ConsoleCosts; businessId?: string }) {
   const ready = costs.status === "ready";
   const recorded = ready && validAmount(costs.recordedMicrousd) ? costs.recordedMicrousd : null;
   const allowance = ready && validAmount(costs.allowanceMicrousd) ? costs.allowanceMicrousd : null;
   const reserved = ready && validAmount(costs.reservedMicrousd) ? costs.reservedMicrousd : null;
-  return <Panel name="costs" title={allowance !== null ? "Costs & allowance" : "Run costs"} href={ready && costs.workflowRunId ? runLink(costs.workflowRunId) : rootLink("work")} action="Receipts">
+  return <Panel name="costs" title={allowance !== null ? "Costs & allowance" : "Run costs"} href={ready && costs.workflowRunId ? runLink(costs.workflowRunId) : rootLink("work", businessId)} action="Receipts">
     {ready ? <div className="consolePanelScroll consoleCostBody"><div className="consoleCostScope" title={costs.scopeLabel}>{costs.scopeLabel}</div><dl className="consoleCostNumbers"><div><dt>{costs.uncertainCount && costs.uncertainCount > 0 ? "Known reported charges" : "Recorded charges"}</dt><dd data-cost="recorded">{recorded === null ? "Not reported" : money(recorded)}</dd></div>{allowance !== null ? <div><dt>Approved allowance</dt><dd data-cost="allowance">{money(allowance)}</dd></div> : null}{reserved !== null ? <div><dt>Reserved</dt><dd data-cost="reserved">{money(reserved)}</dd></div> : null}</dl><p className="consoleFootnote">{costs.uncertainCount && costs.uncertainCount > 0 ? `${costs.uncertainCount} charge${costs.uncertainCount === 1 ? " is" : "s are"} still unconfirmed. ` : ""}{allowance !== null ? "Owner allowance is not a guaranteed provider invoice cap." : "Provider-reported receipts; not a final invoice."}</p></div>
       : <Empty icon="metrics" title={costs.status === "unavailable" ? "Cost records unavailable" : "No cost summary loaded"} detail={costs.reason ?? "Open a workflow for its recorded receipts and approved allowance."}/>}
   </Panel>;
@@ -168,17 +170,20 @@ function connectionLabel(connection: ConsoleConnection) {
   return "Status not confirmed";
 }
 
-function ConnectionPanel({ connections }: { connections: ConsoleConnections }) {
-  return <Panel name="connections" title="Connections" href={rootLink("connections")} action="Manage">
+function ConnectionPanel({ connections, businessId }: { connections: ConsoleConnections; businessId?: string }) {
+  return <Panel name="connections" title="Connections" href={rootLink("connections", businessId)} action="Manage">
     {connections.status === "ready" ? <p className="consoleConnectionNote">Saved account records · not a live health check</p> : null}
-    {connections.status === "ready" && connections.items.length ? <div className="consoleConnectionGrid consolePanelScroll">{connections.items.map(connection => <Link href={rootLink("connections")} className="consoleConnection" data-connection-id={connection.id} data-connection-state={connectionLabel(connection) === "Verified on record" ? "verified" : connection.state === "verified" ? "unknown" : connection.state} key={connection.id}><span className="consoleConnectionGlyph" aria-hidden="true">{connection.name.slice(0, 2).toUpperCase()}</span><span><strong>{connection.name}</strong><small>{connectionLabel(connection)}</small>{connection.detail ? <span className="consoleConnectionDetail" title={connection.detail}>{connection.detail}</span> : null}{connectionLabel(connection) === "Verified on record" ? <span className="consoleConnectionDetail"><RecordedTime value={connection.verifiedAt}/></span> : null}</span></Link>)}</div>
+    {connections.status === "ready" && connections.items.length ? <div className="consoleConnectionGrid consolePanelScroll">{connections.items.map(connection => <Link href={rootLink("connections", businessId)} className="consoleConnection" data-connection-id={connection.id} data-connection-state={connectionLabel(connection) === "Verified on record" ? "verified" : connection.state === "verified" ? "unknown" : connection.state} key={connection.id}><span className="consoleConnectionGlyph" aria-hidden="true">{connection.name.slice(0, 2).toUpperCase()}</span><span><strong>{connection.name}</strong><small>{connectionLabel(connection)}</small>{connection.detail ? <span className="consoleConnectionDetail" title={connection.detail}>{connection.detail}</span> : null}{connectionLabel(connection) === "Verified on record" ? <span className="consoleConnectionDetail"><RecordedTime value={connection.verifiedAt}/></span> : null}</span></Link>)}</div>
       : <Empty icon="accounts" title={connections.status === "ready" ? "No connections recorded" : connections.status === "unavailable" ? "Connection records unavailable" : "Connections not checked"} detail={connections.status === "ready" ? "Open Connections to review the available account setup." : connections.reason ?? "No verified account check is available in this view."}/>}
   </Panel>;
 }
 
-export function ConsoleOverview({ context, collection, costs = { status: "not_loaded" }, connections = { status: "not_loaded" }, outputPreviews = [], researchHref }: ConsoleOverviewProps) {
-  const data = deriveConsoleOverview(context, collection, researchHref);
-  const { unavailable, activeWorkers, receipts, decisions, decisionCount, currentRun, next } = data;
+export function ConsoleOverview({ context, collection, costs = { status: "not_loaded" }, connections = { status: "not_loaded" }, outputPreviews = [], researchHref, navigationBusinessId }: ConsoleOverviewProps) {
+  const rootLink = (view: RootView) => `/dashboard?view=${view}${navigationBusinessId ? `&business=${encodeURIComponent(navigationBusinessId)}` : ""}`;
+  const scopedResearchHref = researchHref ?? `/dashboard?view=overview${navigationBusinessId ? `&business=${encodeURIComponent(navigationBusinessId)}` : ""}&sheet=research`;
+  const data = deriveConsoleOverview(context, collection, scopedResearchHref);
+  const { unavailable, activeWorkers, receipts, decisions, decisionCount, currentRun } = data;
+  const next = { ...data.next, href: navigationBusinessId && !/[?&](?:business|run)=/.test(data.next.href) ? `${data.next.href}&business=${encodeURIComponent(navigationBusinessId)}` : data.next.href };
   const events = [...collection.events].filter(event => !event.workflow_run_id || data.runById.get(event.workflow_run_id)?.business_id === event.business_id).sort((a, b) => b.occurred_at.localeCompare(a.occurred_at));
   const currentDefinition = currentRun ? data.definitions.get(currentRun.workflow_definition_id) : undefined;
   const stages = currentRun ? workflowTimelineStages(currentDefinition, currentRun, collection.stages) : [];
@@ -205,13 +210,13 @@ export function ConsoleOverview({ context, collection, costs = { status: "not_lo
       </Panel>
       <section className="consolePanel consoleCore" data-console-panel="core" aria-label="Agent Labs workspace core">
         <div className="consoleCoreTopline"><span><span className="consoleStateDot" data-active={!unavailable && activeWorkers.length > 0}/>{coreState}</span><span>Owner control</span></div>
-        <div className="consoleCoreVisual"><CoreOrb working={!unavailable && activeWorkers.length > 0}/><div className="consoleCoreIdentity"><span className="consoleCoreOverline">Private command centre</span><h1>AGENT LABS</h1><p><strong>{working}</strong> working<span aria-hidden="true"> / </span><strong>{waiting}</strong> waiting</p><span className="consoleCoreCaption">{unavailable ? "Saved work needs a fresh check" : unconfirmedWorker ? "Current worker activity is not confirmed" : decisionCount === null ? "Decision count unavailable" : decisionCount > 0 ? "Waiting for owner decisions" : data.activeRuns.length ? "Saved work is active or waiting" : "Ready for a bounded research goal"}</span></div></div>
+        <div className="consoleCoreVisual"><CoreOrb working={!unavailable && activeWorkers.length > 0}/><div className="consoleCoreIdentity"><span className="consoleCoreOverline">Private command centre</span><h1>AGENT LABS</h1><p><strong>{working}</strong> working<span aria-hidden="true"> / </span><strong>{waiting}</strong> waiting</p><span className="consoleCoreCaption">{unavailable ? (collection.truncated ? "Recent history loaded; older work is not confirmed" : "Saved work needs a fresh check") : unconfirmedWorker ? "Current worker activity is not confirmed" : decisionCount === null ? "Decision count unavailable" : decisionCount > 0 ? "Waiting for owner decisions" : data.activeRuns.length ? "Saved work is active or waiting" : "Ready for a bounded research goal"}</span></div></div>
         <div className="consoleNextAction" data-next-action={next.kind}><div><span>Recommended next step</span><strong title={next.detail}>{next.detail}</strong></div><Link className="consolePrimaryAction" href={next.href}>{next.label}<span aria-hidden="true"> ›</span></Link></div>
       </section>
       <Panel name="feed" title="Decisions & activity" href={rootLink("activity")} action="Activity">
         <div className="consoleFeed consolePanelScroll">
-          {unavailable ? <p className="consoleInlineWarning" role="status">Some saved records could not be loaded</p> : null}
-          {decisions.slice(0, 3).map(intervention => <DecisionRow key={intervention.id} intervention={intervention}/>)}
+          {unavailable ? <p className="consoleInlineWarning" role="status">{collection.truncated ? "Recent history only; older work may still be active" : "Some saved records could not be loaded"}</p> : null}
+          {decisions.slice(0, 3).map(intervention => <DecisionRow key={intervention.id} intervention={intervention} businessId={navigationBusinessId}/>)}
           {!decisions.length && (decisionCount === null || decisionCount > 0) ? <Link className="consoleDecisionQueue" href={rootLink("decisions")}>{decisionCount === null ? "Decision count unavailable" : `${decisionCount} decisions waiting`}<span>Open the decision queue ›</span></Link> : null}
           {events.slice(0, 5).map(event => <Link className="consoleEvent" href={event.workflow_run_id ? runLink(event.workflow_run_id) : rootLink("activity")} key={event.id} data-event-id={event.id}><span className="consoleEventDot" aria-hidden="true"/><span><strong>{eventLabel(event.event_type)}</strong><small><RecordedTime value={event.occurred_at}/></small></span><span className="consoleRecordTag">Saved</span></Link>)}
           {!decisions.length && !events.length && decisionCount === 0 ? <Empty title={unavailable ? "Activity unavailable" : "No activity recorded"} detail={unavailable ? "Reload before treating this workspace as empty." : "Workflow events and decisions will appear here when recorded."}/> : null}
@@ -227,13 +232,13 @@ export function ConsoleOverview({ context, collection, costs = { status: "not_lo
         {currentRun ? <Link className="consoleTimelineMore" href={runLink(currentRun.id)}>All {stages.length} stages · inspect full history <span aria-hidden="true">↗</span></Link> : null}
       </Panel>
       <Panel name="commands" title="Quick commands">
-        <nav className="consoleQuickCommands consolePanelScroll" aria-label="Quick commands"><Link href={researchHref ?? "/dashboard?view=overview&sheet=research"}><CoreIcon name="lab"/><span>Plan research</span><span aria-hidden="true">+</span></Link><Link href={rootLink("work")}><CoreIcon name="workflow"/><span>Inspect current work</span><span aria-hidden="true">›</span></Link><Link href={rootLink("library")}><CoreIcon name="artifacts"/><span>Open saved outputs</span><span aria-hidden="true">›</span></Link><Link href={rootLink("decisions")}><CoreIcon name="needs-you"/><span>Review decisions</span><span aria-hidden="true">›</span></Link></nav>
+        <nav className="consoleQuickCommands consolePanelScroll" aria-label="Quick commands"><Link href={scopedResearchHref}><CoreIcon name="lab"/><span>Plan research</span><span aria-hidden="true">+</span></Link><Link href={rootLink("work")}><CoreIcon name="workflow"/><span>Inspect current work</span><span aria-hidden="true">›</span></Link><Link href={rootLink("library")}><CoreIcon name="artifacts"/><span>Open saved outputs</span><span aria-hidden="true">›</span></Link><Link href={rootLink("decisions")}><CoreIcon name="needs-you"/><span>Review decisions</span><span aria-hidden="true">›</span></Link></nav>
       </Panel>
     </div>
     <div className="consoleOverviewRow consoleOverviewBottom">
-      <CostPanel costs={costs}/><ConnectionPanel connections={connections}/>
+      <CostPanel costs={costs} businessId={navigationBusinessId}/><ConnectionPanel connections={connections} businessId={navigationBusinessId}/>
       <Panel name="outputs" title="Saved outputs" href={rootLink("library")} action="Library">
-        {outputs.length ? <div className="consoleOutputList consolePanelScroll">{outputs.slice(0, 8).map(artifact => { const preview = previews.get(artifact.id); return <Link href={artifact.workflow_run_id ? `${runLink(artifact.workflow_run_id)}#artifact-${encodeURIComponent(artifact.id)}` : `${rootLink("library")}&type=records&artifact=${encodeURIComponent(artifact.id)}&business=${encodeURIComponent(artifact.business_id)}`} className="consoleOutput" data-artifact-id={artifact.id} key={artifact.id}>{preview ? <span className="consoleOutputPreview">{/* A server-issued, explicitly provided signed URL only. */}
+        {outputs.length ? <div className="consoleOutputList consolePanelScroll">{outputs.slice(0, 8).map(artifact => { const preview = previews.get(artifact.id); return <Link href={artifact.workflow_run_id ? `${runLink(artifact.workflow_run_id)}#artifact-${encodeURIComponent(artifact.id)}` : `/dashboard?view=library&type=records&artifact=${encodeURIComponent(artifact.id)}&business=${encodeURIComponent(artifact.business_id)}`} className="consoleOutput" data-artifact-id={artifact.id} key={artifact.id}>{preview ? <span className="consoleOutputPreview">{/* A server-issued, explicitly provided signed URL only. */}
 {/* eslint-disable-next-line @next/next/no-img-element */}
 <img src={preview.signedUrl} alt={preview.alt} loading="lazy" referrerPolicy="no-referrer"/></span> : <span className="consoleOutputGlyph"><CoreIcon name="artifacts"/></span>}<span><strong title={artifact.name}>{artifact.name}</strong><small>{stageLabel(artifact.artifact_type)}</small><span className="consoleOutputTime"><RecordedTime value={artifact.created_at}/></span></span><span aria-hidden="true">›</span></Link>; })}</div> : <Empty icon="artifacts" title={unavailable ? "Saved outputs unavailable" : "No saved outputs yet"} detail={unavailable ? "Existing artifacts may still be available in the Library." : "Research, designs and other saved work will appear here."}/>}
       </Panel>

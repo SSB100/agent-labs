@@ -60,7 +60,7 @@ test("capture the dense console reference layout before the full quality gate", 
   const browser = await chromium.launch({ headless: true, ...(process.env.GUIDED_UI_CHROMIUM_PATH ? { executablePath: process.env.GUIDED_UI_CHROMIUM_PATH } : {}) });
   try {
     const html = fixtureDocument(consolePreviewMarkup());
-    for (const [width, height] of [[1440, 900], [1280, 900], [1200, 700], [390, 1000], [320, 1000]]) {
+    for (const [width, height] of [[1440, 900], [1280, 900], [1200, 700], [768, 1024], [900, 768], [390, 1000], [320, 1000]]) {
       await t.test(`${width}×${height}`, async () => {
         const context = await browser.newContext({ viewport: { width, height }, locale: "en-NZ", timezoneId: "UTC", colorScheme: "dark", reducedMotion: "reduce", serviceWorkers: "block" });
         await context.route("**/*", route => route.abort());
@@ -71,7 +71,11 @@ test("capture the dense console reference layout before the full quality gate", 
           const dimensions = await page.evaluate(() => ({ width: document.documentElement.scrollWidth, height: document.documentElement.scrollHeight,
             mainHeight: document.querySelector(".consoleMain").clientHeight, mainScrollHeight: document.querySelector(".consoleMain").scrollHeight }));
           assert.ok(dimensions.width <= width + 1, JSON.stringify(dimensions));
-          if (width > 760) {
+          if (width === 320) {
+            const clipped = await page.locator(".consoleStatusItem strong").evaluateAll(elements => elements.filter(element => element.scrollWidth > element.clientWidth + 1).map(element => element.textContent));
+            assert.deepEqual(clipped, [], "Important status values must not be truncated at 320px");
+          }
+          if (width > 900) {
             assert.ok(dimensions.height <= height + 1, JSON.stringify(dimensions));
             assert.ok(dimensions.mainScrollHeight <= dimensions.mainHeight + 2, JSON.stringify(dimensions));
           }

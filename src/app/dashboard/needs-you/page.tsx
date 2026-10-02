@@ -53,7 +53,7 @@ export default async function NeedsYouPage({ searchParams }: NeedsYouPageProps) 
   );
   const open = interventions.filter((entry) => entry.status === "open");
   const waitingCount = open.length + accountSetup.records.length;
-  const unavailable = collection.errors.length > 0 || publication.unavailable || accountSetup.unavailable || printfulProduct.unavailable;
+  const unavailable = collection.errors.length > 0 || collection.truncated === true || publication.unavailable || accountSetup.unavailable || printfulProduct.unavailable;
   const resolved = interventions
     .filter((entry) => entry.status !== "open")
     .slice(0, 12);
@@ -73,6 +73,7 @@ export default async function NeedsYouPage({ searchParams }: NeedsYouPageProps) 
 
       {message ? <p className="coreNotice coreNotice-success" role="status">{message}</p> : null}
       {error ? <p className="coreNotice coreNotice-danger" role="alert">{error}</p> : null}
+      {collection.truncated ? <p className="coreNotice" role="status">This queue covers the loaded recent workflow window. Older open requests may still need attention.</p> : null}
       {collection.errors.length ? <p className="coreNotice coreNotice-danger" role="alert">Some workflow decisions could not be checked. Existing requests may still need your attention.</p> : null}
       {publication.unavailable ? <p className="coreNotice coreNotice-danger" role="alert">Publication verification requests could not be loaded. Unresolved listing outcomes may still need your attention.</p> : null}
 
@@ -117,7 +118,7 @@ export default async function NeedsYouPage({ searchParams }: NeedsYouPageProps) 
             })}
           </div>
         ) : (
-          <EmptyPanel icon="needs-you" title={collection.errors.length ? "Workflow checks unavailable" : publication.unavailable ? "Publication checks unavailable" : accountSetup.unavailable ? "Account checks unavailable" : printfulProduct.unavailable ? "Printful product checks unavailable" : "No intervention required"}>
+          <EmptyPanel icon="needs-you" title={collection.truncated ? "Recent workflow window only" : collection.errors.length ? "Workflow checks unavailable" : publication.unavailable ? "Publication checks unavailable" : accountSetup.unavailable ? "Account checks unavailable" : printfulProduct.unavailable ? "Printful product checks unavailable" : "No intervention required"}>
             <p>{unavailable ? "Account, publication or Printful product outcomes may still need verification. Check the relevant workspace once its records are available." : "Agent Labs will surface decisions here instead of interrupting normal workflow activity."}</p>
           </EmptyPanel>
         )}

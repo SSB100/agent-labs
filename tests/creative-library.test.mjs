@@ -53,7 +53,11 @@ test('gallery leads with actual private artwork and exact version, Business, wor
   for (const text of ['Version 2', 'Original mountain geometry', 'provider/original-model via OpenRouter', '2026-10-01 02:40:01.125 UTC', 'Original Design Studio']) assert.ok(html.includes(text), text);
   assert.match(html, /href="\/dashboard\/artifacts\?business=business-1"/);
   assert.match(html, /href="\/dashboard\/workflows\/workflow-1"/);
-  assert.match(html, /href="#creative-run-creative-run-1"/);
+  assert.match(html, /href="\/dashboard\/artifacts\?business=business-1#creative-run-creative-run-1"/);
+  assert.match(html, /href="\/dashboard\/artifacts\?business=business-1#creative-approvals"/);
+  const inline = renderToStaticMarkup(React.createElement(CreativeLibrary, { data: workspace(), businesses, now, historyInPage: true }));
+  assert.match(inline, /href="#creative-approvals"/);
+  assert.match(inline, /href="#creative-run-creative-run-1"/);
   assert.equal(creativeRunHistoryId('real-id'), 'creative-run-real-id');
   assert.doesNotMatch(html, /_next\/image|<form|type="submit"/);
 });

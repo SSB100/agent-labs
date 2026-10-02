@@ -91,3 +91,5 @@
 }
 
 @media(max-width:800px){.guidedCreativeLibrary .guidedLibraryFigure figcaption a,.guidedCreativeLibrary .guidedLibraryTextLink,.guidedCreativeLibrary .guidedLibraryBusiness a,.guidedCreativeLibrary .guidedLibraryLinks>a{min-height:44px;display:inline-flex;align-items:center}}
+
+@media(max-width:900px){.guidedCreativeLibrary a{display:inline-flex;align-items:center;min-height:44px;min-width:44px}}

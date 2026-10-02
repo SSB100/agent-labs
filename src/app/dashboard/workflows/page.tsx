@@ -28,7 +28,7 @@ export default async function WorkflowsPage({ searchParams }: WorkflowsPageProps
   const collection = await loadWorkflowCollection(context, { limit: 100 });
   const query = await searchParams;
   const view = first(query.view) === "active" ? "active" : "all";
-  const unavailable = collection.errors.length > 0 || context.businessesUnavailable === true;
+  const unavailable = collection.errors.length > 0 || collection.truncated === true || context.businessesUnavailable === true;
   const runs =
     view === "active"
       ? collection.runs.filter((run) => ACTIVE_WORKFLOW_STATUSES.has(run.status))

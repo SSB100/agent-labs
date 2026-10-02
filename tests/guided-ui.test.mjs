@@ -181,7 +181,7 @@ async function assertContained(page, label) {
 }
 
 async function assertControlTargets(page, label) {
-  const minimum = page.viewportSize().width > 760 ? 24 : 44;
+  const minimum = page.viewportSize().width > 900 ? 24 : 44;
   const undersized = await page.locator(".coreButton:not(:disabled), .coreNavLink, .coreMobileNavLink, .guidedNavLink, .guidedDisclosureSummary, .guidedMoreSummary, .guidedAdvancedLink, .guidedSignOut, .guidedDisclosure > summary, .guidedJourney a, .questKickoffButton:not(:disabled), .segmentedControl a, .consoleNavLink, .consoleTechnicalSummary, .consoleTechnicalLink, .consoleOwnerSummary, .consoleSignOut, .consoleMiniAction, .consolePrimaryAction, .consoleQuickCommands a, .consoleCommandLink, .consolePanelHeader a, .consoleCommand button").evaluateAll((elements, minimum) => elements.filter(element => {
     const box = element.getBoundingClientRect();
     return box.width > 0 && box.height > 0 && (box.width < minimum - .5 || box.height < minimum - .5);
@@ -287,7 +287,7 @@ test("hosted Chromium captures guided owner UI at desktop, mobile and 320px refl
   try {
     for (const [name, render] of Object.entries(fixtureRenderers)) {
       const document = fixtureDocument(await render(), { creative: name === "creative", products: name === "products" });
-      const viewports = name === "dashboard" ? [{ width: 1440, height: 900 }, { width: 1280, height: 900 }, { width: 1200, height: 700 }, { width: 390, height: 1000 }, { width: 320, height: 1000 }]
+      const viewports = name === "dashboard" ? [{ width: 1440, height: 900 }, { width: 1280, height: 900 }, { width: 1200, height: 700 }, { width: 768, height: 1024 }, { width: 900, height: 768 }, { width: 390, height: 1000 }, { width: 320, height: 1000 }]
         : [{ width: 1440, height: 900 }, { width: 390, height: 1000 }, { width: 320, height: 1000 }];
       for (const { width, height } of viewports) {
         await t.test(`${name} at ${width}×${height}`, async () => {
@@ -305,7 +305,11 @@ test("hosted Chromium captures guided owner UI at desktop, mobile and 320px refl
             await assertTextContrast(page, label);
             await assertKeyboardFocus(page, label);
             if (name === "navigation-unavailable") await assertConsoleDisclosures(page, width);
-            if (name === "dashboard" && width > 760) await assertOverviewFits(page, label);
+            if (name === "dashboard" && width > 900) await assertOverviewFits(page, label);
+            if (name === "dashboard" && width === 320) {
+              const clipped = await page.locator(".consoleStatusItem strong").evaluateAll(elements => elements.filter(element => element.scrollWidth > element.clientWidth + 1).map(element => ({ text: element.textContent, scrollWidth: element.scrollWidth, clientWidth: element.clientWidth })));
+              assert.deepEqual(clipped, [], "Important 320px status values must remain fully readable");
+            }
             if (name === "creative") {
               assert.equal(await page.getByRole("combobox", { name: "Image generation limit" }).inputValue(), "1");
               assert.equal(await page.getByRole("checkbox", { name: /I accept the/ }).isChecked(), false);

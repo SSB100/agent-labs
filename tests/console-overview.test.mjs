@@ -208,3 +208,10 @@ test("layout is viewport-bound on desktop, scrolls inside panels and reflows for
 test("a running workflow without a current worker receipt reports uncertainty instead of idle",()=>{const data=active();data.workerRuns[0].status="completed";data.workerRuns[0].completed_at=timestamp;const markup=render({collection:data});assert.match(markup,/data-work-state="unconfirmed"/);assert.match(markup,/Run active · worker unconfirmed/);assert.doesNotMatch(markup,/Idle · no worker running|Working now/);});
 
 test("a failed workflow read with a known zero decision count never claims ready",()=>{const markup=render({collection:{...active(),errors:["unavailable"]},context:{...context,needsYouCount:0}});assert.match(markup,/Saved work needs a fresh check/);assert.doesNotMatch(markup,/Ready for a bounded research goal/);});
+
+test("bounded recent history cannot claim global idle or complete saved state", () => {
+  const markup = render({ collection: { ...empty(), runCount: 101, truncated: true } });
+  assert.match(markup, /data-work-state="unknown"/);
+  assert.match(markup, /older work may still be active/);
+  assert.doesNotMatch(markup, /Idle · no worker running|Ready for a bounded research goal/);
+});
