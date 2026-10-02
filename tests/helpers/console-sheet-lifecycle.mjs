@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
+import React from "react";
+import { renderToString } from "react-dom/server";
 import { fixtureDocument } from "./guided-ui.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
@@ -60,7 +62,11 @@ export function sheetLifecycleDocument() {
   }).then(result => {
     const modules = Object.keys(result.metafile.inputs).filter(file => file.startsWith("src/"));
     assert.deepEqual(modules.sort(), ["src/components/console/console-command.css","src/components/console/console-command.tsx","src/lib/core-ui/quest-draft.ts"].sort());
-    const html = fixtureDocument('<div id="sheet-lifecycle-root"><main><h1>Scoped saved work</h1><button id="open-research">Plan research</button></main></div>');
+    // Hydration begins with the real Suspense boundary, including React's SSR
+    // markers. Plain main markup would force recovery before any modal test.
+    const initial = renderToString(React.createElement(React.Suspense, { fallback: React.createElement("p", null, "Loading route") },
+      React.createElement("main", null, React.createElement("h1", null, "Scoped saved work"), React.createElement("button", { id: "open-research" }, "Plan research"))));
+    const html = fixtureDocument(`<div id="sheet-lifecycle-root">${initial}</div>`);
     return html.replace("</head>",'<link rel="icon" href="data:,"></head>').replace("</body>",`<script>${result.outputFiles[0].text.replace(/<\/script/gi,"<\\/script")}</script></body>`);
   });
 }
