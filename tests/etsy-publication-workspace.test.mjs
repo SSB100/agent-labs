@@ -72,7 +72,8 @@ test('publication Needs You card offers read-only inspection, never synthetic ap
  assert.match(html,/Publication verification/);assert.match(html,/href="\/dashboard\/etsy\?business=second-business&amp;publicationRequest=intervention#publication-history"/);assert.match(html,/Check existing listing/);assert.doesNotMatch(html,/Approve and complete|Fail workflow|<form/);
 });
 
-test('Needs You page does not claim an empty queue when publication exceptions could not be read',async()=>{
- const wrapper=({children,title})=>React.createElement('section',{},title,children);const {default:Page}=load('src/app/dashboard/needs-you/page.tsx',{'react/jsx-runtime':require('react/jsx-runtime'),'next/link':({href,children,...props})=>React.createElement('a',{href,...props},children),'@/etsy-publication/server':{loadPublicationInterventions:async()=>({records:[],unavailable:true})},'@/accounts/server':{loadAccountSetupInterventions:async()=>({records:[],unavailable:false})},'@/printful/server':{loadPrintfulProductInterventions:async()=>({records:[],unavailable:false})},'@/components/stage8/browser-intervention':{BrowserInterventionCard:wrapper},'@/components/stage7/app-shell':{AppShell:wrapper,EmptyPanel:wrapper,PageHeader:wrapper},'@/components/stage7/workflow-visuals':{NeedsYouCard:wrapper},'@/lib/core-ui/data':{requireOwnerUiContext:async()=>({businesses:[]}),loadWorkflowCollection:async()=>({runs:[],definitions:[],interventions:[],errors:[]})},'@/lib/core-ui/workflows':require('../.core-tests/lib/core-ui/workflows.js')});
- const html=renderToStaticMarkup(await Page({searchParams:Promise.resolve({})}));assert.match(html,/Some requests could not be checked/);assert.match(html,/Publication checks unavailable/);assert.doesNotMatch(html,/No intervention required|Nothing needs your attention/);
+test('compact Decisions does not claim an empty queue when the authoritative intervention read is unavailable',async()=>{
+ const {rendered,fixtureTables}=await import('./helpers/console-decisions.mjs');
+ const {html}=await rendered('/dashboard?view=decisions',{tables:fixtureTables({count:0}),failTable:'owner_interventions'});
+ assert.match(html,/Decision page completeness could not be checked/);assert.match(html,/Count unavailable/);assert.doesNotMatch(html,/No matching notices are recorded|No intervention required|Nothing needs your attention/);
 });

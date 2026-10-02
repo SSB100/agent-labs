@@ -32,9 +32,9 @@ jobs:
       - name: Install pinned Chromium for owner UI verification
         run: npx playwright-core install --with-deps chromium
 
-      - name: Capture compact console and Connections preview
+      - name: Capture compact console, Connections and Decisions previews
         continue-on-error: true
-        run: node --test tests/console-visual.test.mjs tests/console-connections.test.mjs
+        run: node --test tests/console-visual.test.mjs tests/console-connections.test.mjs tests/console-decisions-browser.test.mjs
 
       - name: Upload early console preview
         if: always()
@@ -44,6 +44,7 @@ jobs:
           path: |
             test-results/guided-ui/console-overview-*.png
             test-results/guided-ui/console-connections-*.png
+            test-results/guided-ui/console-decisions-*.png
           if-no-files-found: warn
           retention-days: 14
 

@@ -374,28 +374,14 @@ test('hosted Chromium checks mobile account review and required secure owner for
   } finally { await browser.close(); }
 });
 
-test('Needs You preserves account-registry uncertainty and links valid owner requests without claiming approval', async () => {
-  const wrapper = ({ children, title }) => React.createElement('section', null, title, children);
-  async function renderNeedsYou(summary) {
-    const { default: Page } = load('src/app/dashboard/needs-you/page.tsx', {
-      'react/jsx-runtime': require('react/jsx-runtime'), 'next/link': viewDependencies['next/link'],
-      '@/accounts/server': { loadAccountSetupInterventions: async () => summary },
-      '@/etsy-publication/server': { loadPublicationInterventions: async () => ({ records: [], unavailable: false }) },
-      '@/printful/server': { loadPrintfulProductInterventions: async () => ({ records: [], unavailable: false }) },
-      '@/components/stage8/browser-intervention': { BrowserInterventionCard: wrapper },
-      '@/components/stage7/app-shell': { AppShell: wrapper, EmptyPanel: wrapper, PageHeader: wrapper },
-      '@/components/stage7/workflow-visuals': { NeedsYouCard: wrapper },
-      '@/lib/core-ui/data': { requireOwnerUiContext: async () => ({ businesses: [{ id: businessId, name: 'Owner Business' }] }), loadWorkflowCollection: async () => ({ runs: [], definitions: [], interventions: [], errors: [] }) },
-      '@/lib/core-ui/workflows': { formatDateTime: value => value, humanize: value => value },
-    });
-    return renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }));
-  }
-  const uncertain = await renderNeedsYou({ records: [], unavailable: true });
-  assert.match(uncertain, /Account setup requests could not be checked/); assert.match(uncertain, /Some requests could not be checked/); assert.match(uncertain, /Account checks unavailable/);
-  assert.doesNotMatch(uncertain, /No intervention required|Nothing needs your attention/);
-  const waiting = await renderNeedsYou({ records: [{ runId, businessId, provider: 'printful', status: 'owner_handoff' }], unavailable: false });
-  assert.match(waiting, /1 decision waiting/); assert.match(waiting, new RegExp(`/dashboard/accounts\\?business=${businessId}`));
-  assert.doesNotMatch(waiting, /<form|Setup complete|Account created successfully/);
+test('compact Decisions preserves account-registry uncertainty and exact owner setup links', async () => {
+  const { rendered, fixtureTables } = await import('./helpers/console-decisions.mjs');
+  const show = summary => rendered('/dashboard?view=decisions', { tables: fixtureTables({ count: 0 }), props: { connectionRequests: { count: summary.unavailable ? null : summary.records.length, ...summary } } });
+  const uncertain = (await show({ records: [], unavailable: true })).html;
+  assert.match(uncertain, /Connection requests could not be checked/); assert.doesNotMatch(uncertain, /No intervention required|Nothing needs your attention/);
+  const waiting = (await show({ records: [{ runId, businessId, provider: 'printful' }], unavailable: false })).html;
+  assert.ok(waiting.includes(`/dashboard?view=connections&amp;business=${businessId}&amp;connectionRun=${runId}&amp;provider=printful`));
+  assert.match(waiting, /Review saved setup request/); assert.doesNotMatch(waiting, /Setup complete|Account created successfully/);
 });
 
 test('Printful workspace reads only the selected owned Business and never derives Printful connection from Etsy', async () => {

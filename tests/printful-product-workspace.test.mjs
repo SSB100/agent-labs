@@ -225,47 +225,32 @@ test('Printful Needs You card links the exact Business and intervention without 
 });
 
 async function needsYouPage({ printful = { records: [], unavailable: false }, existing = [], publication = { records: [], unavailable: false }, accountSetup = { records: [], unavailable: false } } = {}) {
-  const calls = [];
-  const context = { businesses: [{ id: businessId, name: 'Owner Business' }] };
-  const { default: Page } = load('src/app/dashboard/needs-you/page.tsx', {
-    'react/jsx-runtime': require('react/jsx-runtime'), 'next/link': link,
-    '@/accounts/server': { loadAccountSetupInterventions: async () => accountSetup },
-    '@/etsy-publication/server': { loadPublicationInterventions: async () => publication },
-    '@/printful/server': { loadPrintfulProductInterventions: async provided => { calls.push(provided); return printful; } },
-    '@/components/stage8/browser-intervention': { BrowserInterventionCard: wrapper },
-    '@/components/stage7/app-shell': { AppShell: wrapper, EmptyPanel: wrapper, PageHeader: wrapper },
-    '@/components/stage7/workflow-visuals': { NeedsYouCard },
-    '@/lib/core-ui/data': { requireOwnerUiContext: async () => context, loadWorkflowCollection: async () => ({ runs: [], definitions: [], errors: [], interventions: existing }) },
-    '@/lib/core-ui/workflows': workflowHelpers,
-  });
-  const html = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }));
-  assert.equal(calls.length, 1); assert.equal(calls[0], context);
-  return html;
+  const { rendered, fixtureTables, time } = await import('./helpers/console-decisions.mjs');
+  const tables = fixtureTables({ count: 0 });
+  tables.owner_interventions = [...new Map([...printful.records, ...existing, ...publication.records].map(row => [row.id, { action_intent_id: null, description: '', options: {}, resolution: {}, requested_at: time, resolved_at: null, created_at: time, updated_at: time, ...row }])).values()];
+  const result = await rendered('/dashboard?view=decisions', { tables, businesses: [{ id: businessId, name: 'Owner Business' }], counts: printful.unavailable || publication.unavailable ? { owner_interventions: null } : undefined,
+    props: { connectionRequests: { count: accountSetup.unavailable ? null : accountSetup.records.length, ...accountSetup } } });
+  return result.html.replaceAll('<!-- -->', '');
 }
-
-test('Needs You loads workflow-null Printful requests and deduplicates them with workflow records', async () => {
+test('compact Decisions includes workflow-null Printful requests once and keeps them inspect-only', async () => {
   const html = await needsYouPage({ printful: { records: [intervention], unavailable: false }, existing: [intervention] });
-  assert.match(html, /1 decision waiting/);
-  assert.equal(html.split('Review existing product').length - 1, 1);
-  assert.ok(html.includes(`intervention=${interventionId}#product-configuration-history`));
+  assert.match(html, /1 open notice/); assert.equal((html.match(/class="compactDecisionRow"/g) ?? []).length, 1);
+  assert.ok(html.includes(`decision=${interventionId}`));
   assert.doesNotMatch(html, /Nothing needs your attention|Approve and complete|Fail workflow/);
 });
-
-test('Needs You cannot show an empty queue when Printful request completeness is unknown', async () => {
+test('compact Decisions retains known rows while authoritative queue completeness is unknown', async () => {
   const empty = await needsYouPage({ printful: { records: [], unavailable: true } });
-  for (const text of ['Printful product verification requests could not be checked', 'Some requests could not be checked', 'Printful product checks unavailable', 'partial association receipts may still need owner review']) assert.ok(empty.includes(text), text);
-  assert.doesNotMatch(empty, /Nothing needs your attention|No intervention required/);
+  assert.match(empty, /Decision page completeness could not be checked/); assert.match(empty, /Count unavailable/);
+  assert.doesNotMatch(empty, /No matching notices are recorded|Nothing needs your attention|No intervention required/);
   const partial = await needsYouPage({ printful: { records: [intervention], unavailable: true } });
-  assert.match(partial, /1 decision waiting/); assert.match(partial, /Printful product verification requests could not be checked/);
-  assert.match(partial, /Review existing product/);
+  assert.match(partial, /Count unavailable/); assert.ok(partial.includes(`decision=${interventionId}`));
 });
-
-test('Printful queue inclusion preserves existing account and Etsy publication review links', async () => {
+test('compact queue preserves account setup and separate Etsy/Printful request identities', async () => {
   const html = await needsYouPage({ printful: { records: [intervention], unavailable: false },
     publication: { records: [{ ...intervention, id: sourceId, intervention_type: 'etsy.publication.reconcile', title: 'Review existing listing' }], unavailable: false },
     accountSetup: { records: [{ runId, businessId, provider: 'printful', status: 'owner_handoff' }], unavailable: false } });
-  assert.match(html, /3 decisions waiting/);
-  for (const text of ['Review existing product', 'Check existing listing', 'Review account setup', '/dashboard/accounts?business=', '/dashboard/etsy?business=']) assert.ok(html.includes(text), text);
+  assert.match(html, /2 open notices/); assert.ok(html.includes(`decision=${interventionId}`)); assert.ok(html.includes(`decision=${sourceId}`));
+  assert.ok(html.includes(`/dashboard?view=connections&amp;business=${businessId}&amp;connectionRun=${runId}`));
 });
 
 async function printfulPage(query, businesses = [{ id: businessId, name: 'Owner Business' }, { id: foreignBusiness, name: 'Second Business' }]) {

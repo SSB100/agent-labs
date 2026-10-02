@@ -5,8 +5,9 @@ import { summarizeRunOutcome, type RunOutcomeInput } from "@/lib/core-ui/run-out
 import "./run-outcome.css";
 
 /** Read-only server component. Existing domain pages keep the recovery and approval actions. */
-export function RunOutcome(props: RunOutcomeInput) {
+export function RunOutcome(props: RunOutcomeInput & { nextOverride?: { href: string; label: string; detail: string } }) {
   const result = summarizeRunOutcome(props);
+  const next = props.nextOverride ?? result.next;
   const headingId = `run-outcome-${props.run.id}`;
   return <section className="guidedRunOutcome" data-tone={result.tone} aria-labelledby={headingId}>
     <header className="guidedOutcomeHeader">
@@ -26,6 +27,6 @@ export function RunOutcome(props: RunOutcomeInput) {
         {result.spending.exactAmounts.length ? <details className="guidedOutcomeReceipts"><summary>Exact recorded charges and estimates</summary><dl>{result.spending.exactAmounts.map((amount, index) => <div key={`${index}:${amount.label}`}><dt>{amount.label}</dt><dd>{amount.value}</dd></div>)}</dl></details> : null}
       </section>
     </div>
-    <footer className="guidedOutcomeNext"><div><h3>Next step</h3><p>{result.next.detail}</p></div><Link className="guidedOutcomeButton" href={result.next.href}>{result.next.label}<span aria-hidden="true">→</span></Link></footer>
+    <footer className="guidedOutcomeNext"><div><h3>Next step</h3><p>{next.detail}</p></div><Link className="guidedOutcomeButton" href={next.href}>{next.label}<span aria-hidden="true">→</span></Link></footer>
   </section>;
 }

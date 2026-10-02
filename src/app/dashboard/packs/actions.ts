@@ -1,5 +1,6 @@
 "use server";
 import { randomUUID } from "node:crypto";
+import { safeConsoleDecisionReturnPath, consoleDecisionActionReturnPath } from "@/lib/core-ui/console-decisions-query";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { resumeHook, start } from "workflow/api";
@@ -114,11 +115,24 @@ export async function runEtsyDiscoverySimulation(form: FormData) {
 export async function acknowledgeEtsySimulation(form: FormData) {
   const context = await requireOwnerUiContext();
   const decision = text(form, "decision");
-  if (!["acknowledge", "stop"].includes(decision)) fail("Invalid simulation decision.");
+  const interventionId = text(form, "interventionId");
+  let returnTo = consoleDecisionActionReturnPath(safeConsoleDecisionReturnPath(form.get("returnTo")), { interventionId });
+  const failReview = (message: string, code: string): never => {
+    if (returnTo) redirect(`${returnTo}&error=${code}`);
+    fail(message);
+  };
+  if (!["acknowledge", "stop"].includes(decision)) failReview("Invalid simulation decision.", "invalid-simulation-decision");
   const recorded = await context.supabase.rpc("record_etsy_simulation_decision", {
     p_intervention_id: text(form, "interventionId"), p_decision: decision,
   });
-  if (recorded.error) fail(recorded.error.message);
+  if (recorded.error) failReview(recorded.error.message, "simulation-decision-failed");
+  if (returnTo) {
+    const saved = await context.supabase.from("owner_interventions").select("id,business_id,workflow_run_id").eq("id", interventionId).maybeSingle().then(result => result, () => ({ data: null, error: true }));
+    const savedNotice = saved.data;
+    if (!saved.error && savedNotice?.id === interventionId && savedNotice.workflow_run_id === recorded.data?.workflowRunId && context.businesses.some(business => business.id === savedNotice.business_id)) {
+      returnTo = consoleDecisionActionReturnPath(returnTo, { interventionId, businessId: savedNotice.business_id }) ?? `/dashboard?view=decisions&decision=${encodeURIComponent(interventionId)}`;
+    }
+  }
   const review = recorded.data as { workflowRunId: string; shouldResume: boolean; decision: EtsySimulationReviewDecision };
   if (review.shouldResume) {
     try { await resumeHook(etsySimulationReviewHookToken(review.workflowRunId), review.decision); }
@@ -128,10 +142,11 @@ export async function acknowledgeEtsySimulation(form: FormData) {
       const run = await context.supabase.from("workflow_runs").select("status").eq("id", review.workflowRunId).maybeSingle();
       if (!["completed", "cancelled"].includes(run.data?.status ?? "")) {
         console.error("Unable to deliver recorded simulation decision", error);
-        fail("Your simulation decision is saved. Return to Needs You and retry the same choice to finish delivery.");
+        failReview("Your simulation decision is saved. Return to Needs You and retry the same choice to finish delivery.", "simulation-delivery-pending");
       }
     }
   }
   for (const path of ["/dashboard", "/dashboard/needs-you", "/dashboard/workflows", "/dashboard/history", `/dashboard/workflows/${review.workflowRunId}`]) revalidatePath(path);
+  if (returnTo) redirect(`${returnTo}&message=simulation-decision-recorded`);
   redirect(`/dashboard/workflows/${review.workflowRunId}`);
 }
