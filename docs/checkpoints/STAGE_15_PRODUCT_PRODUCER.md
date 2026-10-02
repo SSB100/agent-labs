@@ -1,6 +1,8 @@
 # Stage 15 single-product configuration producer
 
-Status: implementation reviewed and database installed; production activation and the full Stage 15 exit remain open. This checkpoint does not assert a provider request, configured product, physical print verification or listing-ready Product Package. Database installation and software release evidence are recorded separately below.
+Status: implementation reviewed, database installed and PR36 deployed; production activation and the full Stage 15 exit remain open. This checkpoint does not assert a provider request, configured product, physical print verification or listing-ready Product Package. Database installation and software release evidence are recorded separately below.
+
+The next bounded step is the schema-free [saved-designer probe contract and local checker](STAGE_15_DESIGNER_PROBE.md). It identifies the exact account-specific evidence needed before implementing a larger producer. Its output cannot authenticate captures, authorize a provider action or qualify the live route.
 
 ## Bounded implementation
 
@@ -60,8 +62,11 @@ Hosted SQL installation is verified below. No provider request, upload, key conf
 - Full lint and TypeScript checks passed. Hosted optimized build is the final software release gate
 - Independent execution/security review resolved four findings: upstream/readback fact-hash domain mismatch; incomplete source-review projection; unrelated invoker Core-write regression; late Stop/approval/lease/TEST change while credential authorization awaited. The final request fence now runs after authorization and before each provider dispatch; the independent cancellation reproduction produced zero POSTs
 - Needs You loads exact owner-scoped, workflow-independent Printful reconciliation requests and links the saved attempt. Missing/partial reads remain unavailable rather than reporting a falsely empty queue
-- The cloud browser could not open the local synthetic UI fixture (`ERR_BLOCKED_BY_CLIENT`). Static React render and action/queue tests passed; authenticated/browser visual acceptance is not claimed
+- The cloud browser could not open the local synthetic UI fixture (`ERR_BLOCKED_BY_CLIENT`). Static React render and action/queue tests passed. Later authenticated production acceptance is recorded below
 - Migration was applied with explicit owner approval and native confirmation at 2026-10-02 00:42:56 UTC, recorded as `20261002004256_stage15_product_configuration`. All existing function/table/trigger metadata and row counts were preserved; six new private tables are empty and deny application-role access. SQL bytes are unchanged. SHA-256: `46088d3246608419c861a6e88979f6d3aec467d6b93a6b31599102d21cfba62f`. See [exact database contract](STAGE_15_PRODUCT_SQL_CONTRACT.md)
 - [PR36](https://github.com/SSB100/agent-labs/pull/36) initial exact-head CI passed: 1,044 tests, 1,043 passed, zero failed, one explicitly skipped opt-in SQL test; the same SQL suite separately passed 7/7 locally. Optimized build passed in [run 36940355933](https://github.com/SSB100/agent-labs/actions/runs/36940355933)
 - Preview deployment was READY and its unauthenticated Printful route correctly required owner sign-in
-- The post-install commit changes only the migration filename and this installation evidence. Final exact-head hosted gate, merge and production verification remain the release steps; database installation does not qualify live provider behavior
+- The post-install alignment commit `d47d5a40f36b1beb100ae7dd2ce1f444255790c8` changed only the migration filename and installation evidence. Its [final hosted gate](https://github.com/SSB100/agent-labs/actions/runs/36947741885) passed
+- PR36 merged as `68ab29cf85bb2d54c3afd08b5aa7952586a71b87`; [main CI](https://github.com/SSB100/agent-labs/actions/runs/36948156704) also passed (1,044 tests, 1,043 passed, zero failed, one opt-in SQL skip). The SQL suite separately passed 7/7
+- Production deployment `dpl_3JPU8BD3UK1AJkVHuQBChPxDjFXp` was READY at the exact merge on `agent-labs-two.vercel.app`. At 2026-10-02 00:54–00:56 UTC, health returned 200/ok; authenticated Printful empty history, unavailable execution, readiness disclosure expand/collapse, Needs You and Back navigation passed. The deployment-scoped error/fatal scan returned no matching logs in the verification window
+- Software release and database installation do not qualify live provider behavior. No product writes, artwork sharing, provider activation or spending occurred
