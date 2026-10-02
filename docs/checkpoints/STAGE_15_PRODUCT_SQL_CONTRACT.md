@@ -113,7 +113,7 @@ Supabase's current changelog and database function/RLS guidance were checked on 
 - https://supabase.com/docs/guides/database/postgres/row-level-security
 - https://developers.printful.com/docs/
 
-Independent final code/security review, explicit migration approval, hosted application and target role/advisor review are complete. Still required: final exact-head software release verification, separately approved credential/write-scope provisioning, authenticated upload and physical-placement producers, then one specifically authorized real configuration and its independent qualification. None is implied by the database installation.
+Independent final code/security review, explicit migration approval, hosted application, target role/advisor review and PR36 exact-head software release verification are complete. Still required: separately approved credential/write-scope provisioning, authenticated upload and physical-placement producers, then one specifically authorized real configuration and its independent qualification. None is implied by the database installation. See the [release closeout](STAGE_15_PRODUCT_PRODUCER.md#reviewed-release-candidate-and-hosted-installation) and the [next schema-free qualification contract](STAGE_15_DESIGNER_PROBE.md).
 
 Hosted preservation checks found all 160 existing function definitions/security/ACLs, 77 existing table ACL/RLS definitions and 109 existing triggers unchanged. Every existing table count remained unchanged (1,219 total rows); no credential/session-secret columns were read for those checks. The six new tables are empty, have RLS, and deny direct access to anon/authenticated/service_role. The owner RPC denies anon and service_role execution and retains its owner check and separate server-key guard.
 
