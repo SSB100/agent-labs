@@ -37,13 +37,84 @@ test('retained root document has a real hydration island, Suspense boundary and 
   assert.equal(fixture.rpcCalls.length, 0); assert.equal(fixture.hookCalls.length, 0);
 });
 
+const decisionViewports = [
+  { width: 1280, height: 720, label: '1280x720 desktop', slug: '1280' },
+  { width: 1440, height: 900, label: '1440x900 desktop', slug: '1440' },
+  // Also exercises the CSS viewport available on a 1280x900 display at 200% zoom.
+  { width: 640, height: 450, label: '640x450 narrow / zoom CSS viewport', slug: '640' },
+  { width: 390, height: 844, label: '390x844 mobile', slug: '390' },
+];
+
+async function assertFilterGeometry(page) {
+  const geometry = await page.evaluate(() => {
+    const form = document.querySelector('.compactDecisionFilters');
+    const rect = node => node ? node.getBoundingClientRect().toJSON() : null;
+    const controls = [['Business', 'select[name=business]'], ['Status', 'select[name=status]'], ['Apply', 'button[type=submit]']].map(([name, selector]) => {
+      const node = form?.querySelector(selector);
+      return { name, rect: rect(node), label: rect(node?.closest('label')) };
+    });
+    return { viewport: innerWidth, form: rect(form), workspace: rect(document.querySelector('.compactDecisions')), controls };
+  });
+  const detail = JSON.stringify(geometry), epsilon = 1;
+  assert.ok(geometry.form && geometry.workspace, `Missing filter containers: ${detail}`);
+  const inside = (inner, outer) => inner.left >= outer.left - epsilon && inner.right <= outer.right + epsilon && inner.top >= outer.top - epsilon && inner.bottom <= outer.bottom + epsilon;
+  assert.ok(geometry.form.left >= -epsilon && geometry.form.right <= geometry.viewport + epsilon, `Filter row exceeds viewport: ${detail}`);
+  assert.ok(inside(geometry.form, geometry.workspace), `Filter row exceeds workspace: ${detail}`);
+  for (const control of geometry.controls) {
+    assert.ok(control.rect && control.rect.width > 0 && control.rect.height > 0, `Missing ${control.name} control: ${detail}`);
+    assert.ok(inside(control.rect, geometry.form), `${control.name} exceeds filter row: ${detail}`);
+    if (control.label) assert.ok(inside(control.rect, control.label), `${control.name} select exceeds its label: ${detail}`);
+    assert.ok(control.rect.left >= -epsilon && control.rect.right <= geometry.viewport + epsilon, `${control.name} exceeds viewport: ${detail}`);
+  }
+  for (let left = 0; left < geometry.controls.length; left++) for (let right = left + 1; right < geometry.controls.length; right++) {
+    const a = geometry.controls[left], b = geometry.controls[right];
+    const overlapWidth = Math.min(a.rect.right, b.rect.right) - Math.max(a.rect.left, b.rect.left);
+    const overlapHeight = Math.min(a.rect.bottom, b.rect.bottom) - Math.max(a.rect.top, b.rect.top);
+    assert.ok(overlapWidth <= epsilon || overlapHeight <= epsilon, `${a.name} and ${b.name} overlap: ${detail}`);
+  }
+}
+
+async function assertInitialEvidenceAboveFold(page) {
+  const geometry = await page.evaluate(() => {
+    const pane = document.querySelector('.compactDecisionDetailScroll');
+    const selectors = ['.compactDecisionReason', '.compactDecisionCosts>h3', '[data-decision-cost]', '.compactDecisionCosts>p'];
+    return { pane: pane?.getBoundingClientRect().toJSON(), scrollTop: pane?.scrollTop, items: selectors.map(selector => ({ selector, rect: document.querySelector(selector)?.getBoundingClientRect().toJSON() })) };
+  });
+  const detail = JSON.stringify(geometry); assert.ok(geometry.pane, `Selected scroll viewport missing: ${detail}`); assert.equal(geometry.scrollTop, 0);
+  for (const item of geometry.items) {
+    assert.ok(item.rect, `Primary evidence is missing: ${detail}`);
+    assert.ok(item.rect.top >= geometry.pane.top - 1 && item.rect.bottom <= geometry.pane.bottom + 1, `Primary reason/charge requires initial scrolling: ${detail}`);
+  }
+}
+
+async function exerciseContextDisclosure(page, desktop) {
+  const disclosure = page.locator('.compactDecisionContext');
+  assert.equal(await disclosure.count(), 1, 'Saved concept, workflow and Business remain accessible in one disclosure');
+  await disclosure.locator('summary').focus(); await page.keyboard.press('Enter');
+  assert.equal(await disclosure.getAttribute('open'), '');
+  assert.match(await disclosure.locator('.compactDecisionFacts').innerText(), /Concept[\s\S]*Workflow[\s\S]*Business/);
+  assert.match(await disclosure.locator('.compactDecisionFacts').innerText(), /Saved concept 2/);
+  if (desktop) {
+    const evidence = page.getByRole('region', { name: 'Decision evidence and receipts' });
+    assert.ok(await evidence.evaluate(node => node.scrollHeight > node.clientHeight), 'Expanded context creates meaningful keyboard scrolling');
+    await evidence.focus(); await page.keyboard.press('End');
+    await page.waitForFunction(() => { const node = document.querySelector('.compactDecisionDetailScroll'); return node && node.scrollTop > 0 && node.scrollTop >= node.scrollHeight - node.clientHeight - 2; });
+  }
+  await disclosure.locator('summary').focus(); await page.keyboard.press('Enter');
+}
+
+async function captureFailure(page, filename, testContext) {
+  try { await page.screenshot({ path: filename, fullPage: true, timeout: 5000 }); }
+  catch (captureError) { testContext.diagnostic(`Failure screenshot unavailable: ${captureError.message}`); }
+}
+
 // Hosted CI only. Do not add a local path override or execute local Chromium.
 const enabled = process.env.CI === 'true' && process.env.GUIDED_UI_BROWSER === '1';
 test('hosted real-root Decisions: compact viewports, exact selection, keyboard, pending, real-action errors and persisted review', { skip: !enabled, timeout: 240_000 }, async t => {
   const browser = await chromium.launch({ headless: true });
   const directory = path.resolve('test-results/guided-ui'); mkdirSync(directory, { recursive: true });
   try {
-    for (const [width, height] of [[1280, 720], [1440, 900], [640, 450], [390, 844]]) await t.test(`${width}x${height} real root acknowledgement`, async () => {
+    for (const { width, height, label, slug } of decisionViewports) await t.test(`${label} real root acknowledgement`, async () => {
       const fixture = createDecisionBrowserFixture(), notice = fixture.tables.owner_interventions[1];
       const savedRun = structuredClone(fixture.tables.workflow_runs[1]), savedStage = structuredClone(fixture.tables.workflow_stage_runs[1]);
       const receipts = structuredClone(fixture.tables.creative_cost_settlements), reservations = structuredClone(fixture.tables.creative_cost_reservations), history = structuredClone(fixture.events);
@@ -68,6 +139,7 @@ test('hosted real-root Decisions: compact viewports, exact selection, keyboard, 
         assert.deepEqual(await page.evaluate(() => window.__decisionErrors), []);
       };
       const bounds = async () => {
+        await assertFilterGeometry(page);
         const size = await page.evaluate(() => ({ width: document.documentElement.scrollWidth, height: document.documentElement.scrollHeight, viewport: innerHeight,
           actionBottom: document.querySelector('.compactDecisionActionArea')?.getBoundingClientRect().bottom }));
         assert.ok(size.width <= width + 1, JSON.stringify(size));
@@ -78,16 +150,17 @@ test('hosted real-root Decisions: compact viewports, exact selection, keyboard, 
         await ready(); await bounds();
       };
       try {
-        await page.goto(origin + selectedStart); await ready(); await bounds();
+        await page.goto(origin + selectedStart); await page.waitForFunction(() => window.__decisionHydrated === true);
+        await page.screenshot({ path: path.join(directory, `console-decisions-root-populated-${slug}.png`), fullPage: true });
+        await ready(); await bounds();
         assert.equal(await page.locator(".compactDecisionDetailHeader h2").evaluate(node => node === document.activeElement), true, "Exact selected notice receives keyboard focus");
         assert.equal(await page.locator('.compactDecisionRow').count(), 25); assert.match(await page.locator('[data-decision-count]').innerText(), /131 open notices/);
         assert.equal(await page.locator('.compactDecisionDetail').getAttribute('data-decision-id'), notice.id);
         assert.equal(await page.locator('.compactDecisionRow[data-selected=true]').count(), 0, 'Exact selection is older than all eighty overview runs and off current page');
         assert.equal(await page.locator('[name=expectedUpdatedAt]').inputValue(), notice.updated_at);
         assert.match(await page.locator('.compactDecisionCosts').innerText(), /1 of 3 recorded calls have an unknown charge/);
-        await page.screenshot({ path: path.join(directory, `console-decisions-root-populated-${width}.png`), fullPage: true });
-        const evidence = page.getByRole('region', { name: 'Decision evidence and receipts' }); await evidence.focus(); await page.keyboard.press('End');
-        if (width > 900) assert.ok(await evidence.evaluate(node => node.scrollTop) > 0, 'Keyboard can scroll the compact evidence pane');
+        if (width > 900) await assertInitialEvidenceAboveFold(page);
+        await exerciseContextDisclosure(page, width > 900);
         await page.getByRole('link', { name: 'Next', exact: true }).click(); await ready(); await bounds();
         assert.equal(new URL(page.url()).searchParams.get('page'), '2'); assert.equal(new URL(page.url()).searchParams.get('decision'), notice.id);
         await page.goBack(); await ready(); assert.equal(new URL(page.url()).searchParams.get('decision'), notice.id);
@@ -103,7 +176,7 @@ test('hosted real-root Decisions: compact viewports, exact selection, keyboard, 
         await page.waitForFunction(() => document.querySelector('[data-decision-pending=true]'));
         const pending = page.getByRole('button', { name: 'Recording review…', exact: true }); assert.equal(await pending.isDisabled(), true);
         await pending.evaluate(node => node.click()); assert.equal(await page.evaluate(() => window.__decisionActionCalls), 1); assert.equal(fixture.rpcCalls.length, 0);
-        await page.screenshot({ path: path.join(directory, `console-decisions-root-pending-${width}.png`), fullPage: true });
+        await page.screenshot({ path: path.join(directory, `console-decisions-root-pending-${slug}.png`), fullPage: true });
         await Promise.all([page.waitForURL(url => url.searchParams.get('error') === 'terminal-review-failed'), page.evaluate(() => window.__releaseDecisionAction())]);
         await ready(); await bounds();
         assert.equal(fixture.rpcCalls.length, 1); assert.equal(fixture.mutations.length, 0); assert.equal(notice.status, 'open');
@@ -123,7 +196,7 @@ test('hosted real-root Decisions: compact viewports, exact selection, keyboard, 
         assert.equal(fixture.mutations.length, 1); assert.equal(fixture.mutations[0].id, notice.id); assert.equal(fixture.context().needsYouCount, 142);
         assert.match(await page.locator('.compactDecisionState').innerText(), /Stopped · reviewed/); assert.equal(await page.getByRole('button', { name: 'Mark reviewed', exact: true }).count(), 0);
         assert.match(await page.locator('.compactDecisionCosts').innerText(), /1 of 3 recorded calls have an unknown charge/);
-        await page.screenshot({ path: path.join(directory, `console-decisions-root-reviewed-${width}.png`), fullPage: true });
+        await page.screenshot({ path: path.join(directory, `console-decisions-root-reviewed-${slug}.png`), fullPage: true });
         await page.reload(); await ready(); assert.match(await page.locator('.compactDecisionState').innerText(), /Stopped · reviewed/);
         const callsBeforeBack = fixture.rpcCalls.length; await page.goBack(); await ready(); await page.reload(); await ready();
         assert.match(await page.locator('.compactDecisionState').innerText(), /Stopped · reviewed/); assert.equal(fixture.rpcCalls.length, callsBeforeBack);
@@ -140,8 +213,11 @@ test('hosted real-root Decisions: compact viewports, exact selection, keyboard, 
         assert.match(await page.locator('[data-decision-count]').innerText(), /142 open notices/);
         assert.equal(await page.locator('select[name=business] option').count(), 3);
         assert.match(await page.locator('.compactDecisionRows').innerText(), /Saved synthetic workflow review request|Saved browser takeover request|Saved etsy simulation review request/);
-        await page.screenshot({ path: path.join(directory, `console-decisions-root-queue-${width}.png`), fullPage: true });
+        await page.screenshot({ path: path.join(directory, `console-decisions-root-queue-${slug}.png`), fullPage: true });
         assert.deepEqual(errors, []); assert.deepEqual(denied, []);
+      } catch (error) {
+        await captureFailure(page, path.join(directory, `console-decisions-root-failure-${slug}.png`), t);
+        throw error;
       } finally { await context.close(); }
     });
   } finally { await browser.close(); }
@@ -151,7 +227,7 @@ test('hosted retained React/Suspense Decisions lifecycle, account disclosure, fo
   const browser = await chromium.launch({ headless: true });
   const directory = path.resolve('test-results/guided-ui'); mkdirSync(directory, { recursive: true });
   try {
-    for (const [width, height] of [[1280, 720], [1440, 900], [640, 450], [390, 844]]) await t.test(`${width}x${height} retained root Decisions`, async () => {
+    for (const { width, height, label, slug } of decisionViewports) await t.test(`${label} retained root Decisions`, async () => {
       const fixture = createDecisionBrowserFixture({ accountRequests: fiftyAccountRequests() }), notice = fixture.tables.owner_interventions[1], other = fixture.tables.owner_interventions[4];
       const context = await browser.newContext({ viewport: { width, height }, reducedMotion: 'reduce', serviceWorkers: 'block' });
       const denied = [], errors = []; let documents = 0;
@@ -179,6 +255,7 @@ test('hosted retained React/Suspense Decisions lifecycle, account disclosure, fo
         assert.equal(await page.locator('.compactDecisionDetailScroll').evaluate(node => node.scrollTop), 0);
       };
       const bounded = async () => {
+        await assertFilterGeometry(page);
         const dimensions = await page.evaluate(() => ({ width: document.documentElement.scrollWidth, height: document.documentElement.scrollHeight,
           action: document.querySelector('.compactDecisionActionArea')?.getBoundingClientRect().toJSON(), account: document.querySelector('.compactConnectionRequests')?.getBoundingClientRect().toJSON() }));
         assert.ok(dimensions.width <= width + 1, JSON.stringify(dimensions));
@@ -190,7 +267,7 @@ test('hosted retained React/Suspense Decisions lifecycle, account disclosure, fo
       };
       try {
         await page.goto(origin + queueStart); await page.waitForFunction(() => window.__decisionHydrated && typeof window.__navigateDecisionRetained === 'function');
-        await page.screenshot({ path: path.join(directory, `console-decisions-retained-initial-${width}.png`), fullPage: true });
+        await page.screenshot({ path: path.join(directory, `console-decisions-retained-initial-${slug}.png`), fullPage: true });
         assert.equal(await page.locator('select[name=business]').inputValue(), ''); assert.equal(await page.locator('select[name=status]').inputValue(), 'open');
         await bounded();
         // Paging replaces only the queue scroll region. Selection and Close retain it.
@@ -220,15 +297,22 @@ test('hosted retained React/Suspense Decisions lifecycle, account disclosure, fo
         assert.equal(await page.locator('.compactConnectionRequests a').count(), 50); await page.getByText('Connection requests could not be checked.', { exact: false }).waitFor();
         await page.locator('.compactConnectionRequests summary').click(); assert.equal(await page.locator('.compactConnectionRequests').getAttribute('open'), ''); await bounded();
         assert.equal(await page.getByRole('button', { name: 'Mark reviewed', exact: true }).isVisible(), true);
-        await page.screenshot({ path: path.join(directory, `console-decisions-retained-account-disclosure-${width}.png`), fullPage: true });
+        await page.screenshot({ path: path.join(directory, `console-decisions-retained-account-disclosure-${slug}.png`), fullPage: true });
         // An unresolved submit must not make a different selected notice's new controls pending.
         fixture.setMode('error'); await page.evaluate(() => { window.__holdDecisionAction = true; });
         await page.getByRole('button', { name: 'Mark reviewed', exact: true }).click(); await page.locator('[data-decision-pending=true]').waitFor();
         await navigate(`/dashboard?view=decisions&decision=${other.id}`); await headingFocused();
         assert.equal(await page.locator('[data-decision-pending=true]').count(), 0); assert.equal(await page.getByRole('button', { name: 'Mark reviewed', exact: true }).isDisabled(), false);
-        await commitAfter(() => page.evaluate(() => { window.__holdDecisionAction = false; window.__releaseDecisionAction(); }));
-        assert.equal(new URL(page.url()).searchParams.get('decision'), notice.id); await headingFocused();
+        const completions = await page.evaluate(() => window.__decisionActionCompletions);
+        await page.evaluate(() => { window.__holdDecisionAction = false; window.__releaseDecisionAction(); });
+        await page.waitForFunction(previous => window.__decisionActionCompletions > previous, completions);
+        assert.equal(await page.evaluate(() => window.__decisionDiscardedActions), 1, 'A late result cannot replace a newer user selection');
+        assert.equal(new URL(page.url()).searchParams.get('decision'), other.id); await headingFocused();
         assert.equal(await page.locator('[data-decision-pending=true]').count(), 0); assert.equal(fixture.mutations.length, 0);
+        assert.equal(await page.getByRole('button', { name: 'Mark reviewed', exact: true }).isDisabled(), false);
+        // Explicitly revisiting A reads its authoritative still-open state after the failed action.
+        await navigate(`/dashboard?view=decisions&decision=${notice.id}`); await headingFocused();
+        assert.match(await page.locator('.compactDecisionState').innerText(), /Stopped · Notice open/);
         // Same-notice result replaces its versioned form and refocuses the retained heading.
         fixture.setMode('success'); await page.locator('.compactDecisionDetailHeader h2').evaluate(node => { window.__sameNoticeHeading = node; });
         await page.locator('.compactDecisionDetailScroll').evaluate(node => { node.scrollTop = node.scrollHeight; });
@@ -237,9 +321,12 @@ test('hosted retained React/Suspense Decisions lifecycle, account disclosure, fo
         assert.match(await page.locator('.compactDecisionState').innerText(), /Stopped · reviewed/); assert.equal(await page.locator('[data-decision-pending=true]').count(), 0);
         assert.equal(await page.getByRole('button', { name: 'Mark reviewed', exact: true }).count(), 0); assert.equal(fixture.mutations.length, 1);
         assert.match(await page.locator('[data-decision-count]').innerText(), /142 open notices/); assert.match(await page.locator('.compactDecisionCosts').innerText(), /1 of 3 recorded calls have an unknown charge/);
-        await bounded(); await page.screenshot({ path: path.join(directory, `console-decisions-retained-reviewed-${width}.png`), fullPage: true });
+        await bounded(); await page.screenshot({ path: path.join(directory, `console-decisions-retained-reviewed-${slug}.png`), fullPage: true });
         assert.equal(documents, 1, 'All post-load transitions retained the client root rather than reloading a document');
         assert.deepEqual(errors, []); assert.deepEqual(denied, []);
+      } catch (error) {
+        await captureFailure(page, path.join(directory, `console-decisions-retained-failure-${slug}.png`), t);
+        throw error;
       } finally { await context.close(); }
     });
   } finally { await browser.close(); }

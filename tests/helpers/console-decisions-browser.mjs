@@ -45,10 +45,10 @@ let bundle;
 async function browserBundle() {
   if (!bundle) bundle = build({ absWorkingDir: process.cwd(), bundle: true, write: false, format: 'iife', platform: 'browser', target: 'es2022', jsx: 'automatic', define: { 'process.env.NODE_ENV': '"production"' }, loader: { '.css': 'empty' }, logLevel: 'silent', metafile: true,
     stdin: { sourcefile: 'console-decisions-root-hydration.tsx', resolveDir: process.cwd(), loader: 'tsx', contents: `
-      import React, {Suspense,use,useEffect,useState,useTransition} from 'react';
+      import React, {Suspense,use,useEffect,useState} from 'react';
       import {hydrateRoot} from 'react-dom/client';
       import {ConsoleCompactDecisions} from './src/components/console/console-compact-decisions';
-      window.__decisionErrors=[]; window.__decisionActionCalls=0; window.__decisionRetainedRenderCount=0;
+      window.__decisionErrors=[]; window.__decisionActionCalls=0; window.__decisionActionCompletions=0; window.__decisionDiscardedActions=0; window.__decisionNavigationRevision=0; window.__decisionRetainedRenderCount=0;
       function checkedTarget(target) {
         const url=new URL(target,location.origin);
         if(url.origin!==location.origin || url.pathname!=='/dashboard' || url.searchParams.get('view')!=='decisions') throw Error('Unsafe fixture action return');
@@ -59,28 +59,43 @@ async function browserBundle() {
         useEffect(()=>{window.__decisionHydrated=true;window.__decisionRetainedRenderCount++;window.__decisionCommittedRoute=location.pathname+location.search},[props]);
         const acknowledgeStoppedCreative=async form=>{
           window.__decisionActionCalls++;
-          if(window.__holdDecisionAction) await new Promise(resolve=>{window.__releaseDecisionAction=resolve});
-          // This isolated binding runs the real server action in the Node fixture.
-          // No fetch, provider, credentials or external action endpoint is allowed.
-          const target=checkedTarget(await window.__runTerminalReviewFixture(Array.from(form.entries())));
-          if(window.__decisionRetained) await window.__navigateDecisionRetained(target,'replace');
-          else location.assign(target);
+          const revision=window.__decisionNavigationRevision;
+          try {
+            if(window.__holdDecisionAction) await new Promise(resolve=>{window.__releaseDecisionAction=resolve});
+            // This isolated binding runs the real server action in the Node fixture.
+            // No fetch, provider, credentials or external action endpoint is allowed.
+            const target=checkedTarget(await window.__runTerminalReviewFixture(Array.from(form.entries())));
+            if(window.__decisionRetained && revision!==window.__decisionNavigationRevision) {
+              window.__decisionDiscardedActions++;
+              return;
+            }
+            if(window.__decisionRetained) await window.__navigateDecisionRetained(target,'replace',revision);
+            else location.assign(target);
+          } finally { window.__decisionActionCompletions++; }
         };
         const deniedTypedAction=async()=>{throw Error('Typed runtime delivery is denied in browser fixtures; covered by isolated server-action tests')};
         return <ConsoleCompactDecisions {...props} actions={{acknowledgeStoppedCreative,syntheticReview:deniedTypedAction,browserControl:deniedTypedAction,simulationReview:deniedTypedAction}}/>;
       }
       function RetainedFixture() {
         const [value,setValue]=useState(window.__decisionProps);
-        const [,startTransition]=useTransition();
         useEffect(()=>{
-          window.__navigateDecisionRetained=async(target,mode='push')=>{
+          let latest=window.__decisionProps;
+          // Model retained component behavior and inspected Next 16.3.8 router
+          // discard semantics, not Next's actual transport/action queue. User
+          // navigation is urgent: an unrelated unresolved form Action cannot
+          // entangle it, and a discarded Action cannot replace newer selection.
+          window.__navigateDecisionRetained=async(target,mode='push',expectedRevision)=>{
             const route=checkedTarget(target);
+            if(mode==='replace' && expectedRevision!==undefined && expectedRevision!==window.__decisionNavigationRevision) return;
+            const revision=mode==='replace' ? window.__decisionNavigationRevision : ++window.__decisionNavigationRevision;
             const pending=window.__loadDecisionRootFixture(route).then(props=>{
+              if(revision!==window.__decisionNavigationRevision) return latest;
               if(mode==='push') history.pushState({},'',route);
               if(mode==='replace') history.replaceState({},'',route);
+              latest=props;
               return props;
             });
-            startTransition(()=>setValue(pending));
+            setValue(pending);
             await pending;
           };
           const back=()=>window.__navigateDecisionRetained(location.pathname+location.search,'none');

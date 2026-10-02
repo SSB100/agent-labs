@@ -40,8 +40,8 @@ export function decisionDetailModel(request: OwnerInterventionRecord, detail: Co
     if (!matchedReadableRun) action = interventionAction({ ...request, status: "resolved" }, run, definition);
   }
   return {
-    concept: safeDecisionText(approval?.snapshot.concept, "Concept not available in the checked records", 1200),
-    workflowName: safeDecisionText(definition?.name, "Workflow name unavailable", 200),
+    concept: safeDecisionText(approval?.snapshot.concept, "Concept not available in the checked records", Number.MAX_SAFE_INTEGER),
+    workflowName: safeDecisionText(definition?.name, "Workflow name unavailable", Number.MAX_SAFE_INTEGER),
     stage: stageLabel(stage?.stage_key ?? run?.current_stage_key, "Stage unavailable"),
     reason: decisionFailureReason(request, detail), ended, stoppedCreative,
     acknowledgementEligible: stoppedCreative && detail.acknowledgement.eligible,

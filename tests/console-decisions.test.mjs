@@ -148,3 +148,29 @@ test('identical Business names receive visible stable identity prefixes in the f
   assert.match(result.html, /\[000001\] Same long studio name/);
   assert.match(result.html, /\[000002\] Same long studio name/);
 });
+
+test('failure and charge summaries precede an accessible full saved-context disclosure', async () => {
+  const tables = fixtureTables({ count: 1, amountCase: 'png' });
+  const concept = `Saved full concept ${'readable garden illustration '.repeat(55)}CONCEPT END`;
+  const workflow = `Saved full workflow ${'readable pipeline name '.repeat(15)}WORKFLOW END`;
+  const business = `Saved full Business ${'readable studio name '.repeat(15)}BUSINESS END`;
+  tables.creative_approvals[0].snapshot.concept = concept;
+  tables.workflow_definitions = [{ ...tables.workflow_definitions[0], name: workflow }];
+  const businesses = [{ id: businessId, name: business, created_at: time, updated_at: time }];
+  const result = await rendered(selectedRoute(tables.owner_interventions[0]), { tables, businesses, props: { businesses } });
+  const html = result.html;
+  assert.ok(html.indexOf('class="compactDecisionReason"') < html.indexOf('class="compactDecisionCosts"'));
+  assert.ok(html.indexOf('class="compactDecisionCosts"') < html.indexOf('<details class="compactDecisionContext">'));
+  assert.match(html, /<details class="compactDecisionContext"><summary>Concept, workflow and exact saved identities<\/summary>/);
+  assert.ok(html.includes(concept)); assert.ok(html.includes(workflow)); assert.ok(html.includes(business));
+  assert.match(html, /1 of 3 recorded calls have an unknown charge/);
+  assert.match(html, /Ended at stage/);
+  assert.equal(result.h.calls.filter(call => call.table === 'action_intents').length, 1);
+});
+
+test('filter grid and native selects constrain their intrinsic width without hiding the whole workspace', () => {
+  const css = readFileSync('src/components/console/console-compact-decisions.css', 'utf8');
+  assert.match(css, /\.compactDecisionFilters label\{[^}]*grid-template-columns:minmax\(0,1fr\)/);
+  assert.match(css, /\.compactDecisionFilters select\{[^}]*min-inline-size:0;[^}]*width:100%;[^}]*box-sizing:border-box/);
+  assert.doesNotMatch(css, /\.compactDecisions\{[^}]*overflow(?:-x)?:hidden/);
+});
