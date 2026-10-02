@@ -1,7 +1,7 @@
 # Agent Labs V2 remaining implementation plan
 
 Repository: `SSB100/agent-labs`
-Implementation baseline: `83cb5cda632e8a3cd09a4e921e5fd2f3ff468746`
+Implementation baseline: `30970293b8879cc77529999417ac568ecc2f1b3a`
 Document status: active remaining-work plan
 Document scope: remaining work only; one dependency-ordered implementation queue
 
@@ -30,13 +30,13 @@ Tasks R02–R19 are the sole remaining implementation order. Dependencies are ac
 
 **Class:** immediate UI and read-only changes using existing authorized public-table contracts. **Dependency:** the accepted compact Decisions baseline. This is the first remaining task.
 
-- Reconcile held Work, Library, Research, Activity and exact creative-recovery source against the accepted head. Do not bulk-merge the frozen populated or profile candidates or treat their tests as acceptance.
-- Complete bounded server page/count/filter/search/sort/exact-detail reads for Work, design and document Library, research results, saved records and raw activity. Define stable timestamp-plus-ID ordering, field-specific search and count semantics. Return a selected record independently of the current page/filter while preserving the filter context.
+- Reconcile held Library, Research and exact creative-recovery source against the accepted head. Do not bulk-merge the frozen populated or profile candidates or treat their tests as acceptance.
+- Complete bounded server page/count/filter/search/sort/exact-detail reads for design and document Library, research results and saved records. Define stable timestamp-plus-ID ordering, field-specific search and count semantics. Return a selected record independently of the current page/filter while preserving the filter context.
 - Keep public-table read improvements separate from private RPC additions. No client-side pager over a newest-N window, hidden fetch-all loop or unbounded artifact preload may be presented as complete history.
 - Recover exact old creative approval/run/artifact links with server-visible identity, preserve receipt anchors, and show unknown state/cost when an independently loaded window cannot establish absence. Do not enable a duplicate start because a related run was not loaded.
 - Preserve real Business scope, URL query state, return destinations, exact artifact positioning and truthful settled/pending/unknown cost labels. Reject missing, foreign, conflicting and malformed selection rather than showing a substitute record.
 - Complete the new root Research navigation/read projection using existing research lineage. Keep former Library research and Products research deep links working. Label legacy research identity accurately until R04/R08 supply canonical Quest linkage.
-- Keep root Activity as the exact underlying audit view until R08 supplies work-episode Events. Do not rename raw rows and imply that they already represent coherent episodes.
+- Connect the remaining Library/Research journeys to accepted Work and raw Activity without losing exact scope or reading position. Preserve Activity as underlying audit data until R08 supplies work-episode Events.
 
 **Exit:** each affected root collection passes the shared populated/query/interaction gates, with explicit remaining private-history limitations assigned to R06. Existing read-only scope must be demonstrable in the diff and test networking must remain denied.
 
@@ -92,6 +92,7 @@ Tasks R02–R19 are the sole remaining implementation order. Dependencies are ac
 **Class:** reviewed backend read APIs and projections. **Dependency:** R04 for new identity; R02/R03 define callers. Keep independent of R05 execution admission.
 
 - Define owner/Business/Quest-scoped page/count/filter/exact-detail contracts for private account setup, Etsy draft/listing/publication, Printful configuration, product experiments/decisions, workflow children/events, packs, model routing and evaluations where existing reads are insufficient.
+- Bound and independently count the owner Business directory used to establish aggregate scope. An API-capped Business list must not silently omit owned Businesses while downstream collections claim an owner-wide total; exact selection must remain owner-verified outside that directory page.
 - Preserve exact intervention joins and current authority checks. Do not expose private tables, vault data, server credentials or broad service-role queries to fix pagination. Review every function signature, grant, security-definer owner/search path and RLS effect independently.
 - Bound the eligible publication-draft response, package eligibility selection and artifact source resolution. Search/filter before stable pagination according to the contract; do not let newer ineligible artifacts hide older eligible work or call a sample empty registry-wide.
 - Supply independently correct counts, selected details beyond pages, latest-per-entity state and unresolved-queue completeness. A missing count or failed related read must be unavailable/partial, never zero, not-started or no-cost.

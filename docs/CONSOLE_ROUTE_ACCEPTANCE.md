@@ -1,6 +1,6 @@
 # Whole application console acceptance checklist
 
-Current implementation baseline: `83cb5cda632e8a3cd09a4e921e5fd2f3ff468746`, 2026-10-02. This is an acceptance checklist, not a separate release plan. The sole remaining-work order is [R02–R19 in the canonical plan](AGENT_LABS_V2_IMPLEMENTATION_PLAN.md). Historical release evidence belongs in the [evidence crosswalk](AGENT_LABS_V2_EVIDENCE_CROSSWALK.md). Do not use this checklist to restart already accepted work.
+Current implementation baseline: `30970293b8879cc77529999417ac568ecc2f1b3a`, 2026-10-02. This is an acceptance checklist, not a separate release plan. The sole remaining-work order is [R02–R19 in the canonical plan](AGENT_LABS_V2_IMPLEMENTATION_PLAN.md). Historical release evidence belongs in the [evidence crosswalk](AGENT_LABS_V2_EVIDENCE_CROSSWALK.md). Do not use this checklist to restart already accepted work.
 
 ## Shared acceptance contract
 
@@ -49,11 +49,11 @@ There are **21 total `page.tsx` routes**, not 21 unfinished pages. The workflow 
 | `sheet=research` | Accepted native modal lifecycle correction | Retained dismissal, focus, draft/consent isolation, all originating panes and exact return; R02/R03; new prompt/envelope intake R04/R05 |
 | `?view=connections` | PR43 compact provider/status/request/secure journey accepted | Long Business names, exact old request, saved-registry truth, safe typed outcomes, no query-spoofed success; R03/R06 |
 | `?view=decisions` | R01 accepted through PR44/PR46 exact-head and deployed read-only evidence | Preserve compact desktop/reflow, typed acknowledgment, immutable failed-run/unknown-charge truth, exact queue/detail and native filter Back/Forward. Original three notices remain unchanged by the agent. Broad Next transport regression remains R03; audit-log/exception product model R08 |
-| `?view=work`, exact `run` and `artifact` | Existing pane and exact artifact focus; populated work unaccepted | True bounded pages/count/search/sort; exact off-page artifact, preserved anchors/Back/reload, source-only vs successful output truth; R02/R06 |
+| `?view=work`, exact `run`/`selected` and `artifact` | PR47 bounded collection/detail accepted, including exact deployed read-only checks | Preserve 25-row pages/counts, field-specific search, off-page artifact, stopped/unknown-charge truth, compact rows and native filter/reading history; 100-row child windows stay explicitly incomplete; R02 regression/R03/R06 |
 | `?view=library` designs | Existing gallery; populated prototype unaccepted | Bounded page/preview payloads, exact selection, distinct image/production/print/listing status; R02/R06 |
 | `?view=library&type=research` | Existing research subtype; grouping/navigation remaining | Preserve Quest/intent/attempt links and exact evidence/action return; transition to Research destination in R02/R08 |
 | `?view=library&type=records`, exact `artifact` | Existing saved-record view | Long JSON/evidence contained, exact ID/Business and off-page return/focus; R02/R06 |
-| `?view=activity` | Existing recent raw audit view; paged prototype unaccepted | Independent count/page/filter, exact event/workflow and unknown state; remains underlying audit data when Events is added; R02/R06/R08 |
+| `?view=activity` | PR47 independently paged raw audit accepted; live 104-event pagination/filter/history checked | Preserve exact event/run-filter selection and independently counted pages; remains underlying audit data when Events is added; R02 regression/R03/R06/R08 |
 | `?view=advanced` | Accepted compact directory; child routes not all accepted | Every retained tool reachable with stable URL/active navigation and return; no duplicate primary labels; R03/R08 |
 | `/dashboard/accounts?diagnostics=platform` | Existing diagnostic tools; compact conversion remaining | Contained config/provider/history with truthful known outcomes and read limits; R03/R06 |
 | Workflow `[workflowRunId]/error.tsx` | Existing recovery boundary; visual/interaction acceptance remaining | Visible scoped failure/recovery, no stale success, unsafe replay or lost selection; R03/R08 |

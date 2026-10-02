@@ -6,11 +6,19 @@ const MAX_ENTRIES = 64;
 const MAX_AGE = 7 * 24 * 60 * 60 * 1000;
 export function consoleCollectionScrollKey(ownerId: string, href: string, listOnly = false): string {
   const url = new URL(href, "https://console.invalid");
+  if (url.searchParams.get("view") === "library") {
+    for (const name of ["business", "selected", "artifact", "creativeRun"]) {
+      const value = url.searchParams.get(name);
+      if (url.searchParams.getAll(name).length === 1 && value && /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(value)) url.searchParams.set(name, value.toLowerCase());
+    }
+  }
   if (url.searchParams.get("view") === "work" && url.searchParams.getAll("run").length === 1 && url.searchParams.getAll("selected").length <= 1 && (!url.searchParams.get("selected") || url.searchParams.get("selected") === url.searchParams.get("run"))) { url.searchParams.set("selected", url.searchParams.get("run")!); url.searchParams.delete("run"); }
+  if (url.searchParams.get("view") === "library" && url.searchParams.get("type") === "records" && url.searchParams.getAll("artifact").length === 1 && url.searchParams.getAll("selected").length <= 1 && (!url.searchParams.get("selected") || url.searchParams.get("selected") === url.searchParams.get("artifact"))) { url.searchParams.set("selected", url.searchParams.get("artifact")!); url.searchParams.delete("artifact"); }
   // Native GET includes default fields that the server canonicalizes away.
   // Keep equivalent URLs in one scope without collapsing ambiguous duplicates.
-  if (["work", "activity"].includes(url.searchParams.get("view") ?? "")) {
+  if (["work", "activity", "library"].includes(url.searchParams.get("view") ?? "")) {
     const defaults: Record<string, string> = { business: "", q: "", status: "all", sort: "newest", selected: "", run: "", artifact: "", runFilter: "", page: "1", pageSize: "25" };
+    if (url.searchParams.get("view") === "library") Object.assign(defaults, { type: "designs", mediaType: "all", artifactType: "all", creativeRun: "" });
     for (const [name, fallback] of Object.entries(defaults)) {
       if (url.searchParams.getAll(name).length !== 1) continue;
       const raw = url.searchParams.get(name)!;
@@ -19,7 +27,7 @@ export function consoleCollectionScrollKey(ownerId: string, href: string, listOn
     }
     if (url.searchParams.getAll("sheet").length === 1 && url.searchParams.get("sheet") === "research") url.searchParams.delete("sheet");
   }
-  if (listOnly) { url.searchParams.delete("selected"); url.searchParams.delete("run"); url.searchParams.delete("artifact"); }
+  if (listOnly) { url.searchParams.delete("selected"); url.searchParams.delete("run"); url.searchParams.delete("artifact"); if (url.searchParams.get("view") === "library") url.searchParams.delete("creativeRun"); }
   url.searchParams.sort();
   return `${PREFIX}${encodeURIComponent(ownerId)}:${listOnly ? "list" : "exact"}:${url.pathname}?${url.searchParams}`;
 }
@@ -72,6 +80,7 @@ export function mountConsoleCollectionScroll(root: HTMLElement, ownerId: string,
     const params = new URL(href, "https://console.invalid").searchParams;
     if (historyNavigation || !hasBlockingInteraction()) {
       const defaults: Record<string, string> = { q: "", business: "", status: "all", sort: "newest", runFilter: "" };
+      if (params.get("view") === "library") Object.assign(defaults, { mediaType: "all", artifactType: "all" });
       for (const field of toolbar.querySelectorAll<HTMLInputElement | HTMLSelectElement>("input[name], select[name]")) {
         if (Object.hasOwn(defaults, field.name)) field.value = params.get(field.name) ?? defaults[field.name];
       }
@@ -175,7 +184,8 @@ export function mountConsoleCollectionScroll(root: HTMLElement, ownerId: string,
     // A direct selected/run URL has no native fragment. Reveal its independently
     // verified detail on the one-column layouts, only on its first visit. Exact
     // Back/reload snapshots and an authorized artifact fragment retain priority.
-    const freshSelection = detail?.dataset.consoleSelection === "found";
+    const selectedState = detail?.dataset.consoleSelection;
+    const freshSelection = selectedState === "found" || new URL(href, "https://console.invalid").searchParams.get("view") === "library" && ["missing", "unavailable"].includes(selectedState ?? "");
     const detailAnchor = view.location?.hash === "#console-collection-detail";
     if (!exact && detail && activeLayout !== "split" && !hasExactArtifactFragment() && (freshSelection || detailAnchor)) {
       detail.scrollIntoView({ block: "start", inline: "nearest", behavior: "instant" });

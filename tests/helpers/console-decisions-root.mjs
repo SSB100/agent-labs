@@ -151,6 +151,7 @@ export function rootDecisionFixture({ tables = fixtureTables({ count: 131 }), us
       '@/components/console/console-command': command, '@/components/console/console-motion': motionUi, '@/lib/core-ui/console-motion': motion,
       '@/browser/console-view': browserView, '@/browser/console-server': { loadConsoleBrowserWorkspace: async () => ({ status: 'ready', sessions: [], selectedSession: null }) },
       '@/components/console/console-work-pane': work, '@/components/console/console-populated-dashboard': populated, '@/components/console/console-compact-decisions': component,
+      '@/components/console/console-library-dashboard': { ConsoleLibraryDashboard: deny },
       '@/lib/core-ui/console-decisions-query': query, '@/lib/core-ui/console-decisions-data': { ...api, loadConsoleDecisionPage: async (ctx, options) => { pageReads.push(plain(options ?? {})); return api.loadConsoleDecisionPage(ctx, options); } },
       './terminal-review-actions': { acknowledgeTerminalCreativeReview: action },
       '@/components/stage7/workflow-visuals': visuals,

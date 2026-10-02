@@ -6,6 +6,8 @@ import { runInNewContext } from "node:vm";
 import path from "node:path";
 import { wire as browserMetadataWire } from "./console-browser-fixtures.mjs";
 import { rootCollectionFixture } from "./console-collection-root.mjs";
+import { rootLibraryFixture } from "./console-library-root.mjs";
+import { seed as librarySeed } from "./console-library-data-fixtures.mjs";
 
 const require = createRequire(import.meta.url);
 const ts = require("typescript");
@@ -185,6 +187,12 @@ export async function renderDashboard({ unavailable = false, empty = false, view
   });
   if (view === "work" || view === "activity") context.supabase = collectionFixture.context.supabase;
   const populated = collectionFixture.load("src/components/console/console-populated-dashboard.tsx");
+  const isBoundedLibrary = view === "library" && queryOverrides?.type !== "research";
+  // Shared navigation captures have no image transport. Dedicated Library
+  // journeys intercept exact synthetic signed PNGs and cover ready previews.
+  const libraryFixture = isBoundedLibrary ? rootLibraryFixture({ tables: librarySeed(1, rootRun.business_id), ownedBusinesses: context.businesses, businessesUnavailable, readOptions: { signResult: () => ({ data: [], error: null }) } }) : null;
+  if (libraryFixture) context.supabase = libraryFixture.context.supabase;
+  const boundedLibrary = libraryFixture ? libraryFixture.load("src/components/console/console-library-dashboard.tsx") : { ConsoleLibraryDashboard: noAction };
 
   const { default: Page } = loadSource("src/app/dashboard/page.tsx", {
     "next/navigation": { notFound: () => { throw new Error("Fixture record was not found"); } },
@@ -192,6 +200,7 @@ export async function renderDashboard({ unavailable = false, empty = false, view
     "@/components/console/console-motion": motionUi, "@/lib/core-ui/console-motion": motion,
     "@/browser/console-view": browserView, "@/browser/console-server": browserWire.server,
     "@/components/console/console-command": command, "@/components/console/console-work-pane": work, "@/components/console/console-populated-dashboard": populated, "@/components/guided/quest-kickoff": quest,
+    "@/components/console/console-library-dashboard": boundedLibrary,
     "@/components/guided/creative-library": library, "@/components/stage7/workflow-visuals": visuals,
     "@/lib/core-ui/data": { requireOwnerUiContext: async () => context, loadWorkflowCollection: async () => collection, loadWorkflowDetail: async (_context, id) => { assert.equal(id, run.id); return details; } },
     "@/lib/core-ui/run-outcome-data": { loadRunCostData: async () => costData },
@@ -220,6 +229,7 @@ export async function renderDashboard({ unavailable = false, empty = false, view
     ...(!omitBusinessQuery && (detail || businessFlow) ? { business: mismatchedBusiness || businessFlow ? otherBusiness.id : business.id } : {}), ...(sheet ? { sheet: "research" } : {}), ...queryOverrides };
   let tree = await Page({ searchParams: Promise.resolve(query) });
   if (React.isValidElement(tree) && tree.type?.name === "ConsolePopulatedDashboard") tree = await tree.type(tree.props);
+  if (React.isValidElement(tree) && tree.type?.name === "ConsoleLibraryDashboard") tree = await tree.type(tree.props);
   inspect?.(tree);
   reads.push(...browserWire.calls);
   return renderToStaticMarkup(tree);
@@ -415,7 +425,7 @@ export const fixtureRenderers = {
 export function fixtureDocument(markup, { creative = false, products = false } = {}) {
   // Match RootLayout's cascade exactly; creative imports Products' button styles.
   const styles = ["src/app/globals.css", "src/app/stage1.css", "src/app/stage3.css", "src/app/stage7.css", "src/app/stage7-mobile.css", "src/app/stage8.css", "src/components/guided/work-context.css", "src/components/guided/creative-library.css", "src/components/guided/run-outcome.css",
-    "src/components/console/console-shell.css", "src/components/console/console-overview.css", "src/components/console/console-browser-centre.css", "src/components/console/console-command.css", "src/components/console/console-motion.css", "src/components/console/console-panes.css", "src/components/console/console-compact-decisions.css", "src/components/console/console-collection-panes.css",
+    "src/components/console/console-shell.css", "src/components/console/console-overview.css", "src/components/console/console-browser-centre.css", "src/components/console/console-command.css", "src/components/console/console-motion.css", "src/components/console/console-panes.css", "src/components/console/console-compact-decisions.css", "src/components/console/console-collection-panes.css", "src/components/console/console-library-pane.css",
     "src/app/dashboard/accounts/accounts.css", "src/app/dashboard/products/products.css",
     ...(creative || products ? ["src/app/dashboard/products/products.css"] : []),
     ...(creative ? ["src/app/dashboard/artifacts/artifacts.css"] : []), ...(products ? ["src/components/guided/quest-kickoff.css"] : []),

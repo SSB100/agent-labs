@@ -430,6 +430,39 @@ function toolbarHarness(href = "/dashboard?view=work", options = {}) {
   const url = new URL(href, "https://fixture.invalid"); fixture.view.location = { pathname: url.pathname, search: url.search, hash: url.hash };
   return { ...fixture, fields, toolbar, values: () => Object.fromEntries(fields.map(field => [field.name, field.value])), settle: () => { fixture.flushTimers(); fixture.flush(); } };
 }
+test("Library native GET defaults and record aliases share only their exact canonical history scope", () => {
+  const key = href => scroll.consoleCollectionScrollKey("owner", href);
+  assert.equal(key("/dashboard?view=library"), key("/dashboard?view=library&type=designs&q=&business=&sort=newest&page=01&pageSize=025&mediaType=all&artifactType=all"));
+  assert.equal(key(`/dashboard?view=library&type=records&artifact=${id(42)}`), key(`/dashboard?view=library&type=records&selected=${id(42)}`));
+  assert.notEqual(key(`/dashboard?view=library&type=records&artifact=${id(42)}&selected=${id(43)}`), key(`/dashboard?view=library&type=records&selected=${id(43)}`));
+  assert.notEqual(key("/dashboard?view=library&type=records"), key("/dashboard?view=library"));
+  const lower = "abcdefab-cdef-4abc-8def-abcdefabcdef", upper = lower.toUpperCase();
+  assert.equal(key(`/dashboard?view=library&type=records&selected=${lower}`), key(`/dashboard?view=library&type=records&selected=${upper}&artifact=${lower}`));
+  assert.equal(key(`/dashboard?view=library&creativeRun=${lower}&business=${lower}`), key(`/dashboard?view=library&creativeRun=${upper}&business=${upper}`));
+});
+test("Library exact creative-run selection retains page/filter scope and clears only selection for list fallback", () => {
+  const list = `/dashboard?view=library&business=${id(1)}&page=3&q=trees`;
+  assert.equal(scroll.consoleCollectionScrollKey("owner", list, true), scroll.consoleCollectionScrollKey("owner", `${list}&creativeRun=${id(1000)}`, true));
+  assert.notEqual(scroll.consoleCollectionScrollKey("owner", list), scroll.consoleCollectionScrollKey("owner", `${list}&creativeRun=${id(1000)}`));
+  assert.notEqual(scroll.consoleCollectionScrollKey("owner", list, true), scroll.consoleCollectionScrollKey("owner", list.replace("page=3", "page=2"), true));
+});
+test("Library MIME/type history restores URL values and a new filter edit cancels queued restoration", () => {
+  const href = "/dashboard?view=library&type=records&mediaType=application%2Fjson&artifactType=creative.image", fixture = toolbarHarness(href);
+  fixture.fields.push({ name: "mediaType", value: "wrong" }, { name: "artifactType", value: "wrong" });
+  const cleanup = scroll.mountConsoleCollectionScroll(fixture.root, "owner", href, fixture.view); fixture.settle();
+  assert.equal(fixture.values().mediaType, "application/json"); assert.equal(fixture.values().artifactType, "creative.image");
+  fixture.view.dispatchEvent(new Event("popstate"));
+  fixture.fields.find(field => field.name === "mediaType").value = "text/plain"; fixture.toolbar.dispatchEvent(new Event("change")); fixture.settle();
+  assert.equal(fixture.values().mediaType, "text/plain"); cleanup();
+});
+test("fresh narrow exact Library failures reveal their own status instead of hiding below the results", () => {
+  for (const status of ["missing", "unavailable"]) for (const width of [390, 640, 1000]) {
+    const href = `/dashboard?view=library&selected=${id(1000)}`, fixture = toolbarHarness(href, { selected: true, width });
+    fixture.detail.dataset.consoleSelection = status; let reveals = 0; fixture.detail.scrollIntoView = () => { reveals++; };
+    const cleanup = scroll.mountConsoleCollectionScroll(fixture.root, "owner", href, fixture.view); fixture.settle();
+    assert.equal(reveals, 1, `${status} at ${width}`); cleanup();
+  }
+});
 test("toolbar reconciles native Back after browser form restoration without changing focus or scroll", () => {
   const href = "/dashboard?view=work", fixture = toolbarHarness(href);
   const cleanup = scroll.mountConsoleCollectionScroll(fixture.root, "owner", href, fixture.view); fixture.settle();
