@@ -27,7 +27,7 @@ export function loadSource(file, dependencies = {}) {
   const fixtureModule = { exports: {} };
   let sequence = 0;
   const crypto = { ...require("node:crypto"), randomUUID: () => `00000000-0000-4000-8000-${String(++sequence).padStart(12, "0")}` };
-  runInNewContext(`(function(require,module,exports){${code}\n})`, { Date: FixtureDate, crypto, Buffer, URL, structuredClone, process: { env: { AGENTLABS_GUIDED_UI: "guided", NODE_ENV: "test" } } })(name => {
+  runInNewContext(`(function(require,module,exports){${code}\n})`, { Date: FixtureDate, crypto, Buffer, URL, URLSearchParams, structuredClone, process: { env: { AGENTLABS_GUIDED_UI: "guided", NODE_ENV: "test" } } })(name => {
     if (name === "react/jsx-runtime") return require(name);
     if (name === "react") return React;
     if (name === "react-dom") return require(name);
@@ -49,7 +49,7 @@ export const definition = {
   ] },
 };
 export const run = {
-  id: "fixture-workflow", business_id: business.id, workflow_definition_id: definition.id, status: "needs_owner", current_stage_key: "review",
+  id: "00000000-0000-4000-8000-000000000902", business_id: business.id, workflow_definition_id: definition.id, status: "needs_owner", current_stage_key: "review",
   input: {}, state: {}, runtime_provider: "vercel_workflow", runtime_run_id: "fixture-runtime", started_at: "2026-10-02T02:45:00.000Z",
   completed_at: null, created_at: "2026-10-02T02:45:00.000Z", updated_at: "2026-10-02T02:58:00.000Z",
 };
@@ -87,29 +87,84 @@ export function components() {
   const live = loadSource("src/components/stage7/live-refresh.tsx", {
     "next/navigation": { useRouter: () => ({ refresh: noAction }) }, "@/lib/supabase/client": { createClient: noAction },
   });
-  const guided = loadSource("src/components/guided/guided-shell.tsx", {
-    "@/components/stage7/icons": icons, "@/components/stage7/live-refresh": live, "./guided-shell.css": {},
+  const consoleShell = loadSource("src/components/console/console-shell.tsx", {
+    "@/components/stage7/icons": icons, "@/components/stage7/live-refresh": live, "./console-shell.css": {},
   });
-  const shell = loadSource("src/components/stage7/app-shell.tsx", { "./icons": icons, "./live-refresh": live, "@/lib/core-ui/workflows": workflows, "@/components/guided/guided-shell": guided });
+  const shell = loadSource("src/components/stage7/app-shell.tsx", { "./icons": icons, "./live-refresh": live, "@/lib/core-ui/workflows": workflows, "@/components/console/console-shell": consoleShell });
   const visuals = loadSource("src/components/stage7/workflow-visuals.tsx", {
     "@/app/dashboard/actions": { resumeSyntheticReview: noAction }, "@/app/dashboard/packs/actions": { acknowledgeEtsySimulation: noAction },
     "@/app/dashboard/browser-actions": { resumeBrowserControl: noAction }, "@/lib/core-ui/workflows": workflows,
     "./icons": icons, "./app-shell": shell,
   });
-  return { workflows, icons, live, shell, visuals };
+  return { workflows, icons, live, shell, visuals, consoleShell };
 }
 
-export async function renderDashboard({ unavailable = false, empty = false } = {}) {
-  const { shell, visuals, icons, workflows } = components();
+export async function renderDashboard({ unavailable = false, empty = false, view = "overview", detail = false, sheet = false } = {}) {
+  const { shell, visuals, icons, workflows, consoleShell } = components();
   const context = ownerContext({ needsYouCount: unavailable || empty ? 0 : 1, needsYouUnavailable: unavailable });
   const collection = unavailable || empty ? workflowCollection({ runs: [], definitions: [], stages: [], events: [], interventions: [], errors: unavailable ? ["Synthetic workflow read unavailable"] : [] }) : workflowCollection();
-  const { default: Page } = loadSource("src/app/dashboard/page.tsx", {
-    "@/components/stage7/app-shell": shell, "@/components/stage7/workflow-visuals": visuals, "@/components/stage7/icons": icons,
-    "@/lib/core-ui/data": { requireOwnerUiContext: async () => context, loadWorkflowCollection: async () => collection },
-    "@/lib/core-ui/workflows": workflows, "@/lib/supabase/env": { isSupabaseAdminConfigured: () => true },
-    "./actions": { createBusiness: noAction, startSyntheticWorkflow: noAction },
+  const accounts = { businessId: business.id, configured: false, unavailable, profile: null, accounts: [], runs: [], healthEvents: [], registrationAvailable: false };
+  const products = { candidates: [], experiments: [], decisions: [], errors: [] };
+  const costData = { costs: { businessId: business.id, workflowRunId: run.id, source: "model", calls: unavailable ? { status: "unavailable" } : { status: "ready", records: [{ providerRequestId: "fixture-receipt", reportedUsd: .0182 }] } } };
+  const questDraft = loadSource("src/lib/core-ui/quest-draft.ts");
+  const quest = loadSource("src/components/guided/quest-kickoff.tsx", {
+    "@/app/dashboard/products/discovery-actions": { startGeographicDiscovery: noAction }, "@/lib/core-ui/quest-draft": questDraft, "./quest-kickoff.css": {},
   });
-  return renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }));
+  const command = loadSource("src/components/console/console-command.tsx", {
+    "next/navigation": { useRouter: () => ({ push: noAction }) }, "@/lib/core-ui/quest-draft": questDraft, "./console-command.css": {},
+  });
+  const overview = loadSource("src/components/console/console-overview.tsx", { "@/components/stage7/icons": icons, "@/lib/core-ui/workflows": workflows, "./console-overview.css": {} });
+  const outcomes = loadSource("src/lib/core-ui/run-outcome.ts", { "./workflows": workflows });
+  const outcomeUi = loadSource("src/components/guided/run-outcome.tsx", { "@/lib/core-ui/run-outcome": outcomes, "./run-outcome.css": {} });
+  const workContext = loadSource("src/components/guided/work-context.tsx", { "@/lib/core-ui/workflows": workflows, "./work-context.css": {} });
+  const work = loadSource("src/components/console/console-work-pane.tsx", {
+    "@/components/stage7/app-shell": shell, "@/components/stage7/workflow-visuals": visuals, "@/lib/core-ui/workflows": workflows,
+    "@/components/guided/run-outcome": outcomeUi, "@/components/guided/work-context": workContext,
+  });
+  const costs = loadSource("src/creative/cost-display.ts");
+  const library = loadSource("src/components/guided/creative-library.tsx", { "@/creative/cost-display": costs, "./creative-library.css": {} });
+  const accountUi = loadSource("src/app/dashboard/accounts/account-workspace.tsx", {
+    "@/accounts/contracts": loadSource("src/accounts/contracts.ts"), "@/components/stage7/app-shell": shell,
+    "./actions": Object.fromEntries(["saveBusinessAccountProfile", "requestAccountSetup", "approveReviewedAccountSetup", "cancelAccountSetup", "resumeVerifiedAccountSetup", "disconnectBusinessAccount", "startApprovedAccountRegistration", "finishOwnerRegistrationSession", "removeOwnerWebsitePassword"].map(name => [name, noAction])),
+  });
+  const consoleData = loadSource("src/lib/core-ui/console-data.ts", { "@/products/discovery-v2-goal": {}, "@/products/discovery-v2-budget": {} });
+  const goalUi = loadSource("src/components/stage13/discovery-goal-workspace.tsx", {
+    "./products-workspace": { ProductSubmitButton: noAction }, "@/app/dashboard/products/discovery-actions": {}, "@/products/discovery-v2-goal": {},
+  });
+  const details = { ...collection, run, definition, business };
+  const { default: Page } = loadSource("src/app/dashboard/page.tsx", {
+    "next/navigation": { notFound: () => { throw new Error("Fixture record was not found"); } },
+    "@/components/console/console-shell": consoleShell, "@/components/console/console-overview": overview,
+    "@/components/console/console-command": command, "@/components/console/console-work-pane": work, "@/components/guided/quest-kickoff": quest,
+    "@/components/guided/creative-library": library, "@/components/stage7/workflow-visuals": visuals,
+    "@/lib/core-ui/data": { requireOwnerUiContext: async () => context, loadWorkflowCollection: async () => collection, loadWorkflowDetail: async (_context, id) => { assert.equal(id, run.id); return details; } },
+    "@/lib/core-ui/run-outcome-data": { loadRunCostData: async () => costData },
+    "@/lib/core-ui/console-data": { ...consoleData, loadConsoleResearchQuote: async () => ({ one: 370395, two: 530914, verifiedAt: fixtureTime }) },
+    "@/accounts/server": { loadAccountWorkspace: async () => accounts, loadAccountSetupInterventions: async () => ({ records: [], unavailable }) },
+    "@/etsy-publication/server": { loadPublicationInterventions: async () => ({ records: [], unavailable }) },
+    "@/printful/server": { loadPrintfulProductInterventions: async () => ({ records: [], unavailable }) },
+    "@/creative/data": { loadCreativeWorkspace: async () => creativeLibraryFixture() },
+    "@/products/data": { loadProductWorkspace: async () => products },
+    "@/products/discovery-v2-data": { loadDiscoveryGoalData: async () => ({ available: true, records: [], errors: [] }) },
+    "@/components/stage13/discovery-goal-workspace": goalUi, "./accounts/account-workspace": accountUi,
+    "./actions": { createBusiness: noAction }, "./legacy-dashboard": noAction,
+    "@/components/console/console-panes.css": {}, "./accounts/accounts.css": {}, "./products/products.css": {},
+  });
+  const query = { view, ...(detail ? { run: run.id, business: business.id } : {}), ...(sheet ? { sheet: "research" } : {}) };
+  return renderToStaticMarkup(await Page({ searchParams: Promise.resolve(query) }));
+}
+
+function creativeLibraryFixture() {
+  const hash = "a".repeat(64), briefHash = "b".repeat(64);
+  const approval = { id: "fixture-approval", business_id: business.id, candidate_id: "fixture-candidate", purpose: "technical_qualification", maximum_microusd: 550000,
+    approved_at: fixtureTime, expires_at: "2026-10-03T03:00:00.000Z", snapshot: { concept: "Synthetic mountain geometry", maximumGenerations: 1,
+      printSpecification: { garment: "Synthetic fixture garment", placement: "large_front", designWidthInches: 6.5, designHeightInches: 6.5, background: "opaque" } } };
+  const creativeRun = { id: "fixture-creative-run", business_id: business.id, workflow_run_id: run.id, approval_id: approval.id, productionReady: false };
+  const preview = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024"><rect width="1024" height="1024" fill="#102837"/><circle cx="740" cy="245" r="92" fill="#e9c379"/><path d="M90 790 385 285 670 790Z" fill="#5bb9c2"/><path d="m360 790 285-385 290 385Z" fill="#3b738c"/><text x="512" y="915" text-anchor="middle" font-family="sans-serif" font-size="32" fill="#c3dce8">SYNTHETIC UI FIXTURE</text></svg>');
+  const asset = { id: "fixture-asset", business_id: business.id, creative_run_id: creativeRun.id, candidate_id: approval.candidate_id, version: 1, model: "Synthetic fixture", provider: "Offline test", generated_at: fixtureTime,
+    signedUrl: preview, asset_hash: hash, brief_hash: briefHash, prompt: "A synthetic geometric mountain for a read-only UI fixture.",
+    inspection: { sha256: hash, width: 1024, height: 1024, bytes: 24000, effectiveDpi: 157.5, colorSpace: "srgb", mediaType: "image/png", failedCriteria: [] } };
+  return { approvals: [approval], runs: [creativeRun], assets: [asset], reviews: [], costs: [], costsAvailable: true, errors: [], retainedSources: [] };
 }
 
 export async function renderWorkflows({ ended = false, mismatchedTask = false } = {}) {
@@ -189,6 +244,7 @@ export async function renderCreative() {
   });
   const { default: Page } = loadSource("src/app/dashboard/artifacts/page.tsx", {
     "@/components/stage7/app-shell": shell, "@/components/stage13/products-workspace": { ProductSubmitButton },
+    "@/components/guided/creative-library": loadSource("src/components/guided/creative-library.tsx", { "@/creative/cost-display": loadSource("src/creative/cost-display.ts"), "./creative-library.css": {} }),
     "next/navigation": { notFound: () => { throw new Error("Fixture Business was not found"); } },
     "@/creative/data": { loadCreativeWorkspace: async () => ({ approvals: [], runs: [], assets: [], reviews: [], costs: [], costsAvailable: true, errors: [] }), loadProductionCandidates: async () => ({ candidates: [], errors: [] }) },
     "@/creative/cost-display": loadSource("src/creative/cost-display.ts"),
@@ -275,13 +331,19 @@ export async function renderProducts() {
 }
 
 export const fixtureRenderers = {
-  dashboard: () => renderDashboard(), "dashboard-unavailable": () => renderDashboard({ unavailable: true }),
-  "dashboard-empty": () => renderDashboard({ empty: true }), workflows: () => renderWorkflows(), decisions: renderDecisions, timelines: renderTimelines, creative: renderCreative, "navigation-unavailable": renderUnknownNavigation, "work-context": renderWorkContext, products: renderProducts,
+  dashboard: () => renderDashboard(), "dashboard-unavailable": () => renderDashboard({ unavailable: true }), "dashboard-empty": () => renderDashboard({ empty: true }),
+  "console-work": () => renderDashboard({ view: "work" }), "console-run": () => renderDashboard({ view: "work", detail: true }),
+  "console-library": () => renderDashboard({ view: "library" }), "console-decisions": () => renderDashboard({ view: "decisions" }),
+  "console-connections": () => renderDashboard({ view: "connections" }), "console-activity": () => renderDashboard({ view: "activity" }),
+  "console-advanced": () => renderDashboard({ view: "advanced" }),
+  timelines: renderTimelines, creative: renderCreative, "navigation-unavailable": renderUnknownNavigation, "work-context": renderWorkContext, products: renderProducts,
 };
 
 export function fixtureDocument(markup, { creative = false, products = false } = {}) {
   // Match RootLayout's cascade exactly; creative imports Products' button styles.
-  const styles = ["src/app/globals.css", "src/app/stage1.css", "src/app/stage3.css", "src/app/stage7.css", "src/app/stage7-mobile.css", "src/app/stage8.css", "src/components/guided/work-context.css", "src/components/guided/guided-shell.css",
+  const styles = ["src/app/globals.css", "src/app/stage1.css", "src/app/stage3.css", "src/app/stage7.css", "src/app/stage7-mobile.css", "src/app/stage8.css", "src/components/guided/work-context.css", "src/components/guided/creative-library.css", "src/components/guided/run-outcome.css",
+    "src/components/console/console-shell.css", "src/components/console/console-overview.css", "src/components/console/console-command.css", "src/components/console/console-panes.css",
+    "src/app/dashboard/accounts/accounts.css", "src/app/dashboard/products/products.css",
     ...(creative || products ? ["src/app/dashboard/products/products.css"] : []),
     ...(creative ? ["src/app/dashboard/artifacts/artifacts.css"] : []), ...(products ? ["src/components/guided/quest-kickoff.css"] : []),
   ].map(file => readFileSync(path.join(root, file), "utf8")).join("\n");

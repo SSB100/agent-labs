@@ -46,3 +46,11 @@ A research detail gets its goal from the matching same-Business, same-run produc
 Route mapping preserves `/dashboard`, `/dashboard/workflows`, `/dashboard/products`, `/dashboard/artifacts`, `/dashboard/needs-you`, `/dashboard/accounts`, `/dashboard/history`, `/dashboard/packs`, `/dashboard/settings`, `/dashboard/worker-proof`, `/dashboard/model-router` and `/dashboard/worker-evaluations`. Printful and Etsy remain linked from Connections and contextual stage requirements. Provider and security settings are unchanged.
 
 Phase 2 requires real client hydration tests for Back/reload, local draft ownership, quote/consent changes, duplicate submission, focus and responsive layouts. Their server action is a synthetic in-memory stub and all browser networking is blocked; no live paid research is part of UI release verification.
+
+## Updated visual direction: compact single-page console
+
+On 2026-10-02 the owner replaced the spacious-card direction with a supplied Jarvis control-panel reference. The pending PR40 remains unreleased until the compact screenshot is compared with that reference. The new default is a viewport-bound three-row console with a180px rail,48px status/command bars, thin cyan framing, native SVG orb, concise actual work state, decision/activity feed, worker receipts, costs, connection records and saved outputs. Desktop panels scroll internally; narrow layouts use readable wrapping navigation and normal page scrolling.
+
+Primary tabs share `/dashboard?view=...`; `run` selects an owned saved run and `sheet=research` opens a native modal with the existing bounded research form. Close/Back preserve the underlying view. The command entry only prepares the supported research draft, with explicit approval before any paid work. Voice, CPU, memory, fictitious agents and unsupported general chat are not displayed.
+
+Cost panels use complete same-Business/run-scoped ledgers and exact creative-run joins; provider-reported amounts, reservations, allowance and unknown charges stay separate. Read-only tests use synthetic data. This direction supersedes the earlier spacious shell descriptions, while retaining their truth/consent improvements and legacy navigation fallback.

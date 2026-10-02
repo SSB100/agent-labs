@@ -87,10 +87,12 @@ export default async function WorkflowsPage({ searchParams }: WorkflowsPageProps
     <AppShell active="workflows" context={context}>
       <PageHeader
         actions={
-          <div className="segmentedControl" aria-label="Workflow view">
+          <div className="guidedWorkActions">
             <Link className="coreButton coreButton-primary" href="/dashboard/products#discovery-goal">New research quest</Link>
+            <div className="segmentedControl" aria-label="Workflow view">
             <Link className={view === "all" ? "active" : ""} href="/dashboard/workflows">All</Link>
             <Link className={view === "active" ? "active" : ""} href="/dashboard/workflows?view=active">Active</Link>
+            </div>
           </div>
         }
         description="Follow a research goal, review what it produced, or inspect its saved workflow."

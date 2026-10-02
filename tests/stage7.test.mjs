@@ -119,5 +119,8 @@ test("Stage 7 keeps owner decisions visually prominent and safely routed", () =>
   assert.match(actions, /\/dashboard\/workflows\/\$\{intervention\.workflow_run_id\}/);
   assert.match(needsYou, /Open queue/);
   assert.match(needsYou, /Nothing needs your attention/);
-  assert.match(dashboard, /Waiting for your decision/);
+  assert.match(dashboard, /<ConsoleOverview/);
+  const consoleOverview = read("src/components/console/console-overview.tsx");
+  assert.match(consoleOverview, /Decisions &amp; activity|Decisions & activity/);
+  assert.match(consoleOverview, /Recommended next step/);
 });

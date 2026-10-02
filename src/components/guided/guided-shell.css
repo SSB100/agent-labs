@@ -96,3 +96,5 @@
 .guidedShell .needsYouCopy p:not(.coreEyebrow){font-size:1rem;line-height:1.6}.guidedShell .needsYouCopy>.coreEyebrow{font-size:.8125rem;line-height:1.5}.guidedShell .visualTimeline{grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}.guidedShell .visualStage strong{overflow-wrap:normal}.guidedShell .segmentedControl{flex-wrap:wrap}.guidedShell .creativeMuted{font-size:.875rem}
 
 .guidedSidebar{scrollbar-width:thin;scrollbar-color:var(--guided-border) transparent}.guidedShell .workflowProgressPanel{background:var(--core-panel)}
+
+.guidedWorkActions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.guidedShell .segmentedControl a{min-height:44px;min-width:44px;padding:8px 12px;font-size:.875rem;display:inline-flex;align-items:center;justify-content:center}

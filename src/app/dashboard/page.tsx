@@ -1,329 +1,80 @@
 import Link from "next/link";
-
-import {
-  AppShell,
-  EmptyPanel,
-  PageHeader,
-} from "@/components/stage7/app-shell";
-import {
-  ActivityFeed,
-  HistoryRow,
-  NeedsYouCard,
-  WorkflowListCard,
-} from "@/components/stage7/workflow-visuals";
-import { CoreIcon } from "@/components/stage7/icons";
-import {
-  loadWorkflowCollection,
-  requireOwnerUiContext,
-} from "@/lib/core-ui/data";
-import {
-  ACTIVE_WORKFLOW_STATUSES,
-  currentTask,
-  currentWorkerRun,
-  formatRelativeTime,
-  openIntervention,
-  interventionAction,
-  interventionDetailsHref,
-} from "@/lib/core-ui/workflows";
-import { isSupabaseAdminConfigured } from "@/lib/supabase/env";
-
-import { createBusiness, startSyntheticWorkflow } from "./actions";
+import { notFound } from "next/navigation";
+import { ConsoleShell, consoleAdvancedNavigation, type ConsoleView } from "@/components/console/console-shell";
+import { ConsoleOverview } from "@/components/console/console-overview";
+import { ConsoleCommandBar, ConsoleResearchSheet } from "@/components/console/console-command";
+import { ConsoleWorkPane } from "@/components/console/console-work-pane";
+import { QuestKickoff } from "@/components/guided/quest-kickoff";
+import { CreativeLibrary } from "@/components/guided/creative-library";
+import { ActivityFeed, NeedsYouCard } from "@/components/stage7/workflow-visuals";
+import { loadWorkflowCollection, loadWorkflowDetail, requireOwnerUiContext } from "@/lib/core-ui/data";
+import { loadRunCostData } from "@/lib/core-ui/run-outcome-data";
+import { consoleConnectionSummary, consoleCostSummary, loadConsoleObservationTime, loadConsoleResearchQuote } from "@/lib/core-ui/console-data";
+import { loadAccountSetupInterventions, loadAccountWorkspace } from "@/accounts/server";
+import { loadPublicationInterventions } from "@/etsy-publication/server";
+import { loadPrintfulProductInterventions } from "@/printful/server";
+import { loadCreativeWorkspace } from "@/creative/data";
+import { loadProductWorkspace } from "@/products/data";
+import { loadDiscoveryGoalData } from "@/products/discovery-v2-data";
+import { DiscoveryGoalResults } from "@/components/stage13/discovery-goal-workspace";
+import { BusinessAccountWorkspace } from "./accounts/account-workspace";
+import { createBusiness } from "./actions";
+import LegacyDashboard from "./legacy-dashboard";
+import "@/components/console/console-panes.css";
+import "./accounts/accounts.css";
+import "./products/products.css";
 
 export const dynamic = "force-dynamic";
-
-type DashboardPageProps = {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-};
-
-const messages: Record<string, string> = {
-  "business-created": "Business created.",
-  "review-approved": "Decision recorded. The workflow is resuming.",
-  "review-failed": "Failure decision recorded. The workflow is closing safely.",
-  "workflow-duplicate-prevented":
-    "A duplicate launch was prevented. The existing workflow remains authoritative.",
-  "workflow-started": "Durable workflow started.",
-};
-
-const errors: Record<string, string> = {
-  "business-create-failed": "The Business could not be created.",
-  "business-not-found": "The selected Business is unavailable.",
-  "invalid-business-name": "Use a Business name between 1 and 120 characters.",
-  "invalid-review-decision": "The review decision was invalid.",
-  "invalid-workflow-launch": "The workflow launch request was invalid.",
-  "review-not-open": "That review is no longer open.",
-  "review-resume-failed": "The workflow could not be resumed.",
-  "workflow-launch-failed": "The durable workflow could not be launched.",
-  "workflow-reservation-failed": "The workflow launch could not be reserved.",
-  "workflow-runtime-not-configured": "The durable workflow runtime is not configured.",
-};
-
-function first(value: string | string[] | undefined) {
-  return Array.isArray(value) ? value[0] : value;
-}
-
-export default async function DashboardPage({ searchParams }: DashboardPageProps) {
-  const context = await requireOwnerUiContext();
-  const collection = await loadWorkflowCollection(context, { limit: 50 });
-  const query = await searchParams;
-  const message = messages[first(query.message) ?? ""];
-  const error = errors[first(query.error) ?? ""];
-  const runtimeReady = isSupabaseAdminConfigured();
-
-  const businessById = new Map(context.businesses.map((business) => [business.id, business]));
-  const definitionById = new Map(
-    collection.definitions.map((definition) => [definition.id, definition]),
-  );
-  const workerDefinitionById = new Map(
-    collection.workerDefinitions.map((worker) => [worker.id, worker]),
-  );
-
-  const stagesByRun = new Map<string, typeof collection.stages>();
-  const eventsByRun = new Map<string, typeof collection.events>();
-  const interventionsByRun = new Map<string, typeof collection.interventions>();
-  const tasksByRun = new Map<string, typeof collection.tasks>();
-  const workerRunsByRun = new Map<string, typeof collection.workerRuns>();
-  const artifactsByRun = new Map<string, typeof collection.artifacts>();
-
-  for (const stage of collection.stages) {
-    const entries = stagesByRun.get(stage.workflow_run_id) ?? [];
-    entries.push(stage);
-    stagesByRun.set(stage.workflow_run_id, entries);
-  }
-  for (const event of collection.events) {
-    if (!event.workflow_run_id) continue;
-    const entries = eventsByRun.get(event.workflow_run_id) ?? [];
-    entries.push(event);
-    eventsByRun.set(event.workflow_run_id, entries);
-  }
-  for (const intervention of collection.interventions) {
-    if (!intervention.workflow_run_id) continue;
-    const entries = interventionsByRun.get(intervention.workflow_run_id) ?? [];
-    entries.push(intervention);
-    interventionsByRun.set(intervention.workflow_run_id, entries);
-  }
-  for (const task of collection.tasks) {
-    const entries = tasksByRun.get(task.workflow_run_id) ?? [];
-    entries.push(task);
-    tasksByRun.set(task.workflow_run_id, entries);
-  }
-  for (const workerRun of collection.workerRuns) {
-    const entries = workerRunsByRun.get(workerRun.workflow_run_id) ?? [];
-    entries.push(workerRun);
-    workerRunsByRun.set(workerRun.workflow_run_id, entries);
-  }
-  for (const artifact of collection.artifacts) {
-    if (!artifact.workflow_run_id) continue;
-    const entries = artifactsByRun.get(artifact.workflow_run_id) ?? [];
-    entries.push(artifact);
-    artifactsByRun.set(artifact.workflow_run_id, entries);
-  }
-
-  const activeRuns = collection.runs.filter((run) => ACTIVE_WORKFLOW_STATUSES.has(run.status));
-  const workUnavailable = collection.errors.length > 0 || context.businessesUnavailable === true;
-  const workingRuns = collection.runs.filter((run) => run.status === "running");
-  const completedRuns = collection.runs.filter((run) => run.status === "completed");
-  const openInterventions = collection.interventions.filter(
-    (intervention) => intervention.status === "open" && intervention.workflow_run_id,
-  );
-  const latestRuns = activeRuns.length ? activeRuns.slice(0, 3) : collection.runs.slice(0, 3);
-  const latestEvents = collection.events.slice(0, 8);
-  const firstDecision = openInterventions[0];
-  const decisionRun = firstDecision ? collection.runs.find((run) => run.id === firstDecision.workflow_run_id) : undefined;
-  const decisionAction = firstDecision ? interventionAction(firstDecision, decisionRun, decisionRun ? definitionById.get(decisionRun.workflow_definition_id) : undefined) : null;
-  const nextHref = workUnavailable ? "/dashboard/workflows" : firstDecision
-    ? decisionAction?.kind === "link" ? decisionAction.href : interventionDetailsHref(firstDecision)
-    : context.needsYouCount || context.needsYouUnavailable ? "/dashboard/needs-you" : activeRuns[0] ? `/dashboard/workflows/${activeRuns[0].id}` : context.businesses.length ? "/dashboard/products#discovery-goal" : "#create-business";
-  const nextLabel = workUnavailable ? "Check work status" : firstDecision ? firstDecision.intervention_type === "creative_review" ? "Review image issue" : decisionAction?.kind === "link" && decisionAction.section !== "details" ? decisionAction.label : "Review next decision" : context.needsYouCount || context.needsYouUnavailable ? "Review decisions" : activeRuns.length ? "Open current work" : context.businesses.length ? "Start a research goal" : "Create your workspace";
-
-  return (
-    <AppShell active="dashboard" context={context}>
-      <PageHeader
-        actions={
-          <Link className="coreButton coreButton-secondary" href="/dashboard/workflows">
-            All work
-          </Link>
-        }
-        description="Your current work, the latest useful result, and the next decision."
-        eyebrow="Your workspace"
-        title="Control centre"
-      />
-
-      {message ? <p className="coreNotice coreNotice-success" role="status">{message}</p> : null}
-      {error ? <p className="coreNotice coreNotice-danger" role="alert">{error}</p> : null}
-      {collection.errors.length ? (
-        <p className="coreNotice coreNotice-danger" role="alert">
-          Some durable workflow records could not be loaded.
-        </p>
-      ) : null}
-
-      <section className="overviewHero">
-        <div>
-          <p className="coreEyebrow">Private owner workspace</p>
-          <h2>
-            {workUnavailable
-              ? "Work status could not be confirmed."
-              : context.needsYouUnavailable
-              ? "Your decisions need a fresh check."
-              : context.needsYouCount
-              ? `${context.needsYouCount} decision${context.needsYouCount === 1 ? " needs" : "s need"} your attention.`
-              : workingRuns.length
-                ? `${workingRuns.length} workflow${workingRuns.length === 1 ? " is" : "s are"} working.`
-                : activeRuns.length
-                  ? "Your work is waiting for its next step."
-                : "Agent Labs is ready for the next workflow."}
-          </h2>
-          <p>
-            {workUnavailable
-              ? "Some saved records are unavailable. Check the existing work before starting another run."
-              : activeRuns.length
-              ? `The latest durable activity was ${formatRelativeTime(collection.events[0]?.occurred_at)}.`
-              : "Start with a bounded research goal. Review the supported scope and allowance before any work begins."}
-          </p>
-          <Link className="coreButton coreButton-primary" href={nextHref}>{nextLabel}</Link>
-        </div>
-
-      </section>
-
-
-      {openInterventions.length ? (
-        <section className="dashboardSection dashboardSection-attention">
-          <div className="sectionTitleRow">
-            <div><p className="coreEyebrow">Needs You</p><h2>Waiting for your decision</h2></div>
-            <Link href="/dashboard/needs-you">Open queue →</Link>
-          </div>
-          <div className="needsYouStack">
-            {openInterventions.slice(0, 2).map((intervention) => {
-              const run = collection.runs.find((entry) => entry.id === intervention.workflow_run_id);
-              const definition = run ? definitionById.get(run.workflow_definition_id) : undefined;
-              return (
-                <NeedsYouCard
-                  businessName={businessById.get(intervention.business_id)?.name}
-                  intervention={intervention}
-                  definition={definition}
-                  run={run}
-                  key={intervention.id}
-                  returnTo="/dashboard"
-                  workflowName={definition?.name}
-                />
-              );
-            })}
-          </div>
-        </section>
-      ) : null}
-
-      <div className="dashboardColumns">
-        <section className="dashboardSection">
-          <div className="sectionTitleRow">
-            <div>
-              <p className="coreEyebrow">Current work</p>
-              <h2>{activeRuns.length ? "Active workflows" : "Latest workflows"}</h2>
-            </div>
-            <Link href="/dashboard/workflows">All workflows →</Link>
-          </div>
-
-          {latestRuns.length ? (
-            <div className="workflowCardStack">
-              {latestRuns.map((run) => {
-                const workerRun = currentWorkerRun(workerRunsByRun.get(run.id) ?? []);
-                return (
-                  <WorkflowListCard
-                    unavailable={workUnavailable}
-                    artifactCount={(artifactsByRun.get(run.id) ?? []).length}
-                    business={businessById.get(run.business_id)}
-                    definition={definitionById.get(run.workflow_definition_id)}
-                    events={eventsByRun.get(run.id) ?? []}
-                    intervention={openIntervention(interventionsByRun.get(run.id) ?? [])}
-                    key={run.id}
-                    run={run}
-                    stages={stagesByRun.get(run.id) ?? []}
-                    task={currentTask(tasksByRun.get(run.id) ?? [])}
-                    workerRun={workerRun}
-                    workerDefinition={
-                      workerRun ? workerDefinitionById.get(workerRun.worker_definition_id) : null
-                    }
-                  />
-                );
-              })}
-            </div>
-          ) : (
-            <EmptyPanel icon="workflow" title={workUnavailable ? "Work records unavailable" : "No workflow activity yet"}>
-              <p>{workUnavailable ? "Existing runs and outputs may still exist. Check again before starting more work." : "Start a supported research goal to see its state update here."}</p>
-            </EmptyPanel>
-          )}
-        </section>
-
-        <ActivityFeed events={latestEvents} unavailable={workUnavailable} />
-      </div>
-
-      <details className="guidedDisclosure" open={!context.businesses.length && !context.businessesUnavailable}><summary>Manage workspaces<span>Business records and runtime demonstration</span></summary>
-      <div className="dashboardColumns dashboardColumns-lower">
-        <section className="dashboardSection">
-          <div className="sectionTitleRow">
-            <div><p className="coreEyebrow">Businesses</p><h2>Workspaces</h2></div>
-            <span className="coreCount">{context.businessesUnavailable ? "Unknown" : context.businesses.length}</span>
-          </div>
-          {context.businesses.length ? (
-            <div className="businessWorkspaceList">
-              {context.businesses.map((business) => {
-                const businessRuns = collection.runs.filter((run) => run.business_id === business.id);
-                const activeCount = businessRuns.filter((run) => ACTIVE_WORKFLOW_STATUSES.has(run.status)).length;
-                return (
-                  <article key={business.id}>
-                    <span className="businessGlyph"><CoreIcon name="building" /></span>
-                    <div>
-                      <h3>{business.name}</h3>
-                      <p>{activeCount} active · {businessRuns.length} total workflows</p>
-                    </div>
-                    <form action={startSyntheticWorkflow}>
-                      <input name="businessId" type="hidden" value={business.id} />
-                      <input name="idempotencyKey" type="hidden" value={`stage7:${crypto.randomUUID()}`} />
-                      <input name="launchNonce" type="hidden" value={crypto.randomUUID()} />
-                      <button className="coreButton coreButton-secondary coreButton-small" disabled={!runtimeReady} type="submit">
-                        Run workflow proof
-                      </button>
-                    </form>
-                  </article>
-                );
-              })}
-            </div>
-          ) : (
-            <EmptyPanel icon="building" title={context.businessesUnavailable ? "Business records unavailable" : "No Business yet"}>
-              <p>{context.businessesUnavailable ? "Your existing workspaces could not be checked. Please reload before creating another." : "Create your first private workspace."}</p>
-            </EmptyPanel>
-          )}
-        </section>
-
-        <section className="dashboardSection createBusinessPanel" id="create-business">
-          <div><p className="coreEyebrow">New workspace</p><h2>Create a Business</h2></div>
-          <p>Businesses keep workflows, artifacts, accounts, and future packs separated.</p>
-          <form action={createBusiness} className="coreForm">
-            <label htmlFor="business-name">Business name</label>
-            <input id="business-name" maxLength={120} name="name" placeholder="Business name" required type="text" />
-            <button className="coreButton coreButton-primary" disabled={context.businessesUnavailable} type="submit">Create Business</button>
-          </form>
-        </section>
-      </div>
-
-      </details>
-
-      {completedRuns.length ? (
-        <section className="dashboardSection dashboardHistoryPreview">
-          <div className="sectionTitleRow">
-            <div><p className="coreEyebrow">Recent outcomes</p><h2>History</h2></div>
-            <Link href="/dashboard/history">Full history →</Link>
-          </div>
-          <div className="historyList">
-            {completedRuns.slice(0, 4).map((run) => (
-              <HistoryRow
-                business={businessById.get(run.business_id)}
-                definition={definitionById.get(run.workflow_definition_id)}
-                key={run.id}
-                run={run}
-              />
-            ))}
-          </div>
-        </section>
-      ) : null}
-    </AppShell>
-  );
+const first = (value: string | string[] | undefined) => Array.isArray(value) ? value[0] : value;
+const views = new Set<ConsoleView>(["overview", "work", "library", "decisions", "connections", "activity", "advanced"]);
+const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+export default async function DashboardPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  if (process.env.AGENTLABS_GUIDED_UI === "legacy") return <LegacyDashboard searchParams={searchParams}/>;
+  const context = await requireOwnerUiContext(), query = await searchParams;
+  const observedAt = await loadConsoleObservationTime();
+  const proposedView = first(query.view) as ConsoleView | undefined;
+  const view = proposedView && views.has(proposedView) ? proposedView : "overview";
+  const runId = first(query.run), businessId = first(query.business), researchSheet = first(query.sheet) === "research";
+  if (runId && !uuid.test(runId)) notFound();
+  if (businessId && !context.businessesUnavailable && !context.businesses.some(business => business.id === businessId)) notFound();
+  const [collection, detail] = await Promise.all([loadWorkflowCollection(context, { limit: 80 }), view === "work" && runId ? loadWorkflowDetail(context, runId) : null]);
+  const selectedBusiness = context.businesses.find(business => business.id === (businessId ?? detail?.run.business_id)) ?? context.businesses[0];
+  const scopedContext = selectedBusiness ? { ...context, businesses: [selectedBusiness] } : context;
+  const current = new URLSearchParams({ view });
+  if (businessId) current.set("business", businessId);
+  if (view === "work" && runId) current.set("run", runId);
+  if (view === "library" && first(query.type) === "research") current.set("type", "research");
+  const returnTo = `/dashboard?${current.toString()}`;
+  const focusRun = detail?.run ?? collection.runs.find(run => collection.interventions.some(request => request.workflow_run_id === run.id && request.status === "open")) ?? collection.runs[0];
+  const focusDefinition = detail?.definition ?? collection.definitions.find(definition => definition.id === focusRun?.workflow_definition_id);
+  const [accounts, costs, products, creative, catalog, accountRequests, publicationRequests, printfulRequests] = await Promise.all([
+    (view === "overview" || view === "connections") && selectedBusiness ? loadAccountWorkspace(context, selectedBusiness.id) : null,
+    (view === "overview" || (view === "work" && detail)) && focusRun ? loadRunCostData(context, focusRun, focusDefinition) : null,
+    (view === "work" && detail) || (view === "library" && first(query.type) === "research") ? loadProductWorkspace(scopedContext, view === "work" ? runId : undefined) : null,
+    view === "library" && first(query.type) !== "research" ? loadCreativeWorkspace(scopedContext) : null,
+    researchSheet ? loadDiscoveryGoalData(scopedContext, []) : null,
+    view === "decisions" ? loadAccountSetupInterventions(context) : null,
+    view === "decisions" ? loadPublicationInterventions(context) : null,
+    view === "decisions" ? loadPrintfulProductInterventions(context) : null,
+  ]);
+  const discovery = view === "library" && products ? await loadDiscoveryGoalData(scopedContext, products.experiments) : null;
+  const quote = researchSheet || discovery ? await loadConsoleResearchQuote(scopedContext, catalog?.available === true || discovery?.available === true) : null;
+  const interventions = [...new Map([...collection.interventions, ...(publicationRequests?.records ?? []), ...(printfulRequests?.records ?? [])].map(item => [item.id, item])).values()].filter(item => item.status === "open");
+  const decisionUnavailable = collection.errors.length > 0 || publicationRequests?.unavailable || printfulRequests?.unavailable || accountRequests?.unavailable;
+  const group = (type: string) => type === "creative_review" ? "Needs a fix" : type.includes("reconcile") ? "Verify an existing result" : "Review request";
+  return <ConsoleShell active={view} context={context} workflowRunId={detail?.run.id} commandBar={<ConsoleCommandBar ownerId={context.userId} businessId={selectedBusiness?.id} returnTo={returnTo} unavailable={context.businessesUnavailable}/> }>
+    {view === "overview" ? <ConsoleOverview context={context} collection={collection} costs={consoleCostSummary(costs, "Selected recent run · reported receipts", focusRun?.id)} connections={consoleConnectionSummary(accounts, selectedBusiness?.name ?? "Business", observedAt)}/> : null}
+    {view === "work" ? <ConsoleWorkPane context={context} collection={collection} detail={detail} products={products ?? undefined} costs={costs}/> : null}
+    {view === "decisions" ? <section className="consolePane"><header className="consolePaneHeader"><div><h1>Decisions</h1><p>Exact requests, validation issues and uncertain results</p></div><span>{decisionUnavailable ? "Some records unavailable" : `${interventions.length + (accountRequests?.records.length ?? 0)} open`}</span></header><div className="consolePaneScroll">
+      {decisionUnavailable ? <p className="coreNotice" role="alert">Request completeness could not be checked. Known requests remain below.</p> : null}
+      {accountRequests?.records.length ? <section className="consoleDecisionGroup"><h2>Connections and access</h2>{accountRequests.records.map(request => <Link className="consoleWorkRow" key={request.runId} href={`/dashboard?view=connections&business=${request.businessId}`}><strong>{request.provider} · Review saved setup request</strong><span>{request.status}</span></Link>)}</section> : null}
+      {["Needs a fix", "Verify an existing result", "Review request"].map(title => { const records = interventions.filter(item => group(item.intervention_type) === title); return records.length ? <section className="consoleDecisionGroup" key={title}><h2>{title}</h2><div className="needsYouStack">{records.map(intervention => { const run = collection.runs.find(item => item.id === intervention.workflow_run_id); const definition = collection.definitions.find(item => item.id === run?.workflow_definition_id); return <NeedsYouCard key={intervention.id} intervention={intervention} run={run} definition={definition} businessName={context.businesses.find(business => business.id === intervention.business_id)?.name} workflowName={definition?.name} returnTo="/dashboard/needs-you"/>; })}</div></section> : null; })}
+      {!decisionUnavailable && !interventions.length && !accountRequests?.records.length ? <p>No open request is recorded.</p> : null}
+    </div></section> : null}
+    {view === "library" ? <section className="consolePane"><header className="consolePaneHeader"><div><h1>Library</h1><p>{selectedBusiness?.name ?? "Business context unavailable"} · saved outputs and evidence</p></div><div><Link className="consoleMiniAction" href={`/dashboard?view=library${selectedBusiness ? `&business=${selectedBusiness.id}` : ""}`}>Designs</Link>{" "}<Link className="consoleMiniAction" href={`/dashboard?view=library&type=research${selectedBusiness ? `&business=${selectedBusiness.id}` : ""}`}>Research</Link></div></header><div className="consolePaneScroll">{creative ? <CreativeLibrary data={creative} businesses={scopedContext.businesses} now={observedAt}/> : discovery ? <DiscoveryGoalResults data={discovery} quote={quote}/> : <p>Saved output records could not be checked.</p>}<p><Link className="consoleMiniAction" href={`/dashboard/artifacts${selectedBusiness ? `?business=${selectedBusiness.id}` : ""}`}>Exact creative approvals and receipts</Link></p></div></section> : null}
+    {view === "connections" ? <section className="consolePane"><header className="consolePaneHeader"><div><h1>Connections</h1><p>Saved account access is separate from permission to execute</p></div><Link href="/dashboard/accounts">Platform diagnostics</Link></header><div className="consolePaneScroll">{context.businesses.length > 1 ? <form method="get"><input type="hidden" name="view" value="connections"/><label>Business <select name="business" defaultValue={selectedBusiness?.id}>{context.businesses.map(business => <option value={business.id} key={business.id}>{business.name}</option>)}</select></label><button className="coreButton" type="submit">Choose</button></form> : null}{accounts ? <BusinessAccountWorkspace data={accounts}/> : <p>{context.businessesUnavailable ? "Business records are unavailable." : "Create a Business in Advanced before adding connections."}</p>}</div></section> : null}
+    {view === "activity" ? <section className="consolePane"><header className="consolePaneHeader"><div><h1>Recorded activity</h1><p>Recent persisted events · no invented live activity</p></div></header><div className="consolePaneScroll"><ActivityFeed events={collection.events} unavailable={collection.errors.length > 0}/></div></section> : null}
+    {view === "advanced" ? <section className="consolePane"><header className="consolePaneHeader"><div><h1>Advanced</h1><p>Qualification tools, detailed records and owner settings</p></div></header><div className="consolePaneScroll"><div className="consoleActionGrid">{consoleAdvancedNavigation.map(item => <Link key={item.href} href={item.href}>{item.label}<small>Open the existing protected workspace</small></Link>)}</div><details className="consoleDetails" id="workspace-setup" open={!context.businesses.length && !context.businessesUnavailable}><summary>Create a Business workspace</summary><form action={createBusiness} className="coreForm"><label htmlFor="console-business-name">Business name</label><input id="console-business-name" name="name" minLength={1} maxLength={120} required/><button className="coreButton coreButton-primary" disabled={context.businessesUnavailable} type="submit">Create workspace</button></form></details></div></section> : null}
+    {researchSheet ? <ConsoleResearchSheet returnTo={returnTo}><QuestKickoff ownerId={context.userId} businesses={scopedContext.businesses} businessesUnavailable={context.businessesUnavailable} available={catalog?.available === true} quote={quote}/></ConsoleResearchSheet> : null}
+  </ConsoleShell>;
 }

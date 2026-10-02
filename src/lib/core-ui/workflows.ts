@@ -377,7 +377,7 @@ export function currentWorkerSummary(
     currentStage.id === task.workflow_stage_run_id && currentStage.status === "running";
   const name = matchingWorker && workerDefinition?.id === workerRun.worker_definition_id
     ? workerDefinition.name : "Recorded worker";
-  const active = !workflowExecutionEnded(run) && run.status === "running" && matchingStage &&
+  const active = !workflowExecutionEnded(run) && run.status === "running" && task?.status === "running" && matchingStage &&
     workerRun?.status === "running" && !workerRun.completed_at;
   return active
     ? { active: true, value: name, detail: "Working on the current stage" }

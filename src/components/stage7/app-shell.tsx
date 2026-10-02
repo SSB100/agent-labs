@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { GuidedShell } from "@/components/guided/guided-shell";
+import { ConsoleShell } from "@/components/console/console-shell";
 import type { ReactNode } from "react";
 
 import { statusLabel, statusTone } from "@/lib/core-ui/workflows";
@@ -172,7 +172,7 @@ function LegacyAppShell({
 
 /** Presentation-only rollback; execution and owner guards are unchanged. */
 export function AppShell(props: AppShellProps) {
-  return process.env.AGENTLABS_GUIDED_UI === "legacy" ? <LegacyAppShell {...props} /> : <GuidedShell {...props} />;
+  return process.env.AGENTLABS_GUIDED_UI === "legacy" ? <LegacyAppShell {...props} /> : <ConsoleShell {...props} />;
 }
 
 export function PageHeader({
