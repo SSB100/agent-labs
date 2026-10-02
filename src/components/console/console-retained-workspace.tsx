@@ -44,9 +44,12 @@ export function ConsoleRetainedWorkspace({ ownerId, header, panels, initialPanel
       for (const field of fields()) if (field.value !== (field instanceof HTMLSelectElement ? [...field.options].find(option => option.defaultSelected)?.value ?? field.options[0]?.value : field.defaultValue) && field.value.length <= 50000) drafts[fieldKey(field)] = field.value;
       try { sessionStorage.setItem(key, JSON.stringify({ version: 2, scroll: node.scrollTop, drafts })); } catch { /* Optional tab-local continuity. */ }
     };
-    node.addEventListener("scroll", save, { passive: true }); node.addEventListener("input", save); window.addEventListener("pagehide", save);
-    return () => { save(); node.removeEventListener("scroll", save); node.removeEventListener("input", save); window.removeEventListener("pagehide", save); };
-  }, [scope, secure]);
+    node.addEventListener("scroll", save, { passive: true }); node.addEventListener("input", save); node.addEventListener("submit", save, true); window.addEventListener("pagehide", save);
+    // Next actions may reset uncontrolled fields before the redirected RSC tree commits.
+    // Input/submit listeners save before that reset; cleanup must not replace the draft
+    // with reset values. Restore on every committed server panel tree, including errors.
+    return () => { node.removeEventListener("scroll", save); node.removeEventListener("input", save); node.removeEventListener("submit", save, true); window.removeEventListener("pagehide", save); };
+  }, [scope, secure, panels]);
   const href = (id: string) => { const params = new URLSearchParams(query); params.set("panel", id); params.delete("message"); params.delete("error"); params.delete("toolPage"); return `${pathname}?${params}`; };
   return <div className="consoleRetained" ref={root}>
     <div className="consoleRetainedHeader">{header}{notice}</div>
