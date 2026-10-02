@@ -146,6 +146,86 @@ async function captureFailure(page, filename, testContext) {
 
 // Hosted CI only. Do not add a local path override or execute local Chromium.
 const enabled = process.env.CI === 'true' && process.env.GUIDED_UI_BROWSER === '1';
+test('hosted native GET Decisions filters restore URL, queue and exact selection on Back/Forward', { skip: !enabled, timeout: 120_000 }, async t => {
+  const browser = await chromium.launch({ headless: true });
+  const directory = path.resolve('test-results/guided-ui'); mkdirSync(directory, { recursive: true });
+  try {
+    for (const { width, height, label, slug } of decisionViewports.filter(viewport => [1280, 390].includes(viewport.width))) await t.test(`${label} native filter history`, async () => {
+      const fixture = createDecisionBrowserFixture(), notice = fixture.tables.owner_interventions[1];
+      // Mixed saved statuses make a stale Status select observably disagree with the queue.
+      for (const index of [130, 142]) fixture.tables.owner_interventions[index].status = 'resolved';
+      const savedTables = structuredClone(fixture.tables), savedEvents = structuredClone(fixture.events);
+      const secondBusiness = fixture.context().businesses[1].id, selectedRoute = decisionRoute(notice, '&page=3');
+      const context = await browser.newContext({ viewport: { width, height }, reducedMotion: 'reduce', serviceWorkers: 'block' });
+      const documents = [], denied = [], errors = [];
+      await context.route('**/*', async route => {
+        const request = route.request(), url = new URL(request.url());
+        if (url.origin === origin && url.pathname === '/dashboard' && request.method() === 'GET' && request.resourceType() === 'document' && url.searchParams.get('view') === 'decisions') {
+          documents.push(url.pathname + url.search);
+          return route.fulfill({ contentType: 'text/html', body: await decisionDocument(url.pathname + url.search, { fixture }) });
+        }
+        denied.push(`${request.method()} ${request.url()}`); return route.abort();
+      });
+      const page = await context.newPage(); page.on('pageerror', error => errors.push(error.message));
+      // Observe actual browser lifecycle events; never synthesize restoration or intercept submit.
+      await page.addInitScript(() => {
+        window.__nativeDecisionPageShows = [];
+        addEventListener('pageshow', event => window.__nativeDecisionPageShows.push({ persisted: event.persisted, trusted: event.isTrusted }));
+      });
+      const settle = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      const matchesSavedRoute = async (route, historyNavigation = false) => {
+        await page.waitForURL(origin + route); await page.waitForFunction(() => window.__decisionHydrated === true);
+        await settle();
+        const expected = await fixture.render(route), params = new URL(page.url()).searchParams;
+        assert.deepEqual([...params], [...new URL(route, origin).searchParams], 'The complete native query survives history traversal');
+        assert.equal(await page.locator('select[name=business]').inputValue(), expected.data.query.businessId ?? '');
+        assert.equal(await page.locator('select[name=status]').inputValue(), expected.data.query.status);
+        assert.deepEqual(await page.locator('.compactDecisionRow').evaluateAll(rows => rows.map(row => row.getAttribute('data-console-motion-id'))), expected.data.page.items.map(row => row.id));
+        assert.equal(await page.locator('[data-decision-count]').innerText(), `${expected.data.page.total} ${expected.data.query.status === 'open' ? 'open ' : ''}notices`);
+        assert.equal(await page.locator('.compactDecisionDetail').count(), expected.data.selection.status === 'found' ? 1 : 0);
+        if (expected.data.selection.status === 'found') assert.equal(await page.locator('.compactDecisionDetail').getAttribute('data-decision-id'), expected.data.selection.item.id);
+        assert.equal(params.get('decision'), expected.data.query.selectedId); assert.equal(params.get('page') ?? '1', String(expected.data.query.page));
+        assert.deepEqual(await page.evaluate(() => window.__decisionErrors), []);
+        assert.equal(await page.evaluate(() => window.__decisionRetained), false, 'This path must use native document navigation');
+        if (historyNavigation) assert.equal(await page.evaluate(() => window.__nativeDecisionPageShows.some(event => event.trusted) &&
+          (window.__nativeDecisionPageShows.some(event => event.persisted) || performance.getEntriesByType('navigation')[0]?.type === 'back_forward')), true,
+        'Back/Forward must be a real browser history restoration');
+      };
+      try {
+        const cases = [
+          { name: 'status', business: notice.business_id, status: 'all' },
+          { name: 'business', business: secondBusiness, status: 'open' },
+          { name: 'all-businesses', business: '', status: 'open' },
+        ];
+        for (const filter of cases) {
+          await page.goto(origin + selectedRoute); await matchesSavedRoute(selectedRoute);
+          const form = page.locator('.compactDecisionFilters'); assert.equal(await form.getAttribute('method'), 'get');
+          await form.locator('select[name=business]').selectOption(filter.business);
+          await form.locator('select[name=status]').selectOption(filter.status); await settle();
+          assert.equal(await form.locator('select[name=business]').inputValue(), filter.business, 'Hydrated Business edits stay editable before Apply');
+          assert.equal(await form.locator('select[name=status]').inputValue(), filter.status, 'Hydrated Status edits stay editable before Apply');
+          assert.equal(new URL(page.url()).searchParams.get('decision'), notice.id, 'Editing a filter does not navigate or alter exact selection');
+          const destination = `/dashboard?${new URLSearchParams({ view: 'decisions', business: filter.business, status: filter.status })}`;
+          const documentsBeforeSubmit = documents.length;
+          await Promise.all([page.waitForURL(origin + destination), form.getByRole('button', { name: 'Apply', exact: true }).click()]);
+          assert.equal(documents.length, documentsBeforeSubmit + 1, 'Apply sends a native GET document request');
+          await matchesSavedRoute(destination);
+          assert.equal(new URL(page.url()).searchParams.has('decision'), false); assert.equal(new URL(page.url()).searchParams.has('page'), false);
+          await page.goBack(); await matchesSavedRoute(selectedRoute, true);
+          await captureDecisionState(page, directory, `console-decisions-native-${filter.name}-back-${slug}`, width);
+          await page.goForward(); await matchesSavedRoute(destination, true);
+        }
+        assert.equal(fixture.rpcCalls.length, 0); assert.equal(fixture.hookCalls.length, 0); assert.equal(fixture.mutations.length, 0);
+        assert.deepEqual(fixture.tables, savedTables); assert.deepEqual(fixture.events, savedEvents);
+        assert.deepEqual(errors, []); assert.deepEqual(denied, []);
+      } catch (error) {
+        await captureFailure(page, path.join(directory, `console-decisions-native-filter-failure-${slug}.png`), t);
+        throw error;
+      } finally { await context.close(); }
+    });
+  } finally { await browser.close(); }
+});
+
 test('hosted real-root Decisions: compact viewports, exact selection, keyboard, pending, real-action errors and persisted review', { skip: !enabled, timeout: 240_000 }, async t => {
   const browser = await chromium.launch({ headless: true });
   const directory = path.resolve('test-results/guided-ui'); mkdirSync(directory, { recursive: true });
@@ -329,12 +409,45 @@ test('hosted retained React/Suspense Decisions lifecycle, account disclosure, fo
         if (width > 900) assert.ok(await page.locator('.compactDecisionRows').evaluate(node => Math.abs(node.scrollTop - window.__previousQueueScroll) <= 2));
         await commitAfter(() => page.evaluate(() => history.back())); await headingFocused();
         assert.equal(new URL(page.url()).searchParams.get('decision'), new URL(selectedHref, origin).searchParams.get('decision'));
-        // Default-valued controls must track new server props on retained transitions and Back.
+        // Fresh props for the unchanged route cannot discard unsubmitted hydrated edits.
+        const unchangedRoute = new URL(page.url()).pathname + new URL(page.url()).search;
         const secondBusiness = fixture.context().businesses[1].id;
+        await page.locator('select[name=business]').selectOption(secondBusiness); await page.locator('select[name=status]').selectOption('all');
+        await navigate(unchangedRoute);
+        assert.equal(await page.locator('select[name=business]').inputValue(), secondBusiness);
+        assert.equal(await page.locator('select[name=status]').inputValue(), 'all');
+        // A fresh edit after a restoration event wins over its queued animation frame.
+        await page.evaluate(() => {
+          dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
+          const status = document.querySelector('select[name=status]'); status.value = 'declined'; status.dispatchEvent(new Event('change', { bubbles: true }));
+        });
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        assert.equal(await page.locator('select[name=business]').inputValue(), secondBusiness);
+        assert.equal(await page.locator('select[name=status]').inputValue(), 'declined');
+        // Default-valued controls must track new server props on retained transitions and Back.
         await navigate(`/dashboard?view=decisions&business=${secondBusiness}&status=resolved`);
         assert.equal(await page.locator('select[name=business]').inputValue(), secondBusiness); assert.equal(await page.locator('select[name=status]').inputValue(), 'resolved');
         await navigate(queueStart); assert.equal(await page.locator('select[name=business]').inputValue(), ''); assert.equal(await page.locator('select[name=status]').inputValue(), 'open');
         await commitAfter(() => page.evaluate(() => history.back())); assert.equal(await page.locator('select[name=business]').inputValue(), secondBusiness); assert.equal(await page.locator('select[name=status]').inputValue(), 'resolved');
+        await navigate(`/dashboard?view=decisions&decision=${notice.id}`); await headingFocused();
+        // A history event can precede new server props. The old route must not overwrite live edits.
+        const nextNotice = fixture.tables.owner_interventions[140];
+        const nextRoute = decisionRoute(nextNotice, '&status=resolved');
+        await page.locator('select[name=business]').selectOption(secondBusiness); await page.locator('select[name=status]').selectOption('all');
+        const filterReadHeld = new Promise(resolve => { onReadHeld = resolve; }); releaseRead = 'hold';
+        const beforeFilterNavigation = await page.evaluate(() => window.__decisionRetainedRenderCount);
+        await page.evaluate(target => { history.pushState({}, '', target); dispatchEvent(new PopStateEvent('popstate')); }, nextRoute);
+        await filterReadHeld; await page.waitForFunction(() => window.__decisionReadPending === true);
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        assert.equal(await page.locator('.compactDecisionDetail').getAttribute('data-decision-id'), notice.id, 'Old props remain visible during the fixture read');
+        assert.equal(await page.locator('select[name=business]').inputValue(), secondBusiness, 'A mismatched old Business cannot overwrite the edit');
+        assert.equal(await page.locator('select[name=status]').inputValue(), 'all', 'A mismatched old Status cannot overwrite the edit');
+        assert.equal(typeof releaseRead, 'function'); releaseRead(); releaseRead = null;
+        await page.waitForFunction(previous => window.__decisionRetainedRenderCount > previous, beforeFilterNavigation);
+        await page.waitForFunction(() => document.querySelector('select[name=status]')?.value === 'resolved');
+        assert.equal(await page.locator('select[name=business]').inputValue(), secondBusiness);
+        assert.equal(await page.locator('.compactDecisionDetail').getAttribute('data-decision-id'), nextNotice.id);
+        assert.equal(page.url(), origin + nextRoute);
         await navigate(`/dashboard?view=decisions&decision=${notice.id}`); await headingFocused();
         // Background version refresh preserves the real root goal field and a native modal barrier.
         const goal = page.locator('#console-command-input');
@@ -364,6 +477,16 @@ test('hosted retained React/Suspense Decisions lifecycle, account disclosure, fo
         assert.equal(await page.locator('#decision-modal-focus-probe textarea').evaluate(node => node === document.activeElement), true);
         assert.equal(await page.locator('#decision-modal-focus-probe textarea').inputValue(), 'Preserve modal research draft');
         assert.equal(await page.evaluate(() => scrollY), modalScroll, 'A selected background notice cannot move an open native dialog');
+        // Reconcile browser-restored selects under the modal without touching its focus or draft.
+        await page.evaluate(business => {
+          document.querySelector('select[name=business]').value = business;
+          document.querySelector('select[name=status]').value = 'all';
+          dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
+        }, secondBusiness);
+        await page.waitForFunction(() => document.querySelector('select[name=business]')?.value === '' && document.querySelector('select[name=status]')?.value === 'open');
+        assert.equal(await page.locator('#decision-modal-focus-probe textarea').evaluate(node => node === document.activeElement), true);
+        assert.equal(await page.locator('#decision-modal-focus-probe textarea').inputValue(), 'Preserve modal research draft');
+        assert.equal(await page.evaluate(() => scrollY), modalScroll, 'Filter restoration cannot move an open native dialog');
         await page.evaluate(() => { const dialog = document.querySelector('#decision-modal-focus-probe'); dialog.close(); dialog.remove(); });
         await navigate(`/dashboard?view=decisions&decision=${notice.id}`); await headingFocused();
         assert.equal(await page.locator('.compactConnectionRequests a').count(), 50); await page.getByText('Connection requests could not be checked.', { exact: false }).waitFor();
