@@ -37,7 +37,7 @@ const messages: Record<string, string> = {
 export default async function EtsyPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const context = await requireOwnerUiContext(), query = await searchParams;
   const selection = typeof query.business === "string" ? query.business : null;
-  if (selection && (typeof selection !== "string" || !context.businesses.some(b => b.id === selection))) notFound();
+  if (query.business && (!selection || !context.businesses.some(b => b.id === selection))) notFound();
   const business = context.businessesUnavailable ? undefined : context.businesses.find(b => b.id === selection) ?? context.businesses[0];
   const message = typeof query.message === "string" ? messages[query.message] : null;
   let data: EtsyWorkspaceData | null = null;

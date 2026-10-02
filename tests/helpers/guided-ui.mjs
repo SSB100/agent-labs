@@ -37,6 +37,7 @@ export function loadSource(file, dependencies = {}) {
     if (name === "react-dom") return require(name);
     if (name === "node:crypto") return crypto;
     if (name === "next/link") return Link;
+    if (name === "next/navigation" && file === "src/components/stage13/products-workspace.tsx") return { usePathname:()=>"/dashboard/products", useSearchParams:()=>new URLSearchParams(), useRouter:()=>({push:noAction}) };
     if (name === "@/components/console/console-retained-workspace") return retainedFixture();
     assert.ok(Object.hasOwn(dependencies, name), `Unexpected guided UI dependency in ${file}: ${name}`);
     return dependencies[name];

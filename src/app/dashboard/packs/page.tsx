@@ -1,5 +1,6 @@
 import { ConsoleRetainedWorkspace, ConsoleRecentRows } from "@/components/console/console-retained-workspace";
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { AppShell, PageHeader, StatusPill } from "@/components/stage7/app-shell";
 import { requireOwnerUiContext } from "@/lib/core-ui/data";
 import type { PackRelease, PackSnapshot } from "@/packs/types";
@@ -11,12 +12,17 @@ type Installation = {id:string;business_id:string;root_pack_id:string;status:str
 
 export default async function PacksPage({searchParams}:{searchParams:Promise<Record<string,string|undefined>>}) {
   const context=await requireOwnerUiContext();
-  const [catalog,installed,params]=await Promise.all([
-    context.supabase.from("packs").select("id,status,manifest").eq("manifest->>frameworkVersion","1.0").order("pack_key").order("version"),
-    context.supabase.from("installed_packs").select("id,business_id,root_pack_id,status,snapshot").eq("status","active"),searchParams,
+  const params=await searchParams;
+  if(params.business && !context.businesses.some(b=>b.id===params.business)) notFound();
+  const selected=context.businesses.find(b=>b.id===params.business) ?? (context.businessesUnavailable ? undefined : context.businesses[0]);
+  const scopedBusinesses=selected ? [selected] : [];
+  const [catalog,installed]=await Promise.all([
+    context.supabase.from("packs").select("id,status,manifest").eq("manifest->>frameworkVersion","1.0").order("pack_key").order("version").limit(100),
+    context.supabase.from("installed_packs").select("id,business_id,root_pack_id,status,snapshot").eq("status","active").in("business_id",scopedBusinesses.map(b=>b.id)).order("id").limit(100),
   ]);
   const packs=(catalog.data??[]) as PackRelease[], installations=(installed.data??[]) as Installation[];
-  return <AppShell toolDestination="packs" active="packs" context={context}><ConsoleRetainedWorkspace ownerId={context.userId}  header={<><PageHeader eyebrow="System" title="Packs" description="Install capabilities, knowledge, workers, and workflows for each Business. Running workflows retain their starting versions." />
+  return <AppShell toolDestination="packs" active="packs" context={context} navigationBusinessId={selected?.id}><ConsoleRetainedWorkspace ownerId={context.userId}  notice={<p className="coreNotice">Loaded window: at most 100 catalog releases and 100 active installations. Complete history remains pending R06. Business: {selected?.name ?? "Unavailable"}</p>} header={<><PageHeader eyebrow="System" title="Packs" description="Install capabilities, knowledge, workers, and workflows for each Business. Running workflows retain their starting versions." />
+<form method="get"><input type="hidden" name="panel" value={params.panel ?? "catalog"}/><label>Business<select name="business" defaultValue={selected?.id}>{context.businesses.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select></label><button className="coreButton" disabled={!selected}>Select Business</button></form>
 {params.error && <p className="packNotice packNotice-error" role="alert">{params.error}</p>}
 {params.message && <p className="packNotice" role="status">{params.message}</p>}
 {(catalog.error||installed.error) && <p role="alert">The pack catalog could not be loaded.</p>}</>} panels={[{ id: "catalog", label: "Catalog", content: <><section className="dashboardSection">
@@ -25,7 +31,7 @@ export default async function PacksPage({searchParams}:{searchParams:Promise<Rec
         <div className="packCardHeading"><span className="coreEyebrow">{m.kind} · {m.ui.category}</span><StatusPill status={status}/></div>
         <h3>{m.name}</h3><p>{m.ui.summary}</p><small>{m.packKey} · {m.version}</small>
         <div className="packDependencies"><strong>Exact dependencies</strong>{m.dependencies.length?m.dependencies.map(d=><span key={d.packKey}>{d.packKey} @ {d.version}</span>):<span>No dependencies</span>}</div>
-        <div className="packCardActions">{context.businesses.map(b=>{
+        <div className="packCardActions">{scopedBusinesses.map(b=>{
           const active=installations.some(i=>i.business_id===b.id&&i.root_pack_id===id);
           return <form action={activatePack} key={b.id}><input type="hidden" name="businessId" value={b.id}/><input type="hidden" name="packId" value={id}/>
             <button type="submit" className="coreButton coreButton-primary" disabled={active||!["qualified","assisted","autonomous"].includes(status)}>{active?"Active":"Activate"} for {b.name}</button></form>;
@@ -55,7 +61,7 @@ export default async function PacksPage({searchParams}:{searchParams:Promise<Rec
 { id: "qualification", label: "Qualification", content: <>{packs.some(p=>p.manifest.packKey === "workflow.web-research") ? <section className="dashboardSection">
       <div className="sectionTitleRow"><div><p className="coreEyebrow">Live qualification</p><h2>Web Research</h2></div></div>
       <p>Verify public source collection and a linked Evidence Pack using the configured model route.</p>
-      <div className="packCardActions">{context.businesses.map(b=><form action={qualifyWebResearch} key={b.id}>
+      <div className="packCardActions">{scopedBusinesses.map(b=><form action={qualifyWebResearch} key={b.id}>
         <input type="hidden" name="businessId" value={b.id}/><input type="hidden" name="idempotencyKey" value={`research-qualification:${crypto.randomUUID()}`}/>
         <button className="coreButton coreButton-primary" type="submit">Qualify Web Research for {b.name}</button>
       </form>)}</div>
@@ -64,7 +70,7 @@ export default async function PacksPage({searchParams}:{searchParams:Promise<Rec
       <div className="sectionTitleRow"><div><p className="coreEyebrow">Stage 12 · Simulation only</p><h2>Etsy Product Discovery</h2></div></div>
       <p>Run the sample original camping T-shirt concept through research, strategy, and independent review with mocked model responses. All nine releases stay experimental. No live demand, paid provider calls, publishing, or spending.</p>
       <p>The completed worker results pause in Needs You for acknowledgment of the simulation or a stop decision.</p>
-      <div className="packCardActions">{context.businesses.map(b => <form action={runEtsyDiscoverySimulation} key={b.id}>
+      <div className="packCardActions">{scopedBusinesses.map(b => <form action={runEtsyDiscoverySimulation} key={b.id}>
         <input type="hidden" name="businessId" value={b.id}/><input type="hidden" name="idempotencyKey" value={`etsy-simulation:${crypto.randomUUID()}`}/>
         <button className="coreButton coreButton-primary" type="submit">Run Etsy discovery simulation for {b.name}</button>
       </form>)}</div>

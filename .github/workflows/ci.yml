@@ -277,8 +277,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
-      - name: Install exact dependencies
-        run: npm ci --no-audit --no-fund
+      - name: Install repository-pinned dependencies
+        run: npm install --no-audit --no-fund
       - name: Install pinned inert browser
         run: npx playwright-core install --with-deps chromium
       - name: Verify real production Next navigation and actions

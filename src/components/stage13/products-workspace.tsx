@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useId, useState, type KeyboardEvent } from "react";
+import { usePathname, useSearchParams, useRouter } from "next/navigation";
+import { useId, type KeyboardEvent } from "react";
 import { useFormStatus } from "react-dom";
 
 import {
@@ -235,8 +236,16 @@ function CandidateCard({ candidate, experiments, decisions, onView }: { candidat
 }
 
 export function ProductsWorkspace({ data, compact = false, businessId }: { data: ProductWorkspaceData; compact?: boolean; businessId?: string }) {
-  const [view, setView] = useState<ProductView>("Candidates");
-  const [candidateId, setCandidateId] = useState("all");
+  const query = useSearchParams(), pathname = usePathname(), router = useRouter();
+  const view = VIEWS.find(item=>item===query.get("candidateView")) ?? "Candidates";
+  const candidateId = query.get("candidate") ?? "all";
+  const navigate = (nextView: ProductView, nextCandidateId = candidateId) => {
+    const params = new URLSearchParams(query); params.set("candidateView",nextView);
+    if(nextCandidateId==="all")params.delete("candidate");else params.set("candidate",nextCandidateId);
+    router.push(`${pathname}?${params}`,{scroll:false});
+  };
+  const setView = (nextView: ProductView) => navigate(nextView);
+  const setCandidateId = (nextCandidateId: string) => navigate(view,nextCandidateId);
   const id = useId();
   const experiments = [...data.experiments].sort((a, b) => b.created_at.localeCompare(a.created_at));
   const decisions = [...data.decisions].sort((a, b) => b.created_at.localeCompare(a.created_at));
@@ -249,8 +258,7 @@ export function ProductsWorkspace({ data, compact = false, businessId }: { data:
   const experimentById = new Map(experiments.map((experiment) => [experiment.id, experiment]));
   const counts = { Candidates: candidates.length, Evidence: visibleExperiments.filter((experiment) => experiment.evidence_pack).length, Decisions: visibleDecisions.length, Registry: visibleExperiments.length };
   const viewCandidate = (nextView: ProductView, nextCandidateId: string) => {
-    setCandidateId(nextCandidateId);
-    setView(nextView);
+    navigate(nextView,nextCandidateId);
     document.getElementById(`${id}-tab-${nextView}`)?.focus();
   };
   const onTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {

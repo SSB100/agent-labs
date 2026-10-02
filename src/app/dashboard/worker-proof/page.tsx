@@ -2,7 +2,7 @@ import { AppShell } from "@/components/stage7/app-shell";
 import { ConsoleRetainedWorkspace, ConsoleRecentRows } from "@/components/console/console-retained-workspace";
 import { requireOwnerUiContext } from "@/lib/core-ui/data";
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import { WORKER_PACK_RUNTIME_WORKFLOW_DEFINITION_ID } from "../../../workflows/worker-pack-runtime";
 
@@ -119,6 +119,12 @@ function nestedRecord(value: unknown): Record<string, unknown> {
 export default async function WorkerProofPage({ searchParams }: WorkerProofPageProps) {
   const context = await requireOwnerUiContext();
   const supabase = context.supabase;
+  const query = await searchParams;
+  const selectedBusinessId = firstValue(query.business);
+  if (query.business && (Array.isArray(query.business) || !context.businesses.some(b=>b.id===selectedBusinessId))) notFound();
+  const exactRunId = firstValue(query.run);
+  if (query.run && (Array.isArray(query.run) || !/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(exactRunId ?? ""))) notFound();
+
   const { data: claimsData, error: claimsError } = await supabase.auth.getClaims();
   const userId = claimsData?.claims?.sub;
 
@@ -132,7 +138,7 @@ export default async function WorkerProofPage({ searchParams }: WorkerProofPageP
     .eq("owner_user_id", userId)
     .order("created_at", { ascending: false });
 
-  const businesses = (businessData ?? []) as Business[];
+  const businesses = ((businessData ?? []) as Business[]).filter(b=>!selectedBusinessId || b.id===selectedBusinessId);
   const businessIds = businesses.map((business) => business.id);
   let workflowRuns: WorkflowRun[] = [];
   let stages: StageRun[] = [];
@@ -142,7 +148,7 @@ export default async function WorkerProofPage({ searchParams }: WorkerProofPageP
   let historyError = false;
 
   if (businessIds.length > 0) {
-    const { data: runData, error: runError } = await supabase
+    let runRead = supabase
       .from("workflow_runs")
       .select(
         "id, business_id, status, current_stage_key, runtime_run_id, started_at, completed_at, created_at",
@@ -150,7 +156,10 @@ export default async function WorkerProofPage({ searchParams }: WorkerProofPageP
       .eq("workflow_definition_id", WORKER_PACK_RUNTIME_WORKFLOW_DEFINITION_ID)
       .in("business_id", businessIds)
       .order("created_at", { ascending: false })
-      .limit(30);
+      .limit(exactRunId ? 2 : 30);
+    if (exactRunId) runRead = runRead.eq("id",exactRunId);
+    const {data:runData,error:runError} = await runRead;
+    if (exactRunId && !runError && !runData?.length) notFound();
 
     workflowRuns = (runData ?? []) as WorkflowRun[];
     historyError = Boolean(runError);
@@ -212,18 +221,17 @@ export default async function WorkerProofPage({ searchParams }: WorkerProofPageP
     eventsByRun.set(event.workflow_run_id, current);
   }
 
-  const query = await searchParams;
   const message = messages[firstValue(query.message) ?? ""];
   const error = errors[firstValue(query.error) ?? ""];
   const completedCount = workflowRuns.filter((run) => run.status === "completed").length;
   const failedCount = workflowRuns.filter((run) => run.status === "failed").length;
 
-  return (<AppShell active="settings" toolDestination="worker-proof" context={context}><ConsoleRetainedWorkspace ownerId={context.userId} notice={<p className="coreNotice">Recent loaded records only. Earlier history and complete totals remain pending R06.</p>} header={<><header className="workspaceHeader">
+  return (<AppShell active="settings" toolDestination="worker-proof" context={context} navigationBusinessId={selectedBusinessId}><ConsoleRetainedWorkspace ownerId={context.userId} notice={<p className="coreNotice">Recent loaded records only. Earlier history and complete totals remain pending R06.</p>} header={<><header className="workspaceHeader">
           <div className="workspaceTitle">
             <p>Stage 4</p>
             <h1>Worker Pack runtime</h1>
           </div>
-          <Link className="ghostButton" href="/dashboard">
+          <Link className="ghostButton" href={`/dashboard?view=overview${selectedBusinessId ? `&business=${selectedBusinessId}` : ""}`}>
             Back to control centre
           </Link>
         </header>

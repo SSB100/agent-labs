@@ -12,6 +12,14 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false}) {
     const response=await fetch(origin+`/dashboard/history?business=${id(1)}`,{redirect:'manual'});
     assert.equal(response.status,307);assert.match(response.headers.get('location'),/view=work/);assert.match(response.headers.get('location'),/status=ended/);
   });
+  await check('real Next Suspense streams the detail fallback before delayed saved content',async()=>{
+    await fetch(boundary.origin+'/control',{method:'POST',body:JSON.stringify({delayId:id(400050),delayMs:1200})});
+    const response=await fetch(origin+`/dashboard/workflows/${id(400050)}?business=${id(1)}`);
+    const start=Date.now(),reader=response.body.getReader();let text='',chunks=0,first='';
+    for(;;){const value=await reader.read();if(value.done)break;chunks++;const part=new TextDecoder().decode(value.value);text+=part;if(chunks===1)first=part;}
+    assert.match(first,/Loading exact saved workflow/);assert.ok(chunks>1);assert.ok(Date.now()-start>=900,'No delayed stream boundary observed');assert.match(text,/data-work-detail/);
+    await fetch(boundary.origin+'/control',{method:'POST',body:JSON.stringify({delayId:null,delayMs:0})});
+  });
   if(httpOnly){await report();return;}
   const browser=await chromium.launch({headless:true,args:['--no-sandbox']});
   try {
@@ -23,7 +31,57 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false}) {
     await check('production Next Link navigation emits RSC responses',async()=>{
       await page.goto(origin+`/dashboard/settings?business=${business}`);await page.getByRole('link',{name:'Businesses',exact:true}).click();await page.waitForURL(/panel=businesses/);await page.getByRole('heading',{name:'Owned Businesses'}).waitFor();assert.ok(requests.length>0,'No genuine RSC Link response observed');
     });
-    assert.equal(boundary.effects.length,0,'Route reads must cause no mutable effect');
+    const control=values=>fetch(boundary.origin+'/control',{method:'POST',body:JSON.stringify(values)});
+    await check('delayed record A to B navigation commits only the newer exact record',async()=>{
+      await page.goto(origin+`/dashboard?view=work&business=${business}`);
+      const rows=page.locator('.consoleCollectionRow');
+      const a=await rows.nth(0).getAttribute('data-record-id'),b=await rows.nth(1).getAttribute('data-record-id');
+      await control({delayId:a,delayMs:1800});
+      await rows.nth(0).locator('.consoleCollectionRowTitle').click();
+      await page.locator(`.consoleCollectionRow[data-record-id="${b}"] .consoleCollectionRowTitle`).click();
+      await page.locator(`[data-work-detail="${b}"]`).waitFor();
+      await page.waitForTimeout(1900);
+      assert.equal(await page.locator(`[data-work-detail="${a}"]`).count(),0);
+      assert.equal(new URL(page.url()).searchParams.get('selected'),b);
+      await control({delayId:null,delayMs:0});
+      await page.goBack();await page.goForward();await page.locator(`[data-work-detail="${b}"]`).waitFor();
+    });
+    await check('interrupted real RSC request permits a subsequent destination',async()=>{
+      await page.goto(origin+`/dashboard/settings?business=${business}`);
+      const matcher='**/dashboard/settings?*panel=businesses*';
+      await page.route(matcher,route=>route.abort('aborted'));
+      await page.getByRole('link',{name:'Businesses',exact:true}).click();
+      await page.unroute(matcher);
+      await page.getByRole('link',{name:'Work',exact:true}).click();
+      await page.waitForURL(/view=work/);await page.getByRole('heading',{name:'Work',exact:true}).waitFor();
+    });
+    await check('unsaved nonsecret tool draft survives real tabs, Back and reload',async()=>{
+      await page.goto(origin+`/dashboard/products?business=${business}&panel=new`);
+      await page.locator('input[name=concept]').fill('Unsaved inert original concept');
+      await page.getByRole('link',{name:'Candidates',exact:true}).click();
+      await page.goBack();assert.equal(await page.locator('input[name=concept]').inputValue(),'Unsaved inert original concept');
+      await page.reload();assert.equal(await page.locator('input[name=concept]').inputValue(),'Unsaved inert original concept');
+      await page.goto(origin+`/dashboard/products?business=${id(2)}&panel=new`);
+      assert.equal(await page.locator('input[name=concept]').inputValue(),'');
+    });
+    await check('duplicate real server actions have one exact inert acknowledgment and revalidate saved state',async()=>{
+      const notice=boundary.state().db.owner_interventions.find(n=>n.intervention_type==='creative_review');
+      const target=origin+`/dashboard?view=decisions&business=${business}&decision=${notice.id}`;
+      const second=await context.newPage();await Promise.all([page.goto(target),second.goto(target)]);
+      await Promise.all([page.getByRole('button',{name:'Mark reviewed',exact:true}).click(),second.getByRole('button',{name:'Mark reviewed',exact:true}).click()]);
+      await Promise.all([page.waitForURL(/message=terminal-review/),second.waitForURL(/message=terminal-review/)]);
+      assert.equal(boundary.effects.filter(e=>e.id===notice.id).length,1);
+      assert.equal(boundary.state().db.owner_interventions.find(n=>n.id===notice.id).status,'resolved');
+      await page.reload();await page.getByText('Stopped · reviewed',{exact:true}).waitFor();
+      const request=boundary.state().db.owner_interventions.find(n=>n.intervention_type==='creative_review'&&n.status==='open');
+      for(const [actionMode,outcome]of [['conflict','terminal-review-conflict'],['uncertain','terminal-review-failed']]){
+        await control({actionMode});await page.goto(origin+`/dashboard?view=decisions&business=${business}&decision=${request.id}`);
+        await page.getByRole('button',{name:'Mark reviewed',exact:true}).click();await page.waitForURL(new RegExp('error='+outcome));
+        assert.equal(boundary.state().db.owner_interventions.find(n=>n.id===request.id).status,'open');
+      }
+      await control({actionMode:'success'});await second.close();
+    });
+    const effectCount=boundary.effects.length;
     const routes=[['overview','/dashboard'],['work','/dashboard?view=work'],['history','/dashboard/history'],['needs-you','/dashboard/needs-you'],['library','/dashboard?view=library'],['research','/dashboard?view=research'],['activity','/dashboard?view=activity'],['connections','/dashboard?view=connections'],['products','/dashboard/products'],['artifacts','/dashboard/artifacts'],['packs','/dashboard/packs'],['model-router','/dashboard/model-router'],['worker-proof','/dashboard/worker-proof'],['evaluations','/dashboard/worker-evaluations'],['settings','/dashboard/settings'],['diagnostics','/dashboard/accounts?diagnostics=platform'],['printful','/dashboard/printful'],['etsy','/dashboard/etsy'],['workflow','/dashboard/workflows/'+id(400050)],['secure','/dashboard/accounts/secure?run='+id(770000)],['password','/dashboard/accounts/password?account='+id(770000)],['registration','/dashboard/accounts/registration?run='+id(770000)]];
     for(const [name,route]of routes)await check(`actual retained route ${name}`,async()=>{
       for(const [width,height]of [[1280,720],[1440,900],[390,844]]){
@@ -36,6 +94,7 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false}) {
       }
     });
     assert.deepEqual(external,[],'Browser attempted external effects');
+    assert.equal(boundary.effects.length,effectCount,'Route reads caused an additional mutable effect');
     await writeFile(path.join(output,'rsc-responses.json'),JSON.stringify(requests,null,2));assert.ok(results.every(result=>result.status==='passed'), 'Actual Next checks failed; see acceptance.json');await context.close();
   }finally{await browser.close();await report();}
 }

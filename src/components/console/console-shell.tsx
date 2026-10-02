@@ -42,7 +42,7 @@ export const consoleNavigation: readonly ConsoleDestination[] = [
 ];
 
 const sectionViews: Record<CoreSection, ConsoleView> = {
-  accounts: "connections", artifacts: "library", dashboard: "overview", history: "activity",
+  accounts: "connections", artifacts: "library", dashboard: "overview", history: "work",
   "needs-you": "decisions", packs: "advanced", products: "work", settings: "advanced", workflows: "work",
 };
 
@@ -56,7 +56,7 @@ export const consoleAdvancedNavigation = [
   { href: "/dashboard/artifacts", label: "Artifact explorer", key: "artifacts" },
   { href: "/dashboard/needs-you", label: "Decision queue", key: "needs-you" },
   { href: "/dashboard/accounts", label: "Account settings", key: "accounts" },
-  { href: "/dashboard/history", label: "Event history", key: "history" },
+  { href: "/dashboard/history", label: "Ended work history", key: "history" },
   { href: "/dashboard/packs", label: "Packs", key: "packs" },
   { href: "/dashboard/worker-proof", label: "Worker proof" },
   { href: "/dashboard/model-router", label: "Model router" },

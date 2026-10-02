@@ -22,11 +22,12 @@ const retainedSourcePath = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-
 export async function loadCreativeWorkspace(context: OwnerUiContext): Promise<CreativeWorkspaceData> {
   const empty: CreativeWorkspaceData = { approvals: [], runs: [], assets: [], reviews: [], costs: [], costsAvailable: true, retainedSources: [], errors: [] };
   const businessIds = context.businesses.map(b => b.id); if (!businessIds.length) return empty;
-  const [approvals, runs, assets] = await Promise.all([
+  const [approvals, assets] = await Promise.all([
     context.supabase.from("creative_approvals").select("id,business_id,candidate_id,purpose,snapshot,quote,maximum_microusd,approved_at,expires_at").in("business_id", businessIds).order("approved_at", { ascending: false }).limit(50),
-    context.supabase.from("creative_runs").select("id,business_id,approval_id,workflow_run_id,created_at,capability_expires_at").in("business_id", businessIds).order("created_at", { ascending: false }).limit(50),
     context.supabase.from("creative_assets").select("id,creative_run_id,business_id,candidate_id,version,brief_hash,asset_hash,storage_path,inspection,prompt,provider,model,generated_at").in("business_id", businessIds).order("generated_at", { ascending: false }).limit(100),
   ]);
+  const approvalIds = (approvals.data ?? []).map(a => a.id);
+  const runs = approvalIds.length && !approvals.error ? await context.supabase.from("creative_runs").select("id,business_id,approval_id,workflow_run_id,created_at,capability_expires_at").in("business_id", businessIds).in("approval_id", approvalIds).order("created_at", { ascending: false }).limit(50) : { data: [], error: approvals.error };
   const errors = [approvals.error, runs.error, assets.error].filter(Boolean).map(e => e!.message);
   const runRows = (runs.data ?? []) as Omit<CreativeRunRecord, "status" | "phase" | "productionReady" | "capabilityExpired">[];
   if (!runRows.length) return { ...empty, approvals: (approvals.data ?? []) as CreativeApprovalRecord[], costsAvailable: !runs.error, errors };

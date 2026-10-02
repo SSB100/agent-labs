@@ -10,7 +10,8 @@ export function fixtureData() {
   for (const [table, rows] of Object.entries(db)) db[table] = rows.filter((r,i) => !r.id || rows.findIndex(other => other.id === r.id) === i);
   db.businesses = businesses.map(b => ({ ...b, owner_user_id: owner })); db.profiles = [{ id: owner, display_name: 'Inert owner with a deliberately long display name' }];
   db.product_candidates = Array.from({length: 51}, (_,n) => ({ id: id(600000+n), business_id: businesses[n%2].id, concept: `Saved candidate ${n} with a very long original concept `.repeat(3), audience: 'Synthetic weekend hikers', hypothesis: 'Synthetic hypothesis only, no actual provider work.', original_design: true, rights_status: 'unclear', source_domains: ['example.invalid'], created_at: time, updated_at: time }));
-  for (const approval of db.creative_approvals) approval.snapshot = { ...approval.snapshot, concept: 'Synthetic original long design concept '.repeat(3), audience: 'Synthetic audience', maximumGenerations: 1 };
+  for (const approval of db.creative_approvals) { approval.approved_at ??= time; approval.expires_at ??= time; approval.maximum_microusd ??= 500000; approval.snapshot = { ...approval.snapshot, concept: 'Synthetic original long design concept '.repeat(3), audience: 'Synthetic audience', maximumGenerations: 1 }; }
+  for(const run of db.creative_runs){run.created_at ??= time;run.capability_expires_at ??= time;}
   for (const asset of db.creative_assets) asset.inspection = { ...asset.inspection, effectiveDpi: 150, colorSpace: 'sRGB' };
   for (const review of db.creative_reviews ?? []) review.review.checks = [];
   const definitionId = file => readFileSync(`src/workflows/${file}.ts`,'utf8').match(/WORKFLOW_DEFINITION_ID\s*=\s*\n?\s*"([^"]+)"/)[1];
@@ -21,5 +22,14 @@ export function fixtureData() {
   db.model_definitions=[{id:id(720000),model_key:'fixture.model',display_name:'Inert saved model',provider_family:'fixture',provider_model_id:'fixture/inert',tier:'standard',status:'unqualified',context_window_tokens:1000,input_price_per_million_usd:1,output_price_per_million_usd:1}];db.model_routes=[];
   db.model_invocations.push({id:id(730000),business_id:businesses[0].id,workflow_run_id:id(700000),model_definition_id:id(720000),attempt:1,status:'failed',provider_model_id:'fixture/inert',provider_request_id:null,failure_category:'unknown',input_tokens:1,output_tokens:0,reported_cost_usd:null,estimated_cost_usd:.1,latency_ms:null});
   for(const table of ['browser_sessions','browser_session_events','browser_provider_definitions','browser_planner_definitions','browser_planner_evaluation_cases','packs','installed_packs','evaluation_suites','evaluation_cases','evaluation_runs','evaluation_results','worker_promotions','product_research_cost_reservations','product_research_cost_settlements','product_research_funding_approvals']) db[table] ??= [];
+  const manifests=JSON.parse(readFileSync('packs/catalog.json','utf8'));
+  db.packs=manifests.map((manifest,n)=>({id:id(780000+n),pack_key:manifest.packKey,version:manifest.version,status:'experimental',manifest}));
+  db.installed_packs=[{id:id(790000),business_id:businesses[0].id,root_pack_id:db.packs[0].id,status:'active',snapshot:{rootPackId:db.packs[0].id,releases:[db.packs[0]]}}];
+  const suite=id(800000);
+  db.worker_evaluation_suites=[{id:suite,suite_key:'worker.generic-researcher.qualification',version:'1.0.0',name:'Saved researcher qualification '.repeat(5),status:'experimental',minimum_score:90,require_all_required:true}];
+  db.worker_definitions.push({id:id(502),worker_key:'generic.researcher',version:'1.0.0',name:'Inert model researcher',role:'research',status:'experimental',pack_id:id(501)});
+  db.worker_evaluation_cases=[{id:id(800001),suite_id:suite,case_key:'fixture.uncertain',name:'Saved unknown provider response',category:'uncertainty',execution_mode:'live',model_target:'fixture.model',required:true,weight:1}];
+  db.worker_evaluations=Array.from({length:21},(_,n)=>({id:id(801000+n),suite_id:suite,status:n%2?'failed':'passed',score:n%2?0:100,passed_case_count:n%2?0:1,failed_case_count:n%2?1:0,required_case_count:1,required_failure_count:n%2?1:0,source:'fixture',subject_fingerprint:'a'.repeat(64),started_at:time,completed_at:time,created_at:time}));
+  db.worker_evaluation_case_results=db.worker_evaluations.map((run,n)=>({id:id(802000+n),evaluation_id:run.id,case_id:id(800001),status:run.status,score_awarded:run.score,model_definition_id:id(720000),provider:'fixture',provider_model_id:'fixture/inert',input_tokens:1,output_tokens:0,reported_cost_usd:n%2?null:.01,estimated_cost_usd:.1,latency_ms:null,failure:{reason:'Synthetic unknown receipt'}}));
   return { db, businesses, owner };
 }
