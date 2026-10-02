@@ -133,18 +133,18 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const nextHref = workUnavailable ? "/dashboard/workflows" : firstDecision
     ? decisionAction?.kind === "link" ? decisionAction.href : interventionDetailsHref(firstDecision)
     : context.needsYouCount || context.needsYouUnavailable ? "/dashboard/needs-you" : activeRuns[0] ? `/dashboard/workflows/${activeRuns[0].id}` : context.businesses.length ? "/dashboard/products#discovery-goal" : "#create-business";
-  const nextLabel = workUnavailable ? "Check work status" : firstDecision ? decisionAction?.kind === "link" ? decisionAction.label : "Review next decision" : context.needsYouCount || context.needsYouUnavailable ? "Review decisions" : activeRuns.length ? "Open current work" : context.businesses.length ? "Start a research goal" : "Create your workspace";
+  const nextLabel = workUnavailable ? "Check work status" : firstDecision ? firstDecision.intervention_type === "creative_review" ? "Review image issue" : decisionAction?.kind === "link" && decisionAction.section !== "details" ? decisionAction.label : "Review next decision" : context.needsYouCount || context.needsYouUnavailable ? "Review decisions" : activeRuns.length ? "Open current work" : context.businesses.length ? "Start a research goal" : "Create your workspace";
 
   return (
     <AppShell active="dashboard" context={context}>
       <PageHeader
         actions={
           <Link className="coreButton coreButton-secondary" href="/dashboard/workflows">
-            View all workflows
+            All work
           </Link>
         }
-        description="See what Agent Labs is doing, what changed, and whether anything needs your decision."
-        eyebrow="Overview"
+        description="Your current work, the latest useful result, and the next decision."
+        eyebrow="Your workspace"
         title="Control centre"
       />
 
@@ -181,28 +181,9 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           </p>
           <Link className="coreButton coreButton-primary" href={nextHref}>{nextLabel}</Link>
         </div>
-        <div className="overviewHeroStatus">
-          <span className={runtimeReady ? "systemPulse systemPulse-ready" : "systemPulse"} />
-          <div>
-            <strong>{runtimeReady ? "Core connection configured" : "Core connection not configured"}</strong>
-            <small>Configuration only · execution shown per run</small>
-          </div>
-        </div>
+
       </section>
 
-      <section className="coreMetricGrid" aria-label="Agent Labs summary">
-        {[
-          ["Working", workUnavailable ? "Unknown" : workingRuns.length, "workflow"],
-          ["Needs You", context.needsYouUnavailable ? "Unknown" : context.needsYouCount, "needs-you"],
-          ["Completed", workUnavailable ? "Unknown" : completedRuns.length, "history"],
-          ["Artifacts", workUnavailable ? "Unknown" : collection.artifacts.length, "artifacts"],
-        ].map(([label, value, icon]) => (
-          <article className="coreMetricCard" key={String(label)}>
-            <span><CoreIcon name={icon as "workflow" | "needs-you" | "history" | "artifacts"} /></span>
-            <div><small>{label}</small><strong>{value}</strong></div>
-          </article>
-        ))}
-      </section>
 
       {openInterventions.length ? (
         <section className="dashboardSection dashboardSection-attention">
@@ -274,6 +255,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         <ActivityFeed events={latestEvents} unavailable={workUnavailable} />
       </div>
 
+      <details className="guidedDisclosure" open={!context.businesses.length && !context.businessesUnavailable}><summary>Manage workspaces<span>Business records and runtime demonstration</span></summary>
       <div className="dashboardColumns dashboardColumns-lower">
         <section className="dashboardSection">
           <div className="sectionTitleRow">
@@ -321,6 +303,8 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           </form>
         </section>
       </div>
+
+      </details>
 
       {completedRuns.length ? (
         <section className="dashboardSection dashboardHistoryPreview">

@@ -88,13 +88,14 @@ export default async function WorkflowsPage({ searchParams }: WorkflowsPageProps
       <PageHeader
         actions={
           <div className="segmentedControl" aria-label="Workflow view">
+            <Link className="coreButton coreButton-primary" href="/dashboard/products#discovery-goal">New research quest</Link>
             <Link className={view === "all" ? "active" : ""} href="/dashboard/workflows">All</Link>
             <Link className={view === "active" ? "active" : ""} href="/dashboard/workflows?view=active">Active</Link>
           </div>
         }
-        description="Every durable run, its current state, worker, task, artifacts, and next transition."
-        eyebrow="Durable execution"
-        title="Workflows"
+        description="Follow a research goal, review what it produced, or inspect its saved workflow."
+        eyebrow="Goals and execution"
+        title="Work"
       />
 
       {collection.errors.length ? (
@@ -142,7 +143,7 @@ export default async function WorkflowsPage({ searchParams }: WorkflowsPageProps
                 ? "Saved runs may still be active. Check the existing records before starting more work."
                 : view === "active"
                 ? "All current workflows have reached a terminal state."
-                : "Start the durable proof from the Dashboard to create the first run."}
+                : "Start a supported research quest. Its scope, allowance and approval are reviewed before any paid work."}
             </p>
           </EmptyPanel>
         )}

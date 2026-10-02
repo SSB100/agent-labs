@@ -7,6 +7,7 @@ import "./stage3.css";
 import "./stage7.css";
 import "./stage7-mobile.css";
 import "./stage8.css";
+import "@/components/guided/work-context.css";
 
 export const metadata: Metadata = {
   title: "Agent Labs",

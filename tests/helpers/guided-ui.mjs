@@ -26,8 +26,8 @@ export function loadSource(file, dependencies = {}) {
   }).outputText;
   const fixtureModule = { exports: {} };
   let sequence = 0;
-  const crypto = { randomUUID: () => `00000000-0000-4000-8000-${String(++sequence).padStart(12, "0")}` };
-  runInNewContext(`(function(require,module,exports){${code}\n})`, { Date: FixtureDate, crypto })(name => {
+  const crypto = { ...require("node:crypto"), randomUUID: () => `00000000-0000-4000-8000-${String(++sequence).padStart(12, "0")}` };
+  runInNewContext(`(function(require,module,exports){${code}\n})`, { Date: FixtureDate, crypto, Buffer, URL, structuredClone, process: { env: { AGENTLABS_GUIDED_UI: "guided", NODE_ENV: "test" } } })(name => {
     if (name === "react/jsx-runtime") return require(name);
     if (name === "react") return React;
     if (name === "react-dom") return require(name);
@@ -87,7 +87,10 @@ export function components() {
   const live = loadSource("src/components/stage7/live-refresh.tsx", {
     "next/navigation": { useRouter: () => ({ refresh: noAction }) }, "@/lib/supabase/client": { createClient: noAction },
   });
-  const shell = loadSource("src/components/stage7/app-shell.tsx", { "./icons": icons, "./live-refresh": live, "@/lib/core-ui/workflows": workflows });
+  const guided = loadSource("src/components/guided/guided-shell.tsx", {
+    "@/components/stage7/icons": icons, "@/components/stage7/live-refresh": live, "./guided-shell.css": {},
+  });
+  const shell = loadSource("src/components/stage7/app-shell.tsx", { "./icons": icons, "./live-refresh": live, "@/lib/core-ui/workflows": workflows, "@/components/guided/guided-shell": guided });
   const visuals = loadSource("src/components/stage7/workflow-visuals.tsx", {
     "@/app/dashboard/actions": { resumeSyntheticReview: noAction }, "@/app/dashboard/packs/actions": { acknowledgeEtsySimulation: noAction },
     "@/app/dashboard/browser-actions": { resumeBrowserControl: noAction }, "@/lib/core-ui/workflows": workflows,
@@ -186,6 +189,7 @@ export async function renderCreative() {
   });
   const { default: Page } = loadSource("src/app/dashboard/artifacts/page.tsx", {
     "@/components/stage7/app-shell": shell, "@/components/stage13/products-workspace": { ProductSubmitButton },
+    "next/navigation": { notFound: () => { throw new Error("Fixture Business was not found"); } },
     "@/creative/data": { loadCreativeWorkspace: async () => ({ approvals: [], runs: [], assets: [], reviews: [], costs: [], costsAvailable: true, errors: [] }), loadProductionCandidates: async () => ({ candidates: [], errors: [] }) },
     "@/creative/cost-display": loadSource("src/creative/cost-display.ts"),
     "@/creative/proposal": { FLUX_KLEIN_PROVIDER_TERMS: ["https://example.invalid/developer-terms", "https://example.invalid/api-terms"], TECHNICAL_PRINT_SPECIFICATION: { sourceUrl: "https://example.invalid/specification", verifiedAt: fixtureTime } },
@@ -196,15 +200,90 @@ export async function renderCreative() {
   return renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }));
 }
 
+export const researchGoal = "Compare supported starting markets for original nature T-shirts and preserve the evidence for review.";
+export function renderWorkContext({ mismatched = false } = {}) {
+  const { shell, workflows, visuals } = components();
+  const { WorkContext, researchGoalFromRecords } = loadSource("src/components/guided/work-context.tsx", { "@/lib/core-ui/workflows": workflows, "./work-context.css": {} });
+  const researchDefinition = { ...definition, workflow_key: "product.discovery-v2.geographic", name: "Geographic research" };
+  const researchRun = { ...run, input: { intentId: "fixture-research-intent" } };
+  const experiment = { id: researchRun.input.intentId, business_id: business.id, workflow_run_id: mismatched ? "different-workflow" : researchRun.id,
+    discovery_version: "pod-discovery-2.0", variables: { intent: { version: "pod-discovery-2.0", objective: researchGoal } } };
+  const goal = researchGoalFromRecords(researchRun, [experiment], []);
+  return renderToStaticMarkup(React.createElement(shell.AppShell, { active: "workflows", context: ownerContext(), workflowRunId: run.id },
+    React.createElement(shell.PageHeader, { eyebrow: "Work", title: "Market research", description: "Review the saved goal and each separately approved next step." }),
+    React.createElement(WorkContext, { run: researchRun, definition: researchDefinition, goal }),
+    React.createElement(visuals.WorkflowTimeline, { definition: researchDefinition, run: researchRun, stages }),
+  ));
+}
+
+export function renderUnknownNavigation() {
+  const { shell } = components();
+  return renderToStaticMarkup(React.createElement(shell.AppShell, { active: "needs-you", context: ownerContext({ needsYouCount: 0, needsYouUnavailable: true, businessesUnavailable: true, businesses: [] }) },
+    React.createElement(shell.PageHeader, { eyebrow: "Owner workspace", title: "Check your workspace", description: "Missing records do not mean there are no decisions or businesses." }),
+    React.createElement("p", { className: "coreNotice", role: "alert" }, "Decision and Business records are unavailable. Refresh before starting more work."),
+  ));
+}
+
+export async function renderProducts() {
+  const { shell, icons } = components();
+  const productTypes = loadSource("src/products/types.ts");
+  const productHistory = loadSource("src/products/history.ts", { "./types": productTypes });
+  const products = loadSource("src/components/stage13/products-workspace.tsx", {
+    "@/app/dashboard/products/actions": { reconcileProductDiscovery: noAction, recordProductAssessment: noAction, reconsiderProductCandidate: noAction, startProductResearch: noAction },
+    "@/components/stage7/icons": icons, "@/products/types": productTypes, "@/products/history": productHistory, "@/app/dashboard/products/products.css": {},
+  });
+  const sources = loadSource("src/research/sources.ts");
+  const discovery = loadSource("src/products/discovery-v2.ts", {
+    "./types": productTypes, "../research/sources": sources,
+    "./discovery": { validateProductEvidence: noAction }, "./discovery-v2-knowledge": { validateDiscoveryKnowledgeV2: noAction },
+  });
+  const goal = loadSource("src/products/discovery-v2-goal.ts", { "./discovery-v2": discovery });
+  const quoteModels = [];
+  const budget = loadSource("src/products/discovery-v2-budget.ts", {
+    "../creative/budget": { fetchCreativeModelQuote: async modelId => {
+      quoteModels.push(modelId);
+      return { modelId, verifiedAt: fixtureTime, source: "https://openrouter.ai/api/v1/models", inputPerMillion: modelId.includes("haiku") ? 1 : .4,
+        cacheWritePerMillion: modelId.includes("haiku") ? 2 : .5, outputPerMillion: modelId.includes("haiku") ? 5 : 1.8 };
+    } },
+    "../models/openrouter": { OpenRouterAdapter: class { constructor() { noAction(); } } },
+    "../models/types": loadSource("src/models/types.ts"), "../research/sources": sources, "../workers/schema-validator": loadSource("src/workers/schema-validator.ts"),
+  });
+  const actions = { startGeographicDiscovery: noAction, refreshGeographicDiscovery: noAction, approveGeographicResearchFunding: noAction, continueGeographicDiscoveryAnalysis: noAction };
+  const goalWorkspace = loadSource("src/components/stage13/discovery-goal-workspace.tsx", {
+    "./products-workspace": products, "@/app/dashboard/products/discovery-actions": actions, "@/products/discovery-v2-goal": goal,
+  });
+  const quest = loadSource("src/components/guided/quest-kickoff.tsx", {
+    "@/app/dashboard/products/discovery-actions": actions, "@/lib/core-ui/quest-draft": loadSource("src/lib/core-ui/quest-draft.ts"), "./quest-kickoff.css": {},
+  });
+  // These are auth-scoped synthetic database results. Essential intent validation,
+  // finite quote arithmetic, production wizard and scope copy are all real code.
+  const data = { candidates: [], experiments: [], decisions: [], errors: [] };
+  const context = ownerContext({ businesses: [{ ...business, id: "00000000-0000-4000-8000-000000000901" }] });
+  const { default: Page } = loadSource("src/app/dashboard/products/page.tsx", {
+    "@/components/guided/quest-kickoff": quest, "@/components/guided/work-context.css": {},
+    "@/components/stage7/app-shell": shell, "@/components/stage7/icons": icons, "@/components/stage13/products-workspace": products,
+    "next/navigation": { notFound: () => { throw new Error("Fixture Business was not found"); } },
+    "@/lib/core-ui/data": { requireOwnerUiContext: async () => context }, "@/products/data": { loadProductWorkspace: async () => data },
+    "@/products/history": productHistory, "@/components/stage13/discovery-goal-workspace": goalWorkspace,
+    "@/products/discovery-v2-data": { loadDiscoveryGoalData: async () => ({ available: true, analysisAvailable: true, records: [], errors: [] }) },
+    "@/products/discovery-v2-goal": goal, "@/products/discovery-v2-budget": budget, "./actions": { createProductCandidate: noAction }, "./products.css": {},
+  });
+  const markup = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }));
+  assert.deepEqual(quoteModels.sort(), ["anthropic/claude-haiku-4.5", "openai/gpt-5.6-luna"]);
+  assert.doesNotMatch(markup, /Current provider prices are unavailable/);
+  return markup;
+}
+
 export const fixtureRenderers = {
   dashboard: () => renderDashboard(), "dashboard-unavailable": () => renderDashboard({ unavailable: true }),
-  "dashboard-empty": () => renderDashboard({ empty: true }), workflows: () => renderWorkflows(), decisions: renderDecisions, timelines: renderTimelines, creative: renderCreative,
+  "dashboard-empty": () => renderDashboard({ empty: true }), workflows: () => renderWorkflows(), decisions: renderDecisions, timelines: renderTimelines, creative: renderCreative, "navigation-unavailable": renderUnknownNavigation, "work-context": renderWorkContext, products: renderProducts,
 };
 
-export function fixtureDocument(markup, { creative = false } = {}) {
+export function fixtureDocument(markup, { creative = false, products = false } = {}) {
   // Match RootLayout's cascade exactly; creative imports Products' button styles.
-  const styles = ["src/app/globals.css", "src/app/stage1.css", "src/app/stage3.css", "src/app/stage7.css", "src/app/stage7-mobile.css", "src/app/stage8.css",
-    ...(creative ? ["src/app/dashboard/products/products.css", "src/app/dashboard/artifacts/artifacts.css"] : []),
+  const styles = ["src/app/globals.css", "src/app/stage1.css", "src/app/stage3.css", "src/app/stage7.css", "src/app/stage7-mobile.css", "src/app/stage8.css", "src/components/guided/work-context.css", "src/components/guided/guided-shell.css",
+    ...(creative || products ? ["src/app/dashboard/products/products.css"] : []),
+    ...(creative ? ["src/app/dashboard/artifacts/artifacts.css"] : []), ...(products ? ["src/components/guided/quest-kickoff.css"] : []),
   ].map(file => readFileSync(path.join(root, file), "utf8")).join("\n");
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Agent Labs synthetic owner UI fixture</title><style>${styles}</style></head><body>${markup}</body></html>`;
 }

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { GuidedShell } from "@/components/guided/guided-shell";
 import type { ReactNode } from "react";
 
 import { statusLabel, statusTone } from "@/lib/core-ui/workflows";
@@ -79,7 +80,7 @@ function NavigationLink({
   );
 }
 
-export function AppShell({
+function LegacyAppShell({
   active,
   children,
   context,
@@ -167,6 +168,11 @@ export function AppShell({
       <main className="coreMain" id="main-content">{children}</main>
     </div>
   );
+}
+
+/** Presentation-only rollback; execution and owner guards are unchanged. */
+export function AppShell(props: AppShellProps) {
+  return process.env.AGENTLABS_GUIDED_UI === "legacy" ? <LegacyAppShell {...props} /> : <GuidedShell {...props} />;
 }
 
 export function PageHeader({

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { AppShell, PageHeader } from "@/components/stage7/app-shell";
 import { ProductSubmitButton } from "@/components/stage13/products-workspace";
 import { loadCreativeWorkspace, loadProductionCandidates } from "@/creative/data";
@@ -15,10 +16,16 @@ export const dynamic = "force-dynamic";
 const utc = (date: string) => `${new Date(date).toISOString().replace("T", " ").replace(".000Z", " UTC").replace("Z", " UTC")}`;
 const usd = (micro: number) => `US$${(micro / 1e6).toFixed(6)}`;
 export default async function ArtifactsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  const context = await requireOwnerUiContext(), [data, production, query] = await Promise.all([loadCreativeWorkspace(context), loadProductionCandidates(context), searchParams]);
+  const context = await requireOwnerUiContext(), query = await searchParams;
   const first = (v: string | string[] | undefined) => Array.isArray(v) ? v[0] : v;
+  const requestedBusiness = first(query.business);
+  const selectedBusiness = context.businesses.find(business => business.id === requestedBusiness);
+  if (requestedBusiness && !selectedBusiness && !context.businessesUnavailable) notFound();
+  const scopedContext = selectedBusiness ? { ...context, businesses: [selectedBusiness] } : context;
+  const [data, production] = await Promise.all([loadCreativeWorkspace(scopedContext), loadProductionCandidates(scopedContext)]);
   return <AppShell active="artifacts" context={context}>
-    <PageHeader eyebrow="Creative · Evidence & assets" title="Artifacts" description="Keep the brief, original pixels, versions and independent review together." />
+    <PageHeader eyebrow="Saved outputs" title="Library" description="Keep the brief, original pixels, versions and independent review together." />
+    {selectedBusiness ? <p className="coreNotice">Business: {selectedBusiness.name} · <Link href="/dashboard/artifacts">View all businesses</Link></p> : null}
     {first(query.message) ? <p className="coreNotice coreNotice-success" role="status">{first(query.message)}</p> : null}
     {first(query.error) ? <p className="coreNotice coreNotice-danger" role="alert">{first(query.error)}</p> : null}
     {data.errors.length ? <p className="coreNotice coreNotice-danger" role="alert">Creative registry is unavailable. No provider action can start until its approved schema is ready. {data.errors[0]}</p> : null}
@@ -67,7 +74,7 @@ export default async function ArtifactsPage({ searchParams }: { searchParams: Pr
         <label className="creativeTextField">Exact design instructions<textarea name="designInstructions" required minLength={50} maxLength={1500} rows={4} placeholder="Describe the original composition, colors and intentional opaque square background. Exclude text, brands, protected characters and reference artwork." /></label>
         <label className="creativeTextField">Image provider and output contract<select name="generatorModel" required defaultValue=""><option value="" disabled>Select a provider for this new approval</option><option value={FLUX_KLEIN_PNG_POLICY.modelId}>BFL FLUX.2 Klein 4B via OpenRouter · native PNG · request 1024 × 1024</option></select></label>
         <label className="creativeTextField">Image generation limit<select name="maximumGenerations" required defaultValue="1"><option value="1">One image, no repair (up to 4 provider calls)</option><option value="2">One image plus at most one repair (up to 6 provider calls)</option></select></label>
-        <div className="creativeFormRow"><label>Business<select name="businessId" required>{context.businesses.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></label><label>Total allowance (USD)<input name="budgetUsd" type="number" min="0.01" max="1" step="0.01" defaultValue="0.55" required /></label></div>
+        <div className="creativeFormRow"><label>Business<select name="businessId" required>{scopedContext.businesses.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></label><label>Total allowance (USD)<input name="budgetUsd" type="number" min="0.01" max="1" step="0.01" defaultValue="0.55" required /></label></div>
         <label><input type="checkbox" name="confirmOriginalIntent" required />I approve the original concept and exact instructions above with no third-party references or protected elements; this is not a guarantee of universal non-infringement</label>
         <label><input type="checkbox" name="confirmTechnicalOnly" required />This is a technical creative test, not a market-validated product or publication approval</label>
         <label><input type="checkbox" name="confirmPrintSpec" required />I approve the named garment, physical print size and intentional opaque-square background</label>

@@ -63,12 +63,12 @@ export default async function NeedsYouPage({ searchParams }: NeedsYouPageProps) 
       <PageHeader
         actions={
           <Link className="coreButton coreButton-secondary" href="/dashboard/workflows">
-            View workflows
+            View work
           </Link>
         }
-        description="Only meaningful owner decisions and exceptional workflow states appear here."
-        eyebrow="Owner intervention"
-        title="Needs You"
+        description="Review an exact approval, an issue to fix, or a connection that needs attention."
+        eyebrow="Your review"
+        title="Decisions"
       />
 
       {message ? <p className="coreNotice coreNotice-success" role="status">{message}</p> : null}
