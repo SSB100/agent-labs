@@ -1,11 +1,11 @@
 # Agent Labs V2 remaining implementation plan
 
 Repository: `SSB100/agent-labs`
-Planning baseline: `82dc64dc77a4da91a7a83c6230e0867cea72f885`
-Document status: reviewed remaining-work plan; authoritative on merge to main
+Implementation baseline: `83cb5cda632e8a3cd09a4e921e5fd2f3ff468746`
+Document status: active remaining-work plan
 Document scope: remaining work only; one dependency-ordered implementation queue
 
-After merge to main, use this queue for every remaining UI, backend, qualification and product task. Use the [route acceptance checklist](CONSOLE_ROUTE_ACCEPTANCE.md) to verify coverage, not to choose a separate release order. Consult the [reuse and evidence crosswalk](AGENT_LABS_V2_EVIDENCE_CROSSWALK.md) for existing implementation, historical proofs, limits and the byte-preserved original plan. Keep historical checkpoints as evidence, not competing instructions to restart completed stages.
+Use this queue for every remaining UI, backend, qualification and product task. Use the [route acceptance checklist](CONSOLE_ROUTE_ACCEPTANCE.md) to verify coverage, not to choose a separate release order. Consult the [reuse and evidence crosswalk](AGENT_LABS_V2_EVIDENCE_CROSSWALK.md) for existing implementation, historical proofs, limits and the byte-preserved original plan. Keep historical checkpoints as evidence, not competing instructions to restart completed stages.
 
 This document specifies the intended product and future engineering work. It grants no live operational authority, changes no existing approval, enables no provider and authorizes no schema, access, legal or financial action. Present each new persistence, security and external-activation boundary for its own review before implementation or activation.
 
@@ -24,24 +24,11 @@ This document specifies the intended product and future engineering work. It gra
 
 ## The active queue
 
-Tasks R01–R19 are the proposed sole active order on acceptance. Dependencies are acceptance gates, not permission to execute. A blocked external qualification must not cause unrelated safe UI or contract review to stop; retain its position and dependency explicitly. Backend and activation work must not be folded into an otherwise UI-only release.
-
-### R01 Finish and accept PR44 Decisions
-
-**Class:** immediate UI and existing read projections. **Dependency:** none. **Scope:** the current unmerged Decisions change, before broader console work.
-
-- Reconcile the latest PR44 source with baseline and freeze one reviewable head. Close the outstanding exact-head release gates, including mobile/zoom selected-heading focus visibility and occlusion. Keep current and superseded source/test snapshots in the [evidence crosswalk](AGENT_LABS_V2_EVIDENCE_CROSSWALK.md), not a second task list.
-- Preserve the corrected desktop Business controls and visible failure reason/actual-pending-unknown cost summary while closing remaining focus and retained-navigation failures. Recheck contained detail navigation, keyboard End reachability and unresolved-action transitions at the final head; important status must remain visible without hiding exact details.
-- Preserve an independently counted/paged open queue, exact selected record, old open notices outside recent windows, terminal versus active truth, typed outcomes and immutable reviewed history. Acknowledgment must not imply retry, success, settlement or a changed operation approval.
-- Treat migration `20261002095637` as already approved/applied for this narrowly defined acknowledgment contract. Check compatibility and deployed signature; do not reapply it or bundle a wider historical RPC change. Preserve the three existing notices; only their deliberate owner actions may change acknowledgment state.
-- Re-run full hosted checks on the final head and merged tree when release is separately authorized. Obtain actual screenshots at both desktop sizes and readable mobile/zoom states, plus keyboard, Back/Forward/reload, repeated action and uncertain-response tests.
-- Add or explicitly carry forward actual Next.js client-navigation coverage. A custom retained-state fixture that models inspected Next semantics does not establish real Next transport, route cache or server-action refresh behavior.
-
-**Exit:** all corrected visual and interaction failures pass on the frozen source, independent review closes blocking findings, and any authorized release receives exact-commit deployment/read-only acceptance evidence. Until then R01 remains the first open task; do not maintain a separate Decisions queue.
+Tasks R02–R19 are the sole remaining implementation order. Dependencies are acceptance gates, not permission to execute. A blocked external qualification must not cause unrelated safe UI or contract review to stop; retain its position and dependency explicitly. Backend and activation work must not be folded into an otherwise UI-only release.
 
 ### R02 Finish the remaining root collections and immediate read projections
 
-**Class:** immediate UI and read-only changes using existing authorized public-table contracts. **Dependency:** R01.
+**Class:** immediate UI and read-only changes using existing authorized public-table contracts. **Dependency:** the accepted compact Decisions baseline. This is the first remaining task.
 
 - Reconcile held Work, Library, Research, Activity and exact creative-recovery source against the accepted head. Do not bulk-merge the frozen populated or profile candidates or treat their tests as acceptance.
 - Complete bounded server page/count/filter/search/sort/exact-detail reads for Work, design and document Library, research results, saved records and raw activity. Define stable timestamp-plus-ID ordering, field-specific search and count semantics. Return a selected record independently of the current page/filter while preserving the filter context.
@@ -254,7 +241,7 @@ Tasks R01–R19 are the proposed sole active order on acceptance. Dependencies a
 
 ### R18 Qualify the complete operating lifecycle
 
-**Class:** end-to-end simulation, production qualification and whole-app acceptance. **Dependency:** R01–R17 for the capabilities claimed; explicitly exclude any still-blocked optional provider rather than silently declaring it passed.
+**Class:** end-to-end simulation, production qualification and whole-app acceptance. **Dependency:** the accepted foundation and R02–R17 for the capabilities claimed; explicitly exclude any still-blocked optional provider rather than silently declaring it passed.
 
 - Run the coherent lifecycle: Business/rules → confirmed Quest/envelope → bounded plan/research/challenge → production assets/product → reviewed linked listing → permitted launch/promotion → paid order/fulfilment → measurement/settled profit → bounded improvement/reviewed learning.
 - Exercise model fallback, stale policy, account expiry, browser interruption, supplier anomaly, unknown costs, owner exceptions, cancellation, pause/resume, delayed callbacks, deployment restart, independent review failure and duplicate prevention. Verify preserved queued work and no repeated external effects.

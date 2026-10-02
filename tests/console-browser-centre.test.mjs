@@ -122,5 +122,9 @@ test("shipping metadata sources contain no viewer, network lease, provider resol
   assert.doesNotMatch(workPane, /WorkflowWorkspace|<iframe|\/api\/browser/);
   const dashboard = readFileSync("src/app/dashboard/page.tsx", "utf8");
   assert.match(dashboard, /await requireOwnerUiContext\(\)/);
-  assert.match(dashboard, /detail\.run\.business_id !== businessId\) notFound\(\)/);
+  assert.match(dashboard, /ConsolePopulatedDashboard context=\{context\}/);
+  const detailReader = readFileSync("src/lib/core-ui/console-work-detail-data.ts", "utf8");
+  assert.match(detailReader, /consoleScopedIds\(context, q\.businessId\)/);
+  assert.match(detailReader, /consoleExactSelection<WorkflowRunRecord>\(context, "workflow_runs", CONSOLE_RUN_SELECT, runId, ids, consoleRunGuard\)/);
+  assert.match(detailReader, /row\.business_id === run\.business_id && row\.workflow_run_id === run\.id/);
 });

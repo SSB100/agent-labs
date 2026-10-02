@@ -321,7 +321,9 @@ test('hosted real-root Decisions: compact viewports, exact selection, keyboard, 
         await page.getByRole('link', { name: 'View saved workflow in Work', exact: true }).click(); await ready();
         assert.equal(new URL(page.url()).searchParams.get('run'), notice.workflow_run_id); assert.match(await page.locator('.consoleMain').innerText(), /Stopped/);
         assert.doesNotMatch(await page.locator('.consoleMain').innerText(), /Work is in progress|Waiting for your decision|Waiting for owner input/);
-        assert.match(await page.locator('.guidedOutcomeSpending').innerText(), /1 of 3 recorded calls have an unknown charge/);
+        const savedWork = page.locator('[data-work-detail]');
+        assert.equal(await savedWork.getAttribute('data-work-detail'), notice.workflow_run_id);
+        assert.match(await savedWork.getByRole('region', { name: 'Recorded provider charges', exact: true }).innerText(), /1 of 3 recorded calls have an unknown charge/);
         await page.goto(`${origin}/dashboard?view=overview&business=${businessId}`); await ready();
         assert.doesNotMatch(await page.locator('.consoleMain').innerText(), /Work is in progress|Waiting for your decision|Waiting for owner input/);
         assert.deepEqual(fixture.tables.workflow_runs[1], savedRun); assert.deepEqual(fixture.tables.workflow_stage_runs[1], savedStage);

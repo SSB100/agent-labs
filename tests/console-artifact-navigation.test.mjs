@@ -103,6 +103,25 @@ async function assertPositionGuards(page, fixture) {
   await page.evaluate(() => dispatchEvent(new PageTransitionEvent("pageshow")));
   await settle();
   assert.deepEqual(await inspect(), { targetOpen: false, ancestorOpen: false, scroll: 0, backgroundFocused: true }, "A mismatched workflow boundary must not disclose, scroll or focus the artifact");
+  const exactProps = { artifactId: fixture.selectedArtifactId, workflowRunId: run.id };
+  await page.evaluate(props => {
+    const input = document.createElement("input"); input.id = "artifact-active-draft"; input.value = "Preserve this draft";
+    document.body.append(input); input.focus(); window.__artifactSetProps(props);
+  }, exactProps);
+  await page.waitForFunction(serialized => window.__artifactApplied === serialized, JSON.stringify(exactProps));
+  await page.evaluate(() => dispatchEvent(new PageTransitionEvent("pageshow"))); await settle();
+  assert.equal(await page.locator(`#artifact-${fixture.selectedArtifactId}`).getAttribute("open"), null);
+  assert.equal(await page.evaluate(() => document.activeElement?.id), "artifact-active-draft", "Evidence refresh must not steal an active draft's focus");
+  await page.evaluate(() => {
+    document.getElementById("artifact-active-draft").remove();
+    const dialog = document.createElement("dialog"); dialog.id = "artifact-modal";
+    dialog.innerHTML = '<input aria-label="Modal draft" value="Keep modal focus"/>';
+    document.body.append(dialog); dialog.showModal(); dialog.querySelector("input").focus();
+    dispatchEvent(new HashChangeEvent("hashchange"));
+  }); await settle();
+  assert.equal(await page.locator(`#artifact-${fixture.selectedArtifactId}`).getAttribute("open"), null);
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("aria-label")), "Modal draft", "Evidence restoration must remain behind the native modal barrier");
+  await page.evaluate(() => { const dialog = document.getElementById("artifact-modal"); dialog.close(); dialog.remove(); });
 }
 
 const enabled = process.env.GUIDED_UI_BROWSER === "1" || Boolean(process.env.GUIDED_UI_CHROMIUM_PATH);

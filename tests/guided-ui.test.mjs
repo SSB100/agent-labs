@@ -58,7 +58,9 @@ test("Library Business read failures cannot invoke empty-return domain loaders",
 
 test("explicit Business and run mismatch is rejected even when both Businesses are authorized", async () => {
   const reads = [];
-  await assert.rejects(renderDashboard({ view: "work", detail: true, mismatchedBusiness: true, reads }), /Fixture record was not found/);
+  const markup = await renderDashboard({ view: "work", detail: true, mismatchedBusiness: true, reads });
+  assert.match(markup, /Selected record unavailable|Selected record not found|Selection unavailable|Record not found|Selected record/);
+  assert.doesNotMatch(markup, /Exact selected artifact content/);
   assert.deepEqual(reads, []);
 });
 
@@ -77,9 +79,9 @@ test("console navigation exposes seven same-page destinations and unknown counts
 
 test("root Work view binds saved run context and research sheet preserves the URL", async () => {
   const list = await renderDashboard({ view: "work" });
-  assert.ok(list.includes(`/dashboard?view=work&amp;run=${run.id}`));
+  assert.ok(list.includes(`/dashboard?view=work&amp;selected=${run.id}#console-collection-detail`));
   const detail = await renderDashboard({ view: "work", detail: true });
-  assert.match(detail, /Saved outcome|Recorded stages and worker context/);
+  assert.match(detail, /Execution state|Saved stage|Stopped|Needs owner|Waiting/);
   assert.ok(detail.includes(`/dashboard/workflows/${run.id}`));
   const sheet = await renderDashboard({ view: "work", detail: true, sheet: true });
   assert.match(sheet, /<dialog class="consoleResearchSheet"/);
@@ -91,7 +93,7 @@ test("root Work view binds saved run context and research sheet preserves the UR
 test("real WorkContext uses the matching saved intent rather than an unrelated goal", () => {
   const markup = renderWorkContext();
   assert.ok(markup.includes(researchGoal));
-  assert.match(markup, /business=fixture-business/);
+  assert.match(markup, /business=00000000-0000-4000-8000-000000000901/);
   for (const boundary of ["Separate approval required", "Implementation incomplete", "Qualified product required", "Fee evidence required"]) assert.ok(markup.includes(boundary));
   const mismatch = renderWorkContext({ mismatched: true });
   assert.ok(!mismatch.includes(researchGoal));

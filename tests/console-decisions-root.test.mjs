@@ -56,7 +56,10 @@ test('Overview and Work display stopped evidence rather than active or waiting w
   assert.equal(overview.overview.props.context.needsYouCount, 0); assert.doesNotMatch(overview.html, noWork);
   assert.equal(overview.boundary.props.snapshot.entities.find(row => row.target === 'run').state, 'stopped');
   for (const route of [`/dashboard?view=work&business=${businessId}`, `/dashboard?view=work&business=${businessId}&run=${notice.workflow_run_id}`]) {
-    const work = await h.render(route); assert.match(work.html, /Stopped/); assert.doesNotMatch(work.html, noWork);
+    const work = await h.render(route); assert.match(work.html, /Stopped/);
+    // Available filter choices are not assertions about the displayed execution.
+    const displayedWork = work.html.replace(/<form[^>]*class="consoleCollectionToolbar"[\s\S]*?<\/form>/g, "");
+    assert.doesNotMatch(displayedWork, noWork);
     assert.equal(work.boundary.props.snapshot.entities.find(row => row.target === 'run').state, 'stopped');
     if (query(route).has('run')) { assert.match(work.html, /1 of 3 recorded calls have an unknown charge/); assert.match(work.html, /Failed/); }
   }
