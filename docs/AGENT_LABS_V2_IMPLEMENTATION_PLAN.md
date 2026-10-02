@@ -2,10 +2,10 @@
 
 Repository: `SSB100/agent-labs`
 Planning baseline: `82dc64dc77a4da91a7a83c6230e0867cea72f885`
-Document status: proposed documentation rewrite, pending review and acceptance
+Document status: reviewed remaining-work plan; authoritative on merge to main
 Document scope: remaining work only; one dependency-ordered implementation queue
 
-On acceptance, use this queue for every remaining UI, backend, qualification and product task. Use the [route acceptance checklist](CONSOLE_ROUTE_ACCEPTANCE.md) to verify coverage, not to choose a separate release order. Consult the [reuse and evidence crosswalk](AGENT_LABS_V2_EVIDENCE_CROSSWALK.md) for existing implementation, historical proofs, limits and the byte-preserved original plan. Keep historical checkpoints as evidence, not competing instructions to restart completed stages.
+After merge to main, use this queue for every remaining UI, backend, qualification and product task. Use the [route acceptance checklist](CONSOLE_ROUTE_ACCEPTANCE.md) to verify coverage, not to choose a separate release order. Consult the [reuse and evidence crosswalk](AGENT_LABS_V2_EVIDENCE_CROSSWALK.md) for existing implementation, historical proofs, limits and the byte-preserved original plan. Keep historical checkpoints as evidence, not competing instructions to restart completed stages.
 
 This document specifies the intended product and future engineering work. It grants no live operational authority, changes no existing approval, enables no provider and authorizes no schema, access, legal or financial action. Present each new persistence, security and external-activation boundary for its own review before implementation or activation.
 
