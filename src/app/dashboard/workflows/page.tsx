@@ -28,6 +28,7 @@ export default async function WorkflowsPage({ searchParams }: WorkflowsPageProps
   const collection = await loadWorkflowCollection(context, { limit: 100 });
   const query = await searchParams;
   const view = first(query.view) === "active" ? "active" : "all";
+  const unavailable = collection.errors.length > 0 || context.businessesUnavailable === true;
   const runs =
     view === "active"
       ? collection.runs.filter((run) => ACTIVE_WORKFLOW_STATUSES.has(run.status))
@@ -103,9 +104,10 @@ export default async function WorkflowsPage({ searchParams }: WorkflowsPageProps
       ) : null}
 
       <section className="workflowIndexSummary">
-        <div><span>Showing</span><strong>{runs.length}</strong><small>{view === "active" ? "active runs" : "durable runs"}</small></div>
-        <div><span>Running</span><strong>{collection.runs.filter((run) => ACTIVE_WORKFLOW_STATUSES.has(run.status)).length}</strong><small>live or waiting</small></div>
-        <div><span>Needs You</span><strong>{context.needsYouCount}</strong><small>open decisions</small></div>
+        <div><span>Showing</span><strong>{unavailable ? "Unknown" : runs.length}</strong><small>{view === "active" ? "active runs" : "durable runs"}</small></div>
+        <div><span>Working</span><strong>{unavailable ? "Unknown" : collection.runs.filter((run) => run.status === "running").length}</strong><small>recorded as running</small></div>
+        <div><span>Waiting</span><strong>{unavailable ? "Unknown" : collection.runs.filter((run) => ["waiting", "queued"].includes(run.status)).length}</strong><small>queued or waiting</small></div>
+        <div><span>Needs You</span><strong>{context.needsYouUnavailable ? "Unknown" : context.needsYouCount}</strong><small>open decisions</small></div>
       </section>
 
       <section className="workflowIndex">
@@ -115,6 +117,7 @@ export default async function WorkflowsPage({ searchParams }: WorkflowsPageProps
               const workerRun = currentWorkerRun(workersByRun.get(run.id) ?? []);
               return (
                 <WorkflowListCard
+                  unavailable={unavailable}
                   artifactCount={artifactCounts.get(run.id) ?? 0}
                   business={businessById.get(run.business_id)}
                   definition={definitionById.get(run.workflow_definition_id)}
@@ -124,6 +127,7 @@ export default async function WorkflowsPage({ searchParams }: WorkflowsPageProps
                   run={run}
                   stages={stagesByRun.get(run.id) ?? []}
                   task={currentTask(tasksByRun.get(run.id) ?? [])}
+                  workerRun={workerRun}
                   workerDefinition={
                     workerRun ? workerDefinitionById.get(workerRun.worker_definition_id) : null
                   }
@@ -132,9 +136,11 @@ export default async function WorkflowsPage({ searchParams }: WorkflowsPageProps
             })}
           </div>
         ) : (
-          <EmptyPanel icon="workflow" title={view === "active" ? "No active workflows" : "No workflows yet"}>
+          <EmptyPanel icon="workflow" title={unavailable ? "Work status unavailable" : view === "active" ? "No active workflows" : "No workflows yet"}>
             <p>
-              {view === "active"
+              {unavailable
+                ? "Saved runs may still be active. Check the existing records before starting more work."
+                : view === "active"
                 ? "All current workflows have reached a terminal state."
                 : "Start the durable proof from the Dashboard to create the first run."}
             </p>

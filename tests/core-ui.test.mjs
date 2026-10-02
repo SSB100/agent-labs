@@ -53,7 +53,7 @@ const intervention = {
   id: "00000000-0000-4000-8000-000000007004",
   business_id: run.business_id,
   workflow_run_id: run.id,
-  intervention_type: "review",
+  intervention_type: "synthetic_workflow_review",
   status: "open",
   title: "Review the worker result",
   description: "Approve or fail this bounded workflow.",
@@ -150,6 +150,6 @@ test("Stage 7 derives the next stage for active non-intervention workflows", () 
     status: "waiting",
     current_stage_key: "wait",
   };
-  assert.equal(deriveCurrentAction(waitingRun, null, null), "Waiting durably without consuming active compute");
+  assert.equal(deriveCurrentAction(waitingRun, null, null), "Waiting for the next step");
   assert.equal(deriveNextStep(waitingRun, definition, null), "Review");
 });

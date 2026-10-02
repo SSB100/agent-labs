@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
+import { statusLabel, statusTone } from "@/lib/core-ui/workflows";
 import type { OwnerUiContext } from "@/lib/core-ui/data";
 
 import { CoreIcon, type CoreIconName } from "./icons";
@@ -88,6 +89,7 @@ export function AppShell({
 
   return (
     <div className="coreShell">
+      <a className="coreSkipLink" href="#main-content">Skip to content</a>
       <aside className="coreSidebar">
         <Link className="coreBrand" href="/dashboard" aria-label="Agent Labs dashboard">
           <span className="coreBrandMark" aria-hidden="true">AL</span>
@@ -98,6 +100,7 @@ export function AppShell({
         </Link>
 
         <nav className="coreNavigation" aria-label="Agent Labs">
+          {context.needsYouUnavailable ? <p className="coreNotice" role="status">Decision count unavailable</p> : null}
           <p className="coreNavLabel">Operate</p>
           {primaryNavigation.map((item) => (
             <NavigationLink
@@ -161,7 +164,7 @@ export function AppShell({
         ))}
       </nav>
 
-      <main className="coreMain">{children}</main>
+      <main className="coreMain" id="main-content">{children}</main>
     </div>
   );
 }
@@ -190,21 +193,12 @@ export function PageHeader({
 }
 
 export function StatusPill({ status }: { status: string }) {
-  const tone =
-    status === "completed" || status === "qualified" || status === "connected"
-      ? "success"
-      : status === "needs_owner" || status === "review"
-        ? "attention"
-        : status === "failed" || status === "cancelled" || status === "not_configured"
-          ? "danger"
-          : status === "running" || status === "waiting" || status === "queued"
-            ? "live"
-            : "neutral";
-  const label = status
-    .split(/[._-]/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
+  const tone = ["qualified", "connected", "verified"].includes(status)
+    ? "success"
+    : status === "not_configured"
+      ? "danger"
+      : statusTone(status);
+  const label = statusLabel(status);
 
   return <span className={`coreStatus coreStatus-${tone}`}>{label}</span>;
 }

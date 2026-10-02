@@ -206,7 +206,7 @@ const intervention = { id: interventionId, business_id: businessId, workflow_run
   title: 'Review existing Printful product', description: 'The create outcome needs read-only reconciliation.', requested_at: '2026-10-01T12:00:00Z' };
 const link = ({ href, children, ...props }) => React.createElement('a', { href, ...props }, children);
 const wrapper = ({ children, title }) => React.createElement('section', {}, title, children);
-const workflowHelpers = { formatDateTime: value => value, formatRelativeTime: () => 'Just now', humanize: value => value };
+const workflowHelpers = { ...require('../.core-tests/lib/core-ui/workflows.js'), formatDateTime: value => value, formatRelativeTime: () => 'Just now', humanize: value => value };
 const { NeedsYouCard } = load('src/components/stage7/workflow-visuals.tsx', {
   'react/jsx-runtime': require('react/jsx-runtime'), 'next/link': link,
   '@/app/dashboard/actions': { resumeSyntheticReview: noop }, '@/app/dashboard/packs/actions': { acknowledgeEtsySimulation: noop },
@@ -235,7 +235,7 @@ async function needsYouPage({ printful = { records: [], unavailable: false }, ex
     '@/components/stage8/browser-intervention': { BrowserInterventionCard: wrapper },
     '@/components/stage7/app-shell': { AppShell: wrapper, EmptyPanel: wrapper, PageHeader: wrapper },
     '@/components/stage7/workflow-visuals': { NeedsYouCard },
-    '@/lib/core-ui/data': { requireOwnerUiContext: async () => context, loadWorkflowCollection: async () => ({ runs: [], definitions: [], interventions: existing }) },
+    '@/lib/core-ui/data': { requireOwnerUiContext: async () => context, loadWorkflowCollection: async () => ({ runs: [], definitions: [], errors: [], interventions: existing }) },
     '@/lib/core-ui/workflows': workflowHelpers,
   });
   const html = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }));

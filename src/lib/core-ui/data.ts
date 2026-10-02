@@ -53,6 +53,8 @@ export type OwnerUiContext = {
   displayName: string;
   businesses: BusinessRecord[];
   needsYouCount: number;
+  needsYouUnavailable?: boolean;
+  businessesUnavailable?: boolean;
 };
 
 export type WorkflowCollection = {
@@ -116,6 +118,8 @@ export async function requireOwnerUiContext(): Promise<OwnerUiContext> {
     displayName,
     businesses,
     needsYouCount: interventionCountResult.count ?? 0,
+    needsYouUnavailable: Boolean(interventionCountResult.error),
+    businessesUnavailable: Boolean(businessResult.error),
   };
 }
 
@@ -124,7 +128,7 @@ export async function loadWorkflowCollection(
   options: { limit?: number; statuses?: string[] } = {},
 ): Promise<WorkflowCollection> {
   const businessIds = context.businesses.map((business) => business.id);
-  if (!businessIds.length) return { ...EMPTY_COLLECTION };
+  if (!businessIds.length) return { ...EMPTY_COLLECTION, errors: context.businessesUnavailable ? ["Business records could not be loaded"] : [] };
 
   const baseRunQuery = context.supabase
     .from("workflow_runs")
@@ -244,7 +248,8 @@ export async function loadWorkflowDetail(
     .eq("id", workflowRunId)
     .maybeSingle();
   const run = row<WorkflowRunRecord>(runResult.data);
-  if (runResult.error || !run) notFound();
+  if (runResult.error) throw new Error("Workflow records are temporarily unavailable");
+  if (!run) notFound();
 
   const [
     businessResult,
@@ -300,6 +305,7 @@ export async function loadWorkflowDetail(
       .order("created_at", { ascending: false }),
   ]);
 
+  const errors = [businessResult, definitionResult, stageResult, eventResult, interventionResult, taskResult, workerRunResult, artifactResult].filter(result => result.error).map(result => errorMessage(result.error));
   const tasks = rows<TaskContractRecord>(taskResult.data);
   const workerRuns = rows<WorkerRunRecord>(workerRunResult.data);
   const workerDefinitionIds = [
@@ -316,10 +322,12 @@ export async function loadWorkflowDetail(
       .select("id, worker_key, version, name, role, status")
       .in("id", workerDefinitionIds);
     workerDefinitions = rows<WorkerDefinitionRecord>(workerDefinitionResult.data);
+    if (workerDefinitionResult.error) errors.push(errorMessage(workerDefinitionResult.error));
   }
 
   return {
     run,
+    errors,
     business: row<BusinessRecord>(businessResult.data),
     definition: row<WorkflowDefinitionRecord>(definitionResult.data),
     stages: rows<WorkflowStageRecord>(stageResult.data),

@@ -371,7 +371,7 @@ test('Needs You preserves account-registry uncertainty and links valid owner req
       '@/components/stage8/browser-intervention': { BrowserInterventionCard: wrapper },
       '@/components/stage7/app-shell': { AppShell: wrapper, EmptyPanel: wrapper, PageHeader: wrapper },
       '@/components/stage7/workflow-visuals': { NeedsYouCard: wrapper },
-      '@/lib/core-ui/data': { requireOwnerUiContext: async () => ({ businesses: [{ id: businessId, name: 'Owner Business' }] }), loadWorkflowCollection: async () => ({ runs: [], definitions: [], interventions: [] }) },
+      '@/lib/core-ui/data': { requireOwnerUiContext: async () => ({ businesses: [{ id: businessId, name: 'Owner Business' }] }), loadWorkflowCollection: async () => ({ runs: [], definitions: [], interventions: [], errors: [] }) },
       '@/lib/core-ui/workflows': { formatDateTime: value => value, humanize: value => value },
     });
     return renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }));

@@ -9,6 +9,7 @@ src/app/.well-known/workflow/
 # Build and coverage
 build/
 coverage/
+test-results/
 .core-tests/
 .worker-tests/
 *.tsbuildinfo
