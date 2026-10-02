@@ -34,6 +34,22 @@ async function focusVisible(page,selector,expectFocus=false){
   const result=await page.locator(selector).evaluate(node=>{const rect=node.getBoundingClientRect(),x=rect.left+Math.min(30,rect.width/2),y=rect.top+Math.min(8,rect.height/2),hit=document.elementFromPoint(x,y);return {rect:rect.toJSON(),width:innerWidth,height:innerHeight,focused:document.activeElement===node,hit:node===hit||node.contains(hit),scroll:document.scrollingElement.scrollTop};});
   assert.ok(result.rect.top>=-1&&result.rect.bottom<=result.height+1,JSON.stringify(result));assert.ok(result.hit,JSON.stringify(result));if(expectFocus)assert.equal(result.focused,true,JSON.stringify(result));if(result.width>900)assert.equal(result.scroll,0,JSON.stringify(result));
 }
+async function compactLongNames(page,width,kind){
+ if(width<1200)return;
+ const geometry=await page.evaluate(()=>{
+  const rect=node=>node.getBoundingClientRect().toJSON(),rows=[...document.querySelectorAll('.consoleCollectionRow')];
+  return {body:rect(document.querySelector('.consoleCollectionBody')),rows:rows.slice(0,2).map(node=>({row:rect(node),title:rect(node.querySelector('.consoleCollectionRowTitle')),business:rect(node.querySelector('.consoleCollectionBusiness'))})),heading:rect(document.querySelector('.consoleWorkDetail h3'))};
+ });
+ const evidence=JSON.stringify(geometry);
+ for(const row of geometry.rows){assert.ok(row.row.height<=180,`Long ${kind} names expanded a row: ${evidence}`);assert.ok(row.title.height<=42,evidence);assert.ok(row.business.height<=20,evidence);}
+ assert.ok(geometry.rows[1].row.top<geometry.body.bottom-80,`A second ${kind} row is not usable: ${evidence}`);
+ assert.ok(geometry.heading.height<=46,`Selected long title hides key state: ${evidence}`);
+ if(kind==='work'){
+  await focusVisible(page,'.consoleWorkCost strong');
+  await focusVisible(page,'.consoleWorkCost>p:first-of-type');
+  assert.match(await page.getByRole('region',{name:'Recorded provider charges',exact:true}).innerText(),/unknown charge/);
+ }
+}
 async function capture(page,directory,name){await page.screenshot({path:path.join(directory,`${name}-viewport.png`),fullPage:false});await page.screenshot({path:path.join(directory,`${name}.png`),fullPage:true});}
 async function setup(browser,viewport,{retained=true}={}){
   const context=await browser.newContext({viewport,reducedMotion:'reduce',serviceWorkers:'block'}),fixture=createCollectionBrowserFixture(),denied=[],errors=[];
@@ -51,7 +67,7 @@ test('hosted actual-root Work/Activity compact geometry, exact artifact hash, fi
   const h=await setup(browser,viewport),{page,fixture}=h;try{
    await page.goto(origin+selectedWorkRoute);await ready(page);await bounds(page,viewport.width,viewport.height);await focusVisible(page,'.consoleCollectionDetail>header h2');
    assert.equal(await page.locator('.consoleCollectionList [data-record-id]').count(),25);assert.equal(await page.locator('[data-work-detail]').getAttribute('data-work-detail'),oldRunId);
-   await capture(page,directory,`console-r02-work-selected-${viewport.slug}`);
+   await compactLongNames(page,viewport.width,'work');await capture(page,directory,`console-r02-work-selected-${viewport.slug}`);
    // Exact selected identity remains independent of a new server filter and page.
    await page.locator('[name=status]').selectOption('completed');await page.locator('.consoleCollectionToolbar button[type=submit]').click();await ready(page);
    assert.equal(new URL(page.url()).searchParams.get('status'),'completed');assert.equal(await page.locator('[data-work-detail]').getAttribute('data-work-detail'),oldRunId);
@@ -66,7 +82,7 @@ test('hosted actual-root Work/Activity compact geometry, exact artifact hash, fi
    await focusVisible(page,`#artifact-${exactArtifactId}>summary`,true);await bounds(page,viewport.width,viewport.height);await capture(page,directory,`console-r02-work-exact-artifact-${viewport.slug}`);
    await page.reload();await ready(page);assert.equal(createHash('sha256').update(await page.locator('[aria-label="Exact selected artifact content"]').textContent()).digest('hex'),artifactHash);
    await page.evaluate(route=>window.__collectionNavigate(route),selectedActivityRoute);await ready(page);await bounds(page,viewport.width,viewport.height);await focusVisible(page,'.consoleCollectionDetail>header h2');
-   assert.match(await page.locator('.consoleCollectionHeader').innerText(),/Underlying audit events/);assert.equal(await page.locator('.consoleCollectionList [data-record-id]').count(),25);await capture(page,directory,`console-r02-activity-selected-${viewport.slug}`);
+   assert.match(await page.locator('.consoleCollectionHeader').innerText(),/Underlying audit events/);assert.equal(await page.locator('.consoleCollectionList [data-record-id]').count(),25);await compactLongNames(page,viewport.width,'activity');await capture(page,directory,`console-r02-activity-selected-${viewport.slug}`);
    await page.getByRole('link',{name:'Next',exact:true}).click();await ready(page);assert.equal(new URL(page.url()).searchParams.get('page'),'2');assert.equal(new URL(page.url()).searchParams.get('selected'),oldEventId);
    await page.goBack();await ready(page);await page.goForward();await ready(page);await page.reload();await ready(page);
    assert.deepEqual(h.denied,[]);assert.deepEqual(h.errors,[]);assert.deepEqual(fixture.denied,[]);assert.equal(await page.evaluate(()=>window.__collectionPaidCalls),0);

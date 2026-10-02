@@ -113,7 +113,7 @@ export function mountConsoleCollectionScroll(root: HTMLElement, ownerId: string,
     for (const node of disclosures()) node.open = open.has(node.dataset.consoleDisclosure!);
   };
   const capture = () => {
-    if (disposed || !restored || !sameScope() || activeLayout !== layout()) return;
+    if (disposed || !restored || !sameScope() || !navigationMatchesScope() || activeLayout !== layout()) return;
     captured = { version: 1, layout: activeLayout, disclosures: disclosures().filter(node => node.open).map(node => node.dataset.consoleDisclosure!).filter(key => key.length <= 160).slice(0, 64), body: body().scrollTop, detail: detail?.scrollTop ?? 0, document: view.scrollY, mobile: mobile(), savedAt: Date.now() };
   };
   // Disposal may run after React has replaced/clamped the retained list DOM.
@@ -193,7 +193,10 @@ export function mountConsoleCollectionScroll(root: HTMLElement, ownerId: string,
     // Breakpoint CSS can clamp the old scroller before resize fires. Keep the
     // last observed snapshot until the new layout has been restored.
     if (activeLayout !== layout()) return;
-    if (event.target !== view && event.target !== body() && !(activeLayout === "split" && event.target === detail)) return;
+    // Document scrolling bubbles to the Window listener with Document as its
+    // target. Accept only this pane's owning document, never another surface.
+    const document = root.ownerDocument ?? view.document;
+    if (event.target !== view && event.target !== document && event.target !== body() && !(activeLayout === "split" && event.target === detail)) return;
     capture(); view.clearTimeout(timer); timer = view.setTimeout(flush, 120);
   };
   const onPageHide = () => save();

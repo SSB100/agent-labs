@@ -45,12 +45,13 @@ export function ConsoleWorkDetail({ detail, searchParams }: { detail: ConsoleWor
     {exact ? <ConsoleArtifactPosition artifactId={exact.id} workflowRunId={run.id}/> : null}
     <h3>{detail.definition?.name ?? "Workflow name unavailable"}</h3>
     <ConsoleWorkState run={run}/>
-    {stopped ? <p>This execution ended. An open or reviewed notice does not resume it, establish success, or settle charges.</p> : run.status === "failed" ? <p>This run failed. Saved outputs and charges remain available for inspection.</p> : run.status === "cancelled" ? <p>This run was cancelled. This does not establish whether every external effect or charge is settled.</p> : null}
-    {!detail.complete ? <p className="consoleCollectionNotice" role="status">Some exact-run context is incomplete. Unloaded records do not prove that no work, outputs or charges exist.</p> : null}
     <section className="consoleWorkCost" aria-label="Recorded provider charges"><h4>{spending.label}</h4><strong>{spending.value}</strong><p>{spending.detail}</p>{spending.reservation ? <p>{spending.reservation}</p> : null}
       {spending.exactAmounts.length ? <details className="consoleWorkSection" data-console-disclosure={`work:${run.id}:costs`}><summary>Exact recorded amounts</summary><dl className="consoleWorkFacts">{spending.exactAmounts.map((amount, index) => <div key={`${amount.label}:${index}`}><dt>{amount.label}</dt><dd>{amount.value}</dd></div>)}</dl></details> : null}
     </section>
+    {stopped ? <p>This execution ended. An open or reviewed notice does not resume it, establish success, or settle charges.</p> : run.status === "failed" ? <p>This run failed. Saved outputs and charges remain available for inspection.</p> : run.status === "cancelled" ? <p>This run was cancelled. This does not establish whether every external effect or charge is settled.</p> : null}
+    {!detail.complete ? <p className="consoleCollectionNotice" role="status">Some exact-run context is incomplete. Unloaded records do not prove that no work, outputs or charges exist.</p> : null}
     <details className="consoleWorkSection" data-console-disclosure={`work:${run.id}:identity`}><summary>Workflow and exact saved identities</summary><dl className="consoleWorkFacts">
+      <div><dt>Workflow name</dt><dd>{detail.definition?.name ?? "Workflow name unavailable"}</dd></div>
       <div><dt>Business</dt><dd>{detail.business?.id === run.business_id ? detail.business.name : "Business name unavailable"}</dd></div><div><dt>Business ID</dt><dd>{run.business_id}</dd></div><div><dt>Run ID</dt><dd>{run.id}</dd></div><div><dt>Saved state</dt><dd>{run.status || "Unavailable"}</dd></div><div><dt>Saved stage</dt><dd>{run.current_stage_key ?? "Unavailable"}</dd></div>
       <div><dt>Definition</dt><dd>{run.workflow_definition_id}{detail.definition ? ` · v${detail.definition.version}` : " · Unavailable"}</dd></div><div><dt>Updated</dt><dd>{run.updated_at}</dd></div><div><dt>Execution ended</dt><dd>{run.completed_at ?? "No end time recorded"}</dd></div>
     </dl></details>

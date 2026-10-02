@@ -21,6 +21,7 @@ This is the first Work/Activity slice of R02 in the [remaining implementation pl
 - List queries do not depend on the command bar's Business. An empty aggregate command preserves an existing local draft; a new typed goal remains unapproved until the existing review flow completes. Nothing starts from collection navigation.
 - Motion uses the same persisted run/stage/task/worker/output receipt semantics. Types admit the minimum metadata fields rather than fabricated empty payloads. Incomplete detail is quiet, and polling does not create a new activation.
 - Desktop 1280×720 and 1440×900 require one document viewport, contained long content and visible frequent controls. Narrow/zoom views retain readable reflow, keyboard access and unobscured selected headings.
+- Long list names use two-line summaries and one-line Business labels; full identities remain available in keyboard-accessible context disclosures. The selected Work charge summary precedes verbose identity and completeness details. Desktop checks measure row density and visible known/unknown charges, not only document overflow.
 
 ## Verification boundaries
 

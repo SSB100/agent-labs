@@ -599,3 +599,64 @@ test("a split-only saved position cannot suppress fresh single-column selection 
   const cleanup = scroll.mountConsoleCollectionScroll(fixture.root, "owner", href, fixture.view); fixture.flush();
   assert.equal(reveals, 1); cleanup();
 });
+
+function documentScroll(fixture) {
+  // A document scroll observed by a Window listener retains Document as its
+  // target. EventTarget alone has no DOM propagation, so model that target
+  // explicitly rather than pretending browsers target Window for this event.
+  const document = fixture.root.ownerDocument ?? fixture.view.document ?? { querySelector: () => null, activeElement: null };
+  fixture.root.ownerDocument = document; fixture.view.document = document;
+  const event = new Event("scroll"); Object.defineProperty(event, "target", { value: document });
+  fixture.view.dispatchEvent(event);
+}
+test("real Document-target scroll events update the mobile reading snapshot observed by Window", () => {
+  const href = `/dashboard?view=work&selected=${id(1000)}`, fixture = scrollHarness({ selected: true, width: 390 });
+  const cleanup = scroll.mountConsoleCollectionScroll(fixture.root, "owner", href, fixture.view); fixture.flush();
+  fixture.view.scrollY = 2100; documentScroll(fixture); fixture.flushTimers();
+  assert.equal(JSON.parse(fixture.store.get(scroll.consoleCollectionScrollKey("owner", href))).document, 2100);
+  cleanup();
+});
+test("expanded narrow Work retains Document-target reading position through page navigation, Back and reload", () => {
+  for (const width of [390, 640]) {
+    const href = `/dashboard?view=work&selected=${id(1000)}`, nextHref = `${href}&page=2`;
+    const first = toolbarHarness(href, { selected: true, width });
+    const evidence = { dataset: { consoleDisclosure: `work:${id(1000)}:Saved output metadata` }, open: false };
+    first.root.querySelectorAll = () => [evidence];
+    first.detail.scrollIntoView = () => { first.view.scrollY = 1200; };
+    const cleanup = scroll.mountConsoleCollectionScroll(first.root, "owner", href, first.view); first.settle();
+    assert.equal(first.view.scrollY, 1200, "initial no-hash selection remains visible");
+    evidence.open = true; first.root.dispatchEvent(new Event("toggle"));
+    first.view.scrollY = 2100; documentScroll(first); first.flushTimers();
+    cleanup();
+    const next = toolbarHarness(nextHref, { selected: true, width, store: first.store });
+    const nextCleanup = scroll.mountConsoleCollectionScroll(next.root, "owner", nextHref, next.view); next.settle(); nextCleanup();
+    for (const transition of ["Back", "reload"]) {
+      const returned = toolbarHarness(href, { selected: true, width, store: first.store });
+      const returnedEvidence = { dataset: evidence.dataset, open: false }; returned.root.querySelectorAll = () => [returnedEvidence];
+      let reveals = 0; returned.detail.scrollIntoView = () => { reveals++; };
+      const dispose = scroll.mountConsoleCollectionScroll(returned.root, "owner", href, returned.view); returned.settle();
+      assert.equal(returnedEvidence.open, true, `${width}px ${transition} disclosure`);
+      assert.equal(returned.view.scrollY, 2100, `${width}px ${transition} reading position`);
+      assert.equal(reveals, 0, "saved exact position outranks initial selected reveal"); dispose();
+    }
+  }
+});
+test("new-URL document restoration cannot overwrite an old retained route snapshot before React commits", () => {
+  const href = `/dashboard?view=work&selected=${id(1000)}`, fixture = toolbarHarness(href, { selected: true, width: 390 });
+  const cleanup = scroll.mountConsoleCollectionScroll(fixture.root, "owner", href, fixture.view); fixture.settle();
+  fixture.view.scrollY = 2100; documentScroll(fixture); fixture.flushTimers();
+  fixture.view.location.search += "&page=2";
+  fixture.view.scrollY = 0; documentScroll(fixture); fixture.flushTimers();
+  cleanup();
+  assert.equal(JSON.parse(fixture.store.get(scroll.consoleCollectionScrollKey("owner", href))).document, 2100);
+});
+
+test("foreign Document scroll events cannot change the owning collection snapshot", () => {
+  const href = `/dashboard?view=work&selected=${id(1000)}`, fixture = toolbarHarness(href, { selected: true, width: 390 });
+  const cleanup = scroll.mountConsoleCollectionScroll(fixture.root, "owner", href, fixture.view); fixture.settle();
+  fixture.view.scrollY = 2100; documentScroll(fixture); fixture.flushTimers();
+  const otherDocument = { querySelector: () => null, activeElement: null };
+  const foreignEvent = new Event("scroll"); Object.defineProperty(foreignEvent, "target", { value: otherDocument });
+  fixture.view.scrollY = 0; fixture.view.dispatchEvent(foreignEvent); fixture.flushTimers(); cleanup();
+  assert.equal(JSON.parse(fixture.store.get(scroll.consoleCollectionScrollKey("owner", href))).document, 2100);
+});

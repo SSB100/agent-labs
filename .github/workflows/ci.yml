@@ -34,8 +34,19 @@ jobs:
         run: npx playwright-core install --with-deps chromium
 
       - name: Capture compact console, Decisions and bounded collection previews
+        id: owner-previews
         continue-on-error: true
         run: node --test tests/console-visual.test.mjs tests/console-connections.test.mjs tests/console-decisions-browser.test.mjs tests/console-collection-browser.test.mjs
+
+      - name: Report preview test outcome
+        if: always()
+        env:
+          PREVIEW_OUTCOME: ${{ steps.owner-previews.outcome }}
+        run: |
+          echo "Early owner UI tests: $PREVIEW_OUTCOME" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$PREVIEW_OUTCOME" != "success" ]; then
+            echo "::warning::Early owner UI tests did not pass. Uploaded previews are diagnostic only; the full gate must pass before release."
+          fi
 
       - name: Upload early console preview
         if: always()
@@ -47,6 +58,24 @@ jobs:
             test-results/guided-ui/console-connections-*.png
             test-results/guided-ui/console-decisions-*.png
             test-results/guided-ui/console-r02-*.png
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload early bounded collection preview
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: collections-preview-${{ github.sha }}
+          path: test-results/guided-ui/console-r02-*.png
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload early Overview preview
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: overview-preview-${{ github.sha }}
+          path: test-results/guided-ui/console-overview-*.png
           if-no-files-found: warn
           retention-days: 14
 

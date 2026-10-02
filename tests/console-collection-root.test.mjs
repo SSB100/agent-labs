@@ -6,6 +6,19 @@ const plain = value => JSON.parse(JSON.stringify(value));
 const exact = (read, id) => read.filters.some(([operator, column, value]) => operator === 'eq' && column === 'id' && value === id);
 const table = (fixture, name) => fixture.reads.filter(read => read.table === name);
 
+test('compact name summaries retain full workflow, Business and event identity in accessible disclosures', async () => {
+  const fixture = rootCollectionFixture(), work = await fixture.render(selectedWorkRoute);
+  const name = fixture.tables.workflow_definitions.find(row => row.id === work.detailData.run.workflow_definition_id).name;
+  assert.ok(work.markup.includes(`<dt>Workflow</dt><dd>${name}</dd>`));
+  assert.ok(work.markup.includes(`<dt>Workflow name</dt><dd>${name}</dd>`));
+  assert.ok(work.markup.includes(`<dt>Business</dt><dd>${businesses[0].name}</dd>`));
+  assert.ok(work.markup.indexOf('aria-label="Recorded provider charges"') < work.markup.indexOf('Some exact-run context is incomplete'));
+  const activity = await fixture.render(selectedActivityRoute), event = activity.data.selection.item;
+  assert.ok(activity.markup.includes(`<summary>Event identity and full type</summary>`));
+  assert.ok(activity.markup.includes(`<dt>Event type</dt><dd>${event.event_type}</dd>`));
+  assert.deepEqual(fixture.denied, []);
+});
+
 for (const kind of ['work','activity']) test(`actual DashboardPage ${kind} reads bounded 25+sentinel pages across 127 records in each of two Businesses`, async () => {
   const fixture = rootCollectionFixture(), first = await fixture.render(`/dashboard?view=${kind}`);
   assert.equal(first.data.page.total, 254); assert.equal(first.data.page.items.length, 25); assert.equal(first.data.page.complete, true);
