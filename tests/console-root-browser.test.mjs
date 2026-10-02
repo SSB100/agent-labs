@@ -80,7 +80,7 @@ test("real root Browser toggle, saved record, history, context and research dism
         for (const target of targets) assert.ok(Math.min(target.width, target.height) >= (width <= 900 ? 44 : 24), JSON.stringify(target));
         await page.screenshot({ path: path.join(directory, `console-browser-root-${width}.png`), fullPage: true });
         await page.getByRole("link", { name: "Inspect saved workflow record" }).click(); await page.waitForURL(origin + record); await hydrated();
-        assert.match(await page.locator(".consolePaneHeader").innerText(), /Synthetic Browser Studio/);
+        assert.match(await page.locator(".consoleWorkspaceContext").innerText(), /Synthetic Browser Studio/);
         await page.goBack(); await page.waitForURL(origin + rootBrowserMode); await hydrated();
         await page.reload(); await hydrated(); await inert();
         await page.locator(".consoleCentreTabs").getByRole("link", { name: "Overview", exact: true }).click(); await page.waitForURL(origin + rootBrowserStart); await hydrated();

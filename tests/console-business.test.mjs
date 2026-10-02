@@ -21,14 +21,18 @@ test("real B-run routing preserves the authorized Business in root navigation, d
   const docs = await loadDocuments();
   for (const [url, fixture] of docs) {
     assert.equal(fixture.command.businessId, businessFlow.businessId, url);
-    assert.ok(fixture.command.returnTo.includes(`business=${businessFlow.businessId}`), url);
+    const returned = new URL(fixture.command.returnTo, businessFlow.origin).searchParams;
+    if (url === businessFlow.work) {
+      assert.equal(returned.get("business"), null, "An aggregate Work selection preserves its list filter");
+      assert.equal(returned.get("selected"), new URL(businessFlow.work, businessFlow.origin).searchParams.get("run"));
+    } else assert.equal(returned.get("business"), businessFlow.businessId, url);
     const nav = fixture.markup.match(/<nav class="consoleNavigation"[^>]*>(.*?)<\/nav>/s)?.[1];
     assert.ok(nav);
     for (const view of ["library", "connections"]) assert.ok(nav.includes(`/dashboard?view=${view}&amp;business=${businessFlow.businessId}`), `${url} ${view}`);
     assert.ok(fixture.markup.includes(businessFlow.name), url);
   }
   const sheet = docs.get(businessFlow.sheet).markup;
-  assert.match(sheet, /value="fixture-other-business" selected=""/);
+  assert.match(sheet, /value="00000000-0000-4000-8000-000000000911" selected=""/);
   assert.doesNotMatch(sheet, /name="confirmResearch"/);
 });
 
@@ -45,11 +49,11 @@ test("overview research and connection shortcuts preserve the selected Business"
   assert.ok(links.every(href => href === `/dashboard?view=connections&amp;business=${businessFlow.businessId}`));
 });
 
-test("Work pane header research and All work links retain Business B", async () => {
+test("Work header research retains Business B and closing aggregate detail preserves its list", async () => {
   const list = await renderDashboard({ view: "work", businessFlow: true });
   const detail = await renderDashboard({ view: "work", detail: true, businessFlow: true, omitBusinessQuery: true });
   assert.ok(list.includes(`href="/dashboard?view=work&amp;business=${businessFlow.businessId}&amp;sheet=research"`));
-  assert.ok(detail.includes(`href="/dashboard?view=work&amp;business=${businessFlow.businessId}">All work</a>`));
+  assert.ok(detail.includes(`href="/dashboard?view=work">Close detail</a>`));
 });
 
 test("protected route AppShell forwards only an authorized Business to console destinations", () => {
@@ -71,7 +75,7 @@ test("protected Artifacts and Printful evidence links preserve Business selectio
   assert.ok(markup.includes(`/dashboard?view=connections&amp;business=${businessFlow.businessId}`));
   const select = markup.match(/<select name="businessId"[^>]*>(.*?)<\/select>/s)?.[1];
   assert.ok(select?.includes(`value="${businessFlow.businessId}"`));
-  assert.ok(!select?.includes('value="fixture-business"'));
+  assert.ok(!select?.includes('value="00000000-0000-4000-8000-000000000901"'));
   const printful = readFileSync("src/app/dashboard/printful/page.tsx", "utf8");
   assert.ok(printful.includes('href={`/dashboard/products${business ? `?business=${business.id}` : ""}`}'));
   assert.ok(printful.includes('href={`/dashboard/artifacts${business ? `?business=${business.id}` : ""}`}'));

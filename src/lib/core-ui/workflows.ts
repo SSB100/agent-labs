@@ -207,8 +207,8 @@ export function stageBlueprints(definition: WorkflowDefinitionRecord | undefined
     .sort((left, right) => left.sequence - right.sequence);
 }
 
-export function latestStageByKey(stages: readonly WorkflowStageRecord[]) {
-  const map = new Map<string, WorkflowStageRecord>();
+export function latestStageByKey<T extends Pick<WorkflowStageRecord, "stage_key" | "attempt" | "updated_at">>(stages: readonly T[]) {
+  const map = new Map<string, T>();
   for (const stage of stages) {
     const existing = map.get(stage.stage_key);
     if (!existing || stage.attempt > existing.attempt ||
@@ -362,11 +362,11 @@ export function workflowTimelineStages(
 }
 
 export function currentWorkerSummary(
-  run: WorkflowRunRecord,
-  task: TaskContractRecord | null,
-  workerRun: WorkerRunRecord | null | undefined,
-  workerDefinition: WorkerDefinitionRecord | null | undefined,
-  stages: readonly WorkflowStageRecord[] = [],
+  run: Pick<WorkflowRunRecord, "id" | "business_id" | "status" | "current_stage_key" | "completed_at">,
+  task: Pick<TaskContractRecord, "id" | "business_id" | "workflow_run_id" | "workflow_stage_run_id" | "worker_definition_id" | "status"> | null,
+  workerRun: Pick<WorkerRunRecord, "business_id" | "workflow_run_id" | "task_contract_id" | "worker_definition_id" | "status" | "completed_at"> | null | undefined,
+  workerDefinition: Pick<WorkerDefinitionRecord, "id" | "name"> | null | undefined,
+  stages: readonly Pick<WorkflowStageRecord, "id" | "workflow_run_id" | "stage_key" | "attempt" | "updated_at" | "status">[] = [],
 ) {
   const matchingWorker = workerRun?.workflow_run_id === run.id && workerRun.business_id === run.business_id;
   const matchingTask = task?.workflow_run_id === run.id && task.business_id === run.business_id &&

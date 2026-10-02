@@ -8,11 +8,11 @@ import { findFixtureElement, fixtureDocument, loadSource, renderDashboard, run }
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 export const businessFlow = {
-  origin: "https://agentlabs-business.test", businessId: "fixture-other-business", name: "Other authorized Business",
+  origin: "https://agentlabs-business.test", businessId: "00000000-0000-4000-8000-000000000911", name: "Other authorized Business",
   work: `/dashboard?view=work&run=${run.id}`,
-  library: "/dashboard?view=library&business=fixture-other-business",
-  connections: "/dashboard?view=connections&business=fixture-other-business",
-  sheet: "/dashboard?view=connections&business=fixture-other-business&sheet=research",
+  library: "/dashboard?view=library&business=00000000-0000-4000-8000-000000000911",
+  connections: "/dashboard?view=connections&business=00000000-0000-4000-8000-000000000911",
+  sheet: "/dashboard?view=connections&business=00000000-0000-4000-8000-000000000911&sheet=research",
 };
 let bundle;
 async function hydrationBundle() {

@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { runInNewContext } from "node:vm";
 import path from "node:path";
 import { wire as browserMetadataWire } from "./console-browser-fixtures.mjs";
+import { rootCollectionFixture } from "./console-collection-root.mjs";
 
 const require = createRequire(import.meta.url);
 const ts = require("typescript");
@@ -40,9 +41,9 @@ export function loadSource(file, dependencies = {}) {
   return fixtureModule.exports;
 }
 
-export const business = { id: "fixture-business", name: "North Star Design Studio", created_at: fixtureTime, updated_at: fixtureTime };
+export const business = { id: "00000000-0000-4000-8000-000000000901", name: "North Star Design Studio", created_at: fixtureTime, updated_at: fixtureTime };
 export const definition = {
-  id: "fixture-definition", workflow_key: "synthetic.core.runtime-proof", version: "1.0.0", name: "Original product research",
+  id: "00000000-0000-4000-8000-000000000900", workflow_key: "synthetic.core.runtime-proof", version: "1.0.0", name: "Original product research",
   description: "Research evidence, review the saved result, and decide the next step.", status: "qualified",
   stage_definition: { stages: [
     { key: "start", type: "system", sequence: 0 }, { key: "worker-task", type: "worker", sequence: 1 },
@@ -55,18 +56,18 @@ export const run = {
   completed_at: null, created_at: "2026-10-02T02:45:00.000Z", updated_at: "2026-10-02T02:58:00.000Z",
 };
 export const intervention = {
-  id: "fixture-intervention", business_id: business.id, workflow_run_id: run.id, intervention_type: "review", status: "open",
+  id: "00000000-0000-4000-8000-000000000903", business_id: business.id, workflow_run_id: run.id, intervention_type: "review", status: "open",
   title: "Review the saved research result", description: "The bounded workflow has paused. Review the evidence before making your decision.",
   options: {}, resolution: {}, requested_at: "2026-10-02T02:58:00.000Z", resolved_at: null,
   created_at: "2026-10-02T02:58:00.000Z", updated_at: "2026-10-02T02:58:00.000Z",
 };
 export const stages = ["start", "worker-task", "wait", "review"].map((stage_key, sequence) => ({
-  id: `fixture-stage-${sequence}`, workflow_run_id: run.id, stage_key, sequence, attempt: stage_key === "worker-task" ? 2 : 1,
+  id: `00000000-0000-4000-8000-${String(920 + sequence).padStart(12, "0")}`, workflow_run_id: run.id, stage_key, sequence, attempt: stage_key === "worker-task" ? 2 : 1,
   status: stage_key === "review" ? "needs_owner" : "completed", input: {}, output: {}, failure: {},
   started_at: run.started_at, completed_at: stage_key === "review" ? null : run.updated_at, created_at: run.created_at, updated_at: run.updated_at,
 }));
 const event = {
-  id: "fixture-event", business_id: business.id, workflow_run_id: run.id, event_type: "workflow.owner_intervention.requested",
+  id: "00000000-0000-4000-8000-000000000904", business_id: business.id, workflow_run_id: run.id, event_type: "workflow.owner_intervention.requested",
   actor_type: "system", actor_id: null, payload: { stageKey: "review" }, occurred_at: run.updated_at, created_at: run.updated_at,
 };
 
@@ -121,7 +122,7 @@ export function findFixtureElement(tree, name) {
 
 export async function renderDashboard({ unavailable = false, empty = false, view = "overview", detail = false, sheet = false, knownZero = false, businessesUnavailable = false, mismatchedBusiness = false, businessFlow = false, omitBusinessQuery = false, records, contextOverrides = {}, queryOverrides = {}, browserRecords = {}, accountRecords, accountComponents, accountActions, observedAt = Date.parse(fixtureTime), inspect, reads = [] } = {}) {
   const { shell, visuals, icons, workflows, consoleShell, motion, motionUi, browserView, browserUi } = components();
-  const otherBusiness = { ...business, id: "fixture-other-business", name: "Other authorized Business" };
+  const otherBusiness = { ...business, id: "00000000-0000-4000-8000-000000000911", name: "Other authorized Business" };
   const context = ownerContext({ needsYouCount: unavailable || empty ? 0 : 1, needsYouUnavailable: unavailable && !knownZero, businessesUnavailable,
     businesses: businessesUnavailable ? [] : mismatchedBusiness || businessFlow ? [business, otherBusiness] : [business], ...contextOverrides });
   const collection = records ?? (unavailable || empty ? workflowCollection({ runs: [], definitions: [], stages: [], events: [], interventions: [], errors: unavailable ? ["Synthetic workflow read unavailable"] : [] }) : workflowCollection());
@@ -172,12 +173,25 @@ export async function renderDashboard({ unavailable = false, empty = false, view
     "./products-workspace": { ProductSubmitButton: noAction }, "@/app/dashboard/products/discovery-actions": {}, "@/products/discovery-v2-goal": {},
   });
   const details = { ...collection, run: rootRun, definition, business: context.businesses.find(item => item.id === rootRun.business_id) };
+  const collectionFixture = rootCollectionFixture({
+    tables: { businesses: context.businesses, workflow_runs: collection.runs, workflow_definitions: collection.definitions,
+      workflow_stage_runs: collection.stages, task_contracts: collection.tasks, worker_runs: collection.workerRuns,
+      worker_definitions: collection.workerDefinitions, owner_interventions: collection.interventions,
+      events: collection.events, artifacts: collection.artifacts, product_experiments: [],
+      model_invocations: [{ id: "00000000-0000-4000-8000-000000000905", business_id: rootRun.business_id,
+        workflow_run_id: run.id, provider_request_id: "fixture-receipt", reported_cost_usd: .0182 }] },
+    ownedBusinesses: context.businesses, businessesUnavailable,
+    readOptions: unavailable ? { failTable: "workflow_runs" } : {},
+  });
+  if (view === "work" || view === "activity") context.supabase = collectionFixture.context.supabase;
+  const populated = collectionFixture.load("src/components/console/console-populated-dashboard.tsx");
+
   const { default: Page } = loadSource("src/app/dashboard/page.tsx", {
     "next/navigation": { notFound: () => { throw new Error("Fixture record was not found"); } },
     "@/components/console/console-shell": consoleShell, "@/components/console/console-overview": overview,
     "@/components/console/console-motion": motionUi, "@/lib/core-ui/console-motion": motion,
     "@/browser/console-view": browserView, "@/browser/console-server": browserWire.server,
-    "@/components/console/console-command": command, "@/components/console/console-work-pane": work, "@/components/guided/quest-kickoff": quest,
+    "@/components/console/console-command": command, "@/components/console/console-work-pane": work, "@/components/console/console-populated-dashboard": populated, "@/components/guided/quest-kickoff": quest,
     "@/components/guided/creative-library": library, "@/components/stage7/workflow-visuals": visuals,
     "@/lib/core-ui/data": { requireOwnerUiContext: async () => context, loadWorkflowCollection: async () => collection, loadWorkflowDetail: async (_context, id) => { assert.equal(id, run.id); return details; } },
     "@/lib/core-ui/run-outcome-data": { loadRunCostData: async () => costData },
@@ -204,7 +218,8 @@ export async function renderDashboard({ unavailable = false, empty = false, view
   });
   const query = { view, ...(detail ? { run: run.id } : {}),
     ...(!omitBusinessQuery && (detail || businessFlow) ? { business: mismatchedBusiness || businessFlow ? otherBusiness.id : business.id } : {}), ...(sheet ? { sheet: "research" } : {}), ...queryOverrides };
-  const tree = await Page({ searchParams: Promise.resolve(query) });
+  let tree = await Page({ searchParams: Promise.resolve(query) });
+  if (React.isValidElement(tree) && tree.type?.name === "ConsolePopulatedDashboard") tree = await tree.type(tree.props);
   inspect?.(tree);
   reads.push(...browserWire.calls);
   return renderToStaticMarkup(tree);
@@ -292,7 +307,7 @@ export function renderTimelines() {
 
 export async function renderCreative({ businessFlow = false } = {}) {
   const { shell, icons } = components();
-  const otherBusiness = { ...business, id: "fixture-other-business", name: "Other authorized Business" };
+  const otherBusiness = { ...business, id: "00000000-0000-4000-8000-000000000911", name: "Other authorized Business" };
   const creativeContext = ownerContext({ businesses: businessFlow ? [business, otherBusiness] : [business] });
   const productTypes = loadSource("src/products/types.ts");
   const productHistory = loadSource("src/products/history.ts", { "./types": productTypes });
@@ -400,7 +415,7 @@ export const fixtureRenderers = {
 export function fixtureDocument(markup, { creative = false, products = false } = {}) {
   // Match RootLayout's cascade exactly; creative imports Products' button styles.
   const styles = ["src/app/globals.css", "src/app/stage1.css", "src/app/stage3.css", "src/app/stage7.css", "src/app/stage7-mobile.css", "src/app/stage8.css", "src/components/guided/work-context.css", "src/components/guided/creative-library.css", "src/components/guided/run-outcome.css",
-    "src/components/console/console-shell.css", "src/components/console/console-overview.css", "src/components/console/console-browser-centre.css", "src/components/console/console-command.css", "src/components/console/console-motion.css", "src/components/console/console-panes.css", "src/components/console/console-compact-decisions.css",
+    "src/components/console/console-shell.css", "src/components/console/console-overview.css", "src/components/console/console-browser-centre.css", "src/components/console/console-command.css", "src/components/console/console-motion.css", "src/components/console/console-panes.css", "src/components/console/console-compact-decisions.css", "src/components/console/console-collection-panes.css",
     "src/app/dashboard/accounts/accounts.css", "src/app/dashboard/products/products.css",
     ...(creative || products ? ["src/app/dashboard/products/products.css"] : []),
     ...(creative ? ["src/app/dashboard/artifacts/artifacts.css"] : []), ...(products ? ["src/components/guided/quest-kickoff.css"] : []),

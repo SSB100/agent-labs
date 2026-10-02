@@ -28,12 +28,12 @@ export type ConsoleMotionSnapshot = {
   entities: ConsoleMotionEntity[];
 };
 type MotionCollection = {
-  runs: WorkflowRunRecord[];
-  stages: WorkflowStageRecord[];
-  tasks: TaskContractRecord[];
-  workerRuns: WorkerRunRecord[];
-  artifacts: ArtifactRecord[];
-  interventions: OwnerInterventionRecord[];
+  runs: Pick<WorkflowRunRecord, "id" | "business_id" | "status" | "current_stage_key" | "started_at" | "completed_at" | "updated_at">[];
+  stages: Pick<WorkflowStageRecord, "id" | "workflow_run_id" | "stage_key" | "attempt" | "status" | "started_at" | "completed_at" | "updated_at">[];
+  tasks: Pick<TaskContractRecord, "id" | "business_id" | "workflow_run_id" | "workflow_stage_run_id" | "worker_definition_id" | "status" | "updated_at">[];
+  workerRuns: Pick<WorkerRunRecord, "id" | "business_id" | "workflow_run_id" | "task_contract_id" | "worker_definition_id" | "status" | "started_at" | "completed_at" | "updated_at">[];
+  artifacts: Pick<ArtifactRecord, "id" | "business_id" | "workflow_run_id" | "created_at" | "updated_at">[];
+  interventions: Pick<OwnerInterventionRecord, "id" | "business_id" | "workflow_run_id" | "status" | "requested_at" | "resolved_at" | "updated_at">[];
   errors: string[];
 };
 export type ConsoleMotionPulse = { kind: ConsoleMotionCue; key: string; startedAt: number; expiresAt: number };

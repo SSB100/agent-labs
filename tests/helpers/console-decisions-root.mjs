@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import React from 'react';
+import { rootCollectionFixture } from './console-collection-root.mjs';
 import { renderToString } from 'react-dom/server';
 import { components, findFixtureElement, loadSource } from './guided-ui.mjs';
 import { api, businessId, businesses, component, costLoader, fixtureTables, id, origin, owner, query, terminal, time, wire, workflows } from './console-decisions.mjs';
@@ -142,12 +144,13 @@ export function rootDecisionFixture({ tables = fixtureTables({ count: 131 }), us
     });
     const consoleData = loadSource('src/lib/core-ui/console-data.ts', { '@/products/discovery-v2-goal': {}, '@/products/discovery-v2-budget': {} });
     const noRequests = async () => ({ records: [], unavailable: false });
+    const populated = rootCollectionFixture().load('src/components/console/console-populated-dashboard.tsx');
     const page = loadSource('src/app/dashboard/page.tsx', {
       'next/navigation': { notFound: () => { throw Error('Fixture record was not found'); } },
       '@/components/console/console-shell': consoleShell, '@/components/console/console-overview': overview,
       '@/components/console/console-command': command, '@/components/console/console-motion': motionUi, '@/lib/core-ui/console-motion': motion,
       '@/browser/console-view': browserView, '@/browser/console-server': { loadConsoleBrowserWorkspace: async () => ({ status: 'ready', sessions: [], selectedSession: null }) },
-      '@/components/console/console-work-pane': work, '@/components/console/console-compact-decisions': component,
+      '@/components/console/console-work-pane': work, '@/components/console/console-populated-dashboard': populated, '@/components/console/console-compact-decisions': component,
       '@/lib/core-ui/console-decisions-query': query, '@/lib/core-ui/console-decisions-data': { ...api, loadConsoleDecisionPage: async (ctx, options) => { pageReads.push(plain(options ?? {})); return api.loadConsoleDecisionPage(ctx, options); } },
       './terminal-review-actions': { acknowledgeTerminalCreativeReview: action },
       '@/components/stage7/workflow-visuals': visuals,
@@ -165,10 +168,11 @@ export function rootDecisionFixture({ tables = fixtureTables({ count: 131 }), us
       './actions': { createBusiness: deny, resumeSyntheticReview: synthetic }, './browser-actions': { resumeBrowserControl: browser }, './packs/actions': { acknowledgeEtsySimulation: simulation }, './legacy-dashboard': deny,
       '@/components/console/console-panes.css': {}, './accounts/accounts.css': {}, './products/products.css': {},
     }).default;
-    const tree = await page({ searchParams: Promise.resolve(queryFromRoute(route)) });
+    let tree = await page({ searchParams: Promise.resolve(queryFromRoute(route)) });
+    if (React.isValidElement(tree) && tree.type?.name === 'ConsolePopulatedDashboard') tree = await tree.type(tree.props);
     const selected = findFixtureElement(tree, 'ConsoleCompactDecisions');
     return { tree, html: renderToString(tree), decisions: selected, data: selected?.props.data, props: selected?.props,
-      overview: findFixtureElement(tree, 'ConsoleOverview'), work: findFixtureElement(tree, 'ConsoleWorkPane'), boundary: findFixtureElement(tree, 'ConsoleMotionBoundary') };
+      overview: findFixtureElement(tree, 'ConsoleOverview'), work: findFixtureElement(tree, 'ConsoleWorkCollectionPane'), boundary: findFixtureElement(tree, 'ConsoleMotionBoundary') };
   }
   return { tables, events, reads, hookCalls, typedActions: { syntheticReview: synthetic, browserControl: browser, simulationReview: simulation }, dbReads: h.calls, rpcCalls, mutations, revalidated, pageReads, action, perform, render, context, collectionFor,
     setMode: value => { mode = value; } };

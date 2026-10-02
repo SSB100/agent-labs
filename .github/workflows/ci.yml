@@ -12,7 +12,7 @@ permissions:
 jobs:
   quality:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     env:
       CI: "true"
       NEXT_PUBLIC_SUPABASE_URL: https://tfdareuwrshjuevuiwvn.supabase.co
@@ -33,9 +33,9 @@ jobs:
       - name: Install pinned Chromium for owner UI verification
         run: npx playwright-core install --with-deps chromium
 
-      - name: Capture compact console, Connections and Decisions previews
+      - name: Capture compact console, Decisions and bounded collection previews
         continue-on-error: true
-        run: node --test tests/console-visual.test.mjs tests/console-connections.test.mjs tests/console-decisions-browser.test.mjs
+        run: node --test tests/console-visual.test.mjs tests/console-connections.test.mjs tests/console-decisions-browser.test.mjs tests/console-collection-browser.test.mjs
 
       - name: Upload early console preview
         if: always()
@@ -46,12 +46,17 @@ jobs:
             test-results/guided-ui/console-overview-*.png
             test-results/guided-ui/console-connections-*.png
             test-results/guided-ui/console-decisions-*.png
+            test-results/guided-ui/console-r02-*.png
           if-no-files-found: warn
           retention-days: 14
 
       - name: Require actual Decisions preview screenshots
         run: >-
           node -e "const fs=require('node:fs'); for(const width of [1280,1440]) { const file='test-results/guided-ui/console-decisions-root-populated-'+width+'.png'; fs.accessSync(file); console.log('Verified actual hosted capture:',file); }"
+
+      - name: Require populated Work and Activity viewport screenshots
+        run: >-
+          node -e "const fs=require('node:fs'); for(const width of [1280,1440]) for(const view of ['work','activity']) { const file='test-results/guided-ui/console-r02-'+view+'-selected-'+width+'.png'; fs.accessSync(file); console.log('Verified actual populated capture:',file); }"
 
       - name: Run complete gate
         run: npm run check
@@ -71,5 +76,14 @@ jobs:
         with:
           name: decisions-owner-ui-${{ github.sha }}
           path: test-results/guided-ui/console-decisions-*.png
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload final bounded Work and Activity screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: collections-owner-ui-${{ github.sha }}
+          path: test-results/guided-ui/console-r02-*.png
           if-no-files-found: warn
           retention-days: 14

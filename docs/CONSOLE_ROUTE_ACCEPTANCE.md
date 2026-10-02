@@ -1,6 +1,6 @@
 # Whole application console acceptance checklist
 
-Planning baseline: `82dc64dc77a4da91a7a83c6230e0867cea72f885`, 2026-10-02. This is an acceptance checklist, not a separate release plan. The sole proposed remaining-work order is [R01–R19 in the canonical plan](AGENT_LABS_V2_IMPLEMENTATION_PLAN.md). Historical release evidence belongs in the [evidence crosswalk](AGENT_LABS_V2_EVIDENCE_CROSSWALK.md). Do not use this checklist to restart already accepted work.
+Current implementation baseline: `83cb5cda632e8a3cd09a4e921e5fd2f3ff468746`, 2026-10-02. This is an acceptance checklist, not a separate release plan. The sole remaining-work order is [R02–R19 in the canonical plan](AGENT_LABS_V2_IMPLEMENTATION_PLAN.md). Historical release evidence belongs in the [evidence crosswalk](AGENT_LABS_V2_EVIDENCE_CROSSWALK.md). Do not use this checklist to restart already accepted work.
 
 ## Shared acceptance contract
 
@@ -21,12 +21,12 @@ There are **21 total `page.tsx` routes**, not 21 unfinished pages. The workflow 
 | `/` | Existing authenticated dashboard/private-login redirect | Preserve private routing and exact requested return; R03 regression |
 | `/login` | Existing private entry; whole-app regression remains | Compact validation/error/return states, long messages, keyboard/mobile; R03 |
 | `/auth/error` | Existing auth recovery; whole-app regression remains | Clear safe next action, contained error text, no raw secrets/internal errors; R03 |
-| `/dashboard` | Accepted compact shell/Overview baseline; new root collections incomplete | Query-surface checklist, exact1280×720 regression, truthful partial reads; R01/R02/R08 |
+| `/dashboard` | Accepted compact shell/Overview baseline; new root collections incomplete | Query-surface checklist, exact1280×720 regression, truthful partial reads; R02/R08 |
 | `/dashboard/accounts` | PR43 Connections adapter accepted for ordinary entry | Preserve Business/request/typed outcome; no lost notice or legacy jump. `diagnostics=platform` remains a retained diagnostic conversion; R03 |
 | `/dashboard/accounts/secure` | PR43 compact framing accepted; active credential submission tested only in hosted fixtures | Exact request beyond recent history, expiry/consent/store/revision, validation/pending/uncertain result and scoped return; R03/R06 regression; no fixture secrets |
 | `/dashboard/accounts/registration` | Existing isolated owner handoff; compact framing remaining | Exact request/expiry, bounded view and safe close/return; no automatic browser launch or captured secure pixels; R03 |
 | `/dashboard/accounts/password` | Existing isolated vault entry; compact framing remaining | Exact connection/revision/consent, visible outcomes and scoped return, no password in URL/storage/logs/fixtures; R03 |
-| `/dashboard/needs-you` | Legacy decision queue; root Decisions PR44 unaccepted | Preserve exact deep links/outcomes into Decisions/Needs owner, open count/history truth; R01/R03/R06/R08 |
+| `/dashboard/needs-you` | Validated redirect to the accepted compact root Decisions | Preserve exact deep links/outcomes into Decisions/Needs owner, open count/history truth; R03/R06/R08 |
 | `/dashboard/workflows` | Legacy index; adaptation remaining | Canonical Work/Events mapping with exact Business, filter, selection and totals; R02/R03/R08 |
 | `/dashboard/workflows/[workflowRunId]` | Exact protected technical detail; compact/data conversion remaining | All tabs/stage/task/worker/artifact/receipt/browser actions reachable; exact run, typed outcomes, bounded children and selected detail; R03/R06/R08 |
 | `/dashboard/artifacts` | Legacy creative approvals/receipts; exact-recovery prototype unaccepted | Old approval/run links beyond independent recent windows, honest missing context/cost, preserved receipt anchors and compact contained detail; R02/R03/R06 |
@@ -48,7 +48,7 @@ There are **21 total `page.tsx` routes**, not 21 unfinished pages. The workflow 
 | Overview `centre=browser` and exact `browserRun` | Accepted saved metadata, live stream unavailable | Preserve blocker/geometry/exact safe record navigation; R03/R08. Trusted actual watching is R10 |
 | `sheet=research` | Accepted native modal lifecycle correction | Retained dismissal, focus, draft/consent isolation, all originating panes and exact return; R02/R03; new prompt/envelope intake R04/R05 |
 | `?view=connections` | PR43 compact provider/status/request/secure journey accepted | Long Business names, exact old request, saved-registry truth, safe typed outcomes, no query-spoofed success; R03/R06 |
-| `?view=decisions` | PR44 draft not accepted | Close current exact-head gates including mobile/zoom heading-focus occlusion; preserve corrected desktop controls/reason-cost, exact queue/page/detail and three unchanged notices; R01 |
+| `?view=decisions` | R01 accepted through PR44/PR46 exact-head and deployed read-only evidence | Preserve compact desktop/reflow, typed acknowledgment, immutable failed-run/unknown-charge truth, exact queue/detail and native filter Back/Forward. Original three notices remain unchanged by the agent. Broad Next transport regression remains R03; audit-log/exception product model R08 |
 | `?view=work`, exact `run` and `artifact` | Existing pane and exact artifact focus; populated work unaccepted | True bounded pages/count/search/sort; exact off-page artifact, preserved anchors/Back/reload, source-only vs successful output truth; R02/R06 |
 | `?view=library` designs | Existing gallery; populated prototype unaccepted | Bounded page/preview payloads, exact selection, distinct image/production/print/listing status; R02/R06 |
 | `?view=library&type=research` | Existing research subtype; grouping/navigation remaining | Preserve Quest/intent/attempt links and exact evidence/action return; transition to Research destination in R02/R08 |
@@ -68,7 +68,7 @@ These are target contracts; do not label them deployed. R08 must assign each a c
 - Library: image and document artifacts, versions/approval/readiness, exact selection and bounded previews; R02/R08
 - Knowledge: existing pack-only/unavailable state is acceptable before R09; real reviewed learning, freshness, versions and per-Business application must close in R09/R18
 - Products and linked Listings: provider-neutral product/variant identity, exact packages/assets/provider mapping and separately truthful draft/fee/fulfilment/selling readiness; R08/R13–R15. UI fixtures must show missing/unqualified data until those contracts qualify
-- Decisions and Needs owner: audit log plus distinct exception workflow, no routine redundant approvals inside a qualified envelope, no false retry/completion/settlement; R01/R05/R08
+- Decisions and Needs owner: audit log plus distinct exception workflow, no routine redundant approvals inside a qualified envelope, no false retry/completion/settlement; R05/R08
 - Profile/Business rules and lower Tools navigation: preserve existing settings/Packs/router/proof/evaluation functions. A Costs view requires truthful bounded receipts/currency data; no placeholder lifetime-profit claim; R03/R04/R06/R08
 
 ## Closing a checklist row

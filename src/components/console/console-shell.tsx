@@ -18,6 +18,8 @@ export type ConsoleShellProps = {
   workflowRunId?: string;
   navigationBusinessId?: string;
   globalDecisionCount?: boolean;
+  /** An aggregate collection may still scope onward links to its selected record. */
+  aggregateContext?: boolean;
 };
 
 type ConsoleDestination = {
@@ -77,10 +79,11 @@ function DecisionCount({ context, global = false }: { context: OwnerUiContext; g
   );
 }
 
-function WorkspaceContext({ context, selectedBusinessId }: { context: OwnerUiContext; selectedBusinessId?: string }) {
+function WorkspaceContext({ context, selectedBusinessId, aggregate = false }: { context: OwnerUiContext; selectedBusinessId?: string; aggregate?: boolean }) {
   const selected = context.businesses.find(business => business.id === selectedBusinessId);
   const name = context.businessesUnavailable
     ? "Business records unavailable"
+    : aggregate ? "All owned Businesses"
     : selected ? selected.name
     : context.businesses.length === 1
       ? context.businesses[0].name
@@ -114,7 +117,7 @@ function OwnerMenu({ context }: { context: OwnerUiContext }) {
 }
 
 /** Shared frame for both root views and direct detail URLs; URL navigation stays native. */
-export function ConsoleShell({ active, children, commandBar, context, workflowRunId, navigationBusinessId, globalDecisionCount = false }: ConsoleShellProps) {
+export function ConsoleShell({ active, children, commandBar, context, workflowRunId, navigationBusinessId, globalDecisionCount = false, aggregateContext = false }: ConsoleShellProps) {
   const currentView = resolveConsoleView(active);
   const selectedBusinessId = context.businesses.some(business => business.id === navigationBusinessId) ? navigationBusinessId : undefined;
   const destination = (href: string) => selectedBusinessId ? `${href}&business=${encodeURIComponent(selectedBusinessId)}` : href;
@@ -146,7 +149,7 @@ export function ConsoleShell({ active, children, commandBar, context, workflowRu
 
       <header className="consoleTopBar consoleFrame">
         <div className="consoleViewHeading"><span>Command centre</span><strong>{currentLabel}</strong></div>
-        <WorkspaceContext context={context} selectedBusinessId={workflowRunId || currentView === "library" || currentView === "connections" || currentView === "decisions" ? selectedBusinessId : undefined} />
+        <WorkspaceContext context={context} aggregate={aggregateContext} selectedBusinessId={workflowRunId || currentView === "library" || currentView === "connections" || currentView === "decisions" || currentView === "work" || currentView === "activity" ? selectedBusinessId : undefined} />
         {/* Exactly one subscription, for data updates rather than worker execution. */}
         <div className="consoleLiveStatus" role="status" aria-label="Page update connection">
           <LiveRefresh workflowRunId={workflowRunId} />

@@ -9,11 +9,11 @@ import { business, definition, findFixtureElement, fixtureDocument, fixtureTime,
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const base = Date.parse(fixtureTime), iso = offset => new Date(base + offset).toISOString();
 export const integratedMotionOrigin = "https://agentlabs-integrated-motion.test";
-export const integratedMotionIds = { run: run.id, stage: "integration-stage", task: "integration-task", worker: "integration-worker", output: "00000000-0000-4000-8000-000000009001", decision: "00000000-0000-4000-8000-000000009002" };
+export const integratedMotionIds = { run: run.id, stage: "00000000-0000-4000-8000-000000009011", task: "00000000-0000-4000-8000-000000009012", worker: "00000000-0000-4000-8000-000000009013", output: "00000000-0000-4000-8000-000000009001", decision: "00000000-0000-4000-8000-000000009002" };
 const ids = integratedMotionIds;
 const activeRun = { ...run, status: "running", current_stage_key: "worker-task", started_at: iso(1000), updated_at: iso(1000) };
 const stage = { ...stages[1], id: ids.stage, status: "running", started_at: iso(1000), completed_at: null, updated_at: iso(1000) };
-const task = { id: ids.task, business_id: business.id, workflow_run_id: ids.run, workflow_stage_run_id: ids.stage, worker_definition_id: "integration-worker-definition", status: "running", objective: "Compare saved synthetic evidence", updated_at: iso(1000) };
+const task = { id: ids.task, business_id: business.id, workflow_run_id: ids.run, workflow_stage_run_id: ids.stage, worker_definition_id: "00000000-0000-4000-8000-000000009014", status: "running", objective: "Compare saved synthetic evidence", created_at: iso(1000), updated_at: iso(1000) };
 const worker = { id: ids.worker, business_id: business.id, workflow_run_id: ids.run, task_contract_id: ids.task, worker_definition_id: task.worker_definition_id, status: "running", started_at: iso(1000), completed_at: null, created_at: iso(1000), updated_at: iso(1000) };
 const output = { id: ids.output, business_id: business.id, workflow_run_id: ids.run, name: "Synthetic saved research evidence", artifact_type: "research.evidence", content: { synthetic: true }, metadata: {}, created_at: iso(2000), updated_at: iso(2000) };
 const decision = { ...intervention, id: ids.decision, requested_at: iso(2000), created_at: iso(2000), updated_at: iso(2000) };
