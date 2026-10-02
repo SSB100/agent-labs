@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { AppShell, PageHeader } from "@/components/stage7/app-shell";
 import { ProductSubmitButton } from "@/components/stage13/products-workspace";
 import { loadCreativeWorkspace, loadProductionCandidates } from "@/creative/data";
@@ -15,18 +16,24 @@ export const dynamic = "force-dynamic";
 const utc = (date: string) => `${new Date(date).toISOString().replace("T", " ").replace(".000Z", " UTC").replace("Z", " UTC")}`;
 const usd = (micro: number) => `US$${(micro / 1e6).toFixed(6)}`;
 export default async function ArtifactsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  const context = await requireOwnerUiContext(), [data, production, query] = await Promise.all([loadCreativeWorkspace(context), loadProductionCandidates(context), searchParams]);
+  const context = await requireOwnerUiContext(), query = await searchParams;
   const first = (v: string | string[] | undefined) => Array.isArray(v) ? v[0] : v;
-  return <AppShell active="artifacts" context={context}>
-    <PageHeader eyebrow="Creative · Evidence & assets" title="Artifacts" description="Keep the brief, original pixels, versions and independent review together." />
+  const requestedBusiness = first(query.business);
+  const selectedBusiness = context.businesses.find(business => business.id === requestedBusiness);
+  if (requestedBusiness && !selectedBusiness && !context.businessesUnavailable) notFound();
+  const scopedContext = selectedBusiness ? { ...context, businesses: [selectedBusiness] } : context;
+  const [data, production] = await Promise.all([loadCreativeWorkspace(scopedContext), loadProductionCandidates(scopedContext)]);
+  return <AppShell active="artifacts" context={context} navigationBusinessId={selectedBusiness?.id}>
+    <PageHeader eyebrow="Saved outputs" title="Library" description="Keep the brief, original pixels, versions and independent review together." />
+    {selectedBusiness ? <p className="coreNotice">Business: {selectedBusiness.name} · <Link href="/dashboard/artifacts">View all businesses</Link></p> : null}
     {first(query.message) ? <p className="coreNotice coreNotice-success" role="status">{first(query.message)}</p> : null}
     {first(query.error) ? <p className="coreNotice coreNotice-danger" role="alert">{first(query.error)}</p> : null}
     {data.errors.length ? <p className="coreNotice coreNotice-danger" role="alert">Creative registry is unavailable. No provider action can start until its approved schema is ready. {data.errors[0]}</p> : null}
-    <section className="creativeIntro"><p className="coreEyebrow">Original design, bounded execution</p><h2>Every image keeps its source and verdict</h2><p>Technical qualification checks the creative pipeline. It does not prove product demand or change an earlier research decision. Candidate production requires a separate evidence-backed TEST and creative approval. Assets remain private to their Business.</p><Link href="/dashboard/products">Review product evidence →</Link></section>
+    <section className="creativeIntro"><p className="coreEyebrow">Original design, bounded execution</p><h2>Every image keeps its source and verdict</h2><p>Technical qualification checks the creative pipeline. It does not prove product demand or change an earlier research decision. Candidate production requires a separate evidence-backed TEST and creative approval. Assets remain private to their Business.</p><Link href={`/dashboard/products${selectedBusiness ? `?business=${selectedBusiness.id}` : ""}`}>Review product evidence →</Link></section>
     <section aria-labelledby="production-creative-approval" className="creativePanel creativeApprovalBody">
       <h2 id="production-creative-approval">Approve a researched candidate for design</h2>
       <p>A current reviewed TEST with nine source-linked qualitative or legacy assessments makes a candidate eligible for a separate creative approval. Its evidence must still be fresh. Neither this approval nor a design PASS authorizes publication or proves sales.</p>
-      {production.errors.length ? <p role="alert">Candidate evidence could not be checked. Production approval is unavailable.</p> : !production.candidates.length ? <p className="creativeMuted">No current evidence-backed TEST candidates are eligible. <Link href="/dashboard/products">Review missing evidence in Products</Link>. Technical approvals below do not waive this gate.</p> : null}
+      {production.errors.length ? <p role="alert">Candidate evidence could not be checked. Production approval is unavailable.</p> : !production.candidates.length ? <p className="creativeMuted">No current evidence-backed TEST candidates are eligible. <Link href={`/dashboard/products${selectedBusiness ? `?business=${selectedBusiness.id}` : ""}`}>Review missing evidence in Products</Link>. Technical approvals below do not waive this gate.</p> : null}
       {!data.errors.length ? production.candidates.map(({ candidate, decision, experiment, maximumGenerations: reviewedLimit=2 }) => <details className="creativeProductionChoice" key={candidate.id}>
         <summary><strong>{candidate.concept}</strong><span>{context.businesses.find(b => b.id === candidate.business_id)?.name} · {"scoringVersion" in decision.assessment?`TEST ${decision.assessment.totalScore}/100`:"Independent qualitative TEST"}</span></summary>
         <p>Audience: {candidate.audience}</p><p className="creativeMuted">Reviewed {utc(decision.created_at)} · {experiment.discovery_version==="pod-discovery-2.0"?"The exact source dossier and latest decision are rechecked when saving and before production completes.":`Evidence expires ${utc(new Date(Math.min(...experiment.evidence_pack!.sources.map(source => Date.parse(source.retrievalExpiresAt)))).toISOString())}`}</p>
@@ -67,7 +74,7 @@ export default async function ArtifactsPage({ searchParams }: { searchParams: Pr
         <label className="creativeTextField">Exact design instructions<textarea name="designInstructions" required minLength={50} maxLength={1500} rows={4} placeholder="Describe the original composition, colors and intentional opaque square background. Exclude text, brands, protected characters and reference artwork." /></label>
         <label className="creativeTextField">Image provider and output contract<select name="generatorModel" required defaultValue=""><option value="" disabled>Select a provider for this new approval</option><option value={FLUX_KLEIN_PNG_POLICY.modelId}>BFL FLUX.2 Klein 4B via OpenRouter · native PNG · request 1024 × 1024</option></select></label>
         <label className="creativeTextField">Image generation limit<select name="maximumGenerations" required defaultValue="1"><option value="1">One image, no repair (up to 4 provider calls)</option><option value="2">One image plus at most one repair (up to 6 provider calls)</option></select></label>
-        <div className="creativeFormRow"><label>Business<select name="businessId" required>{context.businesses.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></label><label>Total allowance (USD)<input name="budgetUsd" type="number" min="0.01" max="1" step="0.01" defaultValue="0.55" required /></label></div>
+        <div className="creativeFormRow"><label>Business<select name="businessId" required>{scopedContext.businesses.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></label><label>Total allowance (USD)<input name="budgetUsd" type="number" min="0.01" max="1" step="0.01" defaultValue="0.55" required /></label></div>
         <label><input type="checkbox" name="confirmOriginalIntent" required />I approve the original concept and exact instructions above with no third-party references or protected elements; this is not a guarantee of universal non-infringement</label>
         <label><input type="checkbox" name="confirmTechnicalOnly" required />This is a technical creative test, not a market-validated product or publication approval</label>
         <label><input type="checkbox" name="confirmPrintSpec" required />I approve the named garment, physical print size and intentional opaque-square background</label>
@@ -80,7 +87,7 @@ export default async function ArtifactsPage({ searchParams }: { searchParams: Pr
     </details>
     <section aria-labelledby="creative-approvals"><h2 id="creative-approvals">Approved scope & run history</h2><div className="creativeRunGrid">{data.approvals.map(a => {
       const run = data.runs.find(r => r.approval_id === a.id), costs = data.costs.filter(c => c.creative_run_id === run?.id), totals = summarizeCreativeCosts(costs);
-      return <article className="creativePanel creativeRun" key={a.id}><div className="creativeTagRow"><span className="creativeTag">{a.purpose.replaceAll("_", " ")}</span><span className="creativeTag">{run?.status ?? (data.costsAvailable ? "Approved · not started" : "Run status unavailable")}</span></div><h3>{a.snapshot.concept}</h3><p>{a.snapshot.audience}</p><p>Allowance: {usd(a.maximum_microusd)} · Reported: {!data.costsAvailable ? "Unavailable" : totals.recordedCalls ? usd(totals.reportedMicrousd) : "No calls recorded"}</p>
+      return <article className="creativePanel creativeRun" id={run ? `creative-run-${run.id}` : `creative-approval-${a.id}`} key={a.id}><div className="creativeTagRow"><span className="creativeTag">{a.purpose.replaceAll("_", " ")}</span><span className="creativeTag">{run?.status ?? (data.costsAvailable ? "Approved · not started" : "Run status unavailable")}</span></div><h3>{a.snapshot.concept}</h3><p>{a.snapshot.audience}</p><p>Allowance: {usd(a.maximum_microusd)} · Reported: {!data.costsAvailable ? "Unavailable" : totals.recordedCalls ? usd(totals.reportedMicrousd) : "No calls recorded"}</p>
         {!data.costsAvailable ? <p role="alert">The cost ledger could not be fully loaded. Any receipts below are incomplete; do not assume zero spend or start another attempt.</p> : <>
           {totals.uncertainCalls ? <p role="status">{totals.uncertainCalls} charge(s) remain unknown · {totals.hasMissingReservation ? "At least " : ""}{usd(totals.uncertainReservedMicrousd)} reserved for those attempts. Missing receipts do not prove zero spend or permit another attempt.</p> : null}
           {totals.recordedCalls ? <p className="creativeMuted">{totals.hasMissingReservation ? "Known conservative budget commitment" : "Conservative budget committed"}: {usd(totals.committedMicrousd)}. This uses the larger of each reservation or reported charge, not both; it is not an additional charge.{totals.hasMissingReservation ? " Some reservation details are unavailable; refresh before relying on this total." : ""}</p> : null}

@@ -24,10 +24,10 @@ export default async function PrintfulPage({ searchParams }: { searchParams?: Pr
   const connected = connection?.status === "connected";
   const accountHref = `/dashboard/accounts${business ? `?business=${business.id}` : ""}#business-accounts`;
 
-  return <AppShell active="accounts" context={context}>
+  return <AppShell active="accounts" context={context} navigationBusinessId={business?.id}>
     <PageHeader eyebrow="Stage 15 · Printful foundation" title="Printful workspace"
       description="Inspect the production contract and model unit economics with explicitly synthetic examples. Live qualification remains open."
-      actions={<Link className="coreButton" href="/dashboard/accounts">Back to Accounts</Link>} />
+      actions={<Link className="coreButton" href={`/dashboard/accounts${business ? `?business=${business.id}` : ""}`}>Back to Accounts</Link>} />
     <div className="printfulWorkspace">
       <section className="printfulIntro" aria-labelledby="printful-foundation-title">
         <div><p className="coreEyebrow">Experimental · Fixture-only foundation</p><h2 id="printful-foundation-title">Plan with clear boundaries</h2><p>The foundation validates catalog identities, print constraints and deterministic pricing. Account setup is now available separately below. These examples do not configure a real product or prove a product result.</p></div>
@@ -45,8 +45,8 @@ export default async function PrintfulPage({ searchParams }: { searchParams?: Pr
         <div className="printfulConnectionFooter"><Link className="coreButton" href={accountHref}>Manage secure Printful connection</Link><p className="printfulNote" id="printful-connection-help">A connection alone would not authorize product changes or spending.</p></div>
         <div className="printfulGatePanel"><h3>Required before a real product can be configured</h3>
           <ol className="printfulGates">
-            <li><strong>Current reviewed TEST</strong><span>Revalidate the latest evidence-backed, independently reviewed discovery decision for the same Business. A TEST recommendation is not execution permission.</span><Link href="/dashboard/products">Review Products →</Link></li>
-            <li><strong>Production-asset approval</strong><span>Revalidate the persisted Stage 14 production approval against the exact asset version, hash and current variant-specific print requirements.</span><Link href="/dashboard/artifacts">Review Artifacts →</Link></li>
+            <li><strong>Current reviewed TEST</strong><span>Revalidate the latest evidence-backed, independently reviewed discovery decision for the same Business. A TEST recommendation is not execution permission.</span><Link href={`/dashboard/products${business ? `?business=${business.id}` : ""}`}>Review Products →</Link></li>
+            <li><strong>Production-asset approval</strong><span>Revalidate the persisted Stage 14 production approval against the exact asset version, hash and current variant-specific print requirements.</span><Link href={`/dashboard/artifacts${business ? `?business=${business.id}` : ""}`}>Review Artifacts →</Link></li>
             <li><strong>Separate owner configuration authority</strong><span>Approve the exact store, product or mapping operation, current stock and cost quote. Artwork approval does not supply that authority.</span><small>Unavailable in this preview</small></li>
           </ol>
           <p className="printfulNote">These are required gates, not a report of your current Business approval state. This page does not load or grant production approvals.</p>

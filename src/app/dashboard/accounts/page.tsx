@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { loadAccountWorkspace } from "@/accounts/server";
 import { BusinessAccountWorkspace, accountMessages } from "./account-workspace";
 import "./accounts.css";
@@ -85,7 +86,9 @@ export default async function AccountsPage({ searchParams }: AccountsPageProps) 
   const message = messages[first(query.message) ?? ""];
   const error = errors[first(query.error) ?? ""];
   const browserConfigured = isDefaultBrowserProviderConfigured();
-  const selectedBusiness = context.businesses.find(b => b.id === first(query.business)) ?? context.businesses[0];
+  const requestedBusiness = first(query.business);
+  if (requestedBusiness && !context.businessesUnavailable && !context.businesses.some(business => business.id === requestedBusiness)) notFound();
+  const selectedBusiness = context.businesses.find(b => b.id === requestedBusiness) ?? context.businesses[0];
   const accountWorkspace = selectedBusiness ? await loadAccountWorkspace(context, selectedBusiness.id) : null;
   const accountMessage = accountMessages[first(query.accountMessage) ?? ""];
 
@@ -132,31 +135,31 @@ export default async function AccountsPage({ searchParams }: AccountsPageProps) 
     {
       name: "Supabase",
       description: "Authentication, durable state, Realtime, RLS, and workflow history.",
-      status: isSupabaseConfigured() ? "connected" : "not_configured",
+      status: isSupabaseConfigured() ? "configured" : "not_configured",
     },
     {
       name: "Vercel Workflow",
       description: "Durable workflow execution, waiting, retries, and resumable owner review.",
-      status: isWorkflowRuntimeConfigured() ? "connected" : "not_configured",
+      status: isWorkflowRuntimeConfigured() ? "configured" : "not_configured",
     },
     {
       name: "OpenRouter",
       description: "Qualified model routing, structured output, fallback, tokens, and cost telemetry.",
-      status: isOpenRouterConfigured() ? "connected" : "not_configured",
+      status: isOpenRouterConfigured() ? "configured" : "not_configured",
     },
     {
       name: "Steel Browser",
       description: "Remote Chromium, persistent profiles, live control, Playwright, upload, and replay.",
-      status: browserConfigured ? "connected" : "not_configured",
+      status: browserConfigured ? "configured" : "not_configured",
     },
   ];
 
   return (
-    <AppShell active="accounts" context={context}>
+    <AppShell active="accounts" context={context} navigationBusinessId={selectedBusiness?.id}>
       <PageHeader
-        description="Core infrastructure and qualified external providers remain visible without exposing provider credentials to workers."
+        description="Business accounts, the access you approved, and the exact next setup step."
         eyebrow="Connections"
-        title="Accounts"
+        title="Connections"
       />
 
       {message ? <p className="coreNotice coreNotice-success" role="status">{message}</p> : null}
@@ -164,12 +167,13 @@ export default async function AccountsPage({ searchParams }: AccountsPageProps) 
 
       {accountMessage ? <p className="coreNotice" role="status">{accountMessage}</p> : null}
       {context.businesses.length > 1 ? <form method="get" className="accountProvider"><label>Business <select name="business" defaultValue={selectedBusiness?.id}>{context.businesses.map(b => <option value={b.id} key={b.id}>{b.name}</option>)}</select></label><button className="coreButton" type="submit">Switch Business</button></form> : null}
-      {accountWorkspace ? <BusinessAccountWorkspace data={accountWorkspace} /> : <p>Create a Business before setting up external accounts.</p>}
+      {accountWorkspace ? <BusinessAccountWorkspace data={accountWorkspace} /> : <p>{context.businessesUnavailable ? "Business records could not be checked. Reload before starting account setup." : "Create a Business before setting up external accounts."}</p>}
 
+      <details className="guidedDisclosure"><summary>Advanced platform diagnostics<span>Configuration, browser providers and qualification tools</span></summary>
       <section className="dashboardSection">
         <div className="sectionTitleRow">
-          <div><p className="coreEyebrow">System services</p><h2>Core connections</h2></div>
-          <span className="coreCount">{coreServices.filter((service) => service.status === "connected").length}/4</span>
+          <div><p className="coreEyebrow">System services</p><h2>Configured services</h2></div>
+          <span className="coreCount">{coreServices.filter((service) => service.status === "configured").length}/4</span>
         </div>
         <div className="connectionGrid stage8ConnectionGrid">
           {coreServices.map((service) => (
@@ -307,9 +311,10 @@ export default async function AccountsPage({ searchParams }: AccountsPageProps) 
         )}
       </section>
 
+      </details>
       <section className="dashboardSection" aria-labelledby="etsy-account-title">
         <div className="sectionTitleRow"><div><p className="coreEyebrow">Draft-only capability</p><h2 id="etsy-account-title">Etsy drafts</h2></div><StatusPill status="experimental" /></div>
-        <div className="browserQualificationPanel"><div><h3>Prepare listings from approved products</h3><p>Connect your shop securely, approve a qualified product, and track verified draft preparation. Upstream product and artwork checks remain required.</p><small>Public activation, orders and paid actions are unavailable.</small></div><Link className="coreButton coreButton-primary" href="/dashboard/etsy">Open Etsy drafts</Link></div>
+        <div className="browserQualificationPanel"><div><h3>Prepare listings from approved products</h3><p>Connect your shop securely, approve a qualified product, and track verified draft preparation. Upstream product and artwork checks remain required.</p><small>Public activation, orders and paid actions are unavailable.</small></div><Link className="coreButton coreButton-primary" href={`/dashboard/etsy${selectedBusiness ? `?business=${selectedBusiness.id}` : ""}`}>Open Etsy drafts</Link></div>
       </section>
 
       <section className="dashboardSection" aria-labelledby="printful-account-title">
@@ -325,7 +330,7 @@ export default async function AccountsPage({ searchParams }: AccountsPageProps) 
             <small>Real configuration requires a current reviewed TEST, production-asset approval and separate owner configuration authority. No products or orders are created by this preview.</small>
           </div>
           <div className="browserQualificationActions">
-            <Link className="coreButton coreButton-primary" href="/dashboard/printful">Open Printful workspace</Link>
+            <Link className="coreButton coreButton-primary" href={`/dashboard/printful${selectedBusiness ? `?business=${selectedBusiness.id}` : ""}`}>Open Printful workspace</Link>
             <small>Product execution remains separately gated</small>
           </div>
         </div>

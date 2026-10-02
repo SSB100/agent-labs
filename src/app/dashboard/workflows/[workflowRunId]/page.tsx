@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { WorkContext, workDisplayTitle, researchGoalFromRecords } from "@/components/guided/work-context";
 import { notFound } from "next/navigation";
 
 import type {
@@ -128,7 +129,7 @@ export default async function WorkflowPage({ params, searchParams }: WorkflowPag
   const detailUnavailable = detail.errors.length > 0;
   const browserUnavailable = Boolean(browserResult.error || browserEventResult.error);
   const event = latestEvent(detail.events);
-  const workflowName = detail.definition?.name ?? "Workflow";
+  const workflowName = workDisplayTitle(detail.definition);
   const businessName = detail.business?.name ?? "Business";
   const returnTo = `/dashboard/workflows/${detail.run.id}`;
 
@@ -137,9 +138,10 @@ export default async function WorkflowPage({ params, searchParams }: WorkflowPag
       active="workflows"
       context={context}
       workflowRunId={detail.run.id}
+      navigationBusinessId={detail.run.business_id}
     >
       <div className="workflowBreadcrumbs">
-        <Link href="/dashboard/workflows">Workflows</Link>
+        <Link href={`/dashboard?view=work&business=${detail.run.business_id}`}>Work</Link>
         <span>/</span>
         <span>{workflowName}</span>
       </div>
@@ -148,13 +150,13 @@ export default async function WorkflowPage({ params, searchParams }: WorkflowPag
         actions={
           <div className="workflowHeaderActions">
             <StatusPill status={detail.run.status} />
-            <Link className="coreButton coreButton-secondary" href="/dashboard/workflows">
-              Back to workflows
+            <Link className="coreButton coreButton-secondary" href={`/dashboard?view=work&business=${detail.run.business_id}`}>
+              Back to work
             </Link>
           </div>
         }
         description={`${businessName} · Version ${detail.definition?.version ?? "1.0.0"}`}
-        eyebrow="Workflow"
+        eyebrow="Saved work"
         title={workflowName}
       />
 
@@ -164,6 +166,7 @@ export default async function WorkflowPage({ params, searchParams }: WorkflowPag
       {detailUnavailable ? <p className="coreNotice coreNotice-danger" role="alert">Some related workflow records could not be loaded. Stage, worker, decision and output completeness cannot be confirmed. Existing records may still need attention; no new action is implied.</p> : null}
       {browserUnavailable ? <p className="coreNotice coreNotice-danger" role="alert">Browser-session records could not be checked. This does not confirm that no browser session exists.</p> : null}
 
+      <WorkContext run={detail.run} definition={detail.definition} goal={researchGoalFromRecords(detail.run, productData.experiments, detail.artifacts)} />
       <section className="workflowProgressPanel">
         <div className="workflowProgressTop">
           <div>

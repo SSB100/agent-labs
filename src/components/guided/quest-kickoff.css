@@ -1,0 +1,85 @@
+.questKickoff {
+  --quest-bg: #18222d;
+  --quest-soft: #121b24;
+  --quest-text: #f3f6fa;
+  --quest-muted: #b5c0ce;
+  --quest-border: rgba(181, 192, 206, .22);
+  --quest-accent: #66d9e8;
+  color: var(--quest-text);
+  border: 1px solid var(--quest-border);
+  border-radius: 20px;
+  background: var(--quest-bg);
+  overflow-wrap: anywhere;
+  font-size: 1rem;
+  line-height: 1.6;
+}
+.questKickoffHeader { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; padding: 28px 30px 22px; }
+.questKickoffHeader h2 { margin: 4px 0 8px; font-size: clamp(1.4rem, 3vw, 1.9rem); line-height: 1.25; letter-spacing: -.025em; }
+.questKickoffHeader p:not(.questKickoffEyebrow) { margin: 0; max-width: 62ch; color: var(--quest-muted); font-size: 1rem; }
+.questKickoff .questKickoffEyebrow { margin: 0; color: var(--quest-accent); font-size: .875rem; font-weight: 750; letter-spacing: .1em; text-transform: uppercase; }
+.questKickoffBadge { flex-shrink: 0; max-width: 225px; padding: 6px 10px; border: 1px solid var(--quest-border); border-radius: 7px; color: #e9c68d; background: rgba(244,190,104,.04); font-size: .875rem; line-height: 1.5; }
+.questKickoffSteps { display: grid; grid-template-columns: repeat(3, 1fr); list-style: none; margin: 0 30px; padding: 0; border-top: 1px solid var(--quest-border); border-bottom: 1px solid var(--quest-border); }
+.questKickoffSteps li { display: flex; align-items: center; gap: 10px; padding: 17px 0; color: var(--quest-muted); font-size: .875rem; font-weight: 650; }
+.questKickoffSteps li span { display: grid; place-items: center; width: 26px; height: 26px; border: 1px solid var(--quest-border); border-radius: 50%; font-size: .875rem; }
+.questKickoffSteps li[aria-current="step"] { color: var(--quest-text); }
+.questKickoffSteps li[aria-current="step"] span { color: #0e2027; background: var(--quest-accent); border-color: var(--quest-accent); }
+.questKickoffSteps li[data-complete="true"] span { color: var(--quest-accent); border-color: var(--quest-accent); }
+.questKickoffLocal { margin: 16px 30px 0; max-width: 88ch; color: var(--quest-muted); font-size: .875rem; }
+.questKickoffBody { display: grid; gap: 20px; padding: 26px 30px; }
+.questKickoffStepHeading h3 { margin: 4px 0 0; font-size: 1.15rem; font-weight: 650; letter-spacing: -.02em; }
+.questKickoffFields { display: grid; gap: 22px; }
+.questKickoffFields label:not(.questKickoffConsent) { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; color: var(--quest-text); font-size: 1rem; font-weight: 600; }
+.questKickoffFields input:not([type="checkbox"]), .questKickoffFields select, .questKickoffFields textarea { display: block; flex: 0 0 100%; width: 100%; min-width: 0; min-height: 46px; padding: 11px 13px; border: 1px solid var(--quest-border); border-radius: 9px; outline-offset: 3px; background: var(--quest-soft); color: var(--quest-text); font: inherit; font-size: 1rem; font-weight: 400; line-height: 1.6; color-scheme: dark; }
+.questKickoffFields textarea { resize: vertical; min-height: 130px; }
+.questKickoffFields input::placeholder { color: #91a1b2; opacity: 1; }
+.questKickoffFields small, .questKickoffSubtle { display: block; margin: 0; color: var(--quest-muted); font-size: .875rem; font-weight: 400; line-height: 1.65; }
+.questKickoffFields [aria-invalid="true"] { border-color: #ff9693; }
+.questKickoffOptional { color: var(--quest-muted); font-size: .875rem; font-weight: 400; }
+.questKickoffColumns { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; align-items: start; }
+.questKickoffScopeNote { padding: 17px 18px; border: 1px solid var(--quest-border); border-radius: 10px; background: rgba(255,255,255,.018); font-size: 1rem; }
+.questKickoffScopeNote strong { font-size: 1rem; font-weight: 600; }
+.questKickoffScopeNote p { margin: 6px 0 0; color: var(--quest-muted); }
+.questKickoffNotice { margin: 0; padding-left: 12px; border-left: 2px solid rgba(244,190,104,.5); color: #d9c7a9; font-size: .875rem; }
+.questKickoffEstimate { border: 1px solid rgba(102,217,232,.28); border-radius: 11px; background: rgba(102,217,232,.035); padding: 18px 20px; }
+.questKickoffEstimate > div { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; font-size: 1rem; }
+.questKickoffEstimate strong { font-size: 1.4rem; color: var(--quest-accent); font-variant-numeric: tabular-nums; letter-spacing: -.025em; }
+.questKickoffEstimate p { color: var(--quest-muted); margin: 6px 0 0; font-size: .875rem; }
+.questKickoffEstimate .questKickoffWarning { color: #f4be68; }
+.questKickoffReview { margin: 0; border: 1px solid var(--quest-border); border-radius: 11px; padding: 0 20px; background: var(--quest-soft); }
+.questKickoffReview > div { display: grid; grid-template-columns: 170px minmax(0,1fr); gap: 16px; padding: 16px 0; border-bottom: 1px solid var(--quest-border); }
+.questKickoffReview > div:last-child { border: 0; }
+.questKickoffReview dt { color: var(--quest-muted); font-size: .875rem; }
+.questKickoffReview dd { margin: 0; color: var(--quest-text); font-size: 1rem; }
+.questKickoffReview small { margin-top: 3px; }
+.questKickoffConsent { display: flex; align-items: flex-start; gap: 12px; min-height: 44px; padding: 15px; border: 1px solid var(--quest-border); border-radius: 9px; font-size: 1rem; cursor: pointer; }
+.questKickoffConsent input { width: 20px; height: 20px; flex-shrink: 0; margin: 3px 0 0; accent-color: var(--quest-accent); }
+.questKickoffFooter { padding: 20px 30px; border-top: 1px solid var(--quest-border); }
+.questKickoffFooter > p { margin: 12px 0 0; color: var(--quest-muted); font-size: .875rem; max-width: 88ch; }
+.questKickoffActions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.questKickoffButton { display: inline-flex; justify-content: center; align-items: center; gap: 8px; min-height: 46px; padding: 11px 19px; border: 1px solid var(--quest-accent); border-radius: 9px; color: #0d2027; background: var(--quest-accent); font: inherit; font-size: 1rem; font-weight: 750; line-height: 1.5; cursor: pointer; }
+.questKickoffButtonSecondary { color: var(--quest-text); border-color: var(--quest-border); background: transparent; }
+.questKickoffButton:hover:not(:disabled) { filter: brightness(1.09); }
+.questKickoffButton:disabled { opacity: .5; cursor: not-allowed; }
+.questKickoff :focus-visible { outline: 2px solid var(--quest-accent); outline-offset: 4px; }
+.questKickoffStepHeading h3:focus:not(:focus-visible) { outline: none; }
+.questKickoffErrors { margin: 20px 30px 0; padding: 15px 18px; border: 1px solid #d0827e; border-radius: 9px; background: rgba(255,150,147,.045); }
+.questKickoffErrors h3 { margin: 0; color: #ffb5b2; font-size: .88rem; }
+.questKickoffErrors ul { margin: 8px 0 0; padding-left: 18px; }
+.questKickoffErrors button { min-height: 44px; padding: 5px 0; border: 0; background: none; color: var(--quest-text); text-decoration: underline; text-underline-offset: 3px; font: inherit; font-size: .875rem; text-align: left; cursor: pointer; }
+.questKickoffPending { flex-basis: 100%; margin: 0; color: var(--quest-muted); font-size: .875rem; }
+@media (max-width: 700px) {
+  .questKickoffHeader { flex-direction: column; gap: 14px; padding: 22px 20px 18px; }
+  .questKickoffBadge { max-width: none; }
+  .questKickoffSteps { margin: 0 20px; }
+  .questKickoffSteps li { gap: 7px; font-size: .875rem; }
+  .questKickoffLocal { margin: 14px 20px 0; }
+  .questKickoffBody { padding: 24px 20px; }
+  .questKickoffColumns { grid-template-columns: 1fr; }
+  .questKickoffReview { padding: 0 15px; }
+  .questKickoffReview > div { grid-template-columns: 1fr; gap: 3px; padding: 13px 0; }
+  .questKickoffFooter { padding: 18px 20px; }
+  .questKickoffActions > button { flex: 1 1 180px; }
+  .questKickoffActions > .questKickoffSubtle { flex-basis: 100%; }
+  .questKickoffErrors { margin: 18px 20px 0; }
+}
+@media (prefers-reduced-motion: reduce) { .questKickoff *, .questKickoff *::before, .questKickoff *::after { scroll-behavior: auto; transition: none; animation: none; } }

@@ -22,7 +22,7 @@ test('workspace authenticates both page and arithmetic action, links from Accoun
   assert.match(page, /await requireOwnerUiContext\(\)/);
   assert.match(actions, /await requireOwnerUiContext\(\)/);
   assert.ok(actions.indexOf('await requireOwnerUiContext()') < actions.indexOf('readPricingForm(form)'));
-  assert.match(accounts, /href="\/dashboard\/printful"/);
+  assert.match(accounts, /href=\{`\/dashboard\/printful\$\{selectedBusiness/);
   assert.match(accounts, /Stage 15 foundation/);
   assert.match(accounts, /Secure account setup · Live product qualification open/);
   assert.match(accounts, /<BusinessAccountWorkspace data=\{accountWorkspace\}/);

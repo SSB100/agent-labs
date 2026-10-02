@@ -4,7 +4,7 @@ import path from "node:path";
 import test from "node:test";
 import { chromium } from "playwright-core";
 import {
-  components, definition, fixtureDocument, fixtureRenderers, intervention, renderCreative, renderDashboard, renderDecisions, renderTimelines, renderWorkflows, run,
+  components, definition, fixtureDocument, fixtureRenderers, intervention, renderCreative, renderDashboard, renderDecisions, renderTimelines, renderWorkflows, renderWorkContext, researchGoal, renderProducts, renderUnknownNavigation, run,
 } from "./helpers/guided-ui.mjs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -14,7 +14,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 test("guided owner fixtures render the real shell and pages without production dependencies", async () => {
   for (const [name, render] of Object.entries(fixtureRenderers)) {
     const markup = await render();
-    assert.match(markup, /class="coreShell"/, name);
+    assert.match(markup, /class="consoleShell"/, name);
     assert.match(markup, /<main\b/, name);
     assert.match(markup, /aria-current="page"/, name);
     assert.match(markup, /owner@example\.invalid/, name);
@@ -28,16 +28,83 @@ test("dashboard distinguishes known decision activity, empty data and unavailabl
   assert.match(known, /Review the saved research result/);
   assert.match(known, /North Star Design Studio/);
   const unavailable = await renderDashboard({ unavailable: true });
-  assert.match(unavailable, /role="alert"/);
+  assert.match(unavailable, /role="status"/);
   assert.match(unavailable, /could not be loaded|unavailable|could not be checked/i);
-  assert.match(unavailable, />Unknown</);
+  assert.match(unavailable, /Decision count unavailable/);
   assert.doesNotMatch(unavailable, /Nothing needs your attention|Agent Labs is ready|Create your workspace/);
-  const metrics = unavailable.match(/<section class="coreMetricGrid"[^>]*>(.*?)<\/section>/s)?.[1];
-  assert.ok(metrics, "Unavailable dashboard still presents the summary state");
-  assert.doesNotMatch(metrics, /<strong>0<\/strong>/, "Failed reads cannot become zero-valued metrics");
+  assert.doesNotMatch(unavailable, /class="coreMetricGrid"/, "Unavailable records must not produce reassuring zero metrics");
+  assert.match(unavailable, /Status unavailable|Unconfirmed/);
+  assert.doesNotMatch(unavailable, /Idle · no worker running|0 workflows|0 recorded|No workflow yet/);
   const empty = await renderDashboard({ empty: true });
   assert.doesNotMatch(empty, /role="alert"/);
   assert.doesNotMatch(empty, /Review the saved research result/);
+});
+
+test("failed work reads with a known-zero decision queue still show an unconfirmed state", async () => {
+  const markup = await renderDashboard({ unavailable: true, knownZero: true });
+  assert.match(markup, /data-work-state="unknown"/);
+  assert.match(markup, /data-next-action="unavailable"/);
+  assert.match(markup, /Check work status/);
+  assert.doesNotMatch(markup, /Idle · no worker running|Ready for|No workflow yet|No activity recorded/);
+});
+
+test("Library Business read failures cannot invoke empty-return domain loaders", async () => {
+  const reads = [];
+  const markup = await renderDashboard({ view: "library", businessesUnavailable: true, reads });
+  assert.match(markup, /Business records are unavailable\. Saved outputs could not be checked/);
+  assert.doesNotMatch(markup, /No saved designs yet|0 saved versions/);
+  assert.deepEqual(reads, []);
+});
+
+test("explicit Business and run mismatch is rejected even when both Businesses are authorized", async () => {
+  const reads = [];
+  await assert.rejects(renderDashboard({ view: "work", detail: true, mismatchedBusiness: true, reads }), /Fixture record was not found/);
+  assert.deepEqual(reads, []);
+});
+
+test("console navigation exposes seven same-page destinations and unknown counts", () => {
+  const markup = renderUnknownNavigation();
+  const nav = markup.match(/<nav class="consoleNavigation"[^>]*>(.*?)<\/nav>/s)?.[1];
+  assert.ok(nav);
+  assert.equal((nav.match(/class="consoleNavLink"/g) ?? []).length, 7);
+  for (const view of ["overview", "work", "library", "decisions", "connections", "activity", "advanced"]) assert.ok(nav.includes(`/dashboard?view=${view}`));
+  assert.match(nav, /Decision count unavailable/);
+  assert.doesNotMatch(nav, /0 open decisions/);
+  assert.match(markup, /Business records unavailable/);
+  assert.doesNotMatch(markup, /No business yet/);
+  assert.equal((markup.match(/class="liveConnection /g) ?? []).length, 1);
+});
+
+test("root Work view binds saved run context and research sheet preserves the URL", async () => {
+  const list = await renderDashboard({ view: "work" });
+  assert.ok(list.includes(`/dashboard?view=work&amp;run=${run.id}`));
+  const detail = await renderDashboard({ view: "work", detail: true });
+  assert.match(detail, /Saved outcome|Recorded stages and worker context/);
+  assert.ok(detail.includes(`/dashboard/workflows/${run.id}`));
+  const sheet = await renderDashboard({ view: "work", detail: true, sheet: true });
+  assert.match(sheet, /<dialog class="consoleResearchSheet"/);
+  assert.match(sheet, /Research setup/);
+  assert.match(sheet, /class="questKickoff"/);
+  assert.doesNotMatch(sheet, /Current provider prices are unavailable/);
+});
+
+test("real WorkContext uses the matching saved intent rather than an unrelated goal", () => {
+  const markup = renderWorkContext();
+  assert.ok(markup.includes(researchGoal));
+  assert.match(markup, /business=fixture-business/);
+  for (const boundary of ["Separate approval required", "Implementation incomplete", "Qualified product required", "Fee evidence required"]) assert.ok(markup.includes(boundary));
+  const mismatch = renderWorkContext({ mismatched: true });
+  assert.ok(!mismatch.includes(researchGoal));
+  assert.match(mismatch, /Review the saved research goal/);
+});
+
+test("Products page renders the real bounded quest without starting research", async () => {
+  const markup = await renderProducts();
+  assert.match(markup, /class="questKickoff"/);
+  assert.match(markup, /Find a market worth exploring/);
+  assert.match(markup, /Saved research and recovery/);
+  assert.match(markup, /Experimental · live qualification incomplete/);
+  assert.doesNotMatch(markup, /Current provider prices are unavailable|name="confirmResearch"/);
 });
 
 test("Workflows index shows an active worker only when run, task, stage and worker match", async () => {
@@ -114,15 +181,16 @@ async function assertContained(page, label) {
 }
 
 async function assertControlTargets(page, label) {
-  const undersized = await page.locator(".coreButton:not(:disabled), .coreNavLink, .coreMobileNavLink").evaluateAll(elements => elements.filter(element => {
+  const minimum = page.viewportSize().width > 900 ? 24 : 44;
+  const undersized = await page.locator(".coreButton:not(:disabled), .coreNavLink, .coreMobileNavLink, .guidedNavLink, .guidedDisclosureSummary, .guidedMoreSummary, .guidedAdvancedLink, .guidedSignOut, .guidedDisclosure > summary, .guidedJourney a, .questKickoffButton:not(:disabled), .segmentedControl a, .consoleNavLink, .consoleTechnicalSummary, .consoleTechnicalLink, .consoleOwnerSummary, .consoleSignOut, .consoleMiniAction, .consolePrimaryAction, .consoleQuickCommands a, .consoleCommandLink, .consolePanelHeader a, .consoleCommand button").evaluateAll((elements, minimum) => elements.filter(element => {
     const box = element.getBoundingClientRect();
-    return box.width > 0 && box.height > 0 && (box.width < 43.5 || box.height < 43.5);
-  }).map(element => ({ text: element.textContent.trim(), width: element.getBoundingClientRect().width, height: element.getBoundingClientRect().height })));
-  assert.deepEqual(undersized, [], `${label} primary controls must have a 44px target`);
+    return box.width > 0 && box.height > 0 && (box.width < minimum - .5 || box.height < minimum - .5);
+  }).map(element => ({ text: element.textContent.trim(), width: element.getBoundingClientRect().width, height: element.getBoundingClientRect().height })), minimum);
+  assert.deepEqual(undersized, [], `${label} primary controls must have a ${minimum}px target`);
 }
 
 async function assertTextContrast(page, label) {
-  const failures = await page.locator(".corePageDescription, .coreNavLink, .coreMobileNavLink, .coreEyebrow, .liveConnection, .needsYouCopy p, .needsYouCopy small, .visualStage strong, .visualStage small, .creativeIntro h2, .creativeIntro p, .creativeIntro a, .creativeMuted").evaluateAll(elements => {
+  const failures = await page.locator(".corePageDescription, .coreNavLink, .coreMobileNavLink, .coreEyebrow, .liveConnection, .needsYouCopy p, .needsYouCopy small, .visualStage strong, .visualStage small, .creativeIntro h2, .creativeIntro p, .creativeIntro a, .creativeMuted, .guidedNavLink, .guidedDisclosureSummary, .guidedMoreSummary, .guidedAdvancedLink, .guidedSignOut, .guidedWorkspaceContext strong, .guidedWorkspaceContext small, .guidedDecisionCount, .guidedWorkGoal p, .guidedJourney span, .guidedJourney small, .guidedJourneyBoundary, .questKickoffLocal, .questKickoffEyebrow, .coreButton:not(:disabled), .questKickoffButton:not(:disabled), .segmentedControl a, .consoleNavLink, .consoleTechnicalSummary, .consoleTechnicalLink, .consoleOwnerName, .consoleWorkspaceName, .consoleDecisionCount, .consolePanelHeader h2, .consolePanelHeader a, .consolePrimaryAction, .consoleCommand button, .consoleCommandHint, .consoleCoreTopline, .consoleCoreOverline, .consoleCoreCaption, .consoleStatusLabel, .consoleConnectionNote").evaluateAll(elements => {
     const parse = value => (value.match(/[\d.]+/g) ?? []).map(Number);
     const over = (front, back) => { const alpha = front[3] ?? 1; return [0, 1, 2].map(index => front[index] * alpha + back[index] * (1 - alpha)); };
     const luminance = color => color.slice(0, 3).map(value => { const n = value / 255; return n <= .04045 ? n / 12.92 : ((n + .055) / 1.055) ** 2.4; }).reduce((sum, n, index) => sum + n * [.2126, .7152, .0722][index], 0);
@@ -159,6 +227,56 @@ async function assertKeyboardFocus(page, label) {
   await page.evaluate(() => document.activeElement.blur());
 }
 
+async function assertFocusedControlVisible(page, label) {
+  const focus = await page.evaluate(() => {
+    const active = document.activeElement;
+    const box = active.getBoundingClientRect();
+    const style = getComputedStyle(active);
+    const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+    return { name: active.textContent.trim(), visible: active.matches(":focus-visible"), outline: parseFloat(style.outlineWidth),
+      contained: box.top >= 0 && box.bottom <= innerHeight && box.left >= 0 && box.right <= innerWidth,
+      unobscured: Boolean(hit && (hit === active || active.contains(hit))) };
+  });
+  assert.ok(focus.visible && focus.outline >= 2 && focus.contained && focus.unobscured, `${label} focused control is visible and unobscured: ${JSON.stringify(focus)}`);
+}
+
+async function assertConsoleDisclosures(page, width) {
+  assert.equal(await page.locator(".consoleNavLink").count(), 7);
+  assert.equal(await page.locator(".consoleNavLink[href='/dashboard?view=advanced']").count(), 1);
+  await page.locator(".consoleOwnerSummary").focus();
+  await page.keyboard.press("Enter");
+  assert.equal(await page.locator(".consoleOwnerMenu").getAttribute("open"), "");
+  await page.keyboard.press("Tab");
+  assert.equal(await page.locator(".consoleSignOut").evaluate(element => document.activeElement === element), true);
+  await assertFocusedControlVisible(page, `Sign out/${width}`);
+  await page.screenshot({ path: path.join(screenshotDirectory, `navigation-expanded-${width}.png`), fullPage: true, animations: "disabled" });
+  await assertContained(page, `expanded navigation/${width}`);
+  await assertControlTargets(page, `expanded navigation/${width}`);
+  await assertTextContrast(page, `expanded navigation/${width}`);
+  await page.locator(".consoleOwnerSummary").focus();
+  await page.keyboard.press("Enter");
+  assert.equal(await page.locator(".consoleOwnerMenu").getAttribute("open"), null);
+}
+
+async function assertOverviewFits(page, label) {
+  const geometry = await page.evaluate(() => {
+    const main = document.querySelector(".consoleMain");
+    const overview = document.querySelector(".consoleOverview");
+    const panels = [...document.querySelectorAll("[data-console-panel]")].map(element => {
+      const rect = element.getBoundingClientRect();
+      return { name: element.getAttribute("data-console-panel"), top: rect.top, bottom: rect.bottom, height: rect.height };
+    });
+    return { viewport: innerHeight, documentHeight: document.documentElement.scrollHeight, mainHeight: main.clientHeight,
+      mainScrollHeight: main.scrollHeight, overviewHeight: overview.getBoundingClientRect().height, panels,
+      internalScrollers: document.querySelectorAll(".consolePanelScroll").length };
+  });
+  assert.ok(geometry.documentHeight <= geometry.viewport + 1, `${label} must fit the desktop viewport: ${JSON.stringify(geometry)}`);
+  assert.ok(geometry.mainScrollHeight <= geometry.mainHeight + 2, `${label} overview must use internal panel scrolling: ${JSON.stringify(geometry)}`);
+  assert.equal(geometry.panels.length, 9, `${label} must retain all nine reference panels`);
+  assert.ok(geometry.panels.every(panel => panel.height >= 100 && panel.top >= 0 && panel.bottom <= geometry.viewport), `${label} panel geometry: ${JSON.stringify(geometry.panels)}`);
+  assert.ok(geometry.internalScrollers >= 6);
+}
+
 const browserEnabled = process.env.GUIDED_UI_BROWSER === "1" || Boolean(process.env.GUIDED_UI_CHROMIUM_PATH);
 const screenshotDirectory = path.resolve("test-results/guided-ui");
 test("hosted Chromium captures guided owner UI at desktop, mobile and 320px reflow", { skip: !browserEnabled, timeout: 180_000 }, async t => {
@@ -168,10 +286,12 @@ test("hosted Chromium captures guided owner UI at desktop, mobile and 320px refl
   const browser = await chromium.launch({ headless: true, ...(process.env.GUIDED_UI_CHROMIUM_PATH ? { executablePath: process.env.GUIDED_UI_CHROMIUM_PATH } : {}) });
   try {
     for (const [name, render] of Object.entries(fixtureRenderers)) {
-      const document = fixtureDocument(await render(), { creative: name === "creative" });
-      for (const width of [1440, 390, 320]) {
-        await t.test(`${name} at ${width}px`, async () => {
-          const context = await browser.newContext({ viewport: { width, height: 1000 }, locale: "en-NZ", timezoneId: "UTC", colorScheme: "dark", reducedMotion: "reduce", serviceWorkers: "block" });
+      const document = fixtureDocument(await render(), { creative: name === "creative", products: name === "products" });
+      const viewports = name === "dashboard" ? [{ width: 1440, height: 900 }, { width: 1280, height: 900 }, { width: 1200, height: 700 }, { width: 768, height: 1024 }, { width: 900, height: 768 }, { width: 390, height: 1000 }, { width: 320, height: 1000 }]
+        : [{ width: 1440, height: 900 }, { width: 390, height: 1000 }, { width: 320, height: 1000 }];
+      for (const { width, height } of viewports) {
+        await t.test(`${name} at ${width}×${height}`, async () => {
+          const context = await browser.newContext({ viewport: { width, height }, locale: "en-NZ", timezoneId: "UTC", colorScheme: "dark", reducedMotion: "reduce", serviceWorkers: "block" });
           // No production navigation, auth state, external fonts, images, or APIs.
           await context.route("**/*", route => route.abort());
           const page = await context.newPage();
@@ -184,6 +304,12 @@ test("hosted Chromium captures guided owner UI at desktop, mobile and 320px refl
             await assertControlTargets(page, label);
             await assertTextContrast(page, label);
             await assertKeyboardFocus(page, label);
+            if (name === "navigation-unavailable") await assertConsoleDisclosures(page, width);
+            if (name === "dashboard" && width > 900) await assertOverviewFits(page, label);
+            if (name === "dashboard" && width === 320) {
+              const clipped = await page.locator(".consoleStatusItem strong").evaluateAll(elements => elements.filter(element => element.scrollWidth > element.clientWidth + 1).map(element => ({ text: element.textContent, scrollWidth: element.scrollWidth, clientWidth: element.clientWidth })));
+              assert.deepEqual(clipped, [], "Important 320px status values must remain fully readable");
+            }
             if (name === "creative") {
               assert.equal(await page.getByRole("combobox", { name: "Image generation limit" }).inputValue(), "1");
               assert.equal(await page.getByRole("checkbox", { name: /I accept the/ }).isChecked(), false);

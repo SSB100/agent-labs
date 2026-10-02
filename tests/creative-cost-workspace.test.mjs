@@ -53,21 +53,22 @@ function fixture({ failures = [], empty = false, settled = false, unknown = fals
   return { context, queries, rows };
 }
 
-async function renderWorkspace(context, data) {
+async function renderWorkspace(context, data, query = {}, scopes = []) {
   const passChildren = ({ children }) => React.createElement('div', null, children);
   const { default: Page } = loadSource('src/app/dashboard/artifacts/page.tsx', {
     'react/jsx-runtime': require('react/jsx-runtime'), 'node:crypto': require('node:crypto'),
+    'next/navigation': { notFound: () => { throw new Error('not-found'); } },
     'next/link': ({ children, href }) => React.createElement('a', { href }, children),
     '@/components/stage7/app-shell': { AppShell: passChildren, PageHeader: () => null },
     '@/components/stage13/products-workspace': { ProductSubmitButton: ({ children, disabled }) => React.createElement('button', { disabled }, children) },
-    '@/creative/data': { loadCreativeWorkspace: async () => data, loadProductionCandidates: async () => ({ candidates: [], errors: [] }) },
+    '@/creative/data': { loadCreativeWorkspace: async scope => { scopes.push(scope.businesses.map(item => item.id)); return data; }, loadProductionCandidates: async scope => { scopes.push(scope.businesses.map(item => item.id)); return { candidates: [], errors: [] }; } },
     '@/creative/cost-display': costDisplay,
     '@/creative/image-provider': require('../.core-tests/creative/image-provider.js'),
     '@/creative/proposal': { FLUX_KLEIN_PROVIDER_TERMS: ['https://bfl.ai/legal/developer-terms-of-service', 'https://bfl.ai/legal/flux-api-service-terms'], CREATIVE_PROVIDER_TERMS: 'https://example.com/terms', TECHNICAL_PRINT_SPECIFICATION: { sourceUrl: 'https://example.com/spec', verifiedAt: '2026-09-01T10:00:00.000Z' } },
     '@/creative/types': { SCREEN_CATEGORIES: [] }, '@/lib/core-ui/data': { requireOwnerUiContext: async () => context },
     './actions': {}, './artifacts.css': {},
   });
-  return renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }));
+  return renderToStaticMarkup(await Page({ searchParams: Promise.resolve(query) }));
 }
 
 for (const failures of [['creative_cost_reservations'], ['creative_cost_settlements'], ['creative_cost_reservations', 'creative_cost_settlements'], ['creative_runs']]) {
@@ -196,4 +197,12 @@ test('retained source signing rejects forged owners, runs, paths and metadata', 
     assert.equal(f.signed.length, 0);
     assert.equal(data.costs.length >= 1, true, 'Rejecting source metadata must not erase charged history');
   }
+});
+
+test('Library business filter keeps reads in the selected owner Business and rejects foreign context', async () => {
+ const { context } = fixture(); const data = await loadCreativeWorkspace(context); const selected = context.businesses[0];
+ const scope = { ...context, businesses: [...context.businesses, { id: 'other-owned-business', name: 'Other owned Business' }] };
+ const seen = []; const html = await renderWorkspace(scope, data, { business: selected.id }, seen);
+ assert.deepEqual(JSON.parse(JSON.stringify(seen)), [[selected.id], [selected.id]]); assert.match(html, /View all businesses/);
+ const rejected = []; await assert.rejects(renderWorkspace(scope, data, { business: 'foreign-business' }, rejected), /not-found/); assert.deepEqual(rejected, []);
 });

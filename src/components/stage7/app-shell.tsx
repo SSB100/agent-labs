@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ConsoleShell } from "@/components/console/console-shell";
 import type { ReactNode } from "react";
 
 import { statusLabel, statusTone } from "@/lib/core-ui/workflows";
@@ -23,6 +24,7 @@ type AppShellProps = {
   children: ReactNode;
   context: OwnerUiContext;
   workflowRunId?: string;
+  navigationBusinessId?: string;
 };
 
 type NavItem = {
@@ -79,7 +81,7 @@ function NavigationLink({
   );
 }
 
-export function AppShell({
+function LegacyAppShell({
   active,
   children,
   context,
@@ -167,6 +169,11 @@ export function AppShell({
       <main className="coreMain" id="main-content">{children}</main>
     </div>
   );
+}
+
+/** Presentation-only rollback; execution and owner guards are unchanged. */
+export function AppShell(props: AppShellProps) {
+  return process.env.AGENTLABS_GUIDED_UI === "legacy" ? <LegacyAppShell {...props} /> : <ConsoleShell {...props} />;
 }
 
 export function PageHeader({

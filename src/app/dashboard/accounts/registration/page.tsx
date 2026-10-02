@@ -15,7 +15,7 @@ export default async function AccountRegistrationPage({ searchParams }: { search
   if (!ACCOUNT_UUID.test(businessId) || !ACCOUNT_UUID.test(runId) || !context.businesses.some(b => b.id === businessId)) notFound();
   let handoff: Awaited<ReturnType<typeof loadOwnerRegistrationHandoff>> | null = null;
   try { handoff = await loadOwnerRegistrationHandoff(context, businessId, runId); } catch { /* Safe owner-facing failure only. */ }
-  return <AppShell active="accounts" context={context}><PageHeader eyebrow="Exclusive owner control" title="Complete the secure signup step"
+  return <AppShell active="accounts" context={context} navigationBusinessId={businessId}><PageHeader eyebrow="Exclusive owner control" title="Complete the secure signup step"
     description="Automation is disconnected. Enter credentials yourself only for the approved provider. Do not share this live session URL."
     actions={<Link className="coreButton" href={`/dashboard/accounts?business=${businessId}#business-accounts`}>Back to account setup</Link>} />
     <section className="accountSecurePanel accountRegistrationPanel" data-agent-labs-secure="true" data-private="true">

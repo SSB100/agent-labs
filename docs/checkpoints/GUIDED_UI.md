@@ -30,3 +30,27 @@ The first phase leaves operational route structure unchanged. Reverting its sour
 - Automatic order synchronization and paid fulfilment remain later Stage 22 work
 
 No schema, credential, persistent permission, provider mutation or spending change is part of this UI phase.
+
+### Phase 1 release evidence
+
+PR #39 merged at `a84a7695b25981740039204849967d763544ccda`; tested source tree `6cab231c44d5ad122e5efb178964b199002ed581`. Hosted final-head CI passed lint, types, 1,281 tests and optimized build, with 21 desktop/mobile screenshots reviewed. Main push CI also passed. Production deployment `dpl_AzR3u7guUiREw8ewq9aF5R25DFD2` became READY on the canonical alias, health returned 200, and release-scoped runtime errors were absent. Read-only live owner acceptance confirmed truthful creative decisions/stages/worker state and repaired Artifacts contrast. The small decision-body font cascade is corrected with the guided shell below.
+
+## Phase 2: guided shell and bounded research
+
+Five primary destinations are Control centre, Work, Library, Decisions and Connections. Activity is secondary; qualification tools and Packs remain in expandable Advanced. Existing URLs and owner authentication are preserved. Mobile uses five labelled bottom destinations and an in-flow More disclosure; connection updates mount once. `AGENTLABS_GUIDED_UI=legacy` restores the previous navigation shell and research form without modifying execution or replaying approvals.
+
+The research kickoff is a three-step Goal → Scope → Review interface over the existing `startGeographicDiscovery` action. It preserves the exact six submitted fields, experimental status, bounded five/seven-call choice, fresh estimates, explicit owner allowance, scope consent and existing atomic semantic replay guard. No new planner or cross-stage executor exists. Drafts are versioned and owner-scoped in browser-tab session storage, never in a new database table; consent is never restored. Owner, input, quote or availability changes invalidate review consent.
+
+A research detail gets its goal from the matching same-Business, same-run product experiment and persisted intent identity, or the equivalent saved intent artifact. Product, listing and publication stages show prerequisites, never inferred completion. Business-linked Research and Library routes validate the owner’s Business before filtering read sources and form choices. Unknown data remains visibly unavailable.
+
+Route mapping preserves `/dashboard`, `/dashboard/workflows`, `/dashboard/products`, `/dashboard/artifacts`, `/dashboard/needs-you`, `/dashboard/accounts`, `/dashboard/history`, `/dashboard/packs`, `/dashboard/settings`, `/dashboard/worker-proof`, `/dashboard/model-router` and `/dashboard/worker-evaluations`. Printful and Etsy remain linked from Connections and contextual stage requirements. Provider and security settings are unchanged.
+
+Phase 2 requires real client hydration tests for Back/reload, local draft ownership, quote/consent changes, duplicate submission, focus and responsive layouts. Their server action is a synthetic in-memory stub and all browser networking is blocked; no live paid research is part of UI release verification.
+
+## Updated visual direction: compact single-page console
+
+On 2026-10-02 the owner replaced the spacious-card direction with a supplied Jarvis control-panel reference. The pending PR40 remains unreleased until the compact screenshot is compared with that reference. The new default is a viewport-bound three-row console with a180px rail,48px status/command bars, thin cyan framing, native SVG orb, concise actual work state, decision/activity feed, worker receipts, costs, connection records and saved outputs. Desktop panels scroll internally; narrow layouts use readable wrapping navigation and normal page scrolling.
+
+Primary tabs share `/dashboard?view=...`; `run` selects an owned saved run and `sheet=research` opens a native modal with the existing bounded research form. Close/Back preserve the underlying view. The command entry only prepares the supported research draft, with explicit approval before any paid work. Voice, CPU, memory, fictitious agents and unsupported general chat are not displayed.
+
+Cost panels use complete same-Business/run-scoped ledgers and exact creative-run joins; provider-reported amounts, reservations, allowance and unknown charges stay separate. Read-only tests use synthetic data. This direction supersedes the earlier spacious shell descriptions, while retaining their truth/consent improvements and legacy navigation fallback.

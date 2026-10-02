@@ -1,0 +1,18 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+const require=createRequire(import.meta.url),ts=require('typescript'),React=require('react');
+const {renderToStaticMarkup}=require('react-dom/server');
+const code=ts.transpileModule(readFileSync('src/components/guided/work-context.tsx','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX,target:ts.ScriptTarget.ES2022}}).outputText;
+const output={exports:{}};
+new Function('require','module','exports',code)(name=>name==='react/jsx-runtime'?require(name):name==='next/link'?({href,children,...p})=>React.createElement('a',{href,...p},children):name==='@/lib/core-ui/workflows'?{statusLabel:s=>s==='needs_owner'?'Needs you':s}:name==='./work-context.css'?{}:(()=>{throw Error(name)})(),output,output.exports);
+const {WorkContext,workDisplayTitle,researchGoalFromRecords}=output.exports;
+const run={id:'run-one',business_id:'business-one',status:'needs_owner',input:{intentId:'intent-root'}};
+const experiment={id:'intent-root',workflow_run_id:run.id,business_id:run.business_id,discovery_version:'pod-discovery-2.0',variables:{intent:{version:'pod-discovery-2.0',objective:'Research original nature shirts'}}};
+const render=key=>renderToStaticMarkup(React.createElement(WorkContext,{run,goal:researchGoalFromRecords(run,[experiment],[]),definition:{workflow_key:key,name:'Technical source name'}}));
+test('supported journey preserves exact goal and marks only the current stage',()=>{const html=render('product.discovery-v2.one');assert.match(html,/Research original nature shirts/);assert.equal((html.match(/aria-current="step"/g)||[]).length,1);assert.match(html,/Research<\/strong><span>Needs you/);for(const text of ['Implementation incomplete','Qualified product required','Fee evidence required','not yet implemented','Automatic order sync and fulfilment remain unavailable'])assert.ok(html.includes(text),text);assert.doesNotMatch(html,/Publish now|Start design|type="submit"/);});
+test('creative qualification cannot invent completed research or selling authority',()=>{const html=render('etsy.creative-pipeline');assert.match(html,/Research<\/strong><span>Evidence required/);assert.match(html,/Design<\/strong><span>Needs you/);assert.match(html,/business=business-one/);assert.doesNotMatch(html,/Completed|qualified product is ready/i);});
+test('demo is labelled and other runtime workflows are not relabelled as product quests',()=>{assert.match(render('synthetic.core.runtime-proof'),/Demo workflow/);assert.equal(render('browser.qualification'),'');assert.equal(workDisplayTitle({workflow_key:'product.discovery-v2.analysis'}),'Market research');assert.equal(workDisplayTitle({workflow_key:'etsy.creative-pipeline'}),'Creative design');});
+
+test('research goal comes from real persisted same-run records, never a fabricated inline intent',()=>{assert.equal(researchGoalFromRecords(run,[experiment],[]),'Research original nature shirts');for(const changed of [{id:'foreign'},{business_id:'foreign'},{workflow_run_id:'foreign'},{discovery_version:'future'}])assert.equal(researchGoalFromRecords(run,[{...experiment,...changed}],[]),null);assert.equal(researchGoalFromRecords({...run,input:{intent:{objective:'Fabricated inline goal'}}},[],[]),null);const artifact={business_id:run.business_id,workflow_run_id:run.id,artifact_type:'product.discovery-intent.v2',metadata:{intentId:'intent-root'},content:experiment.variables};assert.equal(researchGoalFromRecords(run,[],[artifact]),'Research original nature shirts');assert.equal(researchGoalFromRecords(run,[],[{...artifact,metadata:{intentId:'other'}}]),null);});

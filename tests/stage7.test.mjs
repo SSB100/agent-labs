@@ -97,7 +97,8 @@ test("Stage 7 Core surfaces remain intact when later stages extend Accounts and 
   assert.equal(existsSync("src/app/dashboard/browser/page.tsx"), false);
 
   const accounts = read("src/app/dashboard/accounts/page.tsx");
-  assert.match(accounts, /Core connections/);
+  assert.match(accounts, /Configured services/);
+  assert.match(accounts, /Advanced platform diagnostics/);
   assert.match(accounts, /<BusinessAccountWorkspace data=\{accountWorkspace\}/);
   const businessAccounts = read("src/app/dashboard/accounts/account-workspace.tsx");
   assert.match(businessAccounts, /Business accounts/);
@@ -118,5 +119,8 @@ test("Stage 7 keeps owner decisions visually prominent and safely routed", () =>
   assert.match(actions, /\/dashboard\/workflows\/\$\{intervention\.workflow_run_id\}/);
   assert.match(needsYou, /Open queue/);
   assert.match(needsYou, /Nothing needs your attention/);
-  assert.match(dashboard, /Waiting for your decision/);
+  assert.match(dashboard, /<ConsoleOverview/);
+  const consoleOverview = read("src/components/console/console-overview.tsx");
+  assert.match(consoleOverview, /Decisions &amp; activity|Decisions & activity/);
+  assert.match(consoleOverview, /Recommended next step/);
 });

@@ -48,7 +48,7 @@ export default async function EtsyPage({ searchParams }: { searchParams: Promise
       data.connection = workspace.connection as EtsyWorkspaceData["connection"]; data.runs = workspace.runs as EtsyWorkspaceData["runs"]; data.packages = packages;
     } catch { data.unavailable = true; }
   }
-  return <AppShell active="accounts" context={context}><PageHeader eyebrow="Etsy · Experimental" title="Etsy listings" description="Prepare reviewed drafts and check assisted publication readiness." actions={<Link className="coreButton" href="/dashboard/accounts">Back to Accounts</Link>} />
+  return <AppShell active="accounts" context={context} navigationBusinessId={business?.id}><PageHeader eyebrow="Etsy · Experimental" title="Etsy listings" description="Prepare reviewed drafts and check assisted publication readiness." actions={<Link className="coreButton" href={`/dashboard/accounts${business ? `?business=${business.id}` : ""}`}>Back to Accounts</Link>} />
     {message && <p role="status" className="etsyMessage">{message}</p>}
     {context.businesses.length > 1 && <form className="etsyBusiness" method="get"><label>Business<select name="business" defaultValue={business?.id}>{context.businesses.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></label><button className="coreButton">View</button></form>}
     {listing && <ListingWorkspace data={listing} />}

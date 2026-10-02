@@ -54,7 +54,9 @@ test("the application opens as a private login-first control centre", async () =
   assert.match(rootPage, /redirect\("\/login"\)/);
   assert.match(rootPage, /redirect\("\/dashboard"\)/);
   assert.match(loginPage, /Owner access only\./);
-  assert.match(dashboard, /title="Control centre"/);
+  assert.match(dashboard, /await requireOwnerUiContext\(\)/);
+  assert.match(dashboard, /<ConsoleShell/);
+  assert.match(dashboard, /<ConsoleOverview/);
   assert.doesNotMatch(loginPage, /create account|new owner|sign up/i);
   assert.doesNotMatch(loginActions, /signUp|signup/);
   assert.match(layout, /index:\s*false/);

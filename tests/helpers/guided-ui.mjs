@@ -26,8 +26,8 @@ export function loadSource(file, dependencies = {}) {
   }).outputText;
   const fixtureModule = { exports: {} };
   let sequence = 0;
-  const crypto = { randomUUID: () => `00000000-0000-4000-8000-${String(++sequence).padStart(12, "0")}` };
-  runInNewContext(`(function(require,module,exports){${code}\n})`, { Date: FixtureDate, crypto })(name => {
+  const crypto = { ...require("node:crypto"), randomUUID: () => `00000000-0000-4000-8000-${String(++sequence).padStart(12, "0")}` };
+  runInNewContext(`(function(require,module,exports){${code}\n})`, { Date: FixtureDate, crypto, Buffer, URL, URLSearchParams, structuredClone, process: { env: { AGENTLABS_GUIDED_UI: "guided", NODE_ENV: "test" } } })(name => {
     if (name === "react/jsx-runtime") return require(name);
     if (name === "react") return React;
     if (name === "react-dom") return require(name);
@@ -49,7 +49,7 @@ export const definition = {
   ] },
 };
 export const run = {
-  id: "fixture-workflow", business_id: business.id, workflow_definition_id: definition.id, status: "needs_owner", current_stage_key: "review",
+  id: "00000000-0000-4000-8000-000000000902", business_id: business.id, workflow_definition_id: definition.id, status: "needs_owner", current_stage_key: "review",
   input: {}, state: {}, runtime_provider: "vercel_workflow", runtime_run_id: "fixture-runtime", started_at: "2026-10-02T02:45:00.000Z",
   completed_at: null, created_at: "2026-10-02T02:45:00.000Z", updated_at: "2026-10-02T02:58:00.000Z",
 };
@@ -87,26 +87,101 @@ export function components() {
   const live = loadSource("src/components/stage7/live-refresh.tsx", {
     "next/navigation": { useRouter: () => ({ refresh: noAction }) }, "@/lib/supabase/client": { createClient: noAction },
   });
-  const shell = loadSource("src/components/stage7/app-shell.tsx", { "./icons": icons, "./live-refresh": live, "@/lib/core-ui/workflows": workflows });
+  const consoleShell = loadSource("src/components/console/console-shell.tsx", {
+    "@/components/stage7/icons": icons, "@/components/stage7/live-refresh": live, "./console-shell.css": {},
+  });
+  const shell = loadSource("src/components/stage7/app-shell.tsx", { "./icons": icons, "./live-refresh": live, "@/lib/core-ui/workflows": workflows, "@/components/console/console-shell": consoleShell });
   const visuals = loadSource("src/components/stage7/workflow-visuals.tsx", {
     "@/app/dashboard/actions": { resumeSyntheticReview: noAction }, "@/app/dashboard/packs/actions": { acknowledgeEtsySimulation: noAction },
     "@/app/dashboard/browser-actions": { resumeBrowserControl: noAction }, "@/lib/core-ui/workflows": workflows,
     "./icons": icons, "./app-shell": shell,
   });
-  return { workflows, icons, live, shell, visuals };
+  return { workflows, icons, live, shell, visuals, consoleShell };
 }
 
-export async function renderDashboard({ unavailable = false, empty = false } = {}) {
-  const { shell, visuals, icons, workflows } = components();
-  const context = ownerContext({ needsYouCount: unavailable || empty ? 0 : 1, needsYouUnavailable: unavailable });
+export async function renderDashboard({ unavailable = false, empty = false, view = "overview", detail = false, sheet = false, knownZero = false, businessesUnavailable = false, mismatchedBusiness = false, businessFlow = false, omitBusinessQuery = false, inspect, reads = [] } = {}) {
+  const { shell, visuals, icons, workflows, consoleShell } = components();
+  const otherBusiness = { ...business, id: "fixture-other-business", name: "Other authorized Business" };
+  const context = ownerContext({ needsYouCount: unavailable || empty ? 0 : 1, needsYouUnavailable: unavailable && !knownZero, businessesUnavailable,
+    businesses: businessesUnavailable ? [] : mismatchedBusiness || businessFlow ? [business, otherBusiness] : [business] });
   const collection = unavailable || empty ? workflowCollection({ runs: [], definitions: [], stages: [], events: [], interventions: [], errors: unavailable ? ["Synthetic workflow read unavailable"] : [] }) : workflowCollection();
-  const { default: Page } = loadSource("src/app/dashboard/page.tsx", {
-    "@/components/stage7/app-shell": shell, "@/components/stage7/workflow-visuals": visuals, "@/components/stage7/icons": icons,
-    "@/lib/core-ui/data": { requireOwnerUiContext: async () => context, loadWorkflowCollection: async () => collection },
-    "@/lib/core-ui/workflows": workflows, "@/lib/supabase/env": { isSupabaseAdminConfigured: () => true },
-    "./actions": { createBusiness: noAction, startSyntheticWorkflow: noAction },
+  const rootRun = businessFlow ? { ...run, business_id: otherBusiness.id } : run;
+  if (businessFlow) {
+    collection.runs = collection.runs.map(item => ({ ...item, business_id: otherBusiness.id }));
+    collection.interventions = collection.interventions.map(item => ({ ...item, business_id: otherBusiness.id }));
+    collection.events = collection.events.map(item => ({ ...item, business_id: otherBusiness.id }));
+  }
+  const accounts = { businessId: rootRun.business_id, configured: false, unavailable, profile: null, accounts: [], runs: [], healthEvents: [], registrationAvailable: false };
+  const products = { candidates: [], experiments: [], decisions: [], errors: [] };
+  const costData = { costs: { businessId: rootRun.business_id, workflowRunId: run.id, source: "model", calls: unavailable ? { status: "unavailable" } : { status: "ready", records: [{ providerRequestId: "fixture-receipt", reportedUsd: .0182 }] } } };
+  const questDraft = loadSource("src/lib/core-ui/quest-draft.ts");
+  const quest = loadSource("src/components/guided/quest-kickoff.tsx", {
+    "@/app/dashboard/products/discovery-actions": { startGeographicDiscovery: noAction }, "@/lib/core-ui/quest-draft": questDraft, "./quest-kickoff.css": {},
   });
-  return renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }));
+  const command = loadSource("src/components/console/console-command.tsx", {
+    "next/navigation": { useRouter: () => ({ push: noAction }) }, "@/lib/core-ui/quest-draft": questDraft, "./console-command.css": {},
+  });
+  const overview = loadSource("src/components/console/console-overview.tsx", { "@/components/stage7/icons": icons, "@/lib/core-ui/workflows": workflows, "./console-overview.css": {} });
+  const outcomes = loadSource("src/lib/core-ui/run-outcome.ts", { "./workflows": workflows });
+  const outcomeUi = loadSource("src/components/guided/run-outcome.tsx", { "@/lib/core-ui/run-outcome": outcomes, "./run-outcome.css": {} });
+  const workContext = loadSource("src/components/guided/work-context.tsx", { "@/lib/core-ui/workflows": workflows, "./work-context.css": {} });
+  const work = loadSource("src/components/console/console-work-pane.tsx", {
+    "./console-artifact-position": loadSource("src/components/console/console-artifact-position.tsx"),
+    "@/components/stage7/app-shell": shell, "@/components/stage7/workflow-visuals": visuals, "@/lib/core-ui/workflows": workflows,
+    "@/components/guided/run-outcome": outcomeUi, "@/components/guided/work-context": workContext,
+  });
+  const costs = loadSource("src/creative/cost-display.ts");
+  const library = loadSource("src/components/guided/creative-library.tsx", { "@/creative/cost-display": costs, "./creative-library.css": {} });
+  const accountUi = loadSource("src/app/dashboard/accounts/account-workspace.tsx", {
+    "@/accounts/contracts": loadSource("src/accounts/contracts.ts"), "@/components/stage7/app-shell": shell,
+    "./actions": Object.fromEntries(["saveBusinessAccountProfile", "requestAccountSetup", "approveReviewedAccountSetup", "cancelAccountSetup", "resumeVerifiedAccountSetup", "disconnectBusinessAccount", "startApprovedAccountRegistration", "finishOwnerRegistrationSession", "removeOwnerWebsitePassword"].map(name => [name, noAction])),
+  });
+  const consoleData = loadSource("src/lib/core-ui/console-data.ts", { "@/products/discovery-v2-goal": {}, "@/products/discovery-v2-budget": {} });
+  const goalUi = loadSource("src/components/stage13/discovery-goal-workspace.tsx", {
+    "./products-workspace": { ProductSubmitButton: noAction }, "@/app/dashboard/products/discovery-actions": {}, "@/products/discovery-v2-goal": {},
+  });
+  const details = { ...collection, run: rootRun, definition, business: context.businesses.find(item => item.id === rootRun.business_id) };
+  const { default: Page } = loadSource("src/app/dashboard/page.tsx", {
+    "next/navigation": { notFound: () => { throw new Error("Fixture record was not found"); } },
+    "@/components/console/console-shell": consoleShell, "@/components/console/console-overview": overview,
+    "@/components/console/console-command": command, "@/components/console/console-work-pane": work, "@/components/guided/quest-kickoff": quest,
+    "@/components/guided/creative-library": library, "@/components/stage7/workflow-visuals": visuals,
+    "@/lib/core-ui/data": { requireOwnerUiContext: async () => context, loadWorkflowCollection: async () => collection, loadWorkflowDetail: async (_context, id) => { assert.equal(id, run.id); return details; } },
+    "@/lib/core-ui/run-outcome-data": { loadRunCostData: async () => costData },
+    "@/lib/core-ui/console-data": { ...consoleData, loadConsoleResearchQuote: async () => ({ one: 370395, two: 530914, verifiedAt: fixtureTime }) },
+    "@/accounts/server": { loadAccountWorkspace: async (_context, id) => { if (businessFlow) assert.equal(id, otherBusiness.id); return accounts; }, loadAccountSetupInterventions: async () => ({ records: [], unavailable: unavailable && !knownZero }) },
+    "@/etsy-publication/server": { loadPublicationInterventions: async () => ({ records: [], unavailable }) },
+    "@/printful/server": { loadPrintfulProductInterventions: async () => ({ records: [], unavailable }) },
+    "@/creative/data": { loadCreativeWorkspace: async scoped => { reads.push("creative");
+      if (businessFlow) assert.deepEqual(Array.from(scoped.businesses, item => item.id), [otherBusiness.id]);
+      const data = creativeLibraryFixture();
+      if (businessFlow) for (const key of ["approvals", "runs", "assets"]) data[key] = data[key].map(item => ({ ...item, business_id: otherBusiness.id }));
+      return data;
+    } },
+    "@/products/data": { loadProductWorkspace: async () => { reads.push("products"); return products; } },
+    "@/products/discovery-v2-data": { loadDiscoveryGoalData: async () => { reads.push("discovery"); return { available: true, records: [], errors: [] }; } },
+    "@/components/stage13/discovery-goal-workspace": goalUi, "./accounts/account-workspace": accountUi,
+    "./actions": { createBusiness: noAction }, "./legacy-dashboard": noAction,
+    "@/components/console/console-panes.css": {}, "./accounts/accounts.css": {}, "./products/products.css": {},
+  });
+  const query = { view, ...(detail ? { run: run.id } : {}),
+    ...(!omitBusinessQuery && (detail || businessFlow) ? { business: mismatchedBusiness || businessFlow ? otherBusiness.id : business.id } : {}), ...(sheet ? { sheet: "research" } : {}) };
+  const tree = await Page({ searchParams: Promise.resolve(query) });
+  inspect?.(tree);
+  return renderToStaticMarkup(tree);
+}
+
+function creativeLibraryFixture() {
+  const hash = "a".repeat(64), briefHash = "b".repeat(64);
+  const approval = { id: "fixture-approval", business_id: business.id, candidate_id: "fixture-candidate", purpose: "technical_qualification", maximum_microusd: 550000,
+    approved_at: fixtureTime, expires_at: "2026-10-03T03:00:00.000Z", snapshot: { concept: "Synthetic mountain geometry", maximumGenerations: 1,
+      printSpecification: { garment: "Synthetic fixture garment", placement: "large_front", designWidthInches: 6.5, designHeightInches: 6.5, background: "opaque" } } };
+  const creativeRun = { id: "fixture-creative-run", business_id: business.id, workflow_run_id: run.id, approval_id: approval.id, productionReady: false };
+  const preview = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024"><rect width="1024" height="1024" fill="#102837"/><circle cx="740" cy="245" r="92" fill="#e9c379"/><path d="M90 790 385 285 670 790Z" fill="#5bb9c2"/><path d="m360 790 285-385 290 385Z" fill="#3b738c"/><text x="512" y="915" text-anchor="middle" font-family="sans-serif" font-size="32" fill="#c3dce8">SYNTHETIC UI FIXTURE</text></svg>');
+  const asset = { id: "fixture-asset", business_id: business.id, creative_run_id: creativeRun.id, candidate_id: approval.candidate_id, version: 1, model: "Synthetic fixture", provider: "Offline test", generated_at: fixtureTime,
+    signedUrl: preview, asset_hash: hash, brief_hash: briefHash, prompt: "A synthetic geometric mountain for a read-only UI fixture.",
+    inspection: { sha256: hash, width: 1024, height: 1024, bytes: 24000, effectiveDpi: 157.5, colorSpace: "srgb", mediaType: "image/png", failedCriteria: [] } };
+  return { approvals: [approval], runs: [creativeRun], assets: [asset], reviews: [], costs: [], costsAvailable: true, errors: [], retainedSources: [] };
 }
 
 export async function renderWorkflows({ ended = false, mismatchedTask = false } = {}) {
@@ -176,8 +251,10 @@ export function renderTimelines() {
   ));
 }
 
-export async function renderCreative() {
+export async function renderCreative({ businessFlow = false } = {}) {
   const { shell, icons } = components();
+  const otherBusiness = { ...business, id: "fixture-other-business", name: "Other authorized Business" };
+  const creativeContext = ownerContext({ businesses: businessFlow ? [business, otherBusiness] : [business] });
   const productTypes = loadSource("src/products/types.ts");
   const productHistory = loadSource("src/products/history.ts", { "./types": productTypes });
   const { ProductSubmitButton } = loadSource("src/components/stage13/products-workspace.tsx", {
@@ -186,25 +263,108 @@ export async function renderCreative() {
   });
   const { default: Page } = loadSource("src/app/dashboard/artifacts/page.tsx", {
     "@/components/stage7/app-shell": shell, "@/components/stage13/products-workspace": { ProductSubmitButton },
+    "@/components/guided/creative-library": loadSource("src/components/guided/creative-library.tsx", { "@/creative/cost-display": loadSource("src/creative/cost-display.ts"), "./creative-library.css": {} }),
+    "next/navigation": { notFound: () => { throw new Error("Fixture Business was not found"); } },
     "@/creative/data": { loadCreativeWorkspace: async () => ({ approvals: [], runs: [], assets: [], reviews: [], costs: [], costsAvailable: true, errors: [] }), loadProductionCandidates: async () => ({ candidates: [], errors: [] }) },
     "@/creative/cost-display": loadSource("src/creative/cost-display.ts"),
     "@/creative/proposal": { FLUX_KLEIN_PROVIDER_TERMS: ["https://example.invalid/developer-terms", "https://example.invalid/api-terms"], TECHNICAL_PRINT_SPECIFICATION: { sourceUrl: "https://example.invalid/specification", verifiedAt: fixtureTime } },
     "@/creative/image-provider": { FLUX_KLEIN_PNG_POLICY: { modelId: "black-forest-labs/flux.2-klein-4b" } },
-    "@/creative/types": loadSource("src/creative/types.ts"), "@/lib/core-ui/data": { requireOwnerUiContext: async () => ownerContext() },
+    "@/creative/types": loadSource("src/creative/types.ts"), "@/lib/core-ui/data": { requireOwnerUiContext: async () => creativeContext },
     "./actions": { approveCreativeCandidate: noAction, approveProductionCreativeCandidate: noAction, closeExpiredCreativeRun: noAction, startCreativeRun: noAction }, "./artifacts.css": {},
   });
-  return renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }));
+  return renderToStaticMarkup(await Page({ searchParams: Promise.resolve(businessFlow ? { business: otherBusiness.id } : {}) }));
+}
+
+export const researchGoal = "Compare supported starting markets for original nature T-shirts and preserve the evidence for review.";
+export function renderWorkContext({ mismatched = false } = {}) {
+  const { shell, workflows, visuals } = components();
+  const { WorkContext, researchGoalFromRecords } = loadSource("src/components/guided/work-context.tsx", { "@/lib/core-ui/workflows": workflows, "./work-context.css": {} });
+  const researchDefinition = { ...definition, workflow_key: "product.discovery-v2.geographic", name: "Geographic research" };
+  const researchRun = { ...run, input: { intentId: "fixture-research-intent" } };
+  const experiment = { id: researchRun.input.intentId, business_id: business.id, workflow_run_id: mismatched ? "different-workflow" : researchRun.id,
+    discovery_version: "pod-discovery-2.0", variables: { intent: { version: "pod-discovery-2.0", objective: researchGoal } } };
+  const goal = researchGoalFromRecords(researchRun, [experiment], []);
+  return renderToStaticMarkup(React.createElement(shell.AppShell, { active: "workflows", context: ownerContext(), workflowRunId: run.id },
+    React.createElement(shell.PageHeader, { eyebrow: "Work", title: "Market research", description: "Review the saved goal and each separately approved next step." }),
+    React.createElement(WorkContext, { run: researchRun, definition: researchDefinition, goal }),
+    React.createElement(visuals.WorkflowTimeline, { definition: researchDefinition, run: researchRun, stages }),
+  ));
+}
+
+export function renderUnknownNavigation() {
+  const { shell } = components();
+  return renderToStaticMarkup(React.createElement(shell.AppShell, { active: "needs-you", context: ownerContext({ needsYouCount: 0, needsYouUnavailable: true, businessesUnavailable: true, businesses: [] }) },
+    React.createElement(shell.PageHeader, { eyebrow: "Owner workspace", title: "Check your workspace", description: "Missing records do not mean there are no decisions or businesses." }),
+    React.createElement("p", { className: "coreNotice", role: "alert" }, "Decision and Business records are unavailable. Refresh before starting more work."),
+  ));
+}
+
+export async function renderProducts() {
+  const { shell, icons } = components();
+  const productTypes = loadSource("src/products/types.ts");
+  const productHistory = loadSource("src/products/history.ts", { "./types": productTypes });
+  const products = loadSource("src/components/stage13/products-workspace.tsx", {
+    "@/app/dashboard/products/actions": { reconcileProductDiscovery: noAction, recordProductAssessment: noAction, reconsiderProductCandidate: noAction, startProductResearch: noAction },
+    "@/components/stage7/icons": icons, "@/products/types": productTypes, "@/products/history": productHistory, "@/app/dashboard/products/products.css": {},
+  });
+  const sources = loadSource("src/research/sources.ts");
+  const discovery = loadSource("src/products/discovery-v2.ts", {
+    "./types": productTypes, "../research/sources": sources,
+    "./discovery": { validateProductEvidence: noAction }, "./discovery-v2-knowledge": { validateDiscoveryKnowledgeV2: noAction },
+  });
+  const goal = loadSource("src/products/discovery-v2-goal.ts", { "./discovery-v2": discovery });
+  const quoteModels = [];
+  const budget = loadSource("src/products/discovery-v2-budget.ts", {
+    "../creative/budget": { fetchCreativeModelQuote: async modelId => {
+      quoteModels.push(modelId);
+      return { modelId, verifiedAt: fixtureTime, source: "https://openrouter.ai/api/v1/models", inputPerMillion: modelId.includes("haiku") ? 1 : .4,
+        cacheWritePerMillion: modelId.includes("haiku") ? 2 : .5, outputPerMillion: modelId.includes("haiku") ? 5 : 1.8 };
+    } },
+    "../models/openrouter": { OpenRouterAdapter: class { constructor() { noAction(); } } },
+    "../models/types": loadSource("src/models/types.ts"), "../research/sources": sources, "../workers/schema-validator": loadSource("src/workers/schema-validator.ts"),
+  });
+  const actions = { startGeographicDiscovery: noAction, refreshGeographicDiscovery: noAction, approveGeographicResearchFunding: noAction, continueGeographicDiscoveryAnalysis: noAction };
+  const goalWorkspace = loadSource("src/components/stage13/discovery-goal-workspace.tsx", {
+    "./products-workspace": products, "@/app/dashboard/products/discovery-actions": actions, "@/products/discovery-v2-goal": goal,
+  });
+  const quest = loadSource("src/components/guided/quest-kickoff.tsx", {
+    "@/app/dashboard/products/discovery-actions": actions, "@/lib/core-ui/quest-draft": loadSource("src/lib/core-ui/quest-draft.ts"), "./quest-kickoff.css": {},
+  });
+  // These are auth-scoped synthetic database results. Essential intent validation,
+  // finite quote arithmetic, production wizard and scope copy are all real code.
+  const data = { candidates: [], experiments: [], decisions: [], errors: [] };
+  const context = ownerContext({ businesses: [{ ...business, id: "00000000-0000-4000-8000-000000000901" }] });
+  const { default: Page } = loadSource("src/app/dashboard/products/page.tsx", {
+    "@/components/guided/quest-kickoff": quest, "@/components/guided/work-context.css": {},
+    "@/components/stage7/app-shell": shell, "@/components/stage7/icons": icons, "@/components/stage13/products-workspace": products,
+    "next/navigation": { notFound: () => { throw new Error("Fixture Business was not found"); } },
+    "@/lib/core-ui/data": { requireOwnerUiContext: async () => context }, "@/products/data": { loadProductWorkspace: async () => data },
+    "@/products/history": productHistory, "@/components/stage13/discovery-goal-workspace": goalWorkspace,
+    "@/products/discovery-v2-data": { loadDiscoveryGoalData: async () => ({ available: true, analysisAvailable: true, records: [], errors: [] }) },
+    "@/products/discovery-v2-goal": goal, "@/products/discovery-v2-budget": budget, "./actions": { createProductCandidate: noAction }, "./products.css": {},
+  });
+  const markup = renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }));
+  assert.deepEqual(quoteModels.sort(), ["anthropic/claude-haiku-4.5", "openai/gpt-5.6-luna"]);
+  assert.doesNotMatch(markup, /Current provider prices are unavailable/);
+  return markup;
 }
 
 export const fixtureRenderers = {
-  dashboard: () => renderDashboard(), "dashboard-unavailable": () => renderDashboard({ unavailable: true }),
-  "dashboard-empty": () => renderDashboard({ empty: true }), workflows: () => renderWorkflows(), decisions: renderDecisions, timelines: renderTimelines, creative: renderCreative,
+  dashboard: () => renderDashboard(), "dashboard-unavailable": () => renderDashboard({ unavailable: true }), "dashboard-empty": () => renderDashboard({ empty: true }),
+  "console-work": () => renderDashboard({ view: "work" }), "console-run": () => renderDashboard({ view: "work", detail: true }),
+  "console-library": () => renderDashboard({ view: "library" }), "console-decisions": () => renderDashboard({ view: "decisions" }),
+  "console-connections": () => renderDashboard({ view: "connections" }), "console-activity": () => renderDashboard({ view: "activity" }),
+  "console-advanced": () => renderDashboard({ view: "advanced" }),
+  timelines: renderTimelines, creative: renderCreative, "navigation-unavailable": renderUnknownNavigation, "work-context": renderWorkContext, products: renderProducts,
 };
 
-export function fixtureDocument(markup, { creative = false } = {}) {
+export function fixtureDocument(markup, { creative = false, products = false } = {}) {
   // Match RootLayout's cascade exactly; creative imports Products' button styles.
-  const styles = ["src/app/globals.css", "src/app/stage1.css", "src/app/stage3.css", "src/app/stage7.css", "src/app/stage7-mobile.css", "src/app/stage8.css",
-    ...(creative ? ["src/app/dashboard/products/products.css", "src/app/dashboard/artifacts/artifacts.css"] : []),
+  const styles = ["src/app/globals.css", "src/app/stage1.css", "src/app/stage3.css", "src/app/stage7.css", "src/app/stage7-mobile.css", "src/app/stage8.css", "src/components/guided/work-context.css", "src/components/guided/creative-library.css", "src/components/guided/run-outcome.css",
+    "src/components/console/console-shell.css", "src/components/console/console-overview.css", "src/components/console/console-command.css", "src/components/console/console-panes.css",
+    "src/app/dashboard/accounts/accounts.css", "src/app/dashboard/products/products.css",
+    ...(creative || products ? ["src/app/dashboard/products/products.css"] : []),
+    ...(creative ? ["src/app/dashboard/artifacts/artifacts.css"] : []), ...(products ? ["src/components/guided/quest-kickoff.css"] : []),
   ].map(file => readFileSync(path.join(root, file), "utf8")).join("\n");
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Agent Labs synthetic owner UI fixture</title><style>${styles}</style></head><body>${markup}</body></html>`;
 }
