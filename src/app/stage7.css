@@ -1927,3 +1927,4 @@
 .coreSkipLink{position:fixed;top:8px;left:16px;z-index:1000;transform:translateY(-150%);padding:12px 16px;border-radius:8px;color:#111820;background:var(--core-accent);font-weight:700}.coreSkipLink:focus{transform:none}
 .coreReadError { width:min(720px,calc(100% - 40px));margin:12vh auto;line-height:1.6}.coreReadError h1{font-size:clamp(2rem,5vw,3rem);line-height:1.15}.coreReadError p:not(.coreEyebrow){color:var(--core-muted)}
 .overviewHero .coreButton { margin-top: 18px; }
+.visualStage strong{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere}

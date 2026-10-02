@@ -10,3 +10,6 @@
 .creativeForm label,.creativeFormRow>*{min-width:0;overflow-wrap:anywhere}
 .creativeForm :is(input:not([type=checkbox]),select,textarea){width:100%;max-width:100%;min-width:0}
 @media(max-width:800px){.creativeFormRow{grid-template-columns:minmax(0,1fr)}}
+/* Keep consent prose and inline terms links in one readable text flow. */
+.creativeForm label:has(>input[type=checkbox]){position:relative;display:block;padding-left:32px;min-height:44px}
+.creativeForm label>input[type=checkbox]{position:absolute;left:0;top:2px;margin:0}

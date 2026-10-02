@@ -165,7 +165,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
               : context.needsYouUnavailable
               ? "Your decisions need a fresh check."
               : context.needsYouCount
-              ? `${context.needsYouCount} decision${context.needsYouCount === 1 ? "" : "s"} need your attention.`
+              ? `${context.needsYouCount} decision${context.needsYouCount === 1 ? " needs" : "s need"} your attention.`
               : workingRuns.length
                 ? `${workingRuns.length} workflow${workingRuns.length === 1 ? " is" : "s are"} working.`
                 : activeRuns.length
