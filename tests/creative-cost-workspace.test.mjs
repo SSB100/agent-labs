@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { runInNewContext } from 'node:vm';
+import { creativeCostTruthFixture } from './helpers/creative-cost-truth-fixtures.mjs';
 const require = createRequire(import.meta.url);
 const ts = require('typescript');
 const React = require('react');
@@ -205,4 +206,35 @@ test('Library business filter keeps reads in the selected owner Business and rej
  const seen = []; const html = await renderWorkspace(scope, data, { business: selected.id }, seen);
  assert.deepEqual(JSON.parse(JSON.stringify(seen)), [[selected.id], [selected.id]]); assert.match(html, /View all businesses/);
  const rejected = []; await assert.rejects(renderWorkspace(scope, data, { business: 'foreign-business' }, rejected), /not-found/); assert.deepEqual(rejected, []);
+});
+
+
+test('legacy receipt history qualifies exact three-call costs without relabelling the saved generation amount', async () => {
+  const f = fixture({ settled: true });
+  const analogue = creativeCostTruthFixture({ creativeRunId: f.rows.creative_runs[0].id, businessId: f.context.businesses[0].id });
+  f.rows.creative_cost_reservations = analogue.reservations;
+  f.rows.creative_cost_settlements = analogue.settlements;
+  const rawBefore = structuredClone(f.rows), data = await loadCreativeWorkspace(f.context);
+  const html = await renderWorkspace(f.context, data);
+  assert.match(html, /Reported: US\$0\.010280/);
+  assert.match(html, /1 charge\(s\) remain unknown · US\$0\.210000 reserved/);
+  assert.match(html, /Conservative budget committed: US\$0\.339552/);
+  assert.match(html, /Unverified saved amount: US\$0\.210000 · excluded from reported charges/);
+  assert.match(html, /reservation or saved amount, not both; unverified saved amounts are retained conservatively/);
+  assert.doesNotMatch(html, /Reported: US\$0\.220280|Reported provider charge · US\$0\.210000/);
+  assert.equal(data.costs.find(row => row.call_key === 'generate:1').reported_microusd, 210000);
+  assert.deepEqual(f.rows, rawBefore);
+});
+
+test('legacy direct-record summaries never turn unlinked saved zero or positive amounts into reported charges', async () => {
+  const { context } = fixture({ settled: true }), data = await loadCreativeWorkspace(context);
+  for (const provider_request_id of [null, '', '   ']) for (const reported_microusd of [0, 210000]) {
+    const raw = { ...data.costs[0], provider_request_id, reported_microusd };
+    const html = await renderWorkspace(context, { ...data, costs: [raw] });
+    assert.match(html, /Reported: No charge reported; charge unknown/);
+    assert.match(html, /1 charge\(s\) remain unknown/);
+    assert.match(html, /Unverified saved amount: US\$/);
+    assert.doesNotMatch(html, /Reported provider charge/);
+    assert.equal(raw.reported_microusd, reported_microusd);
+  }
 });

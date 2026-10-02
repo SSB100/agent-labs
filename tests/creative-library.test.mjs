@@ -5,6 +5,7 @@ import path from 'node:path';
 import { chromium } from 'playwright-core';
 import { createRequire } from 'node:module';
 import { loadSource } from './helpers/guided-ui.mjs';
+import { creativeCostTruthFixture } from './helpers/creative-cost-truth-fixtures.mjs';
 
 const require = createRequire(import.meta.url);
 const React = require('react');
@@ -161,7 +162,7 @@ test('invalid expiry and generated date render unavailable without throwing or r
 
 test('failed run preserves provider-reported charge separately from allowance and reservation', () => {
   const html = renderCosts({}, { ...run, status: 'failed' });
-  for (const text of ['Approved allowance', 'US$0.550000', 'Provider-reported charges', 'US$0.017000', 'Conservative budget committed', 'US$0.030000', 'larger of each reservation or reported charge, not both', 'not an additional charge', 'Reported provider charge']) assert.ok(html.includes(text), text);
+  for (const text of ['Approved allowance', 'US$0.550000', 'Provider-reported charges', 'US$0.017000', 'Conservative budget committed', 'US$0.030000', 'larger of each reservation or saved amount, not both', 'not an additional charge', 'Reported provider charge']) assert.ok(html.includes(text), text);
   assert.doesNotMatch(html, /US\$0\.047000|US\$0\.597000|<form/);
 });
 
@@ -270,4 +271,31 @@ test('compact preview list keeps source context, keyboard disclosures and mobile
       } finally { await context.close(); }
     });
   } finally { await browser.close(); }
+});
+
+
+test('guided legacy summary matches exact qualified charges and separates unverified saved amounts', () => {
+  const analogue = creativeCostTruthFixture({ creativeRunId: run.id }), before = structuredClone(analogue.costs);
+  const html = renderCosts({ costs: analogue.costs }, { ...run, status: 'failed' });
+  assert.match(html, /Provider-reported charges<\/dt><dd>US\$0\.010280/);
+  assert.match(html, /1 charge\(s\) remain unknown · US\$0\.210000 reserved/);
+  assert.match(html, /Conservative budget committed: US\$0\.339552/);
+  assert.match(html, /Unverified saved amount: US\$0\.210000 · excluded from reported charges/);
+  assert.match(html, /reservation or saved amount, not both; unverified saved amounts are retained conservatively/);
+  assert.doesNotMatch(html, /US\$0\.220280|Reported provider charge · US\$0\.210000/);
+  assert.deepEqual(analogue.costs, before);
+  const partial = renderCosts({ costs: analogue.costs, costsAvailable: false });
+  assert.match(partial, /Known charges in partial receipts<\/dt><dd>US\$0\.010280/);
+  assert.match(partial, /1 charge\(s\) remain unknown/);
+  assert.match(partial, /Known conservative budget commitment: US\$0\.339552/);
+});
+
+test('guided direct-record summary leaves unlinked saved zero and positive amounts unknown', () => {
+  for (const provider_request_id of [null, '', '   ']) for (const reported_microusd of [0, 210000]) {
+    const html = renderCosts({ costs: [{ ...receipt, provider_request_id, reported_microusd }] });
+    assert.match(html, /No charge reported/);
+    assert.match(html, /1 charge\(s\) remain unknown/);
+    assert.match(html, /Unverified saved amount: US\$/);
+    assert.doesNotMatch(html, /Reported provider charge/);
+  }
 });

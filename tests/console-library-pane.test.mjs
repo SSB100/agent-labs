@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { runInNewContext } from "node:vm";
 import test from "node:test";
+import { creativeCostTruthFixture } from "./helpers/creative-cost-truth-fixtures.mjs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { libraryMarkup, libraryDesign, libraryRun, libraryPane, runLookup, preview, jsonFocus, id } from "./helpers/console-library-pane-fixtures.mjs";
 
@@ -362,4 +363,35 @@ test("visible JSON causes no scroll and readonly pre/tabindex gets mobile safe-a
   assert.match(css, /:where\(a,button,input,select,summary,pre,\[tabindex\]\)/);
   assert.match(css, /scroll-margin-block:12px calc\(100px \+ env\(safe-area-inset-bottom\)\)/);
   assert.match(css, /100dvh - 160px/); assert.match(css, /--console-library-json-focus-height/);
+});
+
+
+test('direct Library run records defensively qualify charges in complete and capped cost snapshots', () => {
+  const analogue = creativeCostTruthFixture({ creativeRunId: id(2000) }), before = structuredClone(analogue.costs);
+  for (const status of ['ready', 'unavailable']) {
+    const runDetail = libraryRun(0, { costs: { status, records: analogue.costs, reservations: [], settlements: [] } });
+    const markup = libraryMarkup('designs', { searchParams: { creativeRun: id(2000) }, data: { runDetail } });
+    assert.match(markup, /<strong>US\$0\.010280<\/strong>/);
+    assert.match(markup, /1 charge\(s\) remain unknown · US\$0\.210000 reserved/);
+    assert.match(markup, /budget commit(?:ted|ment): US\$0\.339552/);
+    assert.match(markup, /Unverified saved amount: US\$0\.210000 · excluded from reported charges/);
+    assert.doesNotMatch(markup, /US\$0\.220280|Reported provider charge · US\$0\.210000/);
+    if (status === 'unavailable') {
+      assert.match(markup, /known charges in partial receipts/);
+      assert.match(markup, /The cost ledger could not be fully loaded/);
+    }
+  }
+  assert.deepEqual(analogue.costs, before);
+});
+
+test('direct Library zero and blank identity fixtures remain unknown unless provider-linked', () => {
+  for (const provider_request_id of [null, undefined, '', '  ']) for (const reported_microusd of [0, 210000]) {
+    const row = { ...creativeCostTruthFixture({ creativeRunId: id(2000) }).costs[2], provider_request_id, reported_microusd };
+    const runDetail = libraryRun(0, { costs: { status: 'ready', records: [row], reservations: [], settlements: [] } });
+    const markup = libraryMarkup('designs', { searchParams: { creativeRun: id(2000) }, data: { runDetail } });
+    assert.match(markup, /No charge reported; charge unknown/);
+    assert.match(markup, /1 charge\(s\) remain unknown/);
+    assert.match(markup, /Unverified saved amount: US\$/);
+    assert.doesNotMatch(markup, /provider-reported charges|Reported provider charge/);
+  }
 });

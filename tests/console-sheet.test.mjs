@@ -54,6 +54,26 @@ async function assertClosedSheet(page) {
   assert.deepEqual(await page.evaluate(() => window.__consoleHydrationErrors), []);
 }
 
+async function assertOpenerRestored(page, opener) {
+  // DOM removal can precede React's passive cleanup. Observe the real focus
+  // postcondition without moving focus or accepting the body as a substitute.
+  try {
+    await page.waitForFunction(() => {
+      const button = document.querySelector('.consoleCommand button[type="submit"]');
+      return button?.isConnected && document.activeElement === button && !document.querySelector("dialog");
+    }, undefined, { timeout: 2_000 });
+  } catch (error) {
+    const diagnostic = await page.evaluate(() => ({
+      active: document.activeElement?.outerHTML.slice(0, 600),
+      opener: document.querySelector('.consoleCommand button[type="submit"]')?.outerHTML.slice(0, 600),
+      route: location.pathname + location.search,
+      dialogPresent: Boolean(document.querySelector("dialog")),
+    }));
+    throw new Error(`Opener focus was not restored: ${JSON.stringify(diagnostic)}`, { cause: error });
+  }
+  assert.equal(await opener.evaluate(element => element === document.activeElement), true);
+}
+
 async function assertFocusContained(page) {
   const trace = [];
   const controls = 'button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), a[href]';
@@ -209,7 +229,7 @@ test("console research sheet preserves its same-page URL, modal focus and unappr
           await assertLayoutAndCapture(page, "review", width);
           await page.getByRole("button", { name: "Close research setup" }).click();
           await assertClosedSheet(page);
-          assert.equal(await opener.evaluate(element => element === document.activeElement), true);
+          await assertOpenerRestored(page, opener);
           assert.deepEqual(await page.evaluate(() => window.__consoleNavigations.at(-1)), { destination: consoleSheetFixture.returnTo, options: { scroll: false } });
 
           // An empty command reopens the saved draft instead of submitting a
@@ -238,8 +258,24 @@ test("console research sheet preserves its same-page URL, modal focus and unappr
 
           await page.keyboard.press("Escape");
           await assertClosedSheet(page);
-          assert.equal(await opener.evaluate(element => element === document.activeElement), true);
+          await assertOpenerRestored(page, opener);
           assert.deepEqual(await page.evaluate(() => window.__consoleNavigations.at(-1)), { destination: consoleSheetFixture.returnTo, options: { scroll: false } });
+
+          if (width === 390) {
+            for (let cycle = 0; cycle < 5; cycle++) {
+              await page.reload({ waitUntil: "load" });
+              await page.waitForFunction(() => window.__consoleHydrated);
+              await opener.click();
+              await assertOpenSheet(page);
+              await page.getByRole("heading", { name: "Review before research starts", exact: true }).waitFor();
+              assert.equal(await consent.isChecked(), false);
+              await assertSavedDraft(page, editedGoal);
+              await page.keyboard.press("Escape");
+              await assertClosedSheet(page);
+              await assertOpenerRestored(page, opener);
+            }
+            await page.screenshot({ path: path.join(screenshots, "console-sheet-focus-restored-390.png"), animations: "disabled" });
+          }
 
           // Browser history traverses actual pushState entries and remounts the
           // real dialog. No test-only open/close implementation is involved.

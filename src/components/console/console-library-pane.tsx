@@ -7,7 +7,7 @@ import type {
 } from "@/lib/core-ui/console-library-data";
 import { CONSOLE_LIBRARY_ARTIFACT_TYPES, CONSOLE_LIBRARY_MEDIA_TYPES, consoleLibraryHref } from "@/lib/core-ui/console-library-query";
 import type { ConsoleCollectionSelection } from "@/lib/core-ui/console-collections-query";
-import { creativeCostStatus, summarizeCreativeCosts } from "@/creative/cost-display";
+import { CREATIVE_COST_COMMITMENT_EXPLANATION, creativeCostStatus, qualifyCreativeCost, summarizeCreativeCosts } from "@/creative/cost-display";
 import { REVIEW_CRITERIA } from "@/creative/types";
 import { ConsoleCollectionPagination, ConsoleWorkState, type ConsoleCollectionSearch } from "./console-collection-panes";
 import { ConsoleCollectionViewport } from "./console-collection-viewport";
@@ -121,7 +121,7 @@ function Approval({ detail, now }: { detail: LibraryRunDetail; now: number }) {
   return <><Facts><Fact label="Purpose">{readable(approval.purpose)}</Fact><Fact label="Approval ID">{approval.id}</Fact><Fact label="Candidate ID">{approval.candidate_id}</Fact><Fact label="Approved"><SavedDate value={approval.approved_at}/></Fact><Fact label="Expires"><SavedDate value={approval.expires_at}/></Fact><Fact label="Saved image limit">{saved.maximumGenerations === 1 || saved.maximumGenerations === 2 ? saved.maximumGenerations : "Unavailable"}</Fact><Fact label="Evidence decision ID">{text(saved.decisionId, "Not recorded")}</Fact></Facts>{Date.parse(approval.expires_at) <= now ? <p className="consoleLibraryWarning">This saved approval has expired. The historical artwork does not renew it.</p> : null}{specification ? <Disclosure title="Saved print specification" id={`approval-spec:${approval.id}`}><Json label="Saved print specification JSON" value={specification}/></Disclosure> : <p>Saved print specification unavailable</p>}<Disclosure title="Exact approval snapshot & quote" id={`approval-json:${approval.id}`}><Json label="Exact approval snapshot JSON" value={saved}/><Json label="Saved approval quote JSON" value={approval.quote}/></Disclosure></>;
 }
 function Costs({ detail, now }: { detail: LibraryRunDetail; now: number }) {
-  const costs = detail.costs.records, totals = summarizeCreativeCosts(costs), known = costs.some(cost => cost.reported_microusd !== null), expired = detail.selection.status === "found" && Date.parse(detail.selection.item.capability_expires_at) <= now;
+  const costs = detail.costs.records, totals = summarizeCreativeCosts(costs), known = totals.recordedCalls > totals.uncertainCalls, expired = detail.selection.status === "found" && Date.parse(detail.selection.item.capability_expires_at) <= now;
   return <section className="consoleLibraryCosts" aria-label="Saved creative costs"><h4>Provider charges &amp; reservations</h4>
     <p className="consoleLibraryCharge"><strong>{known ? usd(totals.reportedMicrousd) : detail.costs.status !== "ready" ? "Unavailable; charge unknown" : costs.length ? "No charge reported; charge unknown" : "No provider calls recorded"}</strong>{known ? <span>{detail.costs.status === "ready" ? " provider-reported charges" : " known charges in partial receipts"}</span> : null}</p>
     {detail.costs.status !== "ready" ? <p className="consoleLibraryWarning" role="alert">The cost ledger could not be fully loaded. Do not assume zero spend or start another attempt.</p> : null}
@@ -129,9 +129,9 @@ function Costs({ detail, now }: { detail: LibraryRunDetail; now: number }) {
     {costs.length ? <p>{detail.costs.status !== "ready" || totals.hasMissingReservation ? "Known conservative budget commitment" : "Conservative budget committed"}: {usd(totals.committedMicrousd)}</p> : null}
     <Disclosure title="Exact provider receipts & reservations" id={`costs:${detail.selection.item?.id ?? "unavailable"}`}>
       {detail.approval.status === "found" ? <p>Approved allowance: {usd(detail.approval.item.maximum_microusd)} · limit, not a charge</p> : <p>Approved allowance unavailable</p>}
-      <p>Conservative commitment uses the larger of each reservation or reported charge, not both; this is not an additional charge.</p>
+      <p>{CREATIVE_COST_COMMITMENT_EXPLANATION}</p>
       {totals.hasMissingReservation ? <p className="consoleLibraryWarning">Some reservation details are unavailable.</p> : null}
-      <ul>{costs.map(cost => <li key={`${cost.creative_run_id}:${cost.call_key}`}><strong>{cost.call_key}</strong><p>{creativeCostStatus(cost, expired)}{cost.reported_microusd === null ? "" : ` · ${usd(cost.reported_microusd)}`}</p><p>Reserved: {cost.reserved_microusd === null ? "Detail unavailable" : usd(cost.reserved_microusd)} · Attempt <SavedDate value={cost.created_at}/>{cost.settled_at ? <> · Receipt <SavedDate value={cost.settled_at}/></> : null}</p><p>Provider request: {cost.provider_request_id ?? "Not recorded"}</p></li>)}</ul>
+      <ul>{costs.map(cost => { const qualified = qualifyCreativeCost(cost); return <li key={`${cost.creative_run_id}:${cost.call_key}`}><strong>{cost.call_key}</strong><p>{creativeCostStatus(cost, expired)}{qualified.reportedMicrousd === null ? "" : ` · ${usd(qualified.reportedMicrousd)}`}</p>{qualified.unverifiedMicrousd !== null ? <p>Unverified saved amount: {usd(qualified.unverifiedMicrousd)} · excluded from reported charges</p> : null}<p>Reserved: {cost.reserved_microusd === null ? "Detail unavailable" : usd(cost.reserved_microusd)} · Attempt <SavedDate value={cost.created_at}/>{cost.settled_at ? <> · Receipt <SavedDate value={cost.settled_at}/></> : null}</p><p>Provider request: {qualified.providerRequestId ?? "Not recorded"}</p></li>; })}</ul>
     </Disclosure>
   </section>;
 }

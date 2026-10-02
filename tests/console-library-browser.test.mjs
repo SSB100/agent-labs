@@ -6,7 +6,7 @@ import test from 'node:test';
 import { chromium } from 'playwright-core';
 import sharp from 'sharp';
 import { createLibraryBrowserFixture, libraryClientState, libraryDocument, origin } from './helpers/console-library-browser.mjs';
-import { businessId, secondBusinessId, owner, exactContentHash, exactRecordId, exactWorkHref, id, noAssetRunId, oldAssetId, selectedDesignRoute, selectedRecordRoute, selectedRunRoute } from './helpers/console-library-root.mjs';
+import { businessId, secondBusinessId, owner, exactContentHash, exactRecordId, exactWorkHref, fixtureTablesWithUnverifiedProviderCharge, id, noAssetRunId, oldAssetId, selectedDesignRoute, selectedRecordRoute, selectedRunRoute } from './helpers/console-library-root.mjs';
 
 for(const [kind,route]of [['designs',selectedDesignRoute],['records',selectedRecordRoute],['no-asset',selectedRunRoute]])test(`synthetic actual-root Library ${kind} document bundles production shell/pane with no provider transport`,async()=>{
   const fixture=createLibraryBrowserFixture(),html=await libraryDocument(route,{fixture});
@@ -22,6 +22,17 @@ test('synthetic expired-preview document can delay hydration without changing pr
 test('retained Library fixture state is actual-root-derived, exact selected identity preserves aggregate list and scopes command',async()=>{
   const fixture=createLibraryBrowserFixture(),state=await libraryClientState(`/dashboard?view=library&type=designs&selected=${id(11000)}&page=2`,fixture);
   assert.equal(state.pane.data.page.total,254);assert.equal(state.pane.data.selection.item.id,id(11000));assert.equal(state.pane.searchParams.business,undefined);assert.equal(state.command.businessId,secondBusinessId);assert.equal(state.shell.navigationBusinessId,secondBusinessId);assert.equal(state.shell.context.supabase,undefined);assert.equal(state.sheet,null);assert.deepEqual(fixture.denied,[]);
+});
+
+test('synthetic actual-root Library document preserves an unidentified saved amount without presenting it as a provider charge',async()=>{
+  const tables=fixtureTablesWithUnverifiedProviderCharge(),saved=structuredClone(tables),fixture=createLibraryBrowserFixture({tables});
+  const html=await libraryDocument(selectedRunRoute,{fixture}),copy=html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,'').replace(/<[^>]*>/g,'');
+  assert.match(copy,/US\$0\.010280 provider-reported charges/);assert.match(copy,/1 charge\(s\) remain unknown · US\$0\.210000 reserved/);
+  assert.match(copy,/Conservative budget committed: US\$0\.339552/);assert.match(copy,/Unverified saved amount: US\$0\.210000/);
+  assert.doesNotMatch(copy,/US\$0\.220280 provider-reported|Reported provider charge · US\$0\.210000/);
+  const state=await libraryClientState(selectedRunRoute,fixture),generated=state.pane.data.runDetail.costs.settlements.find(row=>row.call_key==='generate:1');
+  assert.equal(generated.reported_microusd,210000);assert.equal(generated.provider_request_id,null);assert.deepEqual(generated.receipt,{synthetic:true,reportedCostUsd:0.21,estimatedMicrousd:210000});
+  assert.deepEqual(tables,saved);assert.equal(fixture.ancillaryCalls.length,0);assert.deepEqual(fixture.denied,[]);
 });
 
 const viewports=[{width:1280,height:720,slug:'1280'},{width:1440,height:900,slug:'1440'},{width:1000,height:760,slug:'1000-single'},{width:640,height:450,slug:'640-zoom'},{width:390,height:844,slug:'390'},{width:320,height:640,slug:'320'}];
@@ -94,6 +105,32 @@ async function setup(browser,viewport,{retained=true,fixtureOptions={},imageFail
 }
 function clean(h){assert.deepEqual(h.denied,[]);assert.deepEqual(h.errors,[]);assert.deepEqual(h.fixture.denied,[]);}
 async function paidCalls(page){assert.equal(await page.evaluate(()=>window.__libraryPaidCalls),0);}
+
+test('hosted Library known charges require provider request identity and retain unidentified saved amounts after hydration and reload',{skip:!enabled,timeout:90000},async()=>{
+  const tables=fixtureTablesWithUnverifiedProviderCharge(),saved=structuredClone(tables),browser=await chromium.launch({headless:true});
+  const h=await setup(browser,{width:1280,height:720},{fixtureOptions:{tables}}),{page}=h;
+  try{
+    const check=async(snapshot=false)=>{
+      await ready(page);assert.equal(await page.locator('[data-library-creative-run]').getAttribute('data-library-creative-run'),noAssetRunId);
+      assert.equal(await page.locator('.consoleLibraryCharge').innerText(),'US$0.010280 provider-reported charges');
+      const section=page.locator('.consoleLibraryCosts');
+      assert.match(await section.innerText(),/1 charge\(s\) remain unknown · US\$0\.210000 reserved/);
+      assert.match(await section.innerText(),/Conservative budget committed: US\$0\.339552/);
+      if(snapshot)await capture(page,'console-r02-library-unverified-charge-summary-1280');
+      const receipts=page.locator(`[data-console-disclosure="costs:${noAssetRunId}"]`);
+      if(await receipts.getAttribute('open')===null)await receipts.locator(':scope>summary').click();
+      const generated=receipts.locator('li').filter({has:page.locator('strong',{hasText:/^generate:1$/})});
+      assert.equal(await generated.count(),1);assert.match(await generated.innerText(),/Unverified saved amount: US\$0\.210000/);
+      assert.match(await generated.innerText(),/Provider request: Not recorded/);assert.match(await generated.innerText(),/Reserved: US\$0\.210000/);
+      assert.doesNotMatch(await section.innerText(),/US\$0\.220280 provider-reported|Reported provider charge · US\$0\.210000/);
+      if(snapshot){await generated.scrollIntoViewIfNeeded();await capture(page,'console-r02-library-unverified-charge-receipt-1280');}
+      const raw=await page.evaluate(()=>window.__libraryState.pane.data.runDetail.costs.settlements.find(row=>row.call_key==='generate:1'));
+      assert.equal(raw.reported_microusd,210000);assert.equal(raw.provider_request_id,null);assert.deepEqual(raw.receipt,{synthetic:true,reportedCostUsd:0.21,estimatedMicrousd:210000});
+    };
+    await page.goto(origin+selectedRunRoute);await check(true);
+    await page.reload();await check();assert.deepEqual(tables,saved);assert.equal(h.fixture.ancillaryCalls.length,0);clean(h);await paidCalls(page);
+  }catch(error){await capture(page,'console-r02-library-unverified-charge-failure').catch(()=>{});throw error;}finally{await h.context.close();await browser.close();}
+});
 
 // Hosted only. No executablePath or local Chromium fallback. R03: the retained transport
 // is intentionally synthetic and does not qualify real Next RSC/cache/server-action ordering.
