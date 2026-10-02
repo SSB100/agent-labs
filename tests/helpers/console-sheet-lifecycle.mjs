@@ -20,6 +20,7 @@ export function sheetLifecycleDocument() {
       let sequence = 0, waiting, changeRoute;
       window.__sheetErrors = [];
       window.__sheetRequests = [];
+      window.__sheetChildActions = 0;
       window.__sheetRouter = { push(url) {
         window.__sheetRequests.push(url);
         let resolve;
@@ -31,7 +32,7 @@ export function sheetLifecycleDocument() {
         if (!route.ready) throw route.promise;
         useEffect(() => { history.replaceState({}, "", route.url); window.__sheetCommitted = route.id; }, [route]);
         return <main><h1>Scoped saved work</h1><button id="open-research" onClick={open}>Plan research</button>
-          {route.sheet ? <ConsoleResearchSheet returnTo={returnTo}><p>Existing bounded research setup. No action is connected in this fixture.</p><label>Draft goal<input aria-label="Draft goal" defaultValue="Saved draft survives an interrupted close"/></label></ConsoleResearchSheet> : null}
+          {route.sheet ? <ConsoleResearchSheet returnTo={returnTo}><p>Existing bounded research setup. No action is connected in this fixture.</p><label>Draft goal<input aria-label="Draft goal" defaultValue="Saved draft survives an interrupted close"/></label><button id="fixture-review-goal" onClick={() => { window.__sheetChildActions += 1; }}>Review draft</button></ConsoleResearchSheet> : null}
         </main>;
       }
       function Harness() {

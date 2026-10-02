@@ -37,8 +37,8 @@ export function ConsoleResearchSheet({ children, returnTo }: { children: ReactNo
   // Closing it synchronously exposes the launch controls during a slow route
   // transition; a second launch can then retain this already-closed instance.
   function close() { if (!dismissing) startDismissal(() => router.push(returnTo, { scroll: false })); }
-  return <dialog className="consoleResearchSheet" ref={dialog} aria-labelledby="console-research-title" onCancel={event => { event.preventDefault(); close(); }}>
-    <header><div><h2 id="console-research-title">Research setup</h2><p>Nothing starts until you review and approve</p></div><button type="button" onClick={close} disabled={dismissing} aria-label="Close research setup">{dismissing ? "Closing…" : "Close"} <span aria-hidden="true">×</span></button></header>
-    <div className="consoleResearchBody">{children}</div>
+  return <dialog className="consoleResearchSheet" ref={dialog} aria-labelledby="console-research-title" aria-busy={dismissing} onCancel={event => { event.preventDefault(); close(); }}>
+    <header><div><h2 id="console-research-title">Research setup</h2><p>Nothing starts until you review and approve</p></div><button type="button" onClick={close} aria-disabled={dismissing} aria-label="Close research setup">{dismissing ? "Closing…" : "Close"} <span aria-hidden="true">×</span></button></header>
+    <div className="consoleResearchBody" inert={dismissing}>{children}</div>
   </dialog>;
 }

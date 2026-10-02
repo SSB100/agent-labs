@@ -45,8 +45,12 @@ test("retained research sheet survives delayed and interrupted client Close/Esca
           if(cancel==="close") await dialog.getByRole("button",{name:"Close research setup"}).click(); else await page.keyboard.press("Escape");
           await page.waitForFunction(()=>window.__sheetRequests.length>0);
           assert.equal(await page.evaluate(()=>document.querySelector("dialog")?.matches(":modal")),true);
-          assert.equal(await dialog.getByRole("button",{name:"Close research setup"}).isDisabled(),true);
-          assert.equal(await page.evaluate(()=>document.activeElement?.closest("dialog")!==null),true);
+          assert.equal(await dialog.getByRole("button",{name:"Close research setup"}).getAttribute("aria-disabled"),"true");
+          assert.equal(await dialog.locator(".consoleResearchBody").evaluate(node=>node.inert),true);
+          assert.equal(await dialog.getByRole("button",{name:"Close research setup"}).evaluate(node=>node===document.activeElement),true);
+          const childBox=await page.locator("#fixture-review-goal").boundingBox(); assert.ok(childBox);
+          await page.mouse.click(childBox.x+childBox.width/2,childBox.y+childBox.height/2);
+          assert.equal(await page.evaluate(()=>window.__sheetChildActions),0);
           // A real pointer cannot hit the exposed opener while the close route is pending.
           const box=await launch.boundingBox(); assert.ok(box);
           await page.mouse.click(box.x+box.width/2,box.y+box.height/2);
@@ -54,9 +58,10 @@ test("retained research sheet survives delayed and interrupted client Close/Esca
           assert.equal(await page.evaluate(()=>document.querySelector("dialog")?.matches(":modal")),true);
           // A newer client navigation back to this same sheet retains the instance.
           await page.evaluate(()=>window.__sheetFixture.interruptWithReopen());
-          await page.waitForFunction(()=>!document.querySelector('[aria-label="Close research setup"]')?.disabled);
+          await page.waitForFunction(()=>document.querySelector('[aria-label="Close research setup"]')?.getAttribute("aria-disabled") === "false");
           assert.ok(page.url().includes("sheet=research"));
           assert.equal(await page.evaluate(()=>document.querySelector("dialog")?.matches(":modal")),true);
+          assert.equal(await dialog.locator(".consoleResearchBody").evaluate(node=>node.inert),false);
           assert.equal(await dialog.getByRole("textbox",{name:"Draft goal"}).inputValue(),"Unsaved draft remains visible");
         }
         await page.screenshot({path:path.join(directory,`console-sheet-interrupted-${width}.png`),animations:"disabled"});
@@ -73,6 +78,7 @@ test("retained research sheet survives delayed and interrupted client Close/Esca
         assert.equal(await page.locator("dialog").count(),0);
         assert.equal(await launch.evaluate(node=>node===document.activeElement),true);
         assert.deepEqual(await page.evaluate(()=>window.__sheetErrors),[]);
+        assert.equal(await page.evaluate(()=>window.__sheetChildActions),0);
         assert.deepEqual(unexpected,[]);
       } finally {await context.close();}
     });
