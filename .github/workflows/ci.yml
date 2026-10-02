@@ -291,3 +291,43 @@ jobs:
           path: test-results/r03-next/
           if-no-files-found: error
           retention-days: 14
+
+      - name: Preserve small Next diagnostic report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r03-diagnostics-${{ github.sha }}
+          path: |
+            test-results/r03-next/*.json
+            test-results/r03-next/*.jsonl
+            test-results/r03-next/*.log
+          if-no-files-found: error
+          retention-days: 14
+      - name: Preserve actual Next desktop screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r03-desktop-${{ github.sha }}
+          path: |
+            test-results/r03-next/*-1280x720.png
+            test-results/r03-next/*-1440x900.png
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Preserve actual Next mobile screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r03-mobile-${{ github.sha }}
+          path: |
+            test-results/r03-next/*-390x844.png
+            test-results/r03-next/*-320x800.png
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Preserve actual Next zoom reflow screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r03-reflow-${{ github.sha }}
+          path: test-results/r03-next/*-640x360.png
+          if-no-files-found: warn
+          retention-days: 14

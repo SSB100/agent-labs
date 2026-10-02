@@ -32,13 +32,14 @@ export function loadSource(file, dependencies = {}) {
   let sequence = 0;
   const crypto = { ...require("node:crypto"), randomUUID: () => `00000000-0000-4000-8000-${String(++sequence).padStart(12, "0")}` };
   runInNewContext(`(function(require,module,exports){${code}\n})`, { Date: FixtureDate, crypto, Buffer, URL, URLSearchParams, structuredClone, process: { env: { AGENTLABS_GUIDED_UI: "guided", NODE_ENV: "test" } } })(name => {
+    if (name === "@/lib/core-ui/console-retained-feedback") return loadSource("src/lib/core-ui/console-retained-feedback.ts");
     if (name === "react/jsx-runtime") return require(name);
     if (name === "react") return React;
     if (name === "react-dom") return require(name);
     if (name === "node:crypto") return crypto;
     if (name === "next/link") return Link;
     if (name === "next/navigation" && file === "src/components/stage13/products-workspace.tsx") return { usePathname:()=>"/dashboard/products", useSearchParams:()=>new URLSearchParams(), useRouter:()=>({push:noAction}) };
-    if (name === "@/components/console/console-retained-workspace") return retainedFixture();
+    if (name === "@/components/console/console-retained-workspace") return dependencies[name] ?? retainedFixture();
     assert.ok(Object.hasOwn(dependencies, name), `Unexpected guided UI dependency in ${file}: ${name}`);
     return dependencies[name];
   }, fixtureModule, fixtureModule.exports);
@@ -334,6 +335,7 @@ export async function renderCreative({ businessFlow = false } = {}) {
     "@/components/stage7/icons": icons, "@/products/types": productTypes, "@/products/history": productHistory, "@/app/dashboard/products/products.css": {},
   });
   const { default: Page } = loadSource("src/app/dashboard/artifacts/page.tsx", {
+    "@/components/console/console-retained-workspace": retainedFixture({panel:"technical"},"/dashboard/artifacts"),
     "@/components/stage7/app-shell": shell, "@/components/stage13/products-workspace": { ProductSubmitButton },
     "@/components/guided/creative-library": loadSource("src/components/guided/creative-library.tsx", { "@/creative/cost-display": loadSource("src/creative/cost-display.ts"), "./creative-library.css": {} }),
     "next/navigation": { notFound: () => { throw new Error("Fixture Business was not found"); } },

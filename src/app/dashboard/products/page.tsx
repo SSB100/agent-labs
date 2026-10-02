@@ -1,3 +1,4 @@
+import { retainedFeedbackMessage } from "@/lib/core-ui/console-retained-feedback";
 import { ConsoleRetainedWorkspace } from "@/components/console/console-retained-workspace";
 import { QuestKickoff } from "@/components/guided/quest-kickoff";
 import "@/components/guided/work-context.css";
@@ -62,8 +63,8 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
     }catch{/* Unavailable or unsupported prices keep the start control disabled. */}
   }
   const notices:Record<string,string>={"candidate-saved":"Candidate saved. Research remains unvalidated until source evidence is collected.","candidate-reused":"This candidate already exists. Its original hypothesis and evidence history were preserved.","candidate-invalid":"Check the original concept, audience, hypothesis, source domains and required design declaration. No candidate was saved.","candidate-business-unavailable":"The selected Business could not be verified. No candidate was saved.","candidate-outcome-unconfirmed":"The candidate save outcome could not be confirmed. Your draft remains in this tab; inspect saved records before submitting again."};
-  const message = query.message ? notices[first(query.message) ?? ""] ?? "A saved action result is available. Verify the exact record before continuing." : undefined;
-  const error = query.error ? notices[first(query.error) ?? ""] ?? "The action could not be confirmed. Check the saved record and required fields before retrying." : undefined;
+  const message = query.message ? notices[first(query.message) ?? ""] ?? retainedFeedbackMessage("products","message",first(query.message)) : undefined;
+  const error = query.error ? notices[first(query.error) ?? ""] ?? retainedFeedbackMessage("products","error",first(query.error)) : undefined;
   const { needsEvidence, unsupportedAssessments, unrecognizedOutcomes } = productHistorySummary(data.decisions);
   const recordsUnavailable = context.businessesUnavailable || data.errors.length > 0 || discovery.errors.length > 0;
   const activeResearch = data.experiments.filter((experiment) => ["reserved", "researching"].includes(experiment.status)).length;

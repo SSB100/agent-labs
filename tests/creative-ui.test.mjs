@@ -69,7 +69,7 @@ test('new approvals require an explicit BFL model selection, terms and honest da
 
 test('new provider-bound forms cannot infer repair authority from an omitted image limit', () => {
   const parser = actions.split('function generationLimit')[1].split('function selectedProvider')[0];
-  assert.match(parser, /if \(!limit\) error\(/);
+  assert.match(parser, /if \(!limit\) (?:return )?error\(/);
   assert.doesNotMatch(parser, /if \(!limit\) return 2/);
   assert.match(parser, /limit !== "1" && limit !== "2"/);
 });

@@ -1,3 +1,4 @@
+import { retainedFeedbackMessage } from "@/lib/core-ui/console-retained-feedback";
 import { ConsoleRetainedWorkspace, ConsoleRecentRows } from "@/components/console/console-retained-workspace";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -23,8 +24,8 @@ export default async function PacksPage({searchParams}:{searchParams:Promise<Rec
   const packs=(catalog.data??[]) as PackRelease[], installations=(installed.data??[]) as Installation[];
   return <AppShell toolDestination="packs" active="packs" context={context} navigationBusinessId={selected?.id}><ConsoleRetainedWorkspace ownerId={context.userId}  notice={<p className="coreNotice">Loaded window: at most 100 catalog releases and 100 active installations. Complete history remains pending R06. Business: {selected?.name ?? "Unavailable"}</p>} header={<><PageHeader eyebrow="System" title="Packs" description="Install capabilities, knowledge, workers, and workflows for each Business. Running workflows retain their starting versions." />
 <form method="get"><input type="hidden" name="panel" value={params.panel ?? "catalog"}/><label>Business<select name="business" defaultValue={selected?.id}>{context.businesses.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select></label><button className="coreButton" disabled={!selected}>Select Business</button></form>
-{params.error && <p className="packNotice packNotice-error" role="alert">{params.error}</p>}
-{params.message && <p className="packNotice" role="status">{params.message}</p>}
+{params.error && <p className="packNotice packNotice-error" role="alert">{retainedFeedbackMessage("packs","error",params.error)}</p>}
+{params.message && <p className="packNotice" role="status">{retainedFeedbackMessage("packs","message",params.message)}</p>}
 {(catalog.error||installed.error) && <p role="alert">The pack catalog could not be loaded.</p>}</>} panels={[{ id: "catalog", label: "Catalog", content: <><section className="dashboardSection">
       <div className="sectionTitleRow"><div><p className="coreEyebrow">Available releases</p><h2>Pack catalog</h2></div><span className="coreCount">{packs.length}</span></div>
       <div className="packGrid"><ConsoleRecentRows label="Recent loaded packs records" rows={packs.map(({id,status,manifest:m})=><article className="packCard" key={id}>

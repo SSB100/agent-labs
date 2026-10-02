@@ -62,6 +62,9 @@ export const consoleAdvancedNavigation = [
   { href: "/dashboard/model-router", label: "Model router" },
   { href: "/dashboard/worker-evaluations", label: "Worker evaluations" },
   { href: "/dashboard/settings", label: "Settings & profile", key: "settings" },
+  { href: "/dashboard/printful", label: "Printful operations" },
+  { href: "/dashboard/etsy", label: "Etsy listings" },
+  { href: "/dashboard/accounts?diagnostics=platform", label: "Platform diagnostics" },
 ] as const;
 
 export const consoleToolNavigation = [

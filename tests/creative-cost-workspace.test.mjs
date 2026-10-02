@@ -19,6 +19,7 @@ function loadSource(path, dependencies) {
   } }).outputText;
   const fixtureModule = { exports: {} };
   runInNewContext(`(function(require, module, exports) { ${compiled}\n})`)(name => {
+    if (name === "@/lib/core-ui/console-retained-feedback") return loadSource("src/lib/core-ui/console-retained-feedback.ts",{});
     if (name === '@/components/console/console-retained-workspace') return retainedUiFixture();
     if (!(name in dependencies)) throw new Error(`Unexpected fixture dependency: ${name}`);
     return dependencies[name];

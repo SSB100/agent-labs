@@ -7,7 +7,7 @@ import { id } from './data.mjs';
 export async function runNextJourneys({origin,boundary,output,httpOnly=false}) {
   const results=[];
   const report=()=>writeFile(path.join(output,'acceptance.json'),JSON.stringify({results,browser:httpOnly?'unrun':'actual Chromium against production Next'},null,2));
-  const check=async(name,fn)=>{try{await fn();results.push({name,status:'passed'});}catch(error){results.push({name,status:'failed',error:String(error.stack)});await report();}finally{await fetch(boundary.origin+'/control',{method:'POST',body:JSON.stringify({delayId:null,delayMs:0,failTable:null,actionMode:'success'})});}};
+  const check=async(name,fn)=>{try{await fn();results.push({name,status:'passed'});console.log('PASS:',name);}catch(error){results.push({name,status:'failed',error:String(error.stack)});console.error('FAIL:',name,String(error.stack));await report();}finally{await fetch(boundary.origin+'/control',{method:'POST',body:JSON.stringify({delayId:null,delayMs:0,failTable:null,actionMode:'success'})});}};
   await check('real Next History redirect selects ended outcomes',async()=>{
     const response=await fetch(origin+`/dashboard/history?business=${id(1)}`,{redirect:'manual'});
     assert.equal(response.status,307);assert.match(response.headers.get('location'),/view=work/);assert.match(response.headers.get('location'),/status=ended/);
