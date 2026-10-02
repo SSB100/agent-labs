@@ -276,7 +276,11 @@ test('hosted retained React/Suspense Decisions lifecycle, account disclosure, fo
         denied.push(`${request.method()} ${request.url()}`); return route.abort();
       });
       const page = await context.newPage(); page.on('pageerror', error => errors.push(error.message));
-      await page.exposeFunction('__loadDecisionRootFixture', route => decisionClientState(route, fixture));
+      let releaseRead = null, onReadHeld = null;
+      await page.exposeFunction('__loadDecisionRootFixture', async route => {
+        if (releaseRead === 'hold') await new Promise(resolve => { releaseRead = resolve; onReadHeld?.(); onReadHeld = null; });
+        return decisionClientState(route, fixture);
+      });
       await page.exposeFunction('__runTerminalReviewFixture', entries => {
         const form = new FormData(); for (const [key, value] of entries) { assert.equal(typeof value, 'string'); form.append(key, value); }
         return fixture.perform(form);
@@ -337,7 +341,15 @@ test('hosted retained React/Suspense Decisions lifecycle, account disclosure, fo
         await goal.fill('Keep this live research goal draft'); await goal.focus();
         const draftScroll = await page.evaluate(() => scrollY);
         notice.updated_at = '2026-10-02T04:10:20.123458+00:00';
-        await navigate(`/dashboard?view=decisions&decision=${notice.id}`);
+        const readHeld = new Promise(resolve => { onReadHeld = resolve; }); releaseRead = 'hold';
+        const beforeRefresh = await page.evaluate(() => window.__decisionRetainedRenderCount);
+        await page.evaluate(target => { void window.__navigateDecisionRetained(target); }, `/dashboard?view=decisions&decision=${notice.id}`);
+        await readHeld; await page.waitForFunction(() => window.__decisionReadPending === true);
+        assert.equal(await page.locator('.compactDecisionDetail').isVisible(), true, 'A pending fixture read keeps the selected component mounted and visible');
+        assert.equal(await goal.evaluate(node => node === document.activeElement), true);
+        assert.equal(await page.evaluate(() => scrollY), draftScroll, 'Pending read cannot collapse the document beneath an active draft');
+        assert.equal(typeof releaseRead, 'function'); releaseRead(); releaseRead = null;
+        await page.waitForFunction(previous => window.__decisionRetainedRenderCount > previous, beforeRefresh);
         assert.equal(await goal.evaluate(node => node === document.activeElement), true);
         assert.equal(await goal.inputValue(), 'Keep this live research goal draft');
         assert.equal(await page.evaluate(() => scrollY), draftScroll, 'A background notice revision cannot move an active goal draft');

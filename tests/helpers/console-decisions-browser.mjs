@@ -79,7 +79,6 @@ async function browserBundle() {
       function RetainedFixture() {
         const [value,setValue]=useState(window.__decisionProps);
         useEffect(()=>{
-          let latest=window.__decisionProps;
           // Model retained component behavior and inspected Next 16.3.8 router
           // discard semantics, not Next's actual transport/action queue. User
           // navigation is urgent: an unrelated unresolved form Action cannot
@@ -88,15 +87,17 @@ async function browserBundle() {
             const route=checkedTarget(target);
             if(mode==='replace' && expectedRevision!==undefined && expectedRevision!==window.__decisionNavigationRevision) return;
             const revision=mode==='replace' ? window.__decisionNavigationRevision : ++window.__decisionNavigationRevision;
-            const pending=window.__loadDecisionRootFixture(route).then(props=>{
-              if(revision!==window.__decisionNavigationRevision) return latest;
-              if(mode==='push') history.pushState({},'',route);
-              if(mode==='replace') history.replaceState({},'',route);
-              latest=props;
-              return props;
-            });
-            setValue(pending);
-            await pending;
+            // Keep the current DOM during the fixture read. Urgently suspending
+            // the whole island would show a short fallback, clamp document scroll,
+            // and invent a page-collapse behavior outside this component's scope.
+            window.__decisionReadPending=true;
+            let props;
+            try { props=await window.__loadDecisionRootFixture(route); }
+            finally { window.__decisionReadPending=false; }
+            if(revision!==window.__decisionNavigationRevision) return;
+            if(mode==='push') history.pushState({},'',route);
+            if(mode==='replace') history.replaceState({},'',route);
+            setValue(props);
           };
           const back=()=>window.__navigateDecisionRetained(location.pathname+location.search,'none');
           const filter=event=>{
