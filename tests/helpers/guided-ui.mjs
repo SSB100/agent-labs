@@ -147,7 +147,7 @@ export async function renderDashboard({ unavailable = false, empty = false, view
   const outcomes = loadSource("src/lib/core-ui/run-outcome.ts", { "./workflows": workflows });
   const decisionQuery = loadSource("src/lib/core-ui/console-decisions-query.ts");
   const decisionView = loadSource("src/lib/core-ui/console-decisions-view.ts", { "./workflows": workflows, "./run-outcome": outcomes });
-  const decisionsUi = loadSource("src/components/console/console-compact-decisions.tsx", { "@/lib/core-ui/workflows": workflows, "@/lib/core-ui/console-decisions-query": decisionQuery, "@/lib/core-ui/console-decisions-view": decisionView, "./console-decision-submit": loadSource("src/components/console/console-decision-submit.tsx"), "./console-compact-decisions.css": {} });
+  const decisionsUi = loadSource("src/components/console/console-compact-decisions.tsx", { "@/lib/core-ui/workflows": workflows, "@/lib/core-ui/console-decisions-query": decisionQuery, "@/lib/core-ui/console-decisions-view": decisionView, "./console-decision-submit": loadSource("src/components/console/console-decision-submit.tsx"), "./console-decision-filters": loadSource("src/components/console/console-decision-filters.tsx", { "@/lib/core-ui/console-decisions-query": decisionQuery }), "./console-compact-decisions.css": {} });
   const outcomeUi = loadSource("src/components/guided/run-outcome.tsx", { "@/lib/core-ui/run-outcome": outcomes, "./run-outcome.css": {} });
   const workContext = loadSource("src/components/guided/work-context.tsx", { "@/lib/core-ui/workflows": workflows, "./work-context.css": {} });
   const work = loadSource("src/components/console/console-work-pane.tsx", {

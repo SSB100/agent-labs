@@ -122,7 +122,7 @@ async function browserBundle() {
         assert.ok(allowed[args.path], `Forbidden browser import: ${args.path}`); return { path: path.resolve(allowed[args.path]) };
       });
     } }] }).then(result => {
-      const allowed = new Set(['src/components/console/console-compact-decisions.tsx','src/components/console/console-compact-decisions.css','src/components/console/console-decision-submit.tsx','src/lib/core-ui/console-decisions-query.ts','src/lib/core-ui/console-decisions-view.ts','src/lib/core-ui/workflows.ts','src/lib/core-ui/run-outcome.ts']);
+      const allowed = new Set(['src/components/console/console-compact-decisions.tsx','src/components/console/console-compact-decisions.css','src/components/console/console-decision-submit.tsx','src/components/console/console-decision-filters.tsx','src/lib/core-ui/console-decisions-query.ts','src/lib/core-ui/console-decisions-view.ts','src/lib/core-ui/workflows.ts','src/lib/core-ui/run-outcome.ts']);
       for (const input of Object.keys(result.metafile.inputs).filter(input => input.startsWith('src/'))) assert.ok(allowed.has(input), `Provider/auth/action import denied: ${input}`);
       return result.outputFiles[0].text.replace(/<\/script/gi, '<\\/script');
     });

@@ -28,7 +28,8 @@ export const terminal = load('src/creative/terminal-review.ts');
 export const api = load('src/lib/core-ui/console-decisions-data.ts', { 'server-only': {}, './run-outcome-data': costLoader, './console-decisions-query': query, '../../creative/terminal-review': terminal });
 export const model = load('src/lib/core-ui/console-decisions-view.ts', { './workflows': workflows, './run-outcome': outcome });
 export const submit = load('src/components/console/console-decision-submit.tsx');
-export const component = load('src/components/console/console-compact-decisions.tsx', { '@/lib/core-ui/workflows': workflows, '@/lib/core-ui/console-decisions-query': query, '@/lib/core-ui/console-decisions-view': model, './console-decision-submit': submit, './console-compact-decisions.css': {} });
+export const filters = load('src/components/console/console-decision-filters.tsx', { '@/lib/core-ui/console-decisions-query': query });
+export const component = load('src/components/console/console-compact-decisions.tsx', { '@/lib/core-ui/workflows': workflows, '@/lib/core-ui/console-decisions-query': query, '@/lib/core-ui/console-decisions-view': model, './console-decision-submit': submit, './console-decision-filters': filters, './console-compact-decisions.css': {} });
 export const definition = { id: id(50), workflow_key: 'etsy.creative-pipeline', version: '1.0.0', name: 'Creative pipeline with the same repeated name '.repeat(5), description: '', status: 'active', stage_definition: {} };
 const deterministic = input => { const h = createHash('md5').update(input).digest('hex'); return `${h.slice(0,8)}-${h.slice(8,12)}-5${h.slice(13,16)}-a${h.slice(17,20)}-${h.slice(20,32)}`; };
 export function fixtureTables({ amountCase = 'encoding', count = 3 } = {}) {
