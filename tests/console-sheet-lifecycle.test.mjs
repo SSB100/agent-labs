@@ -12,7 +12,9 @@ test("research dismissal retains its modal barrier until the route removes it", 
   assert.ok(close.includes("router.push(returnTo"));
   assert.ok(!close.includes(".close("), "Do not expose underlying launch controls during route transition");
   assert.match(source, /onCancel=\{event => \{ event.preventDefault\(\); close\(\); \}\}/);
-  assert.match(source, /return \(\) => \{ if \(element\?\.open\) element.close\(\); \}/);
+  assert.match(source, /if \(element\?\.open\) element.close\(\);/);
+  assert.match(source, /opener\?\.isConnected/);
+  assert.match(source, /opener.focus\(\{ preventScroll: true \}\)/);
   const html = await sheetLifecycleDocument();
   assert.ok(html.includes("sheet-lifecycle-root"));
   assert.ok(html.includes("interruptWithReopen"));

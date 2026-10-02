@@ -23,7 +23,7 @@ test("console sheet fixture renders real command, native dialog and quest withou
   assert.match(markup(closed), /class="consoleCommand"/);
   assert.match(markup(closed), /Research goal/);
   assert.doesNotMatch(markup(closed), /<dialog/);
-  assert.match(markup(open), /<dialog class="consoleResearchSheet" aria-labelledby="console-research-title">/);
+  assert.match(markup(open), /<dialog class="consoleResearchSheet" aria-labelledby="console-research-title" aria-busy="false">/);
   assert.match(markup(open), /Find a market worth exploring/);
   assert.match(markup(open), /Nothing starts until you review and approve/);
   assert.doesNotMatch(markup(open), /<dialog[^>]*\sopen(?:[\s=>])/);
