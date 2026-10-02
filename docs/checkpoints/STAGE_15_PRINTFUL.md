@@ -2,6 +2,10 @@
 
 Status: the safe capability foundation is implemented and deployed through [PR 21](https://github.com/SSB100/agent-labs/pull/21) and [PR 22](https://github.com/SSB100/agent-labs/pull/22). This is not a connected or live-qualified capability. The full planned Stage15 exit remains open. Stage14's approved-candidate/product-ready exit and geographic-research live qualification remain open. Stage16 draft-only code is now deployed separately, but its real-draft exit remains blocked on this stage.
 
+## Durable producer continuation, 2026-10-01
+
+The bounded single-product execution, owner review/history/stop and independent association-readback implementation is documented in [STAGE_15_PRODUCT_PRODUCER.md](STAGE_15_PRODUCT_PRODUCER.md). Its software/persistence implementation is distinct from live qualification. Dispatch remains disabled until authenticated uploaded-file/physical-placement producers and separate owner-approved product-write activation exist. The existing `catalog.read` account verifier is unchanged. Native v1 readback produces only partial association evidence, never a completed configuration or listing-ready package. Historical gaps below should be read with this implementation update; the required Stage15 exit remains open.
+
 ## Current reconciliation, 2026-10-01
 
 Remote main `ab2d2031bbcd534271abe667189ba1eeafdc4f7a` and its READY production deployment include the calculator form-reset correction. PR21/22 closeouts retain the passing exact-commit hosted gates and authenticated production pricing acceptance. Their completed release evidence supersedes the historical pending verification entry below, without closing any live implementation gate.

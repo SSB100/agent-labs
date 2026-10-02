@@ -76,3 +76,21 @@
 @media (max-width:1100px) { .printfulGates { grid-template-columns:1fr; gap:18px; } .printfulCatalogGrid { grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr); gap:20px; } .printfulPricingColumns { gap:20px; } }
 @media (max-width:800px) { .printfulCatalogGrid,.printfulPricingColumns { grid-template-columns:1fr; } .printfulCatalogSummary { grid-template-columns:1fr; } .printfulStatusGrid { grid-template-columns:1fr; gap:10px; } .printfulStatusGrid > div { gap:6px; padding:17px; } .printfulPanel,.printfulIntro { padding:20px; } .printfulIntro { flex-direction:column; gap:18px; } }
 @media (max-width:480px) { .printfulFields,.printfulResultMetrics,.printfulCostBreakdown { grid-template-columns:1fr; } .printfulFacts > div { flex-direction:column; gap:3px; } .printfulFacts dd { text-align:left; } .printfulPanel,.printfulIntro { padding:17px; } .printfulGatePanel,.printfulProposal,.printfulResult { padding:15px; } .printfulActions { align-items:stretch; flex-direction:column; } .printfulResultMetrics { gap:18px; } .printfulResultMetrics dd { margin-top:4px; } }
+
+/* Durable product controls remain visually separate from the synthetic previews. */
+.printfulProductWorkspace { display:grid; gap:20px; }
+.printfulProductWorkspace .printfulSectionHeader { margin-bottom:0; }
+.printfulProductSources,.printfulProductHistory { display:grid; gap:16px; }
+.printfulProductHistory { border-top:1px solid var(--core-border); padding-top:22px; }
+.printfulProductCard { display:grid; min-width:0; gap:16px; padding:20px; border:1px solid var(--core-border); border-radius:11px; background:var(--core-panel-soft); }
+.printfulProductCard h4 { margin:0; font-size:.82rem; line-height:1.6; overflow-wrap:anywhere; }
+.printfulProductState { margin:0; color:var(--core-yellow); font-size:.73rem; line-height:1.8; }
+.printfulProductCard .printfulFacts { margin:0; }
+.printfulProductCard .printfulFacts dd { max-width:70%; }
+.printfulProductFeedback { margin:0; padding:17px 20px; border:1px solid rgba(240,207,126,.25); border-radius:10px; background:rgba(240,207,126,.05); color:var(--core-text); font-size:.74rem; line-height:1.8; overflow-wrap:anywhere; }
+.printfulProductForm { display:grid; justify-items:start; gap:14px; min-width:0; }
+.printfulProductForm small { color:var(--core-muted); font-size:.65rem; line-height:1.7; }
+.printfulConsent { display:flex; align-items:flex-start; gap:10px; color:var(--core-muted); font-size:.72rem; line-height:1.8; }
+.printfulConsent input { flex-shrink:0; width:16px; height:16px; margin:4px 0 0; accent-color:var(--core-accent); }
+.printfulProductCard .printfulActions { align-items:flex-start; }
+@media (max-width:480px) { .printfulProductCard { padding:15px; } .printfulProductCard .printfulFacts dd { max-width:100%; } .printfulProductForm { justify-items:stretch; } }

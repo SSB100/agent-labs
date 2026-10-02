@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { loadAccountSetupInterventions } from "@/accounts/server";
 import { loadPublicationInterventions } from "@/etsy-publication/server";
+import { loadPrintfulProductInterventions } from "@/printful/server";
 
 import { BrowserInterventionCard } from "@/components/stage8/browser-intervention";
 import { AppShell, EmptyPanel, PageHeader } from "@/components/stage7/app-shell";
@@ -39,8 +40,8 @@ function first(value: string | string[] | undefined) {
 
 export default async function NeedsYouPage({ searchParams }: NeedsYouPageProps) {
   const context = await requireOwnerUiContext();
-  const [collection,publication,accountSetup] = await Promise.all([loadWorkflowCollection(context, { limit: 100 }),loadPublicationInterventions(context),loadAccountSetupInterventions(context)]);
-  const interventions=[...new Map([...collection.interventions,...publication.records].map(entry=>[entry.id,entry])).values()];
+  const [collection,publication,accountSetup,printfulProduct] = await Promise.all([loadWorkflowCollection(context, { limit: 100 }),loadPublicationInterventions(context),loadAccountSetupInterventions(context),loadPrintfulProductInterventions(context)]);
+  const interventions=[...new Map([...collection.interventions,...publication.records,...printfulProduct.records].map(entry=>[entry.id,entry])).values()];
   const query = await searchParams;
   const message = messages[first(query.message) ?? ""];
   const error = errors[first(query.error) ?? ""];
@@ -52,7 +53,7 @@ export default async function NeedsYouPage({ searchParams }: NeedsYouPageProps) 
   );
   const open = interventions.filter((entry) => entry.status === "open");
   const waitingCount = open.length + accountSetup.records.length;
-  const unavailable = publication.unavailable || accountSetup.unavailable;
+  const unavailable = publication.unavailable || accountSetup.unavailable || printfulProduct.unavailable;
   const resolved = interventions
     .filter((entry) => entry.status !== "open")
     .slice(0, 12);
@@ -75,6 +76,8 @@ export default async function NeedsYouPage({ searchParams }: NeedsYouPageProps) 
       {publication.unavailable ? <p className="coreNotice coreNotice-danger" role="alert">Publication verification requests could not be loaded. Unresolved listing outcomes may still need your attention.</p> : null}
 
       {accountSetup.unavailable ? <p className="coreNotice coreNotice-danger" role="alert">Account setup requests could not be checked. Existing approvals or secure owner steps may still need attention.</p> : null}
+
+      {printfulProduct.unavailable ? <p className="coreNotice coreNotice-danger" role="alert">Printful product verification requests could not be checked. Uncertain create outcomes or partial association receipts may still need owner review.</p> : null}
 
       <section className={waitingCount ? "needsYouQueue needsYouQueue-active" : "needsYouQueue"}>
         <div className="sectionTitleRow">
@@ -111,8 +114,8 @@ export default async function NeedsYouPage({ searchParams }: NeedsYouPageProps) 
             })}
           </div>
         ) : (
-          <EmptyPanel icon="needs-you" title={publication.unavailable ? "Publication checks unavailable" : accountSetup.unavailable ? "Account checks unavailable" : "No intervention required"}>
-            <p>{unavailable ? "Account or publication outcomes may still need verification. Check the relevant workspace once its records are available." : "Agent Labs will surface decisions here instead of interrupting normal workflow activity."}</p>
+          <EmptyPanel icon="needs-you" title={publication.unavailable ? "Publication checks unavailable" : accountSetup.unavailable ? "Account checks unavailable" : printfulProduct.unavailable ? "Printful product checks unavailable" : "No intervention required"}>
+            <p>{unavailable ? "Account, publication or Printful product outcomes may still need verification. Check the relevant workspace once its records are available." : "Agent Labs will surface decisions here instead of interrupting normal workflow activity."}</p>
           </EmptyPanel>
         )}
       </section>

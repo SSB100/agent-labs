@@ -47,8 +47,8 @@ export function planPrintfulConfiguration(input: {businessId: string; product: P
 
 export function assertPrintfulConfigurationPlan(plan: PrintfulConfigurationPlan) {
   assertPrintful(plan.version === "1.0.0" && plan.state === "proposal" && plan.executionAuthorized === false && plan.publicationAuthorized === false && plan.orderSubmissionAuthorized === false, "A non-authorizing configuration proposal is required.");
-  const selection: Record<string, unknown> = {...plan};
-  for (const key of ["version", "requestHash", "state", "executionAuthorized", "publicationAuthorized", "orderSubmissionAuthorized", "requires"]) delete selection[key];
+  // Rebuild the documented hash order: jsonb persistence may reorder keys.
+  const selection = {businessId: plan.businessId, productId: plan.productId, variantId: plan.variantId, placement: plan.placement, technique: plan.technique, storeKind: plan.storeKind, operation: plan.operation, assetVersionId: plan.assetVersionId, assetSha256: plan.assetSha256, sourceWidthPx: plan.sourceWidthPx, sourceHeightPx: plan.sourceHeightPx, designWidthIn: plan.designWidthIn, designHeightIn: plan.designHeightIn, effectiveDpi: plan.effectiveDpi, productCatalogHash: plan.productCatalogHash, variantCatalogHash: plan.variantCatalogHash, printRequirementHash: plan.printRequirementHash};
   assertPrintful(printfulHash(selection) === plan.requestHash, "Configuration proposal was modified.");
   const required = ["verified_store_connection", "current_persisted_creative_production_approval", "current_stock_and_cost_quote", "owner_configuration_approval", ...(plan.storeKind === "ecommerce_linked" ? ["existing_imported_ecommerce_variant"] : [])];
   assertPrintful(JSON.stringify(plan.requires) === JSON.stringify(required), "Configuration approval requirements were modified.");

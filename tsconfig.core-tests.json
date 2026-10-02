@@ -59,6 +59,7 @@
     "src/creative/data.ts",
     "src/listing/server.ts",
     "src/etsy-publication/server.ts",
-    "src/accounts/server.ts"
+    "src/accounts/server.ts",
+    "src/printful/server.ts"
   ]
 }
