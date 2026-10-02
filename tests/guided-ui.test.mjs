@@ -40,6 +40,28 @@ test("dashboard distinguishes known decision activity, empty data and unavailabl
   assert.doesNotMatch(empty, /Review the saved research result/);
 });
 
+test("failed work reads with a known-zero decision queue still show an unconfirmed state", async () => {
+  const markup = await renderDashboard({ unavailable: true, knownZero: true });
+  assert.match(markup, /data-work-state="unknown"/);
+  assert.match(markup, /data-next-action="unavailable"/);
+  assert.match(markup, /Check work status/);
+  assert.doesNotMatch(markup, /Idle · no worker running|Ready for|No workflow yet|No activity recorded/);
+});
+
+test("Library Business read failures cannot invoke empty-return domain loaders", async () => {
+  const reads = [];
+  const markup = await renderDashboard({ view: "library", businessesUnavailable: true, reads });
+  assert.match(markup, /Business records are unavailable\. Saved outputs could not be checked/);
+  assert.doesNotMatch(markup, /No saved designs yet|0 saved versions/);
+  assert.deepEqual(reads, []);
+});
+
+test("explicit Business and run mismatch is rejected even when both Businesses are authorized", async () => {
+  const reads = [];
+  await assert.rejects(renderDashboard({ view: "work", detail: true, mismatchedBusiness: true, reads }), /Fixture record was not found/);
+  assert.deepEqual(reads, []);
+});
+
 test("console navigation exposes seven same-page destinations and unknown counts", () => {
   const markup = renderUnknownNavigation();
   const nav = markup.match(/<nav class="consoleNavigation"[^>]*>(.*?)<\/nav>/s)?.[1];
@@ -219,17 +241,11 @@ async function assertFocusedControlVisible(page, label) {
 }
 
 async function assertConsoleDisclosures(page, width) {
-  const technical = page.locator(".consoleTechnical");
-  await technical.locator("summary").focus();
-  await page.keyboard.press("Enter");
-  assert.equal(await technical.getAttribute("open"), "");
-  const links = await technical.locator("a").count();
-  for (let index = 0; index < links; index++) {
-    await page.keyboard.press("Tab");
-    await assertFocusedControlVisible(page, `Technical link ${index + 1}/${width}`);
-  }
+  assert.equal(await page.locator(".consoleNavLink").count(), 7);
+  assert.equal(await page.locator(".consoleNavLink[href='/dashboard?view=advanced']").count(), 1);
   await page.locator(".consoleOwnerSummary").focus();
   await page.keyboard.press("Enter");
+  assert.equal(await page.locator(".consoleOwnerMenu").getAttribute("open"), "");
   await page.keyboard.press("Tab");
   assert.equal(await page.locator(".consoleSignOut").evaluate(element => document.activeElement === element), true);
   await assertFocusedControlVisible(page, `Sign out/${width}`);
@@ -240,9 +256,6 @@ async function assertConsoleDisclosures(page, width) {
   await page.locator(".consoleOwnerSummary").focus();
   await page.keyboard.press("Enter");
   assert.equal(await page.locator(".consoleOwnerMenu").getAttribute("open"), null);
-  await technical.locator("summary").focus();
-  await page.keyboard.press("Enter");
-  assert.equal(await technical.getAttribute("open"), null);
 }
 
 async function assertOverviewFits(page, label) {

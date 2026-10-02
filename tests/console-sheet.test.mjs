@@ -55,18 +55,76 @@ async function assertClosedSheet(page) {
 }
 
 async function assertFocusContained(page) {
-  // A nonmodal `open` attribute would let this background button take focus.
-  await page.locator("#console-sheet-background").evaluate(element => element.focus());
-  assert.equal(await page.evaluate(() => document.querySelector("dialog").contains(document.activeElement)), true);
+  const trace = [];
+  const controls = 'button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), a[href]';
+  await page.evaluate(() => {
+    window.__consoleOutsideFocus = [];
+    window.__consoleCaptureFocus = event => {
+      const dialog = document.querySelector("dialog");
+      if (!dialog?.contains(event.target) && event.target !== document.body && event.target !== document.documentElement) {
+        window.__consoleOutsideFocus.push(event.target.outerHTML?.slice(0, 800));
+      }
+    };
+    document.addEventListener("focusin", window.__consoleCaptureFocus, true);
+  });
+  async function check(label, allowViewport = false) {
+    const state = await page.evaluate(controls => {
+      const dialog = document.querySelector("dialog");
+      const active = document.activeElement;
+      return {
+        open: dialog?.open, modal: dialog?.matches(":modal"), inside: dialog?.contains(active),
+        viewportFallback: active === document.body || active === document.documentElement || active === null,
+        documentHasFocus: document.hasFocus(), activeElement: active?.outerHTML.slice(0, 800) ?? null,
+        controlIndex: [...dialog.querySelectorAll(controls)].indexOf(active),
+        outsideFocusEvents: window.__consoleOutsideFocus,
+      };
+    }, controls);
+    trace.push({ label, ...state });
+    const diagnostics = JSON.stringify(trace);
+    assert.ok(state.open && state.modal, `Native modality was lost: ${diagnostics}`);
+    assert.deepEqual(state.outsideFocusEvents, [], `Background page content received focus: ${diagnostics}`);
+    assert.ok(state.inside || (allowViewport && state.viewportFallback), `Focus escaped to page content: ${diagnostics}`);
+    return state;
+  }
   const close = page.getByRole("button", { name: "Close research setup" });
-  await close.focus();
-  await page.keyboard.press("Shift+Tab");
-  assert.equal(await page.evaluate(() => document.querySelector("dialog").contains(document.activeElement)), true);
-  await page.keyboard.press("Tab");
-  assert.equal(await close.evaluate(element => element === document.activeElement), true);
+  try {
+    await close.focus();
+    // Native modality makes every background control inert, including direct
+    // focus() calls. A dialog with only the `open` attribute fails these checks.
+    for (const selector of ["#console-sheet-background", ".consoleCommand input", ".consoleCommand button"]) {
+      await page.locator(selector).evaluate(element => element.focus());
+      await check(`programmatic background focus: ${selector}`);
+    }
+    await page.keyboard.press("Shift+Tab");
+    // Sequential navigation may visit browser UI at the document boundary.
+    // Only the viewport's body/html fallback is allowed outside the modal, never
+    // a background page control. Tab must return to the dialog's Close control.
+    // https://html.spec.whatwg.org/multipage/interaction.html#sequential-focus-navigation
+    await check("reverse-tab boundary", true);
+    await page.keyboard.press("Tab");
+    await check("return from reverse-tab boundary");
+    assert.equal(await close.evaluate(element => element === document.activeElement), true, `Tab did not return to Close: ${JSON.stringify(trace)}`);
+
+    const count = await page.locator("dialog").locator(controls).count();
+    const visited = new Set([0]);
+    let returned = false;
+    for (let step = 0; step < count + 2; step++) {
+      await page.keyboard.press("Tab");
+      const state = await check(`forward cycle ${step + 1}`, true);
+      if (state.controlIndex >= 0) visited.add(state.controlIndex);
+      if (state.controlIndex === 0) { returned = true; break; }
+    }
+    assert.ok(returned, `Keyboard cycle did not return to Close: ${JSON.stringify(trace)}`);
+    assert.equal(visited.size, count, `Keyboard cycle skipped an enabled dialog control: ${JSON.stringify(trace)}`);
+  } finally {
+    await page.evaluate(() => document.removeEventListener("focusin", window.__consoleCaptureFocus, true));
+  }
 }
 
 async function assertLayoutAndCapture(page, phase, width) {
+  // Preserve real pixels even if a later layout or focus assertion fails.
+  await page.locator(".consoleResearchBody").evaluate(element => { element.scrollTop = 0; });
+  await page.screenshot({ path: path.join(screenshots, `console-sheet-${phase}-${width}.png`), animations: "disabled" });
   const result = await page.evaluate(() => {
     const dialog = document.querySelector("dialog.consoleResearchSheet");
     const body = dialog.querySelector(".consoleResearchBody");
@@ -83,8 +141,6 @@ async function assertLayoutAndCapture(page, phase, width) {
   assert.ok(result.bodyScrollWidth <= result.bodyWidth + 1, `${phase}/${width}: scrollable dialog body overflows ${JSON.stringify(result)}`);
   assert.ok(result.left >= -1 && result.right <= result.viewport + 1, `${phase}/${width}: dialog exceeds viewport`);
   assert.ok(result.top >= -1 && result.bottom <= result.height + 1, `${phase}/${width}: dialog exceeds viewport height`);
-  await page.locator(".consoleResearchBody").evaluate(element => { element.scrollTop = 0; });
-  await page.screenshot({ path: path.join(screenshots, `console-sheet-${phase}-${width}.png`), animations: "disabled" });
 }
 
 async function assertSavedDraft(page, goal) {
@@ -137,8 +193,8 @@ test("console research sheet preserves its same-page URL, modal focus and unappr
           const goalField = page.getByRole("textbox", { name: /What do you want to learn/ });
           await page.waitForFunction(expected => document.querySelector('textarea[name="goal"]')?.value === expected, initialGoal);
           assert.equal(await goalField.inputValue(), initialGoal);
-          await assertFocusContained(page);
           await assertLayoutAndCapture(page, "goal", width);
+          await assertFocusContained(page);
 
           const editedGoal = "Compare original nature T-shirt markets for adult hikers in New Zealand and Australia.";
           await goalField.fill(editedGoal);
@@ -203,8 +259,8 @@ test("console research sheet preserves its same-page URL, modal focus and unappr
           await consent.waitFor();
           assert.equal(await consent.isChecked(), false);
           await assertSavedDraft(page, editedGoal);
-          await assertFocusContained(page);
           await assertLayoutAndCapture(page, "restored", width);
+          await assertFocusContained(page);
           await page.keyboard.press("Escape");
           await assertClosedSheet(page);
           assert.deepEqual(await page.evaluate(() => window.__consoleHydrationErrors), []);

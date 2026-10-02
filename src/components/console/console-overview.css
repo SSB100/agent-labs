@@ -249,3 +249,19 @@
 }
 
 .consoleOverview .consolePanelHeader>a,.consoleOverview .consoleCoreTopline,.consoleOverview .consoleCoreOverline,.consoleOverview .consoleCoreCaption,.consoleOverview .consoleNextAction>div>span,.consoleOverview .consoleWorkerReceipt,.consoleOverview .consoleConnectionDetail,.consoleOverview .consoleOutputTime,.consoleOverview .consoleRecordTag{font-size:12px}
+
+/* Sparse receipt sets expand naturally; names and scope remain readable. */
+.consoleOverview .consoleWorkerGrid{grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr))}
+.consoleOverview .consoleWorkerText strong{white-space:normal;overflow:visible;text-overflow:clip;line-height:1.35}
+.consoleOverview .consoleConnectionDetail{white-space:normal;overflow:visible;text-overflow:clip;line-height:1.35}
+.consoleOverview .consolePanelHeader>a{display:inline-flex;align-items:center;justify-content:center;min-width:24px;min-height:24px;padding:2px 3px}
+.consolePanelScroll{scrollbar-gutter:stable}
+.consoleTimelineMore{display:flex;align-items:center;justify-content:space-between;flex:0 0 auto;min-height:24px;border-top:1px solid var(--console-border);padding-top:3px;color:#8ae1ee;font-size:12px}
+@media(min-width:801px){
+.consolePanel[data-console-panel=commands],.consolePanel[data-console-panel=timeline]{padding:8px;gap:4px}
+.consoleQuickCommands{gap:3px;overflow:visible}
+.consoleQuickCommands>a{min-height:25px;padding:2px 6px;font-size:13px}
+.consoleCurrentRun{margin-bottom:4px}.consoleCurrentRun>span{display:none}
+.consoleTimeline li{padding-block:3px}.consoleTimeline li>div{display:flex;align-items:baseline;flex-wrap:wrap;gap:5px}.consoleTimeline small{font-size:12px}
+}
+@media(max-width:800px){.consoleOverview .consolePanelHeader>a,.consoleTimelineMore{min-width:44px;min-height:44px}.consoleOverview .consoleWorkerGrid{grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr))}}

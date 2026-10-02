@@ -126,22 +126,13 @@ export function ConsoleShell({ active, children, commandBar, context, workflowRu
 
         <nav className="consoleNavigation" aria-label="Workspace views">
           {consoleNavigation.map(item => (
-            <Link key={item.view} className="consoleNavLink" href={item.href} aria-current={item.view === currentView ? "page" : undefined}>
+            <Link key={item.view} className="consoleNavLink" href={item.href} aria-label={item.view === "connections" ? "Connections" : undefined} aria-current={item.view === currentView ? "page" : undefined}>
               <CoreIcon name={item.icon} />
-              <span className="consoleNavLabel">{item.label}</span>
+              <span className="consoleNavLabel">{item.view === "connections" ? <><span className="consoleNavFull">Connections</span><span className="consoleNavShort">Connect</span></> : item.label}</span>
               {item.view === "decisions" ? <DecisionCount context={context} /> : null}
             </Link>
           ))}
         </nav>
-
-        <details className="consoleTechnical" open={currentView === "advanced"}>
-          <summary className="consoleTechnicalSummary"><span>Advanced tools</span><span className="consoleChevron" aria-hidden="true" /></summary>
-          <nav className="consoleTechnicalLinks" aria-label="Advanced technical routes">
-            {consoleAdvancedNavigation.map(item => (
-              <Link key={item.href} className="consoleTechnicalLink" href={item.href} aria-current={"key" in item && item.key === active ? "page" : undefined}>{item.label}</Link>
-            ))}
-          </nav>
-        </details>
 
         <div className="consoleRailNote"><CoreIcon name="building" /><span>Private owner workspace</span></div>
         <OwnerMenu context={context} />

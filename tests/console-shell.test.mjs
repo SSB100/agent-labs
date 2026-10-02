@@ -51,7 +51,7 @@ function primaryLinks(markup) {
   return [...nav[1].matchAll(/<a\b([^>]*)>(.*?)<\/a>/gs)].map(([, attributes, content]) => ({
     href: attributes.match(/href="([^"]+)"/)?.[1],
     current: attributes.includes('aria-current="page"'),
-    label: content.match(/class="consoleNavLabel">([^<]+)<\/span>/)?.[1],
+    label: attributes.match(/aria-label="([^"]+)"/)?.[1] ?? content.match(/class="consoleNavLabel">([^<]+)<\/span>/)?.[1],
   }));
 }
 
@@ -78,16 +78,15 @@ test("all root views and legacy sections select the correct single primary desti
   }
 });
 
-test("existing direct technical routes remain under the native Advanced tools disclosure", () => {
-  const markup = fixture().render({ active: "advanced" });
-  const disclosure = markup.match(/<details class="consoleTechnical" open="">(.*?)<\/details>/s)?.[1];
-  assert.ok(disclosure);
-  assert.match(disclosure, /<summary class="consoleTechnicalSummary">/);
+test("one Advanced destination retains all technical routes without a duplicate menu", () => {
+  const view = fixture();
+  const markup = view.render({ active: "advanced" });
+  assert.doesNotMatch(markup, /Advanced tools|consoleTechnicalSummary/);
+  assert.equal(primaryLinks(markup).filter(item => item.current && item.href === "/dashboard?view=advanced").length, 1);
   for (const path of ["workflows", "products", "artifacts", "needs-you", "accounts", "history", "packs", "worker-proof", "model-router", "worker-evaluations", "settings"]) {
-    assert.ok(disclosure.includes(`href="/dashboard/${path}"`), path);
+    assert.ok(view.exports.consoleAdvancedNavigation.some(item => item.href === `/dashboard/${path}`), path);
   }
-  assert.match(fixture().render({ active: "packs" }), /href="\/dashboard\/packs" aria-current="page"/);
-  assert.match(fixture().render({ active: "settings" }), /href="\/dashboard\/settings" aria-current="page"/);
+  assert.match(readFileSync("src/app/dashboard/page.tsx", "utf8"), /consoleAdvancedNavigation\.map/);
 });
 
 test("one scoped LiveRefresh reports page-update connectivity rather than invented execution telemetry", () => {

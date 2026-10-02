@@ -188,3 +188,7 @@
 @media (prefers-reduced-motion: reduce) {
   .consoleShell *, .consoleShell *::before, .consoleShell *::after { scroll-behavior: auto; animation: none; transition: none; }
 }
+
+.consoleNavShort{display:none}@media(max-width:800px){.consoleNavFull{display:none}.consoleNavShort{display:inline}.consoleOwnerMenu[open]{grid-row:3}}
+
+@media(max-width:800px){.consoleLiveStatus{min-width:0;max-width:145px}.consoleLiveStatus .liveConnection{white-space:normal}.consoleNavLabel{overflow-wrap:normal}}

@@ -99,9 +99,11 @@ export function components() {
   return { workflows, icons, live, shell, visuals, consoleShell };
 }
 
-export async function renderDashboard({ unavailable = false, empty = false, view = "overview", detail = false, sheet = false } = {}) {
+export async function renderDashboard({ unavailable = false, empty = false, view = "overview", detail = false, sheet = false, knownZero = false, businessesUnavailable = false, mismatchedBusiness = false, reads = [] } = {}) {
   const { shell, visuals, icons, workflows, consoleShell } = components();
-  const context = ownerContext({ needsYouCount: unavailable || empty ? 0 : 1, needsYouUnavailable: unavailable });
+  const otherBusiness = { ...business, id: "fixture-other-business", name: "Other authorized Business" };
+  const context = ownerContext({ needsYouCount: unavailable || empty ? 0 : 1, needsYouUnavailable: unavailable && !knownZero, businessesUnavailable,
+    businesses: businessesUnavailable ? [] : mismatchedBusiness ? [business, otherBusiness] : [business] });
   const collection = unavailable || empty ? workflowCollection({ runs: [], definitions: [], stages: [], events: [], interventions: [], errors: unavailable ? ["Synthetic workflow read unavailable"] : [] }) : workflowCollection();
   const accounts = { businessId: business.id, configured: false, unavailable, profile: null, accounts: [], runs: [], healthEvents: [], registrationAvailable: false };
   const products = { candidates: [], experiments: [], decisions: [], errors: [] };
@@ -140,17 +142,17 @@ export async function renderDashboard({ unavailable = false, empty = false, view
     "@/lib/core-ui/data": { requireOwnerUiContext: async () => context, loadWorkflowCollection: async () => collection, loadWorkflowDetail: async (_context, id) => { assert.equal(id, run.id); return details; } },
     "@/lib/core-ui/run-outcome-data": { loadRunCostData: async () => costData },
     "@/lib/core-ui/console-data": { ...consoleData, loadConsoleResearchQuote: async () => ({ one: 370395, two: 530914, verifiedAt: fixtureTime }) },
-    "@/accounts/server": { loadAccountWorkspace: async () => accounts, loadAccountSetupInterventions: async () => ({ records: [], unavailable }) },
+    "@/accounts/server": { loadAccountWorkspace: async () => accounts, loadAccountSetupInterventions: async () => ({ records: [], unavailable: unavailable && !knownZero }) },
     "@/etsy-publication/server": { loadPublicationInterventions: async () => ({ records: [], unavailable }) },
     "@/printful/server": { loadPrintfulProductInterventions: async () => ({ records: [], unavailable }) },
-    "@/creative/data": { loadCreativeWorkspace: async () => creativeLibraryFixture() },
-    "@/products/data": { loadProductWorkspace: async () => products },
-    "@/products/discovery-v2-data": { loadDiscoveryGoalData: async () => ({ available: true, records: [], errors: [] }) },
+    "@/creative/data": { loadCreativeWorkspace: async () => { reads.push("creative"); return creativeLibraryFixture(); } },
+    "@/products/data": { loadProductWorkspace: async () => { reads.push("products"); return products; } },
+    "@/products/discovery-v2-data": { loadDiscoveryGoalData: async () => { reads.push("discovery"); return { available: true, records: [], errors: [] }; } },
     "@/components/stage13/discovery-goal-workspace": goalUi, "./accounts/account-workspace": accountUi,
     "./actions": { createBusiness: noAction }, "./legacy-dashboard": noAction,
     "@/components/console/console-panes.css": {}, "./accounts/accounts.css": {}, "./products/products.css": {},
   });
-  const query = { view, ...(detail ? { run: run.id, business: business.id } : {}), ...(sheet ? { sheet: "research" } : {}) };
+  const query = { view, ...(detail ? { run: run.id, business: mismatchedBusiness ? otherBusiness.id : business.id } : {}), ...(sheet ? { sheet: "research" } : {}) };
   return renderToStaticMarkup(await Page({ searchParams: Promise.resolve(query) }));
 }
 

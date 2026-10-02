@@ -151,9 +151,9 @@ test("costs are absent until supplied, with charges, allowance and unknown kept 
   assert.match(unknown, /No cost summary loaded/);
   assert.doesNotMatch(unknown, /\$0\.00|data-cost=/);
   const markup = render({ costs: { status: "ready", recordedMicrousd: 110_000, allowanceMicrousd: 1_000_000, reservedMicrousd: 200_000, uncertainCount: 1, scopeLabel: "Latest research run", workflowRunId: run.id } });
-  assert.match(markup, /data-cost="recorded">\$0\.11/);
-  assert.match(markup, /data-cost="allowance">\$1\.00/);
-  assert.match(markup, /data-cost="reserved">\$0\.20/);
+  assert.match(markup, /data-cost="recorded">USD\s*0\.11/);
+  assert.match(markup, /data-cost="allowance">USD\s*1\.00/);
+  assert.match(markup, /data-cost="reserved">USD\s*0\.20/);
   assert.match(markup, /1 charge is still unconfirmed/);
   assert.match(markup, /Known reported charges/);
   assert.match(markup, /Owner allowance is not a guaranteed provider invoice cap/);
@@ -206,3 +206,5 @@ test("layout is viewport-bound on desktop, scrolls inside panels and reflows for
 });
 
 test("a running workflow without a current worker receipt reports uncertainty instead of idle",()=>{const data=active();data.workerRuns[0].status="completed";data.workerRuns[0].completed_at=timestamp;const markup=render({collection:data});assert.match(markup,/data-work-state="unconfirmed"/);assert.match(markup,/Run active · worker unconfirmed/);assert.doesNotMatch(markup,/Idle · no worker running|Working now/);});
+
+test("a failed workflow read with a known zero decision count never claims ready",()=>{const markup=render({collection:{...active(),errors:["unavailable"]},context:{...context,needsYouCount:0}});assert.match(markup,/Saved work needs a fresh check/);assert.doesNotMatch(markup,/Ready for a bounded research goal/);});

@@ -64,6 +64,7 @@ export function WorkflowTimeline({ definition, run, stages, unavailable = false 
 }
 
 type NeedsYouCardProps = {
+  detailsHref?: string;
   businessName?: string;
   definition?: WorkflowDefinitionRecord;
   run?: WorkflowRunRecord;
@@ -73,6 +74,7 @@ type NeedsYouCardProps = {
 };
 
 export function NeedsYouCard({
+  detailsHref,
   businessName,
   definition,
   run,
@@ -105,7 +107,7 @@ export function NeedsYouCard({
         </small>
       </div>
       {action.kind === "link" ? (
-        <Link className="coreButton coreButton-primary" href={action.href}>{action.label}</Link>
+        <Link className="coreButton coreButton-primary" href={action.section === "details" && detailsHref ? detailsHref : action.href}>{action.label}</Link>
       ) : browserDecision ? (
         <form action={resumeBrowserControl} className="needsYouActions">
           <input name="interventionId" type="hidden" value={intervention.id} />
