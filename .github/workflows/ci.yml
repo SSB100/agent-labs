@@ -14,6 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
+      CI: "true"
       NEXT_PUBLIC_SUPABASE_URL: https://tfdareuwrshjuevuiwvn.supabase.co
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci_placeholder
       GUIDED_UI_BROWSER: "1"
@@ -47,6 +48,10 @@ jobs:
             test-results/guided-ui/console-decisions-*.png
           if-no-files-found: warn
           retention-days: 14
+
+      - name: Require actual Decisions preview screenshots
+        run: >-
+          node -e "const fs=require('node:fs'); for(const width of [1280,1440]) { const file='test-results/guided-ui/console-decisions-root-populated-'+width+'.png'; fs.accessSync(file); console.log('Verified actual hosted capture:',file); }"
 
       - name: Run complete gate
         run: npm run check

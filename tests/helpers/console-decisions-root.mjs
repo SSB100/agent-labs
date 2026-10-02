@@ -25,7 +25,7 @@ export function formFor(notice, returnTo = decisionRoute(notice)) {
 /** Executes the actual DashboardPage, reader and server action against inert owner-session fixtures.
  * The one permitted RPC is an in-memory test double, never a DB/provider request. */
 export function rootDecisionFixture({ tables = fixtureTables({ count: 131 }), userId = owner, ownedBusinesses = businesses,
-  session = true, rpcMode = 'success', readOptions = {}, collectionLimit = 80 } = {}) {
+  session = true, rpcMode = 'success', readOptions = {}, collectionLimit = 80, accountRequests = { records: [], unavailable: false } } = {}) {
   const reads = [], rpcCalls = [], revalidated = [], pageReads = [], mutations = [], hookCalls = [];
   const events = tables.workflow_runs.map((run, index) => ({ id: id(9000 + index), business_id: run.business_id, workflow_run_id: run.id,
     event_type: 'creative.run.needs_owner', actor_type: 'system', actor_id: null, payload: { failure: 'Saved creative generation failed', stageKey: run.current_stage_key }, occurred_at: time, created_at: time }));
@@ -156,7 +156,7 @@ export function rootDecisionFixture({ tables = fixtureTables({ count: 131 }), us
         loadWorkflowDetail: async (_context, runId) => { const collection = collectionFor(runId), run = collection.runs[0]; assert.ok(run, 'Run must be owned'); return { ...collection, run, definition: tables.workflow_definitions.find(row => row.id === run.workflow_definition_id), business: ownedBusinesses.find(row => row.id === run.business_id) }; } },
       '@/lib/core-ui/run-outcome-data': costLoader,
       '@/lib/core-ui/console-data': { ...consoleData, loadConsoleObservationTime: async () => Date.parse(acknowledgedAt), loadConsoleResearchQuote: deny },
-      '@/accounts/server': { loadAccountWorkspace: async () => ({ configured: false, unavailable: false, accounts: [], runs: [], healthEvents: [], registrationAvailable: false }), loadAccountSetupInterventions: noRequests },
+      '@/accounts/server': { loadAccountWorkspace: async () => ({ configured: false, unavailable: false, accounts: [], runs: [], healthEvents: [], registrationAvailable: false }), loadAccountSetupInterventions: async () => accountRequests },
       '@/etsy-publication/server': { loadPublicationInterventions: noRequests }, '@/printful/server': { loadPrintfulProductInterventions: noRequests },
       '@/products/data': { loadProductWorkspace: async () => ({ candidates: [], experiments: [], decisions: [], errors: [] }) },
       '@/creative/data': { loadCreativeWorkspace: deny }, '@/products/discovery-v2-data': { loadDiscoveryGoalData: deny },

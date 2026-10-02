@@ -173,7 +173,7 @@ for (const { kind, action, decision, label, message } of typedCases) test(`real 
   const route = decisionRoute(notice, '&page=3&status=all'), page = await h.render(route);
   assert.ok(page.html.includes(`>${label}</button>`)); assert.doesNotMatch(page.html, />Mark reviewed<\/button>/);
   assert.equal(page.props.actions[action], h.typedActions[action]); assert.equal(h.hookCalls.length, 0); assert.equal(h.rpcCalls.length, 0);
-  const form = formFor(notice, `/dashboard?view=decisions&business=${businesses[1].id}&decision=${id(888)}&page=3&status=all`); form.set('decision', decision);
+  const form = formFor(notice, `/dashboard?view=decisions&business=${businessId}&decision=${id(888)}&page=3&status=all`); form.set('decision', decision);
   const redirect = await h.perform(form, page.props.actions[action]), params = query(redirect);
   assert.equal(params.get('business'), businessId); assert.equal(params.get('decision'), notice.id); assert.equal(params.get('page'), '3'); assert.equal(params.get('status'), 'all'); assert.equal(params.get('message'), message);
   assert.equal(h.hookCalls.length, 1); assert.equal(h.hookCalls[0].payload.ownerUserId, owner); assert.match(h.hookCalls[0].token, new RegExp(notice.workflow_run_id + '$'));
@@ -217,4 +217,81 @@ test('existing typed handler errors return fixed root feedback without backend d
     const redirect = await h.perform(form, h.typedActions[action]); assert.equal(query(redirect).get('error'), expected);
     const page = await h.render(redirect); assert.match(page.html, /role="alert"/); assert.doesNotMatch(page.html, /PRIVATE_|Stopped · reviewed/); assert.equal(h.revalidated.length, 0);
   }
+});
+
+function secondBusinessTables() {
+  const tables = fixtureTables({ count: 143 }), selected = tables.owner_interventions[50], targetRun = selected.workflow_run_id;
+  const runIds = new Set([...tables.workflow_runs.slice(131).map(run => run.id), targetRun]);
+  const creativeIds = new Set(tables.creative_runs.filter(run => runIds.has(run.workflow_run_id)).map(run => run.id));
+  const approvalIds = new Set(tables.creative_runs.filter(run => runIds.has(run.workflow_run_id)).map(run => run.approval_id));
+  for (const rows of Object.values(tables)) for (const row of rows) if (runIds.has(row.workflow_run_id) || runIds.has(row.id) || creativeIds.has(row.creative_run_id) || approvalIds.has(row.id)) row.business_id = businesses[1].id;
+  return tables;
+}
+const decodeHref = html => html.replaceAll('&amp;', '&');
+test('aggregate page four selection, Close and actual acknowledgement preserve all-Business scope', async () => {
+  const tables = secondBusinessTables(), h = rootDecisionFixture({ tables }), notice = tables.owner_interventions[50];
+  const start = '/dashboard?view=decisions&page=4', queue = await h.render(start);
+  assert.ok(queue.data.page.items.some(row => row.id === notice.id)); assert.equal(queue.data.page.total, 143);
+  const href = decodeHref([...queue.html.matchAll(/href="([^"]+)"/g)].map(match => match[1]).find(value => value.includes(`decision=${notice.id}`)));
+  assert.equal(query(href).get('page'), '4'); assert.equal(query(href).has('business'), false);
+  const selected = await h.render(href); assert.equal(selected.data.selection.item.business_id, businesses[1].id);
+  assert.equal(selected.tree.props.navigationBusinessId, undefined); assert.equal(selected.tree.props.commandBar.props.businessId, businesses[1].id);
+  assert.match(selected.html, /All 2 businesses/);
+  const close = decodeHref(/href="([^"]+)" aria-label="Close decision details"/.exec(selected.html)[1]);
+  assert.equal(close, start); assert.equal((await h.render(close)).data.page.page, 4);
+  const returnTo = decodeHref(/name="returnTo" value="([^"]+)"/.exec(selected.html)[1]);
+  assert.equal(query(returnTo).has('business'), false); assert.equal(query(returnTo).get('page'), '4');
+  const afterRoute = await h.perform(formFor(notice, returnTo)); assert.equal(query(afterRoute).has('business'), false); assert.equal(query(afterRoute).get('page'), '4'); assert.equal(query(afterRoute).get('decision'), notice.id);
+  const after = await h.render(afterRoute); assert.equal(after.data.page.total, 142); assert.equal(after.data.detail.acknowledgement.reviewed, true); assert.equal(after.data.query.businessId, null);
+  assert.match(after.html, /Stopped · reviewed/); assert.equal(h.mutations.length, 1);
+});
+
+test('terminal failure always returns to submitted notice rather than the return URL selection', async () => {
+  for (const rpcMode of ['error', 'transport', 'uncertain', 'conflict']) {
+    const h = rootDecisionFixture({ rpcMode }), [submitted, other] = h.tables.owner_interventions;
+    const result = await h.perform(formFor(submitted, `/dashboard?view=decisions&decision=${other.id}&page=4&status=all`));
+    assert.equal(query(result).get('decision'), submitted.id); assert.equal(query(result).get('page'), '4'); assert.equal(query(result).has('business'), false);
+    const root = await h.render(result); assert.equal(root.data.selection.item.id, submitted.id); assert.match(root.html, /data-decision-outcome="error"/); assert.equal(h.mutations.length, 0);
+  }
+});
+
+test('explicitly mismatched Business return scopes are rejected rather than retained by real actions', async () => {
+  const h = rootDecisionFixture({ tables: fixtureTables({ count: 1 }) }), notice = h.tables.owner_interventions[0];
+  const mismatch = `/dashboard?view=decisions&business=${businesses[1].id}&decision=${notice.id}&page=4`;
+  const result = await h.perform(formFor(notice, mismatch)); assert.equal(query(result).get('business'), businessId); assert.equal(query(result).has('page'), false);
+  for (const entry of typedCases.filter(row => ['approve', 'take_control', 'acknowledge'].includes(row.decision))) {
+    const tables = typedDecisionTables(entry.kind), fixture = rootDecisionFixture({ tables }), selected = tables.owner_interventions[0], form = formFor(selected, mismatch); form.set('decision', entry.decision);
+    const target = await fixture.perform(form, fixture.typedActions[entry.action]); assert.notEqual(query(target).get('business'), businesses[1].id); assert.equal(query(target).get('decision'), selected.id); assert.equal(query(target).has('page'), false);
+  }
+});
+
+test('typed browser and simulation controls require readable matched nonterminal runs and registered definitions', async () => {
+  for (const kind of ['takeover', 'return', 'simulation']) {
+    for (const variant of ['run-unavailable', 'definition-unavailable', 'ended', 'wrong-key', 'wrong-version', 'not-needs-owner']) {
+      const tables = typedDecisionTables(kind);
+      const readOptions = variant === 'run-unavailable' ? { failTable: 'workflow_runs' } : variant === 'definition-unavailable' ? { failTable: 'workflow_definitions' } : {};
+      if (variant === 'ended') tables.workflow_runs[0].completed_at = time;
+      if (variant === 'wrong-key') tables.workflow_definitions[0].workflow_key = 'future.unknown';
+      if (variant === 'wrong-version') tables.workflow_definitions[0].version = '2.0.0';
+      if (variant === 'not-needs-owner') tables.workflow_runs[0].status = 'running';
+      const h = rootDecisionFixture({ tables, readOptions }), page = await h.render(decisionRoute(tables.owner_interventions[0]));
+      assert.doesNotMatch(page.html, />Take control<\/button>|>Return control<\/button>|>Acknowledge simulated result<\/button>|>Stop simulation<\/button>/, `${kind}/${variant}`);
+      assert.equal(h.hookCalls.length, 0); assert.equal(h.rpcCalls.length, 0);
+    }
+  }
+});
+
+test('general success and simulation pending query codes stay explicitly unconfirmed', async () => {
+  const h = rootDecisionFixture({ tables: fixtureTables({ count: 1 }) }), notice = h.tables.owner_interventions[0];
+  for (const [kind, code] of [['message', 'review-approved'], ['message', 'review-failed'], ['message', 'browser-control-returned'], ['message', 'browser-control-taken'], ['message', 'simulation-decision-recorded'], ['error', 'simulation-delivery-pending']]) {
+    const page = await h.render(decisionRoute(notice, `&${kind}=${code}`)); assert.match(page.html, /unconfirmed here/); assert.doesNotMatch(page.html, /Stopped · reviewed|data-decision-outcome="status"/); assert.equal(h.rpcCalls.length, 0);
+  }
+});
+
+test('Business B header and scoped queue remain distinct from the explicit global badge and aggregate destination', async () => {
+  const tables = secondBusinessTables(), ownedBusinesses = businesses.map((business, index) => ({ ...business, name: index ? 'Fixture Business B' : 'Fixture Business A' }));
+  const h = rootDecisionFixture({ tables, ownedBusinesses }), page = await h.render(`/dashboard?view=decisions&business=${businesses[1].id}`);
+  assert.equal(page.data.page.total, 13); assert.equal(page.tree.props.navigationBusinessId, businesses[1].id); assert.equal(page.tree.props.globalDecisionCount, true);
+  assert.match(page.html, /class="consoleWorkspaceName">Fixture Business B<\/span>/); assert.match(page.html, /143 open decisions across all authorized Businesses/);
+  assert.match(page.html, /class="consoleNavLink" href="\/dashboard\?view=decisions"[^>]*aria-current="page"/);
 });

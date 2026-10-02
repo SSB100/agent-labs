@@ -114,14 +114,17 @@ export async function requireOwnerUiContext(): Promise<OwnerUiContext> {
   const displayName =
     typeof profileName === "string" && profileName.trim() ? profileName.trim() : email;
 
+  const decisionCount = interventionCountResult.count;
+  const decisionCountVerified = !interventionCountResult.error && typeof decisionCount === "number" && Number.isSafeInteger(decisionCount) && decisionCount >= 0;
+
   return {
     supabase,
     userId,
     email,
     displayName,
     businesses,
-    needsYouCount: interventionCountResult.count ?? 0,
-    needsYouUnavailable: Boolean(interventionCountResult.error),
+    needsYouCount: decisionCountVerified ? decisionCount : 0,
+    needsYouUnavailable: !decisionCountVerified,
     businessesUnavailable: Boolean(businessResult.error),
   };
 }
