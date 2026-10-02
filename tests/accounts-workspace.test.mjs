@@ -28,7 +28,7 @@ const viewDependencies = {
   'node:crypto': require('node:crypto'), '@/accounts/contracts': C,
   '@/components/stage7/app-shell': { StatusPill: ({ status }) => React.createElement('span', { 'data-status': status }, status), AppShell: ({ children }) => React.createElement('main', null, children), PageHeader: ({ title, description, actions }) => React.createElement('header', null, title, description, actions) },
 };
-const { BusinessAccountWorkspace } = load('src/app/dashboard/accounts/account-workspace.tsx', { ...viewDependencies, './actions': actionStubs });
+const { BusinessAccountWorkspace, CompactConnectionsWorkspace } = load('src/app/dashboard/accounts/account-workspace.tsx', { ...viewDependencies, './actions': actionStubs });
 function setup(overrides = {}) {
   const disclosure = C.buildAccountDisclosure(profile, overrides.provider ?? 'printful', overrides.mode ?? 'connect');
   return { id: runId, connectionId, provider: 'printful', mode: 'connect', status: 'pending_approval', revision: 2, disclosure, disclosureHash: C.accountDigest(disclosure), approvalExpiresAt: '2026-10-01T12:30:00Z', createdAt: '2026-10-01T12:00:00Z', receipt: null, ...overrides };
@@ -489,5 +489,98 @@ test('every account mutation returns to the Business-scoped root notice without 
     assert.equal(url.searchParams.get('business'), businessId); assert.equal(url.searchParams.get('view'), 'connections');
     assert.equal(url.searchParams.has('run'), false); assert.equal(url.searchParams.get('connectionRun'), runId);
     assert.doesNotMatch(href, /evil|collect/);
+  }
+});
+
+
+test('compact Etsy records suppress activation and signup while preserving safe cleanup', () => {
+  for (const mode of ['create', 'connect']) for (const status of ['pending_approval', 'approved', 'preparation_started', 'owner_handoff']) {
+    const request = setup({ provider: 'etsy', mode, status, preparationReceipt: { reasonCode: 'secure_owner_steps' } });
+    const data = { ...base, registrationAvailable: true, runs: [request] };
+    const html = renderToStaticMarkup(React.createElement(CompactConnectionsWorkspace, { data, provider: 'etsy', runId,
+      returnTo: `/dashboard?view=connections&business=${businessId}&provider=etsy&connectionRun=${runId}` }));
+    assert.match(html, /Etsy activation is on hold/, `${mode}/${status}`);
+    assert.match(html, /Stop setup/, `${mode}/${status} retains safe cancellation`);
+    if (mode === 'create' && status === 'owner_handoff') assert.match(html, /Close owner browser/, 'Existing secure sessions retain their safe close action');
+    else assert.doesNotMatch(html, /Close owner browser/);
+    assert.doesNotMatch(html, /Approve exact request|Prepare approved signup|Open secure owner signup|Verify Etsy connection|Open Etsy connection|Open Etsy signup securely/);
+    assert.doesNotMatch(html, /href="(?:https:\/\/www\.etsy\.com\/join|\/dashboard\/etsy|\/dashboard\/accounts\/registration)/);
+    assert.doesNotMatch(html, /name="(?:dataConsent|accessConsent|termsConsent|browserConsent)"/);
+  }
+});
+
+test('preparing an exact review redirects to the newly returned request instead of stale selected history', async () => {
+  const newRunId = '60000000-1111-4111-8111-111111111111';
+  for (const includeOldRunField of [false, true]) {
+    const h = actionHarness({ prepareAccountSetup: async () => setup({ id: newRunId, status: 'pending_approval' }) });
+    const input = form({ provider: 'printful', mode: 'connect', idempotencyKey: revision,
+      returnTo: `/dashboard?view=connections&business=${businessId}&provider=printful&connectionRun=${runId}` });
+    if (!includeOldRunField) input.delete('runId');
+    const href = await redirectFrom(h.requestAccountSetup(input)), target = new URL(href, 'https://synthetic.invalid');
+    assert.equal(target.pathname, '/dashboard'); assert.equal(target.searchParams.get('view'), 'connections');
+    assert.equal(target.searchParams.get('business'), businessId); assert.equal(target.searchParams.get('provider'), 'printful');
+    assert.equal(target.searchParams.get('connectionRun'), newRunId); assert.equal(target.searchParams.get('accountMessage'), 'review-ready');
+    assert.match(target.searchParams.get('accountResult'), C.ACCOUNT_UUID); assert.equal(target.hash, '#connection-notice');
+    assert.deepEqual(h.calls.map(call => call.name), ['prepareAccountSetup']); assert.deepEqual(h.logs, []);
+  }
+});
+
+
+test('compact request actions appear once in the left action area and retain safe browser cleanup', () => {
+  for (const provider of ['etsy', 'printful']) for (const mode of ['connect', 'create']) {
+    const request = setup({ provider, mode, status: 'owner_handoff', preparationReceipt: { reasonCode: 'secure_owner_steps' } });
+    const html = renderToStaticMarkup(React.createElement(CompactConnectionsWorkspace, { data: { ...base, registrationAvailable: true, runs: [request] }, provider, runId,
+      returnTo: `/dashboard?view=connections&business=${businessId}&provider=${provider}&connectionRun=${runId}` }));
+    const actionStart = html.indexOf('class="connectionNextAction"'), rightStart = html.indexOf('class="connectionDetailPane"');
+    assert.ok(actionStart >= 0 && rightStart > actionStart);
+    const left = html.slice(actionStart, rightStart), right = html.slice(rightStart);
+    assert.equal((html.match(/>Stop setup<\/button>/g) ?? []).length, 1, `${provider}/${mode} has one cancellation control`);
+    assert.match(left, />Stop setup<\/button>/); assert.doesNotMatch(right, />Stop setup<\/button>|>Close owner browser<\/button>/);
+    assert.equal((html.match(/>Close owner browser<\/button>/g) ?? []).length, mode === 'create' ? 1 : 0);
+    if (mode === 'create') assert.match(left, />Close owner browser<\/button>/);
+  }
+});
+
+test('pending approval keeps every exact disclosure and required consent outside collapsed details', () => {
+  const request = setup({ provider: 'printful', mode: 'create', status: 'pending_approval' });
+  const html = renderToStaticMarkup(React.createElement(CompactConnectionsWorkspace, { data: { ...base, registrationAvailable: true, runs: [request] }, provider: 'printful', runId,
+    returnTo: `/dashboard?view=connections&business=${businessId}&provider=printful&connectionRun=${runId}` }));
+  const details = [], consent = new Set();
+  for (const match of html.matchAll(/<(\/?)([a-z][a-z0-9-]*)\b([^>]*)>/gi)) {
+    const [, close, tag, attributes] = match;
+    if (tag === 'details') { if (close) details.pop(); else details.push(/(?:^|\s)open(?:=|\s|$)/.test(attributes)); }
+    const name = tag === 'input' && !close ? attributes.match(/name="(dataConsent|accessConsent|termsConsent|browserConsent)"/)?.[1] : null;
+    if (name) { consent.add(name); assert.equal(details.includes(false), false, `${name} must remain visible before approval`); assert.match(attributes, /required=""/); }
+  }
+  assert.deepEqual([...consent].sort(), ['accessConsent', 'browserConsent', 'dataConsent', 'termsConsent']);
+  for (const text of ['Destination', 'Profile data shared', 'Requested access', 'Spending authority', 'Approval expires', 'Approve exact request']) assert.ok(html.includes(text), text);
+});
+
+test('compact request summary uses human labels while technical disclosure retains exact identifiers and scopes', () => {
+  const request = setup({ provider: 'printful', mode: 'connect', status: 'owner_handoff' });
+  const html = renderToStaticMarkup(React.createElement(CompactConnectionsWorkspace, { data: { ...base, runs: [request] }, provider: 'printful', runId,
+    returnTo: `/dashboard?view=connections&business=${businessId}&provider=printful&connectionRun=${runId}` }));
+  const article = html.slice(html.indexOf('<article class="accountRequest"'));
+  const opening = article.slice(0, article.indexOf('<details'));
+  assert.match(opening, /Ready for secure verification/); assert.match(opening, /Next: use Verify Printful/);
+  assert.match(opening, /View catalog/); assert.match(opening, /Approval expires/);
+  assert.doesNotMatch(opening, /owner_handoff|catalog\.read/);
+  const saved = article.match(/<details\b([^>]*)><summary>Saved request access and terms<\/summary>([\s\S]*?)<\/details>/);
+  assert.ok(saved, 'Previously approved disclosure has a labelled expansion'); assert.doesNotMatch(saved[1], /\bopen(?:=|\s|$)/);
+  assert.match(saved[2], /Destination|Spending authority/);
+  const technical = article.match(/<details\b[^>]*><summary>Technical request details<\/summary>([\s\S]*?)<\/details>/)?.[1];
+  assert.ok(technical); assert.match(technical, new RegExp(`<dd>${runId}</dd>`));
+  assert.match(technical, /Machine scopes<\/dt><dd>catalog\.read<\/dd>/); assert.match(technical, /Saved request status<\/dt><dd>owner_handoff<\/dd>/);
+  assert.match(html, new RegExp(`title="${runId}"`)); assert.match(html, new RegExp(`aria-label="Selected request ${runId}"`));
+});
+
+test('ready-for-verification wording appears only when the saved Printful handoff is eligible for secure entry', () => {
+  const request = setup({ provider: 'printful', status: 'owner_handoff' });
+  for (const change of [{ configured: false }, { vaultConfigured: false }, { unavailable: true }, { runs: [{ ...request, status: 'approved' }] },
+    { runs: [{ ...request, approvalExpiresAt: null }] }, { runs: [{ ...request, approvalExpiresAt: 'malformed' }] }, { runs: [{ ...request, approvalExpiresAt: base.observedAt }] }]) {
+    const html = renderToStaticMarkup(React.createElement(CompactConnectionsWorkspace, { data: { ...base, runs: [request], ...change }, provider: 'printful', runId,
+      returnTo: `/dashboard?view=connections&business=${businessId}&provider=printful&connectionRun=${runId}` }));
+    assert.doesNotMatch(html, /Ready for secure verification|Next: use Verify Printful/, JSON.stringify(change));
+    assert.doesNotMatch(html, /href="\/dashboard\/accounts\/secure/, JSON.stringify(change));
   }
 });

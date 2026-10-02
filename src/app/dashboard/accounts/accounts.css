@@ -25,3 +25,7 @@
 @media(max-width:460px){.connectionRow{grid-template-columns:28px minmax(0,1fr)}.connectionState{grid-column:2;justify-self:start}.secureInputGrid{grid-template-columns:1fr}.connectionBusinessSelect label{flex-wrap:wrap}.connectionDetailHeader{align-items:flex-start;flex-direction:column}.compactConnections .accountFormGrid{grid-template-columns:1fr}}
 
 .connectionFormNotice,.connectionNotice{scroll-margin-block:12px 90px}
+
+.connectionCleanup{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}.connectionCleanup form{min-width:0;max-width:100%}
+
+.connectionRequestState{font-size:12px;color:#9ce8f2}.connectionRequestSummary{padding:6px 0}.connectionRequestSummary>p{margin:4px 0 8px;color:#b6cad7;font-size:13px}.connectionDetailScroll>.accountRequest>.sectionTitleRow{align-items:flex-start;flex-wrap:wrap;gap:6px}

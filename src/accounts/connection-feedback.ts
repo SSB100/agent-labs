@@ -60,3 +60,31 @@ export function connectionWorkspaceKey(data: AccountWorkspace, message?: string,
     data.accounts.map(account => [account.id, account.revision, account.status, account.passwordRevision]).sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
     data.runs.map(run => [run.id, run.revision, run.status]).sort((a, b) => String(a[0]).localeCompare(String(b[0])))]);
 }
+
+export const ACCOUNT_POSITIVE_MESSAGES = ["password-removed", "password-stored", "profile-saved", "profile-saved-browser-pending",
+  "review-ready", "approved", "registration-prepared", "owner-step-finished", "cancelled", "verified", "verified-browser-pending",
+  "disconnected", "disconnected-browser-pending"] as const;
+
+/** A URL notice never proves a mutation. Positive copy needs its saved context. */
+export function accountMessageConfirmation(data: AccountWorkspace, provider: AccountProvider, runId: string | undefined, message: string): boolean | undefined {
+  if (!(ACCOUNT_POSITIVE_MESSAGES as readonly string[]).includes(message)) return undefined;
+  if (data.unavailable) return false;
+  const account = data.accounts.find(item => item.provider === provider);
+  const run = runId ? data.runs.find(item => item.id === runId && item.provider === provider) : undefined;
+  const freshReview = !!run && !!data.profile && run.disclosure.profileRevision === data.profile.revision &&
+    !!run.approvalExpiresAt && Date.parse(run.approvalExpiresAt) > Date.parse(data.observedAt);
+  switch (message) {
+    case "profile-saved": case "profile-saved-browser-pending": return !!data.profile && uuid.test(data.profile.revision);
+    case "password-stored": return account?.passwordStored === true && uuid.test(account.passwordRevision ?? "");
+    case "password-removed": return account?.passwordStored === false;
+    case "review-ready": return freshReview && run?.status === "pending_approval";
+    case "approved": return freshReview && !!run && ["approved", "preparation_started", "owner_handoff"].includes(run.status);
+    case "registration-prepared": return freshReview && run?.mode === "create" && run.status === "owner_handoff" && run.preparationReceipt?.outcome === "prepared";
+    case "cancelled": return run?.status === "cancelled";
+    case "verified": case "verified-browser-pending": return run?.status === "verified" && run.connectionId === account?.id && connectionState(data, provider).label === "Connected";
+    case "disconnected": case "disconnected-browser-pending": return account?.status === "revoked";
+    // The public workspace projection does not prove a remote browser release.
+    case "owner-step-finished": return false;
+    default: return false;
+  }
+}

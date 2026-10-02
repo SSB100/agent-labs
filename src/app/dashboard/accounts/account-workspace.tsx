@@ -1,20 +1,20 @@
 import Link from "next/link";
-import { accountReturnHref, connectionState, connectionWorkspaceKey } from "@/accounts/connection-feedback";
+import { accountReturnHref, connectionState, connectionWorkspaceKey, accountMessageConfirmation, ACCOUNT_POSITIVE_MESSAGES } from "@/accounts/connection-feedback";
 import { AccountForm, AccountNotice } from "./connection-feedback";
 import { randomUUID } from "node:crypto";
-import { ACCOUNT_PROVIDERS, type AccountWorkspace, type AccountSetupRun } from "@/accounts/contracts";
+import { ACCOUNT_PROVIDERS, type AccountWorkspace, type AccountSetupRun, type AccountProvider } from "@/accounts/contracts";
 import { StatusPill } from "@/components/stage7/app-shell";
 import { saveBusinessAccountProfile, requestAccountSetup, approveReviewedAccountSetup, cancelAccountSetup,
   resumeVerifiedAccountSetup, disconnectBusinessAccount, startApprovedAccountRegistration, finishOwnerRegistrationSession, removeOwnerWebsitePassword } from "./actions";
 
 export const accountMessages: Record<string, string> = {
-  "password-removed": "The saved Agent Labs website-password copy was removed. The password at the provider is unchanged.",
-  "password-stored": "Your unique website password was saved encrypted, separately from provider tokens. It has not been verified with the provider.",
+  "password-removed": "The current saved registry shows no stored website-password copy for this account. Check the provider separately if its password also needs changing.",
+  "password-stored": "An owner-saved encrypted website-password copy is recorded for this account, separately from provider tokens. It has not been verified with the provider.",
   "password-storage-unavailable": "The password could not be stored. Check that both entries match, meet the length requirements and that the connection is current. No credential details were logged.",
-  "profile-saved-browser-pending": "Profile saved and old approvals invalidated, but remote browser closure is unconfirmed. Close any owner browser tab; its session expires within 15 minutes.",
+  "profile-saved-browser-pending": "A saved account profile is present. Remote browser closure is unconfirmed; close any owner browser tab.",
   "verified-browser-pending": "Provider connection verified and saved. Remote signup browser closure is unconfirmed; close any owner browser tab and retry its close action.",
   "disconnected-browser-pending": "Agent Labs account access was disconnected. Remote signup browser closure is unconfirmed; close any owner browser tab and retry its close action.",
-  "profile-saved": "Account profile saved. New requests will use this revision.",
+  "profile-saved": "A saved account profile is present. New requests use its current revision.",
   "profile-unavailable": "The profile could not be saved. Refresh to check the latest revision; no existing data was overwritten.",
   "review-ready": "Review the exact service, data and access below before approving.",
   "consent-required": "Confirm each required consent before continuing.",
@@ -22,7 +22,7 @@ export const accountMessages: Record<string, string> = {
   "approval-unavailable": "Approval was not accepted. The profile or request may have changed or expired. Review a fresh request.",
   "registration-prepared": "Inspect the request below. A prepared form is not a created account; secure owner completion and independent verification are still required.",
   "owner-step-finished": "The owner browser was closed. Connect and independently verify the account before setup can complete.",
-  "browser-release-unconfirmed": "The app has disabled its owner-session link, but remote browser closure is unconfirmed. Close your live browser tab. The session expires within 15 minutes; you can retry the close action.",
+  "browser-release-unconfirmed": "Remote browser closure could not be confirmed from these records. Close any owner browser tab; if a close action is available, retry it.",
   approved: "Your exact request is approved. Follow the secure owner step below; verification is still required.",
   cancelled: "Setup stopped. An already completed provider action cannot be reversed here.",
   verified: "The provider connection was verified and saved for this Business.",
@@ -30,7 +30,7 @@ export const accountMessages: Record<string, string> = {
   "verification-input-invalid": "Check the token, intended store ID, store type and local cutoff in the secure form. No valid verification request was accepted.",
   "verification-access-denied": "Printful did not accept this token. Check its access in Printful token management, then use the secure owner form.",
   "verification-scope-rejected": "Printful reported unsupported token scopes. Use a store-specific token with only stores_list/read if a scope is required.",
-  "verification-store-scope-rejected": "This token did not provide access to exactly one store. Use a token restricted to the intended store.",
+  "verification-store-scope-rejected": "Could not confirm access to only the intended store. Check the token’s selected store and entered ID.",
   "verification-store-mismatch": "The provider store did not match the intended store ID or type. Check both before continuing; this Business’s stored identity cannot be switched.",
   "verification-rate-limited": "Printful rate-limited verification. Check the saved registry before trying again later; nothing was automatically retried.",
   "verification-expired": "This owner request has expired. Review a fresh exact request before entering a credential.",
@@ -39,25 +39,49 @@ export const accountMessages: Record<string, string> = {
   disconnected: "Agent Labs access was disconnected locally. Revoke the provider grant or token at the provider too.",
   "disconnect-unavailable": "The connection could not be disconnected. Refresh before retrying; its revision may have changed.",
 };
+export function accountNoticeMessage(data: AccountWorkspace | null, provider: AccountProvider, runId: string | undefined, message: string | undefined) {
+  if (!message || !Object.hasOwn(accountMessages, message)) return undefined;
+  const confirmation = data ? accountMessageConfirmation(data, provider, runId, message)
+    : (ACCOUNT_POSITIVE_MESSAGES as readonly string[]).includes(message) ? false : undefined;
+  if (confirmation === false) return "The requested outcome could not be confirmed from the current saved records. Check the saved state before continuing.";
+  if (message === "approved" && provider === "etsy") return "The saved request is approved. Etsy activation remains on hold.";
+  return accountMessages[message];
+}
 function RunFields({ run, businessId }: { run: AccountSetupRun; businessId: string }) {
   return <><input type="hidden" name="businessId" value={businessId} /><input type="hidden" name="runId" value={run.id} /><input type="hidden" name="revision" value={run.revision} /></>;
 }
 function SetupRequest({ run, workspace, returnTo, compact = false }: { run: AccountSetupRun; workspace: AccountWorkspace; returnTo?: string; compact?: boolean }) {
   const spec = ACCOUNT_PROVIDERS[run.provider], waiting = ["approved", "owner_handoff", "preparation_started"].includes(run.status);
-  const expired = !!run.approvalExpiresAt && Date.parse(run.approvalExpiresAt) <= Date.parse(workspace.observedAt);
-  return <article className="accountRequest">
-    <div className="sectionTitleRow"><h3>{run.mode === "create" ? "Set up" : "Connect"} {spec.name}</h3><StatusPill status={expired && !["verified", "cancelled"].includes(run.status) ? "expired" : run.status} /></div>
+  const activationHeld = compact && run.provider === "etsy";
+  const expired = run.status === "expired" || (!!run.approvalExpiresAt && (!Number.isFinite(Date.parse(run.approvalExpiresAt)) || Date.parse(run.approvalExpiresAt) <= Date.parse(workspace.observedAt)));
+  const readyForVerification = run.provider === "printful" && workspace.configured && workspace.vaultConfigured && !workspace.unavailable && run.status === "owner_handoff" && !!run.approvalExpiresAt && Date.parse(run.approvalExpiresAt) > Date.parse(workspace.observedAt);
+  const friendlyState = run.status === "failed" ? "Failed request"
+    : run.status === "expired" || (expired && (waiting || run.status === "pending_approval")) ? "Expired request"
+    : activationHeld ? "Activation on hold"
+    : run.status === "owner_handoff" ? readyForVerification ? "Ready for secure verification" : "Secure entry unavailable"
+    : run.status === "pending_approval" ? "Review required"
+    : run.status === "approved" ? "Approved request"
+    : run.status === "verified" ? "Verified request"
+    : run.status === "cancelled" ? "Stopped request"
+    : run.status === "invalidated" ? "Review no longer current"
+    : run.status === "preparation_started" ? "Setup preparation recorded" : "Saved request state unavailable";
+  const disclosure = <>
     <p>{run.disclosure.purpose}</p>
     <dl className="accountFacts"><div><dt>Destination</dt><dd>{run.disclosure.destination}</dd></div>
       <div><dt>Profile data shared</dt><dd>{Object.entries(run.disclosure.disclosedData).length ? Object.entries(run.disclosure.disclosedData).map(([key, value]) => <span className="accountDataValue" key={key}>{key}: {value}</span>) : "None for an API connection"}</dd></div>
-      <div><dt>Requested access</dt><dd>{run.disclosure.scopes.join(", ")}</dd></div>
+      <div><dt>Requested access</dt><dd>{compact ? run.disclosure.scopes.map(scope => scope === "catalog.read" ? "View catalog" : scope).join(", ") : run.disclosure.scopes.join(", ")}</dd></div>
       <div><dt>Spending authority</dt><dd>None. Stop for any charge, subscription or new financial commitment.</dd></div>
       <div><dt>Approval expires</dt><dd>{run.approvalExpiresAt ? new Date(run.approvalExpiresAt).toLocaleString("en", { timeZone: "UTC" }) + " UTC" : "Before execution"}</dd></div>
     </dl>
     <p><a href={spec.termsUrl} target="_blank" rel="noreferrer">{spec.name} terms</a>{" · "}<a href={run.provider === "etsy" ? "https://www.etsy.com/legal/privacy" : "https://www.printful.com/policies/privacy"} target="_blank" rel="noreferrer">Privacy policy</a></p>
     {run.provider === "etsy" ? <p className="accountHelp">Etsy access includes draft listing writes. Connection approval does not authorize a listing change, publication, shop-opening fee or purchase; those actions retain their separate gates.</p> : <><p className="accountHelp">Printful access is restricted to catalog reads in Agent Labs. Provider scopes and the exact store are independently checked. Product changes, orders and spending remain separate.</p><p className="accountWarning">Review the intended store before approving. This app saves one Printful store identity per Business and cannot switch it, even after a local disconnect. For Etsy selling, use the ecommerce-linked store already linked to the intended Etsy shop; do not bind a temporary Manual/API qualification store.</p></>}
-    {run.mode === "create" ? <p className="accountWarning">{workspace.registrationAvailable ? "The approved Browserbase flow prepares only the listed ordinary fields, then disconnects automation for secure owner completion. It does not submit passwords or infer account creation." : "Automatic registration is waiting for approved secure Browserbase activation, budget and session entitlement. No signup fields are sent through the current recorded browser. You can complete signup directly with the provider, then connect the account."} Saved approval alone does not mean an account was created.</p> : null}
-    {run.status === "pending_approval" && !expired && !(compact && run.provider === "etsy") ? <AccountForm action={approveReviewedAccountSetup} returnTo={returnTo} className="accountConsentForm" pendingLabel="Approving exact request…">
+    {run.mode === "create" ? <p className="accountWarning">{activationHeld ? "Etsy activation is on hold. Review the saved request; only stopping setup or closing an existing owner session is available." : workspace.registrationAvailable ? "The approved Browserbase flow prepares only the listed ordinary fields, then disconnects automation for secure owner completion. It does not submit passwords or infer account creation." : "Automatic registration is waiting for approved secure Browserbase activation, budget and session entitlement. No signup fields are sent through the current recorded browser. You can complete signup directly with the provider, then connect the account."} Saved approval alone does not mean an account was created.</p> : null}
+  </>;
+  return <article className="accountRequest">
+    <div className="sectionTitleRow"><h3>{run.mode === "create" ? "Set up" : "Connect"} {spec.name}</h3>{compact ? <span className="connectionRequestState">{friendlyState}</span> : <StatusPill status={expired && !["verified", "cancelled"].includes(run.status) ? "expired" : run.status} />}</div>
+    {compact ? <div className="connectionRequestSummary"><p>{activationHeld ? "Only stopping setup or closing an existing owner session is available." : readyForVerification ? "Next: use Verify Printful in the action panel." : run.status === "pending_approval" && !expired ? "Next: review the exact access and required consents below." : "Review the current saved state before continuing."}</p><dl className="accountFacts"><div><dt>Access</dt><dd>{run.disclosure.scopes.map(scope => scope === "catalog.read" ? "View catalog" : scope).join(", ")}</dd></div><div><dt>Approval expires</dt><dd>{run.approvalExpiresAt ? new Date(run.approvalExpiresAt).toLocaleString("en", { timeZone: "UTC" }) + " UTC" : "Before execution"}</dd></div></dl></div> : null}
+    {compact && run.status !== "pending_approval" ? <details className="connectionDetails"><summary>Saved request access and terms</summary>{disclosure}</details> : disclosure}
+    {run.status === "pending_approval" && !expired && !activationHeld ? <AccountForm action={approveReviewedAccountSetup} returnTo={returnTo} className="accountConsentForm" pendingLabel="Approving exact request…">
       <RunFields run={run} businessId={workspace.businessId} /><input type="hidden" name="disclosureHash" value={run.disclosureHash} />
       <label><input type="checkbox" name="dataConsent" data-field-label="Exact destination and profile data consent" required /> I approve the exact destination and profile data shown above</label>
       <label><input type="checkbox" name="accessConsent" data-field-label="Business connection access consent" required /> I approve this Business connection and the listed access, with no spending authority</label>
@@ -69,10 +93,11 @@ function SetupRequest({ run, workspace, returnTo, compact = false }: { run: Acco
       {run.provider === "printful" && compact ? <p className="accountHelp">Use Verify Printful to complete this approved request in the isolated secure owner form.</p> : run.provider === "printful" ? <><h4>Secure owner step</h4><p>Create or select a token for only the intended Printful store, with only stores_list/read if a scope is required. Enter it directly in the secure owner form. Never send it to an AI chat.</p><Link className="coreButton coreButton-primary" href={`/dashboard/accounts/secure?business=${workspace.businessId}&run=${run.id}${returnTo ? `&returnTo=${encodeURIComponent(returnTo)}` : ""}`}>Open secure Printful connection</Link></>
         : compact ? <p className="accountHelp">Etsy activation is on hold. This saved request does not activate OAuth or grant execution permission.</p> : <><h4>Authorize Etsy, then verify</h4><p>Use the existing secure OAuth flow for the intended shop. Return here to verify the exact connection.</p><Link className="coreButton" href={`/dashboard/etsy?business=${workspace.businessId}`}>Open Etsy connection</Link><form action={resumeVerifiedAccountSetup}><RunFields run={run} businessId={workspace.businessId} /><button className="coreButton coreButton-primary" type="submit">Verify Etsy connection</button></form></>}
     </div> : null}
-    {run.mode === "create" && run.status === "approved" && !expired ? <form action={startApprovedAccountRegistration}><RunFields run={run} businessId={workspace.businessId} /><button className="coreButton coreButton-primary" disabled={!workspace.registrationAvailable} type="submit">Prepare approved signup</button></form> : null}
-    {run.mode === "create" && run.status === "owner_handoff" && run.preparationReceipt?.reasonCode === "secure_owner_steps" && !expired ? <div className="accountNextStep"><Link className="coreButton coreButton-primary" href={`/dashboard/accounts/registration?business=${workspace.businessId}&run=${run.id}`}>Open secure owner signup</Link><form action={finishOwnerRegistrationSession}><RunFields run={run} businessId={workspace.businessId} /><button className="coreButton" type="submit">Close owner browser</button></form></div> : null}
-    {run.mode === "create" && waiting ? <a href={spec.registrationUrl} target="_blank" rel="noreferrer">Open {spec.name} signup securely in your own browser</a> : null}
-    {!["verified", "cancelled", "completed"].includes(run.status) ? <AccountForm action={cancelAccountSetup} returnTo={returnTo} pendingLabel="Stopping setup…"><RunFields run={run} businessId={workspace.businessId} /><button className="coreButton" type="submit">Stop setup</button></AccountForm> : null}
+    {!activationHeld && run.mode === "create" && run.status === "approved" && !expired ? <form action={startApprovedAccountRegistration}><RunFields run={run} businessId={workspace.businessId} /><button className="coreButton coreButton-primary" disabled={!workspace.registrationAvailable} type="submit">Prepare approved signup</button></form> : null}
+    {run.mode === "create" && run.status === "owner_handoff" && run.preparationReceipt?.reasonCode === "secure_owner_steps" && !expired ? <div className="accountNextStep">{!activationHeld ? <Link className="coreButton coreButton-primary" href={`/dashboard/accounts/registration?business=${workspace.businessId}&run=${run.id}`}>Open secure owner signup</Link> : null}{!compact ? <form action={finishOwnerRegistrationSession}><RunFields run={run} businessId={workspace.businessId} /><button className="coreButton" type="submit">Close owner browser</button></form> : null}</div> : null}
+    {!activationHeld && run.mode === "create" && waiting ? <a href={spec.registrationUrl} target="_blank" rel="noreferrer">Open {spec.name} signup securely in your own browser</a> : null}
+    {!compact && !["verified", "cancelled", "completed"].includes(run.status) ? <AccountForm action={cancelAccountSetup} returnTo={returnTo} pendingLabel="Stopping setup…"><RunFields run={run} businessId={workspace.businessId} /><button className="coreButton" type="submit">Stop setup</button></AccountForm> : null}
+    {compact ? <details className="connectionDetails"><summary>Technical request details</summary><dl className="accountFacts"><div><dt>Exact request ID</dt><dd>{run.id}</dd></div><div><dt>Saved request status</dt><dd>{run.status}</dd></div><div><dt>Machine scopes</dt><dd>{run.disclosure.scopes.join(", ")}</dd></div><div><dt>Connection ID</dt><dd>{run.connectionId}</dd></div><div><dt>Revision</dt><dd>{run.revision}</dd></div></dl></details> : null}
     {run.receipt ? <p className="accountHelp">Verification receipt saved. Account access does not qualify product execution or publication.</p> : null}
   </article>;
 }
@@ -121,11 +146,7 @@ export function CompactConnectionsWorkspace({ data, returnTo, provider = "printf
   const runExpired = !!run?.approvalExpiresAt && (!Number.isFinite(Date.parse(run.approvalExpiresAt)) || Date.parse(run.approvalExpiresAt) <= Date.parse(data.observedAt));
   const needsReview = runExpired || !run || !["pending_approval", "approved", "preparation_started", "owner_handoff"].includes(run.status) || selected.label === "Expired";
   const secureHref = run ? `/dashboard/accounts/secure?business=${data.businessId}&run=${run.id}&returnTo=${encodeURIComponent(href("printful"))}` : undefined;
-  const reportedVerification = message === "verified" || message === "verified-browser-pending";
-  const confirmedVerification = selected.label === "Connected" && run?.status === "verified" && run.connectionId === selected.account?.id;
-  const notice = reportedVerification && !confirmedVerification
-    ? "A verification result was reported, but the selected request and current saved registry do not confirm that connection. Check the saved state before trying again."
-    : message && Object.hasOwn(accountMessages, message) ? accountMessages[message] : undefined;
+  const notice = accountNoticeMessage(data, selectedProvider, runId, message);
   return <section key={connectionWorkspaceKey(data, message, resultId)} className="compactConnections" aria-label="Business connections">
     <AccountNotice message={notice}><p>Current saved registry: {states.map(item => `${ACCOUNT_PROVIDERS[item.provider].name} · ${item.label}`).join("; ")}</p></AccountNotice>
     {data.unavailable ? <p className="accountWarning" role="alert">Account records could not be checked. Existing connections and requests may still exist. Refresh the saved registry before trying again.</p> : <div className="connectionLayout">
@@ -142,20 +163,24 @@ export function CompactConnectionsWorkspace({ data, returnTo, provider = "printf
             : selectedProvider === "etsy" ? <p>Etsy activation is on hold. Existing saved access does not authorize new OAuth activation, listing changes or spending.</p>
             : selected.label === "Connected" ? <p>Store {selected.account?.externalAccountId} is verified in the saved registry. Review access details when needed.</p>
             : !data.profile ? <><p>Save the ordinary account profile before preparing an exact review.</p><a className="coreButton" href="#connection-profile">Set up account profile</a></>
-            : !needsReview && run?.status === "owner_handoff" && data.vaultConfigured ? <><p>Complete the secure owner step for the approved store request.</p><Link className="coreButton coreButton-primary" href={secureHref!}>Verify Printful</Link></>
+            : !needsReview && run?.status === "owner_handoff" && data.vaultConfigured && !!run.approvalExpiresAt && Date.parse(run.approvalExpiresAt) > Date.parse(data.observedAt) ? <><p>Complete the secure owner step for the approved store request.</p><Link className="coreButton coreButton-primary" href={secureHref!}>Verify Printful</Link></>
             : !needsReview ? <p>{run?.status === "pending_approval" ? "Review the exact request and required consents in the details pane." : "Review the saved request status before continuing. A current owner handoff and active vault are required."}</p>
             : <AccountForm action={requestAccountSetup} returnTo={href(selectedProvider)} pendingLabel="Preparing exact review…">
               <input type="hidden" name="businessId" value={data.businessId}/><input type="hidden" name="provider" value={selectedProvider}/><input type="hidden" name="mode" value="connect"/><input type="hidden" name="idempotencyKey" value={randomUUID()}/>
               <p>{selected.label === "Expired" ? "The saved request or credential has expired. Prepare a fresh exact review." : "Prepare the exact access request before securely entering a token."}</p>
               <button className="coreButton coreButton-primary" type="submit">Prepare Printful review</button>
             </AccountForm>}
+          {run ? <div className="connectionCleanup">
+            {!["verified", "cancelled", "completed"].includes(run.status) ? <AccountForm action={cancelAccountSetup} returnTo={href(selectedProvider)} pendingLabel="Stopping setup…"><RunFields run={run} businessId={data.businessId}/><button className="coreButton" type="submit">Stop setup</button></AccountForm> : null}
+            {run.mode === "create" && run.status === "owner_handoff" && run.preparationReceipt?.reasonCode === "secure_owner_steps" && !runExpired ? <AccountForm action={finishOwnerRegistrationSession} returnTo={href(selectedProvider)} pendingLabel="Closing owner browser…"><RunFields run={run} businessId={data.businessId}/><button className="coreButton" type="submit">Close owner browser</button></AccountForm> : null}
+          </div> : null}
         </div>
         <p className="accountHelp">Connected means saved, verified access. Product execution, publication, orders and spending keep separate approvals.</p>
       </div>
       <section className="connectionDetailPane" aria-label={`${ACCOUNT_PROVIDERS[selectedProvider].name} connection details`} tabIndex={0}>
-        <header className="connectionDetailHeader"><h2>{ACCOUNT_PROVIDERS[selectedProvider].name} details</h2><span>{run ? `Request ${run.id.slice(0, 8)}` : "No saved request"}</span></header>
+        <header className="connectionDetailHeader"><h2>{ACCOUNT_PROVIDERS[selectedProvider].name} details</h2><span title={run?.id} aria-label={run ? `Selected request ${run.id}` : undefined}>{run ? `Request ${run.id.slice(0, 8)}` : "No saved request"}</span></header>
         <div className="connectionDetailScroll">
-          {selected.account ? <details className="connectionDetails"><summary>Saved access · {selected.account.externalAccountId}</summary><dl className="accountFacts"><div><dt>Registry status</dt><dd>{selected.account.status}</dd></div><div><dt>Permitted access</dt><dd>{selected.account.scopes.join(", ")}</dd></div><div><dt>Verified</dt><dd>{selected.account.verifiedAt ?? "Not recorded"}</dd></div><div><dt>Local cutoff</dt><dd>{selected.account.expiresAt ?? "Not recorded"}</dd></div></dl>
+          {selected.account ? <details className="connectionDetails"><summary>Saved access · {selected.account.externalAccountId}</summary><dl className="accountFacts"><div><dt>Registry status</dt><dd>{selected.account.status}</dd></div><div><dt>Permitted access</dt><dd>{selected.account.scopes.map(scope => scope === "catalog.read" ? "View catalog" : scope).join(", ")}</dd></div><div><dt>Machine scopes</dt><dd>{selected.account.scopes.join(", ")}</dd></div><div><dt>Verified</dt><dd>{selected.account.verifiedAt ?? "Not recorded"}</dd></div><div><dt>Local cutoff</dt><dd>{selected.account.expiresAt ?? "Not recorded"}</dd></div></dl>
             {selected.account.status === "connected" ? <AccountForm action={disconnectBusinessAccount} returnTo={href(selectedProvider)} className="accountConsentForm" pendingLabel="Disconnecting local access…"><input type="hidden" name="businessId" value={data.businessId}/><input type="hidden" name="provider" value={selectedProvider}/><input type="hidden" name="connectionRevision" value={selected.account.revision}/><label><input type="checkbox" name="disconnectConsent" data-field-label="Disconnect consent" required/> Stop Agent Labs API access and remove its saved provider token. Any separately saved website password is retained. Revoke the token/grant at the provider too.</label><button className="coreButton" type="submit">Disconnect locally</button></AccountForm> : null}
           </details> : null}
           {run ? <SetupRequest run={run} workspace={data} returnTo={href(selectedProvider)} compact/> : <p>{selectedMissing ? "The selected request is unavailable in the loaded history. Its current state could not be established." : historyIncomplete ? "Only the latest 50 requests across providers were loaded. Earlier requests may exist." : `No setup request is saved for ${ACCOUNT_PROVIDERS[selectedProvider].name}.`}</p>}
@@ -171,7 +196,7 @@ export function CompactConnectionsWorkspace({ data, returnTo, provider = "printf
               <button className="coreButton" type="submit" disabled={!data.configured}>Save profile</button>
             </AccountForm>
           </details>
-          <details className="connectionDetails"><summary>Request history · {data.runs.filter(item => item.provider === selectedProvider).length} loaded</summary><ul className="connectionHistory">{data.runs.filter(item => item.provider === selectedProvider).map(item => <li key={item.id}><Link href={accountReturnHref(data.businessId, { returnTo, provider: selectedProvider, runId: item.id })}>{item.id.slice(0, 8)} · {item.status.replaceAll("_", " ")}</Link><small>{item.createdAt}</small></li>)}</ul>{data.runs.length >= 50 ? <p>Only the latest loaded requests are shown; older requests may exist.</p> : null}</details>
+          <details className="connectionDetails"><summary>Request history · {data.runs.filter(item => item.provider === selectedProvider).length} loaded</summary><ul className="connectionHistory">{data.runs.filter(item => item.provider === selectedProvider).map(item => <li key={item.id}><Link title={item.id} aria-label={`Inspect ${ACCOUNT_PROVIDERS[selectedProvider].name} request ${item.id}, ${item.status.replaceAll("_", " ")}`} href={accountReturnHref(data.businessId, { returnTo, provider: selectedProvider, runId: item.id })}>{item.id.slice(0, 8)} · {item.status.replaceAll("_", " ")}</Link><small>{item.createdAt}</small></li>)}</ul>{data.runs.length >= 50 ? <p>Only the latest loaded requests are shown; older requests may exist.</p> : null}</details>
           <details className="connectionDetails"><summary>Connection history · {data.healthEvents.filter(item => item.provider === selectedProvider).length} loaded</summary><ul className="connectionHistory">{data.healthEvents.filter(item => item.provider === selectedProvider).map(event => <li key={event.id}>{event.eventType.replaceAll("_", " ")}<small>{event.occurredAt}</small></li>)}</ul></details>
         </div>
       </section>

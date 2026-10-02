@@ -13,10 +13,10 @@ import { PrintfulConnectionError } from "@/accounts/printful";
 import { accountReturnHref, printfulFailureMessage } from "@/accounts/connection-feedback";
 
 const field = (form: FormData, key: string) => typeof form.get(key) === "string" ? String(form.get(key)) : "";
-function done(businessId: string, message: string, form: FormData): never {
+function done(businessId: string, message: string, form: FormData, completedRunId?: string): never {
   revalidatePath("/dashboard");
   revalidatePath("/dashboard/accounts"); revalidatePath("/dashboard/printful"); revalidatePath("/dashboard/needs-you");
-  redirect(accountReturnHref(businessId, { message, returnTo: field(form, "returnTo"), runId: field(form, "runId"), provider: field(form, "provider"), resultId: randomUUID() }));
+  redirect(accountReturnHref(businessId, { message, returnTo: field(form, "returnTo"), runId: completedRunId ?? field(form, "runId"), provider: field(form, "provider"), resultId: randomUUID() }));
 }
 export async function saveBusinessAccountProfile(form: FormData) {
   const context = await requireOwnerUiContext(), businessId = field(form, "businessId");
@@ -27,9 +27,10 @@ export async function saveBusinessAccountProfile(form: FormData) {
 }
 export async function requestAccountSetup(form: FormData) {
   const context = await requireOwnerUiContext(), businessId = field(form, "businessId");
-  try { await prepareAccountSetup(context, businessId, field(form, "provider"), field(form, "mode"), field(form, "idempotencyKey")); }
+  let preparedRunId: string;
+  try { preparedRunId = (await prepareAccountSetup(context, businessId, field(form, "provider"), field(form, "mode"), field(form, "idempotencyKey"))).id; }
   catch { done(businessId, "setup-unavailable", form); }
-  done(businessId, "review-ready", form);
+  done(businessId, "review-ready", form, preparedRunId);
 }
 export async function approveReviewedAccountSetup(form: FormData) {
   const context = await requireOwnerUiContext(), businessId = field(form, "businessId");

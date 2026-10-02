@@ -81,6 +81,66 @@ test("connection summaries use persisted verification, cutoff and uncertainty ra
   }
 });
 
+test("positive result query strings never confirm an action while the saved registry is unavailable", async () => {
+  const positive = ["profile-saved", "profile-saved-browser-pending", "review-ready", "approved", "registration-prepared", "owner-step-finished", "cancelled", "verified", "verified-browser-pending", "disconnected", "disconnected-browser-pending", "password-stored", "password-removed"];
+  for (const message of positive) {
+    const result = await connectionsPage(connectionsStart + `&accountMessage=${message}&accountResult=${fixture.revision}`, { workspace: connectionsWorkspace({ unavailable: true }) });
+    const notice = result.islands.find(island => island.name === "AccountNotice")?.props.message;
+    assert.match(notice, /(?:not|cannot|could not|unable).{0,60}confirm/i, `${message} must be qualified by available saved state`);
+    assert.match(result.markup.replace(/<!--.*?-->/g, ""), /Current saved registry: Etsy · Unavailable; Printful · Unavailable/);
+  }
+});
+
+test("every positive notice requires matching current saved profile, request or account evidence", () => {
+  const base = connectionsWorkspace(), request = base.runs[0];
+  const account = { ...base.accounts[0], id: fixture.connectionId, provider: "printful", passwordStored: true, passwordRevision: fixture.revision };
+  const withRun = patch => ({ ...base, runs: [{ ...request, ...patch }] });
+  const withAccount = patch => ({ ...base, accounts: [{ ...account, ...patch }] });
+  const verified = { ...withRun({ status: "verified" }), accounts: [account] };
+  const entries = [
+    ["profile-saved", base, { ...base, profile: null }],
+    ["profile-saved-browser-pending", base, { ...base, profile: null }],
+    ["review-ready", withRun({ status: "pending_approval" }), withRun({ status: "owner_handoff" })],
+    ["approved", withRun({ status: "owner_handoff" }), withRun({ status: "pending_approval" })],
+    ["cancelled", withRun({ status: "cancelled" }), withRun({ status: "failed" })],
+    ["registration-prepared", withRun({ mode: "create", status: "owner_handoff", preparationReceipt: { outcome: "prepared" } }), withRun({ mode: "create", status: "owner_handoff", preparationReceipt: null })],
+    ["verified", verified, { ...verified, accounts: [{ ...account, id: fixture.otherBusinessId }] }],
+    ["verified-browser-pending", verified, withRun({ status: "verified" })],
+    ["disconnected", withAccount({ status: "revoked" }), withAccount({ status: "connected" })],
+    ["disconnected-browser-pending", withAccount({ status: "revoked" }), withAccount({ status: "connected" })],
+    ["password-stored", withAccount({}), withAccount({ passwordRevision: "malformed" })],
+    ["password-removed", withAccount({ passwordStored: false }), withAccount({ passwordStored: true })],
+  ];
+  assert.deepEqual([...connectionContract.ACCOUNT_POSITIVE_MESSAGES].sort(), [...entries.map(([message]) => message), "owner-step-finished"].sort());
+  for (const [message, good, bad] of entries) {
+    assert.equal(connectionContract.accountMessageConfirmation(good, "printful", runId, message), true, `${message}: saved evidence`);
+    assert.equal(connectionContract.accountMessageConfirmation(bad, "printful", runId, message), false, `${message}: contradictory or missing evidence`);
+    assert.equal(connectionContract.accountMessageConfirmation({ ...good, unavailable: true }, "printful", runId, message), false, `${message}: unavailable records`);
+  }
+  for (const message of ["review-ready", "approved", "registration-prepared", "verified", "verified-browser-pending", "cancelled"]) {
+    const good = entries.find(([key]) => key === message)[1];
+    assert.equal(connectionContract.accountMessageConfirmation(good, "printful", undefined, message), false, `${message} needs an exact selection`);
+    assert.equal(connectionContract.accountMessageConfirmation(good, "printful", fixture.connectionId, message), false, `${message} cannot borrow another request`);
+  }
+  for (const [message, good] of entries.filter(([key]) => ["review-ready", "approved", "registration-prepared"].includes(key))) {
+    const stale = { ...good, runs: good.runs.map(item => ({ ...item, approvalExpiresAt: good.observedAt })) };
+    assert.equal(connectionContract.accountMessageConfirmation(stale, "printful", runId, message), false, `${message} rejects expired approval`);
+    assert.equal(connectionContract.accountMessageConfirmation({ ...good, profile: { ...good.profile, revision: fixture.connectionId } }, "printful", runId, message), false, `${message} rejects a stale profile revision`);
+  }
+  assert.equal(connectionContract.accountMessageConfirmation(base, "printful", runId, "owner-step-finished"), false, "Workspace metadata cannot prove remote browser closure");
+  assert.equal(connectionContract.accountMessageConfirmation(base, "printful", runId, "verification-unavailable"), undefined, "Warnings are not promoted to success claims");
+});
+
+test("forged approved feedback on a pending request stays neutral and still requires approval", async () => {
+  const workspace = connectionsWorkspace(), request = { ...workspace.runs[0], status: "pending_approval" };
+  const result = await connectionsPage(connectionsStart + `&accountMessage=approved&accountResult=${fixture.revision}`, { workspace: { ...workspace, runs: [request] } });
+  const notice = result.islands.find(island => island.name === "AccountNotice")?.props.message;
+  assert.match(notice, /(?:not|cannot|could not|unable).{0,60}confirm/i);
+  assert.doesNotMatch(notice, /Your exact request is approved/);
+  assert.match(result.markup, /Approve exact request/);
+  assert.doesNotMatch(result.markup, /href="\/dashboard\/accounts\/secure/);
+});
+
 test("actual root Connections keeps a populated registry, request history and safe scoped secure entry", async () => {
   const result = await connectionsPage(connectionsStart);
   assert.match(result.markup, /data-console-view="connections"/);
@@ -240,6 +300,7 @@ test("hosted actual-root and secure Connections journey validates labels, pendin
         assert.deepEqual(call.submittedChecks, { credentialMatches: true, storeIdMatches: true, storeKindMatches: true, consentMatches: true, cutoffMatches: true }, "Pending lock must not remove secure fields before React captures FormData");
         await assertPrivate(page, logs); await checkLayout(page, { desktop: width >= 1280 });
         await page.screenshot({ path: path.join(directory, `console-connections-pending-${suffix}.png`), fullPage: true });
+        if (width < 901) await page.screenshot({ path: path.join(directory, `console-connections-pending-${suffix}-viewport.png`), fullPage: false });
         registrySaved = true;
         await page.evaluate(() => window.__settleConnectionAction("verified", true));
         await page.waitForFunction(() => window.__connectionsActionResolved);
@@ -258,6 +319,7 @@ test("hosted actual-root and secure Connections journey validates labels, pendin
         await page.waitForFunction(() => document.activeElement?.id === "connection-notice"); await visibleNotice(result);
         await checkLayout(page, { desktop: width >= 1280 }); await assertPrivate(page, logs);
         await page.screenshot({ path: path.join(directory, `console-connections-return-${suffix}.png`), fullPage: true });
+        if (width < 901) await page.screenshot({ path: path.join(directory, `console-connections-return-${suffix}-viewport.png`), fullPage: false });
         await page.reload(); await hydrated(); assert.match(await page.locator("#connection-notice").innerText(), /verified and saved/);
         if (width === 1280) {
           await page.locator("#connection-profile > summary").click();
@@ -326,4 +388,15 @@ test("hosted secure form keeps bad-scope, wrong-store, expired, uncertain and ne
       } finally { await context.close(); }
     });
   } finally { await browser.close(); }
+});
+
+
+test("compact request details label failed and unknown saved states without inventing preparation", async () => {
+  const base = connectionsWorkspace();
+  for (const [status, label] of [["failed", "Failed request"], ["future_unknown_status", "Saved request state unavailable"]]) {
+    const workspace = { ...base, runs: [{ ...base.runs[0], status }] };
+    const page = await connectionsPage(connectionsStart, { workspace });
+    assert.match(page.markup, new RegExp(label));
+    assert.doesNotMatch(page.markup, /class="connectionRequestState">Setup preparation recorded/);
+  }
 });

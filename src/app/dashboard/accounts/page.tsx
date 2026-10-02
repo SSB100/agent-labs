@@ -2,7 +2,7 @@ import Link from "next/link";
 import { accountReturnHref } from "@/accounts/connection-feedback";
 import { notFound, redirect } from "next/navigation";
 import { loadAccountWorkspace } from "@/accounts/server";
-import { BusinessAccountWorkspace, accountMessages } from "./account-workspace";
+import { BusinessAccountWorkspace, accountNoticeMessage } from "./account-workspace";
 import "./accounts.css";
 
 import {
@@ -105,7 +105,10 @@ export default async function AccountsPage({ searchParams }: AccountsPageProps) 
   if (requestedBusiness && !context.businessesUnavailable && !context.businesses.some(business => business.id === requestedBusiness)) notFound();
   const selectedBusiness = context.businesses.find(b => b.id === requestedBusiness) ?? context.businesses[0];
   const accountWorkspace = selectedBusiness ? await loadAccountWorkspace(context, selectedBusiness.id) : null;
-  const accountMessage = accountMessages[first(query.accountMessage) ?? ""];
+  const selectedRequestId = first(query.connectionRun) ?? first(query.run);
+  const selectedRequest = accountWorkspace?.runs.find(run => run.id === selectedRequestId);
+  const messageProvider = selectedRequest?.provider ?? (first(query.provider) === "etsy" ? "etsy" : "printful");
+  const accountMessage = accountNoticeMessage(accountWorkspace, messageProvider, selectedRequestId, first(query.accountMessage));
 
   const [providerResult, sessionResult, plannerResult, plannerCaseResult] = await Promise.all([
     context.supabase
