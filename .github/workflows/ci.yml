@@ -268,3 +268,26 @@ jobs:
           path: test-results/guided-ui/navigation-*.png
           if-no-files-found: warn
           retention-days: 14
+
+  r03-next:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Install exact dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Install pinned inert browser
+        run: npx playwright-core install --with-deps chromium
+      - name: Verify real production Next navigation and actions
+        run: node scripts/verify-r03-next.mjs
+      - name: Preserve all screenshots and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r03-next-${{ github.sha }}
+          path: test-results/r03-next/
+          if-no-files-found: error
+          retention-days: 14

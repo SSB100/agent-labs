@@ -1,3 +1,4 @@
+import { ConsoleRetainedWorkspace } from "@/components/console/console-retained-workspace";
 import Link from "next/link";
 import { accountReturnHref } from "@/accounts/connection-feedback";
 import { notFound, redirect } from "next/navigation";
@@ -173,21 +174,15 @@ export default async function AccountsPage({ searchParams }: AccountsPageProps) 
   ];
 
   return (
-    <AppShell active="accounts" context={context} navigationBusinessId={selectedBusiness?.id}>
-      <PageHeader
+    <AppShell toolDestination="diagnostics" active="accounts" context={context} navigationBusinessId={selectedBusiness?.id}><ConsoleRetainedWorkspace ownerId={context.userId}  header={<><PageHeader
         description="Business accounts, the access you approved, and the exact next setup step."
         eyebrow="Connections"
         title="Connections"
       />
-
-      {message ? <p className="coreNotice coreNotice-success" role="status">{message}</p> : null}
-      {error ? <p className="coreNotice coreNotice-danger" role="alert">{error}</p> : null}
-
-      {accountMessage ? <p className="coreNotice" role="status">{accountMessage}</p> : null}
-      {context.businesses.length > 1 ? <form method="get" className="accountProvider"><label>Business <select name="business" defaultValue={selectedBusiness?.id}>{context.businesses.map(b => <option value={b.id} key={b.id}>{b.name}</option>)}</select></label><button className="coreButton" type="submit">Switch Business</button></form> : null}
-      {accountWorkspace ? <BusinessAccountWorkspace data={accountWorkspace} /> : <p>{context.businessesUnavailable ? "Business records could not be checked. Reload before starting account setup." : "Create a Business before setting up external accounts."}</p>}
-
-      <details className="guidedDisclosure"><summary>Advanced platform diagnostics<span>Configuration, browser providers and qualification tools</span></summary>
+{message ? <p className="coreNotice coreNotice-success" role="status">{message}</p> : null}
+{error ? <p className="coreNotice coreNotice-danger" role="alert">{error}</p> : null}
+{accountMessage ? <p className="coreNotice" role="status">{accountMessage}</p> : null}
+{context.businesses.length > 1 ? <form method="get" className="accountProvider"><input type="hidden" name="diagnostics" value="platform" /><label>Business <select name="business" defaultValue={selectedBusiness?.id}>{context.businesses.map(b => <option value={b.id} key={b.id}>{b.name}</option>)}</select></label><button className="coreButton" type="submit">Switch Business</button></form> : null}</>} panels={[{ id: "diagnostics", label: "Platform diagnostics", content: <><details className="guidedDisclosure" open><summary>Advanced platform diagnostics<span>Configuration, browser providers and qualification tools</span></summary>
       <section className="dashboardSection">
         <div className="sectionTitleRow">
           <div><p className="coreEyebrow">System services</p><h2>Configured services</h2></div>
@@ -329,13 +324,13 @@ export default async function AccountsPage({ searchParams }: AccountsPageProps) 
         )}
       </section>
 
-      </details>
-      <section className="dashboardSection" aria-labelledby="etsy-account-title">
+      </details></> },
+{ id: "requests", label: "Account requests", content: <>{accountWorkspace ? <BusinessAccountWorkspace data={accountWorkspace} /> : <p>{context.businessesUnavailable ? "Business records could not be checked. Reload before starting account setup." : "Create a Business before setting up external accounts."}</p>}</> },
+{ id: "etsy", label: "Etsy operations", content: <><section className="dashboardSection" aria-labelledby="etsy-account-title">
         <div className="sectionTitleRow"><div><p className="coreEyebrow">Draft-only capability</p><h2 id="etsy-account-title">Etsy drafts</h2></div><StatusPill status="experimental" /></div>
         <div className="browserQualificationPanel"><div><h3>Prepare listings from approved products</h3><p>Connect your shop securely, approve a qualified product, and track verified draft preparation. Upstream product and artwork checks remain required.</p><small>Public activation, orders and paid actions are unavailable.</small></div><Link className="coreButton coreButton-primary" href={`/dashboard/etsy${selectedBusiness ? `?business=${selectedBusiness.id}` : ""}`}>Open Etsy drafts</Link></div>
-      </section>
-
-      <section className="dashboardSection" aria-labelledby="printful-account-title">
+      </section></> },
+{ id: "printful", label: "Printful operations", content: <><section className="dashboardSection" aria-labelledby="printful-account-title">
         <div className="sectionTitleRow">
           <div><p className="coreEyebrow">Stage 15 foundation</p><h2 id="printful-account-title">Print fulfilment · Printful</h2></div>
           <StatusPill status="experimental" />
@@ -352,8 +347,6 @@ export default async function AccountsPage({ searchParams }: AccountsPageProps) 
             <small>Product execution remains separately gated</small>
           </div>
         </div>
-      </section>
-
-    </AppShell>
+      </section></> }]} /></AppShell>
   );
 }

@@ -1,3 +1,6 @@
+import { AppShell } from "@/components/stage7/app-shell";
+import { ConsoleRetainedWorkspace } from "@/components/console/console-retained-workspace";
+import { requireOwnerUiContext } from "@/lib/core-ui/data";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -5,7 +8,6 @@ import {
   GENERIC_RESEARCHER_EVALUATION_SUITE_KEY,
   GENERIC_RESEARCHER_EVALUATION_SUITE_VERSION,
 } from "../../../evaluations/generic-researcher-suite";
-import { createClient } from "../../../lib/supabase/server";
 import { isOpenRouterConfigured } from "../../../models/openrouter";
 import { MODEL_RESEARCHER_WORKER_DEFINITION_ID } from "../../../workers/generic-researcher-model";
 
@@ -146,7 +148,8 @@ function formatDate(value: string | null) {
 }
 
 export default async function WorkerEvaluationsPage({ searchParams }: Props) {
-  const supabase = await createClient();
+  const context = await requireOwnerUiContext();
+  const supabase = context.supabase;
   const { data: claimsData, error: claimsError } = await supabase.auth.getClaims();
   const userId = claimsData?.claims?.sub;
   if (claimsError || !userId) redirect("/login?error=session-required");
@@ -241,7 +244,7 @@ export default async function WorkerEvaluationsPage({ searchParams }: Props) {
   const running = runs.some((run) => run.status === "running");
   const totalCost = results.reduce(
     (sum, result) =>
-      sum + numberValue(result.reported_cost_usd ?? result.estimated_cost_usd),
+      sum + numberValue(result.reported_cost_usd),
     0,
   );
   const totalTokens = results.reduce(
@@ -254,43 +257,22 @@ export default async function WorkerEvaluationsPage({ searchParams }: Props) {
   const error = errors[first(query.error) ?? ""];
   const promotionStates = ["experimental", "qualified", "assisted", "autonomous"];
 
-  return (
-    <div className="appFrame">
-      <aside className="appSidebar">
-        <Link className="appBrand" href="/dashboard">
-          <span className="brandMark" aria-hidden="true">AL</span>
-          <span><strong>Agent Labs</strong><small>Worker evaluations</small></span>
-        </Link>
-        <nav className="appNav" aria-label="Worker evaluation navigation">
-          <Link className="navItem" href="/dashboard">Control centre</Link>
-          <Link className="navItem" href="/dashboard/worker-proof">Worker proof</Link>
-          <Link className="navItem" href="/dashboard/model-router">Model router</Link>
-          <Link className="navItem active" href="/dashboard/worker-evaluations">
-            Worker evaluations
-          </Link>
-        </nav>
-      </aside>
-
-      <main className="appMain">
-        <header className="workspaceHeader">
+  return (<AppShell active="settings" toolDestination="worker-evaluations" context={context}><ConsoleRetainedWorkspace ownerId={context.userId} notice={<p className="coreNotice">Recent loaded records only. Earlier history and complete totals remain pending R06.</p>} header={<><header className="workspaceHeader">
           <div className="workspaceTitle"><p>Stage 6</p><h1>Worker evaluations</h1></div>
           <Link className="ghostButton" href="/dashboard">Back</Link>
         </header>
-
-        {message ? <p className="notice success" role="status">{message}</p> : null}
-        {error ? <p className="notice error" role="alert">{error}</p> : null}
-        {loadError ? (
+{message ? <p className="notice success" role="status">{message}</p> : null}
+{error ? <p className="notice error" role="alert">{error}</p> : null}
+{loadError ? (
           <p className="notice error" role="alert">
             Some Worker evaluation records could not be loaded.
           </p>
         ) : null}
-        {!configured ? (
+{!configured ? (
           <p className="notice error" role="alert">
             OpenRouter must be configured before live Worker evaluations can run.
           </p>
-        ) : null}
-
-        <section className="summaryGrid" aria-label="Worker qualification summary">
+        ) : null}</>} panels={[{ id: "evaluations", label: "Evaluations", content: <><section className="summaryGrid" aria-label="Worker qualification summary">
           <article className="summaryCard">
             <span className="summaryLabel">Worker status</span>
             <strong style={{ fontSize: "1.3rem" }}>{humanize(worker?.status ?? null)}</strong>
@@ -308,16 +290,84 @@ export default async function WorkerEvaluationsPage({ searchParams }: Props) {
             <strong className="summaryValue">{cases.filter((entry) => entry.required).length}</strong>
           </article>
           <article className="summaryCard">
-            <span className="summaryLabel">Recorded tokens</span>
+            <span className="summaryLabel">Loaded recorded tokens</span>
             <strong className="summaryValue">{totalTokens.toLocaleString("en-NZ")}</strong>
           </article>
           <article className="summaryCard">
-            <span className="summaryLabel">Recorded evaluation cost</span>
+            <span className="summaryLabel">Loaded evaluation cost</span>
             <strong style={{ fontSize: "1.3rem" }}>{formatUsd(totalCost)}</strong>
           </article>
         </section>
-
-        <section className="dashboardGrid">
+<section className="operationsPanel">
+          <div className="panelHeading workflowHeading">
+            <div><p className="panelLabel">Durable evidence</p><h2>Evaluation history</h2></div>
+            <span className="countBadge">{runs.length}</span>
+          </div>
+          {runs.length ? (
+            <div className="workflowList">
+              {runs.map((run) => {
+                const caseResults = resultsByRun.get(run.id) ?? [];
+                const runCost = caseResults.reduce(
+                  (sum, result) =>
+                    sum + numberValue(result.reported_cost_usd),
+                  0,
+                );
+                return (
+                  <article className="workflowCard" key={run.id}>
+                    <div className="workflowCardHeader">
+                      <div>
+                        <p className="workflowBusiness">{humanize(run.source)}</p>
+                        <h3>{suite?.name ?? "Worker evaluation"}</h3>
+                        <p>
+                          Started {formatDate(run.started_at)} · fingerprint {run.subject_fingerprint.slice(0, 12)}…
+                        </p>
+                      </div>
+                      <span className={`workflowStatus status-${run.status}`}>
+                        {humanize(run.status)}
+                      </span>
+                    </div>
+                    <ol className="stageTimeline" aria-label="Evaluation cases">
+                      {caseResults.map((result) => {
+                        const evaluationCase = caseById.get(result.case_id);
+                        const model = result.model_definition_id
+                          ? modelById.get(result.model_definition_id)
+                          : null;
+                        return (
+                          <li className={`stageState stage-${result.status}`} key={result.id}>
+                            <span className="stageMarker" aria-hidden="true" />
+                            <div>
+                              <strong>{evaluationCase?.name ?? "Evaluation case"}</strong>
+                              <small>
+                                {humanize(result.status)}
+                                {model ? ` · ${model.display_name}` : ""}
+                                {result.input_tokens + result.output_tokens > 0
+                                  ? ` · ${(result.input_tokens + result.output_tokens).toLocaleString("en-NZ")} tokens`
+                                  : ""}
+                                {result.provider_model_id ? ` · ${result.provider_model_id}` : ""}
+                              </small>
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ol>
+                    <div className="workflowMeta">
+                      <span>Score {run.score === null ? "pending" : `${numberValue(run.score).toFixed(1)}%`}</span>
+                      <span>{run.passed_case_count} passed</span>
+                      <span>{run.failed_case_count} failed</span>
+                      <span>{formatUsd(runCost)}</span>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="emptyState">
+              <h3>No evaluations yet</h3>
+              <p>Run the qualification suite to create the first durable competence record.</p>
+            </div>
+          )}
+        </section></> },
+{ id: "suite", label: "Suite & qualification", content: <><section className="dashboardGrid">
           <article className="businessPanel">
             <div className="panelHeading">
               <div><p className="panelLabel">Qualification suite</p><h2>{suite?.name ?? "Unavailable"}</h2></div>
@@ -376,9 +426,8 @@ export default async function WorkerEvaluationsPage({ searchParams }: Props) {
               <p>Live model evaluation {configured ? "ready" : "needs configuration"}</p>
             </div>
           </aside>
-        </section>
-
-        <section className="operationsPanel">
+        </section></> },
+{ id: "promotions", label: "Promotions", content: <><section className="operationsPanel">
           <div className="panelHeading workflowHeading">
             <div><p className="panelLabel">Promotion policy</p><h2>Worker maturity</h2></div>
             <span className="countBadge">{humanize(worker?.status ?? null)}</span>
@@ -417,78 +466,6 @@ export default async function WorkerEvaluationsPage({ searchParams }: Props) {
               </ul>
             </div>
           ) : null}
-        </section>
-
-        <section className="operationsPanel">
-          <div className="panelHeading workflowHeading">
-            <div><p className="panelLabel">Durable evidence</p><h2>Evaluation history</h2></div>
-            <span className="countBadge">{runs.length}</span>
-          </div>
-          {runs.length ? (
-            <div className="workflowList">
-              {runs.map((run) => {
-                const caseResults = resultsByRun.get(run.id) ?? [];
-                const runCost = caseResults.reduce(
-                  (sum, result) =>
-                    sum + numberValue(result.reported_cost_usd ?? result.estimated_cost_usd),
-                  0,
-                );
-                return (
-                  <article className="workflowCard" key={run.id}>
-                    <div className="workflowCardHeader">
-                      <div>
-                        <p className="workflowBusiness">{humanize(run.source)}</p>
-                        <h3>{suite?.name ?? "Worker evaluation"}</h3>
-                        <p>
-                          Started {formatDate(run.started_at)} · fingerprint {run.subject_fingerprint.slice(0, 12)}…
-                        </p>
-                      </div>
-                      <span className={`workflowStatus status-${run.status}`}>
-                        {humanize(run.status)}
-                      </span>
-                    </div>
-                    <ol className="stageTimeline" aria-label="Evaluation cases">
-                      {caseResults.map((result) => {
-                        const evaluationCase = caseById.get(result.case_id);
-                        const model = result.model_definition_id
-                          ? modelById.get(result.model_definition_id)
-                          : null;
-                        return (
-                          <li className={`stageState stage-${result.status}`} key={result.id}>
-                            <span className="stageMarker" aria-hidden="true" />
-                            <div>
-                              <strong>{evaluationCase?.name ?? "Evaluation case"}</strong>
-                              <small>
-                                {humanize(result.status)}
-                                {model ? ` · ${model.display_name}` : ""}
-                                {result.input_tokens + result.output_tokens > 0
-                                  ? ` · ${(result.input_tokens + result.output_tokens).toLocaleString("en-NZ")} tokens`
-                                  : ""}
-                                {result.provider_model_id ? ` · ${result.provider_model_id}` : ""}
-                              </small>
-                            </div>
-                          </li>
-                        );
-                      })}
-                    </ol>
-                    <div className="workflowMeta">
-                      <span>Score {run.score === null ? "pending" : `${numberValue(run.score).toFixed(1)}%`}</span>
-                      <span>{run.passed_case_count} passed</span>
-                      <span>{run.failed_case_count} failed</span>
-                      <span>{formatUsd(runCost)}</span>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="emptyState">
-              <h3>No evaluations yet</h3>
-              <p>Run the qualification suite to create the first durable competence record.</p>
-            </div>
-          )}
-        </section>
-      </main>
-    </div>
+        </section></> }]} /></AppShell>
   );
 }

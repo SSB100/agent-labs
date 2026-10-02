@@ -1,0 +1,35 @@
+.consoleRetained { display: flex; flex-direction: column; height: 100%; min-height: 0; min-width: 0; gap: 8px; }
+.consoleRetainedHeader { flex: 0 0 auto; min-width: 0; }
+.consoleRetainedHeader .corePageHeader, .consoleRetainedHeader .workspaceHeader { margin: 0; padding: 8px 10px; }
+.consoleRetainedHeader h1 { font-size: 21px; }
+.consoleRetainedHeader p { margin: 4px 0; }
+.consoleRetainedTabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 8px; }
+.consoleRetainedTabs a { display: flex; align-items: center; min-height: 36px; padding: 5px 10px; border: 1px solid var(--console-border); border-radius: 4px; color: var(--console-muted); }
+.consoleRetainedTabs a[aria-current=page] { color: var(--console-cyan); border-color: var(--console-edge); background: var(--console-panel-raised); }
+.consoleRetainedBody { flex: 1; min-height: 0; min-width: 0; overflow: auto; overscroll-behavior: contain; overflow-anchor: none; padding: 10px; border: 1px solid var(--console-border); border-radius: 6px; background: var(--console-panel); scrollbar-width: thin; }
+.consoleRetainedBody[hidden] { display: none; }
+.consoleRetained :where(section,article,div,form,label,select,input,textarea) { min-width: 0; max-width: 100%; }
+.consoleRetained :where(p,dd,h2,h3,code,small,summary,a,label,strong) { overflow-wrap: anywhere; }
+.consoleRetained :where(input,select,textarea) { box-sizing: border-box; width: 100%; }
+.consoleRetained input:is([type=checkbox],[type=radio]) { width: auto; }
+.consoleRetained :where(button,a.coreButton) { min-height: 36px; white-space: normal; }
+.consoleRetained pre { max-height: 260px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.consoleRetained :where(.summaryGrid,.productSummary,.printfulStatusGrid) { margin: 0 0 10px; display: grid; grid-template-columns: repeat(auto-fit,minmax(150px,1fr)); gap: 8px; }
+.consoleRetained :where(.summaryCard,.businessCard,.workflowCard,.packCard,.connectionCard,.creativePanel,.printfulPanel,.dashboardSection) { padding: 10px; margin-bottom: 8px; border-radius: 5px; background: var(--console-panel-raised); color: var(--console-text); }
+.consoleRetained :where(.packGrid,.creativeRunGrid,.creativeGallery,.connectionGrid,.artifactGrid,.productCandidateGrid) { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }
+.consoleRetained :where(.dashboardGrid,.settingsGrid,.workflowDetailGrid,.workflowWorkspaceGrid) { gap: 10px; margin: 0; }
+.consoleRetained :where(.primaryButton,.compactButton,.ghostButton) { padding: 7px 10px; border: 1px solid var(--console-edge); border-radius: 4px; background: var(--console-panel); color: var(--console-cyan); }
+.consoleRetained :where(.summaryValue,.summaryLabel,.workspaceTitle,.panelHeading,.workflowBusiness) { color: inherit; }
+.consoleRetained :where(.workflowHeading,.workspacePanelHeader,.sectionTitleRow) { padding: 5px 0; margin: 0 0 8px; }
+.consoleRetained .accountRegistrationFrame { height: min(42vh,400px); }
+.consoleRecentPager { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 5px 0 10px; }
+.consoleRecentPager span { margin-right: auto; color: var(--console-muted); }
+.consoleRecentPager a { min-height: 36px; display: flex; align-items: center; color: var(--console-cyan); }
+@media (max-width: 900px), (max-height: 540px) {
+  .consoleRetained { height: auto; }
+  .consoleRetainedBody { flex: none; overflow: visible; }
+  .consoleRetainedTabs a, .consoleRetained :where(button,a.coreButton), .consoleRecentPager a { min-height: 44px; }
+  .consoleRetained :where(.packGrid,.creativeRunGrid,.creativeGallery,.connectionGrid,.artifactGrid,.productCandidateGrid,.dashboardGrid,.settingsGrid,.workflowDetailGrid,.workflowWorkspaceGrid) { grid-template-columns: minmax(0,1fr); }
+}
+
+.consoleRecentRows { grid-column: 1 / -1; min-width: 0; }

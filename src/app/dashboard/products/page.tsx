@@ -1,3 +1,4 @@
+import { ConsoleRetainedWorkspace } from "@/components/console/console-retained-workspace";
 import { QuestKickoff } from "@/components/guided/quest-kickoff";
 import "@/components/guided/work-context.css";
 import { randomUUID } from "node:crypto";
@@ -66,30 +67,13 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
   const recordsUnavailable = context.businessesUnavailable || data.errors.length > 0 || discovery.errors.length > 0;
   const activeResearch = data.experiments.filter((experiment) => ["reserved", "researching"].includes(experiment.status)).length;
 
-  return <AppShell active="products" context={context} navigationBusinessId={selectedBusiness?.id}>
-    <PageHeader eyebrow="Work · Supported research" title="Research quest" description="Define a bounded goal and review the scope before any paid work." actions={<Link className="coreButton coreButton-secondary" href={`/dashboard?view=work${selectedBusiness ? `&business=${selectedBusiness.id}` : ""}`}>Back to work</Link>} />
-    {selectedBusiness ? <p className="coreNotice">Business: {selectedBusiness.name} · <Link href="/dashboard/products">View all businesses</Link></p> : null}
-    {message ? <p className="coreNotice coreNotice-success" role="status">{message}</p> : null}
-    {error ? <p className="coreNotice coreNotice-danger" role="alert">{error}</p> : null}
-
-    {process.env.AGENTLABS_GUIDED_UI === "legacy" ? <DiscoveryGoalForm businesses={businesses} available={discovery.available} quote={quotePreview}/> : context.businessesUnavailable ? <p className="coreNotice coreNotice-danger" role="alert">Business records could not be loaded. Your draft remains in this tab; reload before choosing a workspace or starting research.</p> : <QuestKickoff ownerId={context.userId} businesses={businesses} available={discovery.available} quote={quotePreview}/>}
-    <details className="guidedDisclosure" open={first(query.view) === "results"}><summary>Saved research and recovery<span>{recordsUnavailable ? "Some records unavailable" : `${discovery.records.length} preserved research rounds`} · evidence and receipts remain unchanged</span></summary>{context.businessesUnavailable ? <p role="alert">Research records could not be checked without the Business context.</p> : <DiscoveryGoalResults data={discovery} quote={quotePreview}/>}</details>
-    <details className="guidedDisclosure"><summary>Research context and capabilities<span>Current boundaries, counts and qualified capabilities</span></summary>    <section className="productIntro" aria-labelledby="product-scope-title">
-      <div className="productIntroMark" aria-hidden="true"><CoreIcon name="products" /></div>
-      <div><p className="coreEyebrow">Evidence before commitment</p><h2 id="product-scope-title">Original print-on-demand T-shirts</h2><p>Discovery keeps candidates, source-backed decisions, and experiment history together. A TEST decision proposes a future observation plan; it does not qualify a product or authorize assets, listings, advertising, or spending.</p></div>
-      <Link href="/dashboard/packs" className="productTextLink">Research capabilities <span aria-hidden="true">↗</span></Link>
-    </section>
-
-    <dl className="productSummary" aria-label="Product discovery summary">
-      <div><dt>Candidate opportunities</dt><dd>{recordsUnavailable ? "Unknown" : data.candidates.length}</dd><small>Original concepts to assess</small></div>
-      <div><dt>Research in progress</dt><dd>{recordsUnavailable ? "Unknown" : activeResearch}</dd><small>Reserved or researching</small></div>
-      <div><dt>Needs more evidence</dt><dd>{recordsUnavailable ? "Unknown" : needsEvidence}</dd><small>Latest decision per candidate</small></div>
-      <div><dt>Preserved experiments</dt><dd>{recordsUnavailable ? "Unknown" : data.experiments.length}</dd><small>History prevents repeated loops</small></div>
-    </dl>
-    {unsupportedAssessments ? <p className="productSubtle">{unsupportedAssessments} latest decision(s) use a newer or unrecognized assessment format. Their preserved contents remain visible in the workspace; they are not converted into legacy scores.{unrecognizedOutcomes ? ` ${unrecognizedOutcomes} outcome(s) cannot be interpreted and are not included in the needs-evidence count.` : ""}</p> : null}
-
-</details>
-    <details className="productCreate" id="new-candidate">
+  return <AppShell toolDestination="products" active="products" context={context} navigationBusinessId={selectedBusiness?.id}><ConsoleRetainedWorkspace ownerId={context.userId}  notice={<p className="coreNotice">Recent window only: up to 100 candidates, 100 experiments and 300 decisions. Older/latest state is not established by this sample; historical acceptance remains pending R06.</p>} header={<><PageHeader eyebrow="Work · Supported research" title="Candidate tools" description="Define a bounded goal and review the scope before any paid work." actions={<Link className="coreButton coreButton-secondary" href={`/dashboard?view=work${selectedBusiness ? `&business=${selectedBusiness.id}` : ""}`}>Back to work</Link>} />
+{selectedBusiness ? <p className="coreNotice">Business: {selectedBusiness.name} · <Link href="/dashboard/products">View all businesses</Link></p> : null}
+{message ? <p className="coreNotice coreNotice-success" role="status">{message}</p> : null}
+{error ? <p className="coreNotice coreNotice-danger" role="alert">{error}</p> : null}</>} panels={[{ id: "research", label: "Research", content: <>{process.env.AGENTLABS_GUIDED_UI === "legacy" ? <DiscoveryGoalForm businesses={businesses} available={discovery.available} quote={quotePreview}/> : context.businessesUnavailable ? <p className="coreNotice coreNotice-danger" role="alert">Business records could not be loaded. Your draft remains in this tab; reload before choosing a workspace or starting research.</p> : <QuestKickoff ownerId={context.userId} businesses={businesses} available={discovery.available} quote={quotePreview}/>}</> },
+{ id: "recovery", label: "Recovery", content: <><details className="guidedDisclosure" open={first(query.view) === "results"}><summary>Saved research and recovery<span>{recordsUnavailable ? "Some records unavailable" : `${discovery.records.length} loaded research rounds`} · evidence and receipts remain unchanged</span></summary>{context.businessesUnavailable ? <p role="alert">Research records could not be checked without the Business context.</p> : <DiscoveryGoalResults data={discovery} quote={quotePreview}/>}</details></> },
+{ id: "candidates", label: "Candidates", content: <><details className="guidedDisclosure"><summary>Saved product candidates<span>Inspect existing concepts, decisions and experiments</span></summary><section className="productWorkspaceSection" aria-labelledby="product-workspace-title"><div className="sectionTitleRow"><div><p className="coreEyebrow">Learning, preserved</p><h2 id="product-workspace-title">Discovery workspace</h2></div><span className="productTag">Research only</span></div><ProductsWorkspace data={data} /><p className="productSubtle">Showing the most recent 100 candidates, 100 experiments, and 300 decisions. Earlier records remain in the registry; a workflow page shows its own linked experiment.</p></section></details></> },
+{ id: "new", label: "New candidate", content: <><details className="productCreate" id="new-candidate">
       <summary><span><span aria-hidden="true">+</span><strong>Legacy manual candidate entry</strong></span><span>Optional advanced record keeping</span></summary>
       {businesses.length ? <form action={createProductCandidate} className="productForm productCreateForm">
         <div className="productFormGrid">
@@ -103,8 +87,20 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
         <label className="productCheckbox" htmlFor="product-original"><input id="product-original" name="originalDesign" type="checkbox" value="on" /><span>This is an original design concept for a print-on-demand T-shirt</span></label>
         <div className="productCreateFooter"><ProductSubmitButton pendingText="Saving candidate…">Save candidate</ProductSubmitButton><p>Saving makes no provider call. Research is a separate, bounded action. Similar candidates reuse the existing record.</p></div>
       </form> : <div className="productInlineEmpty"><p>Create a Business before adding a product candidate.</p><Link className="productTextLink" href="/dashboard">Go to dashboard</Link></div>}
-    </details>
+    </details></> },
+{ id: "capabilities", label: "Capabilities", content: <><details className="guidedDisclosure"><summary>Research context and capabilities<span>Current boundaries, counts and qualified capabilities</span></summary>    <section className="productIntro" aria-labelledby="product-scope-title">
+      <div className="productIntroMark" aria-hidden="true"><CoreIcon name="products" /></div>
+      <div><p className="coreEyebrow">Evidence before commitment</p><h2 id="product-scope-title">Original print-on-demand T-shirts</h2><p>Discovery keeps candidates, source-backed decisions, and experiment history together. A TEST decision proposes a future observation plan; it does not qualify a product or authorize assets, listings, advertising, or spending.</p></div>
+      <Link href="/dashboard/packs" className="productTextLink">Research capabilities <span aria-hidden="true">↗</span></Link>
+    </section>
 
-    <details className="guidedDisclosure"><summary>Saved product candidates<span>Inspect existing concepts, decisions and experiments</span></summary><section className="productWorkspaceSection" aria-labelledby="product-workspace-title"><div className="sectionTitleRow"><div><p className="coreEyebrow">Learning, preserved</p><h2 id="product-workspace-title">Discovery workspace</h2></div><span className="productTag">Research only</span></div><ProductsWorkspace data={data} /><p className="productSubtle">Showing the most recent 100 candidates, 100 experiments, and 300 decisions. Earlier records remain in the registry; a workflow page shows its own linked experiment.</p></section></details>
-  </AppShell>;
+    <dl className="productSummary" aria-label="Product discovery summary">
+      <div><dt>Candidate opportunities</dt><dd>{recordsUnavailable ? "Unknown" : data.candidates.length}</dd><small>Loaded original concepts</small></div>
+      <div><dt>Research in progress</dt><dd>{recordsUnavailable ? "Unknown" : activeResearch}</dd><small>In the loaded window</small></div>
+      <div><dt>Needs more evidence</dt><dd>{recordsUnavailable ? "Unknown" : needsEvidence}</dd><small>Latest loaded decision per candidate</small></div>
+      <div><dt>Preserved experiments</dt><dd>{recordsUnavailable ? "Unknown" : data.experiments.length}</dd><small>Loaded experiment window</small></div>
+    </dl>
+    {unsupportedAssessments ? <p className="productSubtle">{unsupportedAssessments} latest decision(s) use a newer or unrecognized assessment format. Their preserved contents remain visible in the workspace; they are not converted into legacy scores.{unrecognizedOutcomes ? ` ${unrecognizedOutcomes} outcome(s) cannot be interpreted and are not included in the needs-evidence count.` : ""}</p> : null}
+
+</details></> }]} /></AppShell>;
 }

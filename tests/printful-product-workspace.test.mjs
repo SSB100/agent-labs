@@ -1,3 +1,4 @@
+import { retainedFixture } from './helpers/guided-ui.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
@@ -256,6 +257,8 @@ test('compact queue preserves account setup and separate Etsy/Printful request i
 async function printfulPage(query, businesses = [{ id: businessId, name: 'Owner Business' }, { id: foreignBusiness, name: 'Second Business' }]) {
   const calls = [], context = { businesses };
   const { default: Page } = load('src/app/dashboard/printful/page.tsx', {
+    '@/components/console/console-retained-workspace': retainedFixture(),
+    'next/navigation': { notFound: () => { throw new Error('not-found'); } },
     'react/jsx-runtime': require('react/jsx-runtime'), 'next/link': link,
     '@/accounts/server': { loadAccountWorkspace: async () => ({ accounts: [], unavailable: false }) },
     '@/components/stage7/app-shell': { AppShell: wrapper, PageHeader: wrapper, StatusPill: () => null },
@@ -273,10 +276,10 @@ test('Printful deep links pass only a UUID intervention alongside the selected o
   const valid = await printfulPage({ business: foreignBusiness, intervention: interventionId });
   assert.deepEqual(valid.calls[0], [valid.context, foreignBusiness, interventionId]);
   assert.match(valid.html, /id="product-configuration-history"/);
-  for (const value of [undefined, '', 'not-a-uuid', ['50000000-1111-4111-8111-111111111111'], '{"source":1}', '50000000-1111-4111-8111-111111111111&business=foreign']) {
+  for (const value of [undefined, '']) {
     const invalid = await printfulPage({ business: businessId, intervention: value });
     assert.deepEqual(invalid.calls[0], [invalid.context, businessId, undefined]);
   }
-  const noBusiness = await printfulPage({ business: businessId, intervention: interventionId }, []);
-  assert.equal(noBusiness.calls.length, 0);
+  for (const value of ['not-a-uuid', [interventionId], '{"source":1}', interventionId+'&business=foreign']) await assert.rejects(printfulPage({ business: businessId, intervention: value }), /not-found/);
+  await assert.rejects(printfulPage({ business: businessId, intervention: interventionId }, []), /not-found/);
 });

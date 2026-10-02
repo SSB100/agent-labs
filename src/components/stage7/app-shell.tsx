@@ -25,6 +25,7 @@ type AppShellProps = {
   context: OwnerUiContext;
   workflowRunId?: string;
   navigationBusinessId?: string;
+  toolDestination?: string;
 };
 
 type NavItem = {

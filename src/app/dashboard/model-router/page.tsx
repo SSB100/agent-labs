@@ -1,8 +1,10 @@
+import { AppShell } from "@/components/stage7/app-shell";
+import { ConsoleRetainedWorkspace, ConsoleRecentRows } from "@/components/console/console-retained-workspace";
+import { requireOwnerUiContext } from "@/lib/core-ui/data";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { isOpenRouterConfigured } from "../../../models/openrouter";
-import { createClient } from "../../../lib/supabase/server";
 import { MODEL_ROUTER_RUNTIME_WORKFLOW_DEFINITION_ID } from "../../../workflows/model-router-runtime";
 
 import { startModelRouterProof } from "./actions";
@@ -108,7 +110,8 @@ function formatDate(value: string | null) {
 }
 
 export default async function ModelRouterPage({ searchParams }: Props) {
-  const supabase = await createClient();
+  const context = await requireOwnerUiContext();
+  const supabase = context.supabase;
   const { data: claimsData, error: claimsError } = await supabase.auth.getClaims();
   const userId = claimsData?.claims?.sub;
   if (claimsError || !userId) redirect("/login?error=session-required");
@@ -181,7 +184,7 @@ export default async function ModelRouterPage({ searchParams }: Props) {
 
   const totalCost = invocations.reduce(
     (sum, invocation) =>
-      sum + numberValue(invocation.reported_cost_usd ?? invocation.estimated_cost_usd),
+      sum + numberValue(invocation.reported_cost_usd),
     0,
   );
   const activeCount = runs.filter((run) => ACTIVE.has(run.status)).length;
@@ -193,42 +196,24 @@ export default async function ModelRouterPage({ searchParams }: Props) {
   const message = messages[first(query.message) ?? ""];
   const error = errors[first(query.error) ?? ""];
 
-  return (
-    <div className="appFrame">
-      <aside className="appSidebar">
-        <Link className="appBrand" href="/dashboard">
-          <span className="brandMark" aria-hidden="true">AL</span>
-          <span><strong>Agent Labs</strong><small>Model Router</small></span>
-        </Link>
-        <nav className="appNav" aria-label="Model Router navigation">
-          <Link className="navItem" href="/dashboard">Control centre</Link>
-          <Link className="navItem" href="/dashboard/worker-proof">Worker proof</Link>
-          <Link className="navItem active" href="/dashboard/model-router">Model router</Link>
-        </nav>
-      </aside>
-
-      <main className="appMain">
-        <header className="workspaceHeader">
+  return (<AppShell active="settings" toolDestination="model-router" context={context}><ConsoleRetainedWorkspace ownerId={context.userId} notice={<p className="coreNotice">Recent loaded records only. Earlier history and complete totals remain pending R06.</p>} header={<><header className="workspaceHeader">
           <div className="workspaceTitle"><p>Stage 5</p><h1>Model Router</h1></div>
           <Link className="ghostButton" href="/dashboard">Back</Link>
         </header>
-
-        {message ? <p className="notice success" role="status">{message}</p> : null}
-        {error ? <p className="notice error" role="alert">{error}</p> : null}
-        {!configured ? (
+{message ? <p className="notice success" role="status">{message}</p> : null}
+{error ? <p className="notice error" role="alert">{error}</p> : null}
+{!configured ? (
           <p className="notice error" role="alert">
             Add the server-only OPENROUTER_API_KEY environment variable to Development,
             Preview and Production before running live proofs.
           </p>
         ) : null}
-        {loadError ? <p className="notice error">Some Model Router records could not be loaded.</p> : null}
-
-        <section className="summaryGrid" aria-label="Model Router summary">
+{loadError ? <p className="notice error">Some Model Router records could not be loaded.</p> : null}</>} panels={[{ id: "history", label: "Proof receipts", content: <><section className="summaryGrid" aria-label="Model Router summary">
           {[
             ["Qualified routes", routes.filter((route) => route.status === "qualified").length],
             ["Registered models", models.length],
-            ["Active proofs", activeCount],
-            ["Fallback proofs", fallbackCount],
+            ["Active in loaded proofs", activeCount],
+            ["Fallback in loaded proofs", fallbackCount],
           ].map(([label, value]) => (
             <article className="summaryCard" key={String(label)}>
               <span className="summaryLabel">{label}</span>
@@ -237,11 +222,109 @@ export default async function ModelRouterPage({ searchParams }: Props) {
           ))}
           <article className="summaryCard">
             <span className="summaryLabel">Recorded model cost</span>
-            <strong style={{ fontSize: "1.3rem" }}>{formatUsd(totalCost)}</strong>
+            <strong style={{ fontSize: "1.3rem" }}>{loadError ? "Unavailable" : formatUsd(totalCost)}</strong>
           </article>
         </section>
-
-        <section className="dashboardGrid">
+<section className="operationsPanel" aria-labelledby="runs-heading">
+          <div className="panelHeading workflowHeading">
+            <div><p className="panelLabel">Durable telemetry</p><h2 id="runs-heading">Model proof history</h2></div>
+            <span className="countBadge">{runs.length}</span>
+          </div>
+          {runs.length ? (
+            <div className="workflowList">
+              <ConsoleRecentRows label="Recent loaded model-router records" rows={runs.map((run) => {
+                const attempts = invocationsByRun.get(run.id) ?? [];
+                const runCost = attempts.reduce(
+                  (sum, attempt) => sum + numberValue(attempt.reported_cost_usd),
+                  0,
+                );
+                return (
+                  <article className="workflowCard" key={run.id}>
+                    <div className="workflowCardHeader">
+                      <div>
+                        <p className="workflowBusiness">{businessById.get(run.business_id)?.name ?? "Business"}</p>
+                        <h3>{humanize(String(run.input.proofMode ?? "live"))} model proof</h3>
+                        <p>Started {formatDate(run.created_at)} · Stage {humanize(run.current_stage_key)}</p>
+                      </div>
+                      <span className={`workflowStatus status-${run.status}`}>{humanize(run.status)}</span>
+                    </div>
+                    <ol className="stageTimeline" aria-label="Model attempts">
+                      {attempts.map((attempt) => (
+                        <li className={`stageState stage-${attempt.status}`} key={attempt.id}>
+                          <span className="stageMarker" aria-hidden="true" />
+                          <div>
+                            <strong>Attempt {attempt.attempt}: {modelById.get(attempt.model_definition_id)?.display_name ?? attempt.provider_model_id}</strong>
+                            <small>
+                              {humanize(attempt.status)} · {attempt.input_tokens + attempt.output_tokens} tokens · {attempt.reported_cost_usd == null ? "Charge unknown" : formatUsd(numberValue(attempt.reported_cost_usd))} · estimate {formatUsd(numberValue(attempt.estimated_cost_usd))}
+                              {attempt.failure_category ? ` · ${humanize(attempt.failure_category)}` : ""}
+                            </small>
+                          </div>
+                        </li>
+                      ))}
+                    </ol>
+                    <div className="eventHistoryHeader">
+                      <strong>Loaded reported {formatUsd(runCost)}</strong>
+                      <small>{run.runtime_run_id ? `Runtime ${run.runtime_run_id.slice(0, 18)}…` : "Runtime pending"}</small>
+                    </div>
+                  </article>
+                );
+              })} />
+            </div>
+          ) : (
+            <div className="operationEmpty">
+              <strong>No model proofs in this loaded window.</strong>
+              <span>Configure OpenRouter, then run a live proof or bounded fallback proof.</span>
+            </div>
+          )}
+        </section></> },
+{ id: "routes", label: "Routes", content: <><section className="operationsPanel">
+          <div className="panelHeading workflowHeading">
+            <div><p className="panelLabel">Logical policy</p><h2>Qualified routes</h2></div>
+            <span className="countBadge">{routes.length}</span>
+          </div>
+          <div className="businessList">
+            <ConsoleRecentRows label="Recent loaded model-router records" rows={routes.map((route) => {
+              const primary = modelById.get(route.primary_model_definition_id);
+              const fallback = modelById.get(route.fallback_model_definition_id);
+              return (
+                <article className="businessCard" key={route.id}>
+                  <div>
+                    <h3>{route.name}</h3>
+                    <p>{route.route_key}</p>
+                    <p>{primary?.display_name ?? "Unavailable"} → {fallback?.display_name ?? "Unavailable"}</p>
+                  </div>
+                  <div className="businessActions">
+                    <span>{humanize(route.status)}</span>
+                    <small>Maximum {route.maximum_attempts} attempts</small>
+                  </div>
+                </article>
+              );
+            })} />
+          </div>
+        </section></> },
+{ id: "models", label: "Models", content: <><section className="operationsPanel">
+          <div className="panelHeading workflowHeading">
+            <div><p className="panelLabel">Capabilities and price metadata</p><h2>Model registry</h2></div>
+            <span className="countBadge">{models.length}</span>
+          </div>
+          <div className="businessList">
+            <ConsoleRecentRows label="Recent loaded model-router records" rows={models.map((model) => (
+              <article className="businessCard" key={model.id}>
+                <div>
+                  <h3>{model.display_name}</h3>
+                  <p>{model.provider_model_id}</p>
+                  <p>{humanize(model.tier)} · {model.context_window_tokens.toLocaleString("en-NZ")} context tokens</p>
+                </div>
+                <div className="businessActions">
+                  <span>{humanize(model.status)}</span>
+                  <small>Input US${numberValue(model.input_price_per_million_usd).toFixed(2)}/M</small>
+                  <small>Output US${numberValue(model.output_price_per_million_usd).toFixed(2)}/M</small>
+                </div>
+              </article>
+            ))} />
+          </div>
+        </section></> },
+{ id: "launch", label: "Launch proof", content: <><section className="dashboardGrid">
           <article className="businessPanel">
             <div className="panelHeading">
               <div><p className="panelLabel">Live execution</p><h2>Run a proof</h2></div>
@@ -278,110 +361,6 @@ export default async function ModelRouterPage({ searchParams }: Props) {
               <p>OpenRouter {configured ? "configured" : "needs configuration"}</p>
             </div>
           </aside>
-        </section>
-
-        <section className="operationsPanel">
-          <div className="panelHeading workflowHeading">
-            <div><p className="panelLabel">Logical policy</p><h2>Qualified routes</h2></div>
-            <span className="countBadge">{routes.length}</span>
-          </div>
-          <div className="businessList">
-            {routes.map((route) => {
-              const primary = modelById.get(route.primary_model_definition_id);
-              const fallback = modelById.get(route.fallback_model_definition_id);
-              return (
-                <article className="businessCard" key={route.id}>
-                  <div>
-                    <h3>{route.name}</h3>
-                    <p>{route.route_key}</p>
-                    <p>{primary?.display_name ?? "Unavailable"} → {fallback?.display_name ?? "Unavailable"}</p>
-                  </div>
-                  <div className="businessActions">
-                    <span>{humanize(route.status)}</span>
-                    <small>Maximum {route.maximum_attempts} attempts</small>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        </section>
-
-        <section className="operationsPanel">
-          <div className="panelHeading workflowHeading">
-            <div><p className="panelLabel">Capabilities and price metadata</p><h2>Model registry</h2></div>
-            <span className="countBadge">{models.length}</span>
-          </div>
-          <div className="businessList">
-            {models.map((model) => (
-              <article className="businessCard" key={model.id}>
-                <div>
-                  <h3>{model.display_name}</h3>
-                  <p>{model.provider_model_id}</p>
-                  <p>{humanize(model.tier)} · {model.context_window_tokens.toLocaleString("en-NZ")} context tokens</p>
-                </div>
-                <div className="businessActions">
-                  <span>{humanize(model.status)}</span>
-                  <small>Input US${numberValue(model.input_price_per_million_usd).toFixed(2)}/M</small>
-                  <small>Output US${numberValue(model.output_price_per_million_usd).toFixed(2)}/M</small>
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <section className="operationsPanel" aria-labelledby="runs-heading">
-          <div className="panelHeading workflowHeading">
-            <div><p className="panelLabel">Durable telemetry</p><h2 id="runs-heading">Model proof history</h2></div>
-            <span className="countBadge">{runs.length}</span>
-          </div>
-          {runs.length ? (
-            <div className="workflowList">
-              {runs.map((run) => {
-                const attempts = invocationsByRun.get(run.id) ?? [];
-                const runCost = attempts.reduce(
-                  (sum, attempt) => sum + numberValue(attempt.reported_cost_usd ?? attempt.estimated_cost_usd),
-                  0,
-                );
-                return (
-                  <article className="workflowCard" key={run.id}>
-                    <div className="workflowCardHeader">
-                      <div>
-                        <p className="workflowBusiness">{businessById.get(run.business_id)?.name ?? "Business"}</p>
-                        <h3>{humanize(String(run.input.proofMode ?? "live"))} model proof</h3>
-                        <p>Started {formatDate(run.created_at)} · Stage {humanize(run.current_stage_key)}</p>
-                      </div>
-                      <span className={`workflowStatus status-${run.status}`}>{humanize(run.status)}</span>
-                    </div>
-                    <ol className="stageTimeline" aria-label="Model attempts">
-                      {attempts.map((attempt) => (
-                        <li className={`stageState stage-${attempt.status}`} key={attempt.id}>
-                          <span className="stageMarker" aria-hidden="true" />
-                          <div>
-                            <strong>Attempt {attempt.attempt}: {modelById.get(attempt.model_definition_id)?.display_name ?? attempt.provider_model_id}</strong>
-                            <small>
-                              {humanize(attempt.status)} · {attempt.input_tokens + attempt.output_tokens} tokens · {formatUsd(numberValue(attempt.reported_cost_usd ?? attempt.estimated_cost_usd))}
-                              {attempt.failure_category ? ` · ${humanize(attempt.failure_category)}` : ""}
-                            </small>
-                          </div>
-                        </li>
-                      ))}
-                    </ol>
-                    <div className="eventHistoryHeader">
-                      <strong>Total {formatUsd(runCost)}</strong>
-                      <small>{run.runtime_run_id ? `Runtime ${run.runtime_run_id.slice(0, 18)}…` : "Runtime pending"}</small>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="operationEmpty">
-              <strong>No model proofs have run yet.</strong>
-              <span>Configure OpenRouter, then run a live proof or bounded fallback proof.</span>
-            </div>
-          )}
-        </section>
-      </main>
-    </div>
+        </section></> }]} /></AppShell>
   );
 }

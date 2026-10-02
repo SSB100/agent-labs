@@ -20,7 +20,7 @@ export type ConsoleCollectionPage<T> = {
 export type ConsoleCollectionSelection<T> =
   | { status: "none" | "missing" | "unavailable"; item: null }
   | { status: "found"; item: T };
-const workStatuses = ["all", "active", "stopped", "running", "queued", "waiting", "review", "needs_owner", "completed", "failed", "cancelled"];
+const workStatuses = ["all", "active", "ended", "stopped", "running", "queued", "waiting", "review", "needs_owner", "completed", "failed", "cancelled"];
 export function consoleCollectionQuery(kind: ConsoleCollectionKind, options: ConsoleCollectionOptions = {}): ConsoleCollectionQuery {
   const page = options.page ?? 1, pageSize = options.pageSize ?? CONSOLE_COLLECTION_PAGE_SIZE;
   if (!Number.isSafeInteger(page) || page < 1 || pageSize !== CONSOLE_COLLECTION_PAGE_SIZE || !Number.isSafeInteger(page * pageSize)) throw new Error("Invalid collection page.");

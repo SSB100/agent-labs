@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { retainedFixture } from './helpers/guided-ui.mjs';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { readFileSync, existsSync } from 'node:fs';
@@ -22,6 +23,8 @@ const feedbackContract = load('src/accounts/connection-feedback.ts', {});
 const printfulContract = load('src/accounts/printful.ts', { '../printful/account': {}, '../printful/contracts': {}, './vault': {} });
 const feedbackUi = load('src/app/dashboard/accounts/connection-feedback.tsx', { 'react': React, 'react/jsx-runtime': require('react/jsx-runtime'), 'next/navigation': { unstable_rethrow() {} } });
 const viewDependencies = {
+  '@/components/console/console-retained-workspace': retainedFixture(),
+  'next/navigation': { notFound: () => { throw new Error('not-found'); } },
   'react': React, 'react-dom': require('react-dom'), '@/accounts/connection-feedback': feedbackContract, './connection-feedback': feedbackUi, '../connection-feedback': feedbackUi,
   'react/jsx-runtime': require('react/jsx-runtime'),
   'next/link': ({ children, href, ...props }) => React.createElement('a', { href, ...props }, children),

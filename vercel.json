@@ -1,5 +1,12 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
-  "regions": ["syd1"]
+  "regions": [
+    "syd1"
+  ],
+  "git": {
+    "deploymentEnabled": {
+      "ui/r03-retained-console": false
+    }
+  }
 }

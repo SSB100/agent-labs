@@ -20,6 +20,7 @@ export type ConsoleShellProps = {
   globalDecisionCount?: boolean;
   /** An aggregate collection may still scope onward links to its selected record. */
   aggregateContext?: boolean;
+  toolDestination?: string;
 };
 
 type ConsoleDestination = {
@@ -61,6 +62,19 @@ export const consoleAdvancedNavigation = [
   { href: "/dashboard/model-router", label: "Model router" },
   { href: "/dashboard/worker-evaluations", label: "Worker evaluations" },
   { href: "/dashboard/settings", label: "Settings & profile", key: "settings" },
+] as const;
+
+export const consoleToolNavigation = [
+  { key: "products", href: "/dashboard/products", label: "Candidate tools" },
+  { key: "artifacts", href: "/dashboard/artifacts", label: "Design approvals" },
+  { key: "printful", href: "/dashboard/printful", label: "Printful" },
+  { key: "etsy", href: "/dashboard/etsy", label: "Etsy listings" },
+  { key: "packs", href: "/dashboard/packs", label: "Packs" },
+  { key: "model-router", href: "/dashboard/model-router", label: "Model router" },
+  { key: "worker-proof", href: "/dashboard/worker-proof", label: "Worker proof" },
+  { key: "worker-evaluations", href: "/dashboard/worker-evaluations", label: "Evaluations" },
+  { key: "settings", href: "/dashboard/settings", label: "Profile & Business" },
+  { key: "diagnostics", href: "/dashboard/accounts?diagnostics=platform", label: "Diagnostics" },
 ] as const;
 
 function DecisionCount({ context, global = false }: { context: OwnerUiContext; global?: boolean }) {
@@ -118,11 +132,11 @@ function OwnerMenu({ context }: { context: OwnerUiContext }) {
 }
 
 /** Shared frame for both root views and direct detail URLs; URL navigation stays native. */
-export function ConsoleShell({ active, children, commandBar, context, workflowRunId, navigationBusinessId, globalDecisionCount = false, aggregateContext = false }: ConsoleShellProps) {
+export function ConsoleShell({ active, children, commandBar, context, workflowRunId, navigationBusinessId, globalDecisionCount = false, aggregateContext = false, toolDestination }: ConsoleShellProps) {
   const currentView = resolveConsoleView(active);
   const selectedBusinessId = context.businesses.some(business => business.id === navigationBusinessId) ? navigationBusinessId : undefined;
-  const destination = (href: string) => selectedBusinessId ? `${href}&business=${encodeURIComponent(selectedBusinessId)}` : href;
-  const currentLabel = consoleNavigation.find(item => item.view === currentView)?.label ?? "Overview";
+  const destination = (href: string) => selectedBusinessId ? `${href}${href.includes("?") ? "&" : "?"}business=${encodeURIComponent(selectedBusinessId)}` : href;
+  const currentLabel = toolDestination ? consoleToolNavigation.find(item => item.key === toolDestination)?.label ?? "Tools" : consoleNavigation.find(item => item.view === currentView)?.label ?? "Overview";
 
   return (
     <div className="consoleShell" data-console-view={currentView}>
@@ -144,13 +158,15 @@ export function ConsoleShell({ active, children, commandBar, context, workflowRu
           ))}
         </nav>
 
+        {toolDestination ? <nav className="consoleTechnicalLinks" aria-label="Focused tools">{consoleToolNavigation.map(item => <Link className="consoleTechnicalLink" key={item.key} href={destination(item.href)} aria-current={item.key === toolDestination ? "page" : undefined}>{item.label}</Link>)}</nav> : null}
+
         <div className="consoleRailNote"><CoreIcon name="building" /><span>Private owner workspace</span></div>
         <OwnerMenu context={context} />
       </aside>
 
       <header className="consoleTopBar consoleFrame">
         <div className="consoleViewHeading"><span>Command centre</span><strong>{currentLabel}</strong></div>
-        <WorkspaceContext context={context} aggregate={aggregateContext} selectedBusinessId={workflowRunId || currentView === "library" || currentView === "research" || currentView === "connections" || currentView === "decisions" || currentView === "work" || currentView === "activity" ? selectedBusinessId : undefined} />
+        <WorkspaceContext context={context} aggregate={aggregateContext} selectedBusinessId={selectedBusinessId} />
         {/* Exactly one subscription, for data updates rather than worker execution. */}
         <div className="consoleLiveStatus" role="status" aria-label="Page update connection">
           <LiveRefresh workflowRunId={workflowRunId} />

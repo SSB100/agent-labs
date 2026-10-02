@@ -38,10 +38,10 @@ test("Stage 7 workflow screen makes execution understandable", () => {
   const visuals = read("src/components/stage7/workflow-visuals.tsx");
   const workspace = read("src/components/stage7/workflow-workspace.tsx");
 
-  assert.match(workflowPage, /WorkflowTimeline/);
-  assert.match(workflowPage, /ExecutionSnapshot/);
-  assert.match(workflowPage, /WorkflowWorkspace/);
-  assert.match(workflowPage, /ActivityFeed/);
+  assert.match(workflowPage, /loadConsoleWorkDetail/);
+  assert.match(workflowPage, /ConsoleWorkDetail/);
+  assert.match(workflowPage, /ConsoleRetainedWorkspace/);
+  assert.match(workflowPage, /runFilter=\$\{run.id\}/);
   assert.match(visuals, /Current worker/);
   assert.match(visuals, /Current task/);
   assert.match(visuals, /Current action/);

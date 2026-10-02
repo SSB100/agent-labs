@@ -110,7 +110,7 @@ test("Products page renders the real bounded quest without starting research", a
   assert.doesNotMatch(markup, /Current provider prices are unavailable|name="confirmResearch"/);
 });
 
-test("Workflows index shows an active worker only when run, task, stage and worker match", async () => {
+test("retained WorkflowCard shows an active worker only when run, task, stage and worker match", async () => {
   const working = await renderWorkflows();
   assert.match(working, /title="Working on the current stage"/);
   assert.match(working, /Evidence research specialist<\/span>/);

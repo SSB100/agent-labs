@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { runInNewContext } from 'node:vm';
 import { creativeCostTruthFixture } from './helpers/creative-cost-truth-fixtures.mjs';
+import { retainedFixture as retainedUiFixture } from './helpers/guided-ui.mjs';
 const require = createRequire(import.meta.url);
 const ts = require('typescript');
 const React = require('react');
@@ -18,6 +19,7 @@ function loadSource(path, dependencies) {
   } }).outputText;
   const fixtureModule = { exports: {} };
   runInNewContext(`(function(require, module, exports) { ${compiled}\n})`)(name => {
+    if (name === '@/components/console/console-retained-workspace') return retainedUiFixture();
     if (!(name in dependencies)) throw new Error(`Unexpected fixture dependency: ${name}`);
     return dependencies[name];
   }, fixtureModule, fixtureModule.exports);

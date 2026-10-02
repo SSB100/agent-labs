@@ -1,7 +1,9 @@
+import { AppShell } from "@/components/stage7/app-shell";
+import { ConsoleRetainedWorkspace, ConsoleRecentRows } from "@/components/console/console-retained-workspace";
+import { requireOwnerUiContext } from "@/lib/core-ui/data";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { createClient } from "../../../lib/supabase/server";
 import { WORKER_PACK_RUNTIME_WORKFLOW_DEFINITION_ID } from "../../../workflows/worker-pack-runtime";
 
 import { startGenericResearcherProof } from "./actions";
@@ -115,7 +117,8 @@ function nestedRecord(value: unknown): Record<string, unknown> {
 }
 
 export default async function WorkerProofPage({ searchParams }: WorkerProofPageProps) {
-  const supabase = await createClient();
+  const context = await requireOwnerUiContext();
+  const supabase = context.supabase;
   const { data: claimsData, error: claimsError } = await supabase.auth.getClaims();
   const userId = claimsData?.claims?.sub;
 
@@ -215,31 +218,7 @@ export default async function WorkerProofPage({ searchParams }: WorkerProofPageP
   const completedCount = workflowRuns.filter((run) => run.status === "completed").length;
   const failedCount = workflowRuns.filter((run) => run.status === "failed").length;
 
-  return (
-    <div className="appFrame">
-      <aside className="appSidebar">
-        <Link className="appBrand" href="/dashboard">
-          <span className="brandMark" aria-hidden="true">
-            AL
-          </span>
-          <span>
-            <strong>Agent Labs</strong>
-            <small>Worker runtime</small>
-          </span>
-        </Link>
-
-        <nav className="appNav" aria-label="Worker runtime navigation">
-          <Link className="navItem" href="/dashboard">
-            Control centre
-          </Link>
-          <Link className="navItem active" href="/dashboard/worker-proof">
-            Worker proof
-          </Link>
-        </nav>
-      </aside>
-
-      <main className="appMain">
-        <header className="workspaceHeader">
+  return (<AppShell active="settings" toolDestination="worker-proof" context={context}><ConsoleRetainedWorkspace ownerId={context.userId} notice={<p className="coreNotice">Recent loaded records only. Earlier history and complete totals remain pending R06.</p>} header={<><header className="workspaceHeader">
           <div className="workspaceTitle">
             <p>Stage 4</p>
             <h1>Worker Pack runtime</h1>
@@ -248,24 +227,21 @@ export default async function WorkerProofPage({ searchParams }: WorkerProofPageP
             Back to control centre
           </Link>
         </header>
-
-        {message ? (
+{message ? (
           <p className="notice success" role="status">
             {message}
           </p>
         ) : null}
-        {error ? (
+{error ? (
           <p className="notice error" role="alert">
             {error}
           </p>
         ) : null}
-        {businessError || historyError ? (
+{businessError || historyError ? (
           <p className="notice error" role="alert">
             Some Worker Pack state could not be loaded.
           </p>
-        ) : null}
-
-        <section className="summaryGrid" aria-label="Worker runtime summary">
+        ) : null}</>} panels={[{ id: "history", label: "Saved proofs", content: <><section className="summaryGrid" aria-label="Worker runtime summary">
           {[
             { label: "Businesses", value: businesses.length },
             { label: "Worker proofs", value: workflowRuns.length },
@@ -278,47 +254,7 @@ export default async function WorkerProofPage({ searchParams }: WorkerProofPageP
             </article>
           ))}
         </section>
-
-        <section className="operationsPanel" aria-labelledby="launch-worker-heading">
-          <div className="panelHeading">
-            <div>
-              <p className="panelLabel">Generic Researcher fixture</p>
-              <h2 id="launch-worker-heading">Run a bounded worker</h2>
-            </div>
-          </div>
-
-          {businesses.length ? (
-            <div className="businessList">
-              {businesses.map((business) => (
-                <article className="businessCard stage3BusinessCard" key={business.id}>
-                  <div>
-                    <h3>{business.name}</h3>
-                    <p>Task Contract context only, no model call and no conversation history.</p>
-                  </div>
-                  <form action={startGenericResearcherProof}>
-                    <input name="businessId" type="hidden" value={business.id} />
-                    <input
-                      name="idempotencyKey"
-                      type="hidden"
-                      value={`stage4:${crypto.randomUUID()}`}
-                    />
-                    <input name="launchNonce" type="hidden" value={crypto.randomUUID()} />
-                    <button className="compactButton" type="submit">
-                      Run worker proof
-                    </button>
-                  </form>
-                </article>
-              ))}
-            </div>
-          ) : (
-            <div className="operationEmpty">
-              <strong>Create a Business first.</strong>
-              <span>The worker proof always runs inside an owner-scoped Business.</span>
-            </div>
-          )}
-        </section>
-
-        <section className="operationsPanel" aria-labelledby="worker-history-heading">
+<section className="operationsPanel" aria-labelledby="worker-history-heading">
           <div className="panelHeading workflowHeading">
             <div>
               <p className="panelLabel">Durable specialist execution</p>
@@ -329,7 +265,7 @@ export default async function WorkerProofPage({ searchParams }: WorkerProofPageP
 
           {workflowRuns.length ? (
             <div className="workflowList">
-              {workflowRuns.map((run) => {
+              <ConsoleRecentRows label="Recent loaded worker-proof records" rows={workflowRuns.map((run) => {
                 const task = taskByRun.get(run.id);
                 const worker = workerByRun.get(run.id);
                 const runStages = stagesByRun.get(run.id) ?? [];
@@ -436,12 +372,12 @@ export default async function WorkerProofPage({ searchParams }: WorkerProofPageP
                           ))}
                         </ul>
                       ) : (
-                        <p>No worker events recorded yet.</p>
+                        <p>No events in this loaded window; earlier events may exist.</p>
                       )}
                     </div>
                   </article>
                 );
-              })}
+              })} />
             </div>
           ) : (
             <div className="operationEmpty">
@@ -449,8 +385,44 @@ export default async function WorkerProofPage({ searchParams }: WorkerProofPageP
               <span>Start one above to create a Task Contract, Worker Run and receipt.</span>
             </div>
           )}
-        </section>
-      </main>
-    </div>
+        </section></> },
+{ id: "launch", label: "Launch proof", content: <><section className="operationsPanel" aria-labelledby="launch-worker-heading">
+          <div className="panelHeading">
+            <div>
+              <p className="panelLabel">Generic Researcher fixture</p>
+              <h2 id="launch-worker-heading">Run a bounded worker</h2>
+            </div>
+          </div>
+
+          {businesses.length ? (
+            <div className="businessList">
+              {businesses.map((business) => (
+                <article className="businessCard stage3BusinessCard" key={business.id}>
+                  <div>
+                    <h3>{business.name}</h3>
+                    <p>Task Contract context only, no model call and no conversation history.</p>
+                  </div>
+                  <form action={startGenericResearcherProof}>
+                    <input name="businessId" type="hidden" value={business.id} />
+                    <input
+                      name="idempotencyKey"
+                      type="hidden"
+                      value={`stage4:${crypto.randomUUID()}`}
+                    />
+                    <input name="launchNonce" type="hidden" value={crypto.randomUUID()} />
+                    <button className="compactButton" type="submit">
+                      Run worker proof
+                    </button>
+                  </form>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="operationEmpty">
+              <strong>Create a Business first.</strong>
+              <span>The worker proof always runs inside an owner-scoped Business.</span>
+            </div>
+          )}
+        </section></> }]} /></AppShell>
   );
 }

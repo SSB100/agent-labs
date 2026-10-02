@@ -16,7 +16,7 @@ const { renderToStaticMarkup } = require("react-dom/server");
 const root = fileURLToPath(new URL("../../", import.meta.url));
 export const fixtureTime = "2026-10-02T03:00:00.000Z";
 const noAction = () => { throw new Error("Read-only fixture actions must never execute"); };
-const Link = ({ children, ...props }) => { delete props.prefetch; return React.createElement("a", props, children); };
+const Link = ({ children, ...props }) => { delete props.prefetch; delete props.scroll; return React.createElement("a", props, children); };
 class FixtureDate extends Date {
   constructor(...values) { super(...(values.length ? values : [fixtureTime])); }
   static now() { return Date.parse(fixtureTime); }
@@ -37,10 +37,20 @@ export function loadSource(file, dependencies = {}) {
     if (name === "react-dom") return require(name);
     if (name === "node:crypto") return crypto;
     if (name === "next/link") return Link;
+    if (name === "@/components/console/console-retained-workspace") return retainedFixture();
     assert.ok(Object.hasOwn(dependencies, name), `Unexpected guided UI dependency in ${file}: ${name}`);
     return dependencies[name];
   }, fixtureModule, fixtureModule.exports);
   return fixtureModule.exports;
+}
+
+// The actual retained client component is also exercised in supplemental SSR
+// fixtures. Navigation and persistence qualification is the separate real Next gate.
+export function retainedFixture(query = {}, pathname = "/dashboard/products") {
+  return loadSource("src/components/console/console-retained-workspace.tsx", {
+    "next/navigation": { usePathname: () => pathname, useSearchParams: () => new URLSearchParams(query) },
+    "./console-retained-workspace.css": {},
+  });
 }
 
 export const business = { id: "00000000-0000-4000-8000-000000000901", name: "North Star Design Studio", created_at: fixtureTime, updated_at: fixtureTime };
@@ -249,7 +259,7 @@ function creativeLibraryFixture() {
 }
 
 export async function renderWorkflows({ ended = false, mismatchedTask = false } = {}) {
-  const { shell, visuals, workflows } = components();
+  const { shell, visuals } = components();
   const workingRun = { ...run, status: ended ? "needs_owner" : "running", current_stage_key: "worker-task", completed_at: ended ? fixtureTime : null };
   const workerDefinition = { id: "fixture-worker-definition", worker_key: "fixture.research", version: "1.0.0", name: "Evidence research specialist", role: "research", status: "qualified" };
   const workingStage = { ...stages[1], status: "running", completed_at: null };
@@ -266,11 +276,8 @@ export async function renderWorkflows({ ended = false, mismatchedTask = false } 
   };
   const collection = workflowCollection({ runs: [workingRun], stages: [stages[0], workingStage], interventions: [], events: [],
     tasks: [task], workerRuns: [workerRun], workerDefinitions: [workerDefinition] });
-  const { default: Page } = loadSource("src/app/dashboard/workflows/page.tsx", {
-    "@/components/stage7/app-shell": shell, "@/components/stage7/workflow-visuals": visuals, "@/lib/core-ui/workflows": workflows,
-    "@/lib/core-ui/data": { requireOwnerUiContext: async () => ownerContext({ needsYouCount: 0 }), loadWorkflowCollection: async () => collection },
-  });
-  return renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }));
+  return renderToStaticMarkup(React.createElement(shell.AppShell, { active: 'workflows', context: ownerContext() }, React.createElement(visuals.WorkflowListCard, { run: workingRun, definition, business, stages: collection.stages, task, workerRun, workerDefinition, events: [], artifactCount: 0 })));
+
 }
 
 export function renderDecisions() {
