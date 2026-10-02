@@ -211,9 +211,179 @@ export function latestStageByKey(stages: readonly WorkflowStageRecord[]) {
   const map = new Map<string, WorkflowStageRecord>();
   for (const stage of stages) {
     const existing = map.get(stage.stage_key);
-    if (!existing || stage.attempt >= existing.attempt) map.set(stage.stage_key, stage);
+    if (!existing || stage.attempt > existing.attempt ||
+        (stage.attempt === existing.attempt && stage.updated_at > existing.updated_at)) {
+      map.set(stage.stage_key, stage);
+    }
   }
   return map;
+}
+
+// This proof has one registered definition. Other reviews must never inherit its hook.
+export const SYNTHETIC_REVIEW_WORKFLOW = {
+  id: "00000000-0000-4000-8000-000000000301",
+  workflow_key: "synthetic.core.runtime-proof",
+  version: "1.0.0",
+} as const;
+
+type ReviewIntervention = Pick<OwnerInterventionRecord,
+  "business_id" | "workflow_run_id" | "intervention_type" | "status">;
+type ReviewRun = Pick<WorkflowRunRecord,
+  "id" | "business_id" | "workflow_definition_id" | "status" | "current_stage_key" | "completed_at">;
+type ReviewDefinition = Pick<WorkflowDefinitionRecord, "id" | "workflow_key" | "version">;
+
+export function canResumeSyntheticReview(
+  intervention: ReviewIntervention,
+  run: ReviewRun | null | undefined,
+  definition: ReviewDefinition | null | undefined,
+) {
+  return intervention.status === "open" &&
+    intervention.intervention_type === "synthetic_workflow_review" &&
+    Boolean(run && definition &&
+      intervention.workflow_run_id === run.id &&
+      intervention.business_id === run.business_id &&
+      run.status === "needs_owner" && run.current_stage_key === "review" && !run.completed_at &&
+      run.workflow_definition_id === definition.id &&
+      definition.id === SYNTHETIC_REVIEW_WORKFLOW.id &&
+      definition.workflow_key === SYNTHETIC_REVIEW_WORKFLOW.workflow_key &&
+      definition.version === SYNTHETIC_REVIEW_WORKFLOW.version);
+}
+
+export type InterventionAction =
+  | { kind: "synthetic_review" }
+  | { kind: "browser_control"; decision: "take_control" | "return_control" }
+  | { kind: "simulation_review" }
+  | { kind: "link"; href: string; label: string; section: "details" | "publication" | "printful" };
+
+export function interventionDetailsHref(intervention: Pick<OwnerInterventionRecord, "workflow_run_id">) {
+  return intervention.workflow_run_id
+    ? `/dashboard/workflows/${encodeURIComponent(intervention.workflow_run_id)}`
+    : "/dashboard/needs-you";
+}
+
+export function interventionAction(
+  intervention: OwnerInterventionRecord,
+  run?: ReviewRun | null,
+  definition?: ReviewDefinition | null,
+): InterventionAction {
+  const details: InterventionAction = {
+    kind: "link", href: interventionDetailsHref(intervention), label: "View details", section: "details",
+  };
+  if (intervention.status !== "open") return details;
+  switch (intervention.intervention_type) {
+    case "synthetic_workflow_review":
+      return canResumeSyntheticReview(intervention, run, definition) ? { kind: "synthetic_review" } : details;
+    case "browser_takeover":
+      return intervention.workflow_run_id ? { kind: "browser_control", decision: "take_control" } : details;
+    case "browser_return_control":
+      return intervention.workflow_run_id ? { kind: "browser_control", decision: "return_control" } : details;
+    case "etsy_simulation_review":
+      return intervention.workflow_run_id ? { kind: "simulation_review" } : details;
+    case "etsy.publication.reconcile":
+      return { kind: "link", section: "publication", label: "Check existing listing",
+        href: `/dashboard/etsy?business=${encodeURIComponent(intervention.business_id)}&publicationRequest=${encodeURIComponent(intervention.id)}#publication-history` };
+    case "printful.product.reconcile":
+      return { kind: "link", section: "printful", label: "Review existing product",
+        href: `/dashboard/printful?business=${encodeURIComponent(intervention.business_id)}&intervention=${encodeURIComponent(intervention.id)}#product-configuration-history` };
+    default:
+      // Creative validation failures and future intervention types are inspect-only.
+      return details;
+  }
+}
+
+export function workflowExecutionEnded(run: Pick<WorkflowRunRecord, "status" | "completed_at">) {
+  // Creative needs_owner can be a stopped runtime, unlike a resumable synthetic review.
+  return TERMINAL_WORKFLOW_STATUSES.has(run.status) || Boolean(run.completed_at);
+}
+
+export function stageLabel(key: string | null | undefined, fallback = "Not recorded") {
+  const creative: Record<string, string> = {
+    "brief:1": "Brief", "screen:1": "Brief screen", "generate:1": "Generate image",
+    "review:1": "Image review", "generate:2": "Repair image", "review:2": "Repair review",
+  };
+  const label = key ? creative[key] : undefined;
+  return typeof label === "string" ? label : humanize(key, fallback);
+}
+
+export type WorkflowTimelineStage = {
+  key: string;
+  label: string;
+  status: string;
+  detail: string;
+  isCurrent: boolean;
+  recorded: boolean;
+};
+
+export function workflowTimelineStages(
+  definition: WorkflowDefinitionRecord | undefined,
+  run: WorkflowRunRecord,
+  stages: readonly WorkflowStageRecord[],
+): WorkflowTimelineStage[] {
+  const latest = latestStageByKey(stages.filter(stage => stage.workflow_run_id === run.id));
+  let blueprints = definition?.id === run.workflow_definition_id ? stageBlueprints(definition) : [];
+  // The creative pack describes worker roles, while its dedicated runtime persists
+  // phase/generation keys. Use that exact runtime contract, never fuzzy prefix matches.
+  if (definition?.id === run.workflow_definition_id &&
+      definition.workflow_key === "etsy.creative-pipeline" && definition.version === "1.0.0") {
+    const keys = ["brief:1", "screen:1", "generate:1", "review:1"];
+    if (latest.has("generate:2") || latest.has("review:2") ||
+        run.current_stage_key === "generate:2" || run.current_stage_key === "review:2") {
+      keys.push("generate:2", "review:2");
+    }
+    blueprints = keys.map((key, index) => ({ key, sequence: index + 1, type: "stage" }));
+  }
+  const knownKeys = new Set(blueprints.map(stage => stage.key));
+  for (const stage of latest.values()) {
+    if (!knownKeys.has(stage.stage_key)) {
+      blueprints.push({ key: stage.stage_key, sequence: stage.sequence, type: "stage" });
+    }
+  }
+  blueprints.sort((left, right) => left.sequence - right.sequence);
+  if (!blueprints.length) {
+    blueprints = [{ key: run.current_stage_key ?? "unrecorded", sequence: 0, type: "stage" }];
+  }
+  const ended = workflowExecutionEnded(run);
+  const currentIndex = blueprints.findIndex(stage => stage.key === run.current_stage_key);
+  return blueprints.map((blueprint, index) => {
+    const stage = latest.get(blueprint.key);
+    const status = stage
+      ? (stage.status === "skipped" || (ended && stage.status === "pending") ? "not_run" : stage.status)
+      : (!ended && currentIndex >= 0 && index > currentIndex ? "pending" : "not_recorded");
+    const staleActive = ended && ["queued", "running", "waiting", "review", "needs_owner"].includes(status);
+    return {
+      key: blueprint.key,
+      label: blueprint.key === "unrecorded" ? "Stage history" : stageLabel(blueprint.key),
+      status,
+      detail: `${staleActive ? "Last recorded: " : ""}${statusLabel(status)}${stage && stage.attempt > 1 ? ` · attempt ${stage.attempt}` : ""}${staleActive ? " · run ended" : ""}`,
+      isCurrent: !ended && blueprint.key === run.current_stage_key,
+      recorded: Boolean(stage),
+    };
+  });
+}
+
+export function currentWorkerSummary(
+  run: WorkflowRunRecord,
+  task: TaskContractRecord | null,
+  workerRun: WorkerRunRecord | null | undefined,
+  workerDefinition: WorkerDefinitionRecord | null | undefined,
+  stages: readonly WorkflowStageRecord[] = [],
+) {
+  const matchingWorker = workerRun?.workflow_run_id === run.id && workerRun.business_id === run.business_id;
+  const matchingTask = task?.workflow_run_id === run.id && task.business_id === run.business_id &&
+    matchingWorker && workerRun.task_contract_id === task.id && workerRun.worker_definition_id === task.worker_definition_id;
+  const currentStage = latestStageByKey(stages.filter(stage => stage.workflow_run_id === run.id))
+    .get(run.current_stage_key ?? "");
+  const matchingStage = matchingTask && task.status === "running" && currentStage &&
+    currentStage.id === task.workflow_stage_run_id && currentStage.status === "running";
+  const name = matchingWorker && workerDefinition?.id === workerRun.worker_definition_id
+    ? workerDefinition.name : "Recorded worker";
+  const active = !workflowExecutionEnded(run) && run.status === "running" && matchingStage &&
+    workerRun?.status === "running" && !workerRun.completed_at;
+  return active
+    ? { active: true, value: name, detail: "Working on the current stage" }
+    : { active: false, value: "No current worker", detail: matchingWorker
+      ? `Last worker: ${name} · ${statusLabel(workerRun.status)}`
+      : "No current worker execution recorded" };
 }
 
 export function openIntervention(
@@ -303,12 +473,16 @@ export function deriveCurrentAction(
   event: WorkflowEventRecord | null,
   intervention: OwnerInterventionRecord | null,
 ) {
-  if (intervention) return intervention.title;
-  if (run.status === "completed") return "Workflow completed successfully";
-  if (run.status === "failed") return "Workflow stopped after a classified failure";
-  if (run.status === "waiting") return "Waiting durably without consuming active compute";
-  if (run.status === "queued") return "Waiting for the durable runtime to begin";
-  return event ? eventLabel(event.event_type) : `Running ${humanize(run.current_stage_key, "workflow")}`;
+  if (intervention?.status === "open") return intervention.title;
+  if (run.status === "completed") return "Run completed; saved results are ready to review";
+  if (run.status === "failed") return payloadText(run.state, "reason") ?? "Run stopped; review the recorded issue";
+  if (run.status === "cancelled") return "Run stopped";
+  if (workflowExecutionEnded(run)) return payloadText(run.state, "reason") ?? "Run ended; review the saved outcome";
+  if (run.status === "needs_owner" || run.status === "review") return "Waiting for your review";
+  if (run.status === "waiting") return "Waiting for the next step";
+  if (run.status === "queued") return "Queued to start";
+  if (run.status === "running") return `Working on ${stageLabel(run.current_stage_key, "the workflow")}`;
+  return event ? `Last update: ${eventLabel(event.event_type)}` : "Current action not recorded";
 }
 
 export function deriveNextStep(
@@ -316,25 +490,56 @@ export function deriveNextStep(
   definition: WorkflowDefinitionRecord | undefined,
   intervention: OwnerInterventionRecord | null,
 ) {
-  if (intervention) return "Waiting for your decision";
-  if (TERMINAL_WORKFLOW_STATUSES.has(run.status)) return "No further step";
+  if (intervention?.status === "open") {
+    if (intervention.intervention_type === "creative_review") return "Review evidence before a separately approved run";
+    if (intervention.intervention_type === "synthetic_workflow_review") return "Waiting for your decision";
+    return "Open the request and review its next step";
+  }
+  if (run.status === "completed") return "Review the saved results";
+  if (workflowExecutionEnded(run)) return "Review what happened before starting another run";
 
-  const blueprints = stageBlueprints(definition);
-  const currentIndex = blueprints.findIndex((stage) => stage.key === run.current_stage_key);
-  const next = currentIndex >= 0 ? blueprints[currentIndex + 1] : blueprints[0];
-  return next ? humanize(next.key) : "Finish the current stage";
+  const timeline = workflowTimelineStages(definition, run, []);
+  const currentIndex = timeline.findIndex(stage => stage.key === run.current_stage_key);
+  const next = currentIndex >= 0 ? timeline[currentIndex + 1] : null;
+  return next ? next.label : "Finish the current stage";
+}
+
+export function workflowNextStepLink(
+  run: WorkflowRunRecord,
+  definition: WorkflowDefinitionRecord | undefined,
+  intervention: OwnerInterventionRecord | null,
+) {
+  if (intervention?.status === "open") {
+    if (intervention.intervention_type === "creative_review") {
+      return { href: "/dashboard/artifacts#creative-approvals", label: "Review creative evidence" };
+    }
+    const action = interventionAction(intervention, run, definition);
+    if (action.kind === "link") return { href: action.href, label: action.label };
+    return { href: "/dashboard/needs-you", label: "Review request" };
+  }
+  if (!workflowExecutionEnded(run)) return null;
+  if (definition?.id === run.workflow_definition_id && definition.workflow_key === "etsy.creative-pipeline") {
+    return { href: "/dashboard/artifacts#creative-approvals", label: "View creative results and receipts" };
+  }
+  return run.status === "completed"
+    ? { href: `/dashboard/workflows/${encodeURIComponent(run.id)}?workspace=artifacts`, label: "View saved results" }
+    : { href: `/dashboard/workflows/${encodeURIComponent(run.id)}#workflow-activity`, label: "Review recorded activity" };
 }
 
 export function statusLabel(status: string) {
   const labels: Record<string, string> = {
     needs_owner: "Needs you",
     queued: "Queued",
-    review: "Review",
-    running: "Running",
+    review: "Needs review",
+    running: "Working",
     waiting: "Waiting",
     completed: "Completed",
     failed: "Failed",
-    cancelled: "Cancelled",
+    cancelled: "Stopped",
+    pending: "Upcoming",
+    skipped: "Not run",
+    not_run: "Not run",
+    not_recorded: "Not recorded",
   };
   return labels[status] ?? humanize(status);
 }

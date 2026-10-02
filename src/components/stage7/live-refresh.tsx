@@ -104,9 +104,9 @@ export function LiveRefresh({ workflowRunId }: LiveRefreshProps) {
   }, [router, workflowRunId]);
 
   return (
-    <span className={`liveConnection liveConnection-${state}`} title="Supabase live activity">
+    <span className={`liveConnection liveConnection-${state}`} title="Connection for page updates. This does not indicate that a worker is running.">
       <span aria-hidden="true" />
-      {state === "live" ? "Live" : state === "connecting" ? "Connecting" : "Refresh fallback"}
+      {state === "live" ? "Updates connected" : state === "connecting" ? "Connecting updates" : "Updates checked every 30s"}
     </span>
   );
 }

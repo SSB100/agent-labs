@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { resumeHook, start } from "workflow/api";
 
+import { canResumeSyntheticReview } from "@/lib/core-ui/workflows";
 import { isSupabaseAdminConfigured } from "@/lib/supabase/env";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -211,7 +212,7 @@ export async function resumeSyntheticReview(formData: FormData) {
   const { supabase, userId } = await requireOwnerSession();
   const { data: intervention, error } = await supabase
     .from("owner_interventions")
-    .select("id, business_id, workflow_run_id, status")
+    .select("id, business_id, workflow_run_id, intervention_type, status")
     .eq("id", interventionId)
     .maybeSingle();
 
@@ -222,6 +223,35 @@ export async function resumeSyntheticReview(formData: FormData) {
     !intervention.workflow_run_id
   ) {
     redirectWith(returnTo, "error", "review-not-open");
+  }
+
+  if (intervention.intervention_type !== "synthetic_workflow_review") {
+    redirectWith(returnTo, "error", "invalid-review-decision");
+  }
+
+  const [runResult, businessResult] = await Promise.all([
+    supabase.from("workflow_runs")
+      .select("id, business_id, workflow_definition_id, status, current_stage_key, completed_at")
+      .eq("id", intervention.workflow_run_id)
+      .eq("business_id", intervention.business_id)
+      .maybeSingle(),
+    supabase.from("businesses")
+      .select("id")
+      .eq("id", intervention.business_id)
+      .eq("owner_user_id", userId)
+      .maybeSingle(),
+  ]);
+  if (runResult.error || !runResult.data || businessResult.error || !businessResult.data) {
+    redirectWith(returnTo, "error", "invalid-review-decision");
+  }
+  const { data: definition, error: definitionError } = await supabase
+    .from("workflow_definitions")
+    .select("id, workflow_key, version")
+    .eq("id", runResult.data.workflow_definition_id)
+    .maybeSingle();
+  // A forged/stale form cannot send another workflow type to the synthetic hook.
+  if (definitionError || !canResumeSyntheticReview(intervention, runResult.data, definition)) {
+    redirectWith(returnTo, "error", "invalid-review-decision");
   }
 
   try {

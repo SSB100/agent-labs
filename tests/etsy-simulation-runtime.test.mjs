@@ -46,7 +46,9 @@ test("hosted workflow wires mock stages, durable persistence, and owner review w
 test("simulation owner controls never present live approval or activation", () => {
   const ui = readFileSync("src/components/stage7/workflow-visuals.tsx", "utf8");
   const packs = readFileSync("src/app/dashboard/packs/page.tsx", "utf8");
-  assert.match(ui, /intervention_type === "etsy_simulation_review"/);
+  const workflowUi = readFileSync("src/lib/core-ui/workflows.ts", "utf8");
+  assert.match(workflowUi, /case "etsy_simulation_review":/);
+  assert.match(ui, /action.kind === "simulation_review"/);
   assert.match(ui, /action=\{acknowledgeEtsySimulation\}/);
   assert.match(ui, /Acknowledge simulated result/);
   assert.match(ui, /Stop simulation/);

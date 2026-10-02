@@ -32,6 +32,7 @@ import {
   latestEvent,
   openIntervention,
   statusLabel,
+  stageLabel,
 } from "@/lib/core-ui/workflows";
 
 export const dynamic = "force-dynamic";
@@ -124,6 +125,8 @@ export default async function WorkflowPage({ params, searchParams }: WorkflowPag
     intervention && ["browser_takeover", "browser_return_control"].includes(intervention.intervention_type)
       ? intervention
       : null;
+  const detailUnavailable = detail.errors.length > 0;
+  const browserUnavailable = Boolean(browserResult.error || browserEventResult.error);
   const event = latestEvent(detail.events);
   const workflowName = detail.definition?.name ?? "Workflow";
   const businessName = detail.business?.name ?? "Business";
@@ -158,11 +161,14 @@ export default async function WorkflowPage({ params, searchParams }: WorkflowPag
       {message ? <p className="coreNotice coreNotice-success" role="status">{message}</p> : null}
       {error ? <p className="coreNotice coreNotice-danger" role="alert">{error}</p> : null}
 
+      {detailUnavailable ? <p className="coreNotice coreNotice-danger" role="alert">Some related workflow records could not be loaded. Stage, worker, decision and output completeness cannot be confirmed. Existing records may still need attention; no new action is implied.</p> : null}
+      {browserUnavailable ? <p className="coreNotice coreNotice-danger" role="alert">Browser-session records could not be checked. This does not confirm that no browser session exists.</p> : null}
+
       <section className="workflowProgressPanel">
         <div className="workflowProgressTop">
           <div>
             <p className="coreEyebrow">Current state</p>
-            <h2>{humanize(detail.run.current_stage_key, statusLabel(detail.run.status))}</h2>
+            <h2>{detail.run.current_stage_key ? stageLabel(detail.run.current_stage_key) : statusLabel(detail.run.status)}</h2>
             <p>{detail.definition?.description ?? "Durable Agent Labs workflow execution."}</p>
           </div>
           <div className="workflowRunIdentity">
@@ -171,6 +177,7 @@ export default async function WorkflowPage({ params, searchParams }: WorkflowPag
           </div>
         </div>
         <WorkflowTimeline
+          unavailable={detailUnavailable}
           definition={detail.definition ?? undefined}
           run={detail.run}
           stages={detail.stages}
@@ -178,6 +185,8 @@ export default async function WorkflowPage({ params, searchParams }: WorkflowPag
       </section>
 
       <ExecutionSnapshot
+        unavailable={detailUnavailable}
+        stages={detail.stages}
         definition={detail.definition ?? undefined}
         event={event}
         intervention={intervention}
@@ -200,6 +209,8 @@ export default async function WorkflowPage({ params, searchParams }: WorkflowPag
             <NeedsYouCard
               businessName={businessName}
               intervention={intervention}
+              definition={detail.definition ?? undefined}
+              run={detail.run}
               returnTo={returnTo}
               workflowName={workflowName}
             />
@@ -217,7 +228,7 @@ export default async function WorkflowPage({ params, searchParams }: WorkflowPag
           initialWorkspace={first(query.workspace)}
           returnTo={returnTo}
         />
-        <ActivityFeed events={detail.events} />
+        <ActivityFeed events={detail.events} unavailable={detailUnavailable} />
       </div>
 
       <section className="workflowDetailGrid">
@@ -227,16 +238,16 @@ export default async function WorkflowPage({ params, searchParams }: WorkflowPag
             <CoreIcon name="workflow" />
           </div>
           <dl className="detailList">
-            <div><dt>Worker</dt><dd>{workerDefinition?.name ?? (browserSession ? "Browser runtime" : "Workflow runtime")}</dd></div>
-            <div><dt>Worker status</dt><dd>{workerRun ? statusLabel(workerRun.status) : browserSession ? humanize(browserSession.status) : "No Worker Run"}</dd></div>
-            <div><dt>Task</dt><dd>{task?.objective ?? (browserSession ? "Qualify the remote browser provider boundary" : "No Task Contract for this stage")}</dd></div>
+            <div><dt>Worker</dt><dd>{workerDefinition?.name ?? (detailUnavailable ? "Unavailable" : browserSession ? "Browser runtime" : "Workflow runtime")}</dd></div>
+            <div><dt>Worker status</dt><dd>{workerRun ? statusLabel(workerRun.status) : browserSession ? humanize(browserSession.status) : detailUnavailable ? "Unavailable" : "No Worker Run"}</dd></div>
+            <div><dt>Task</dt><dd>{task?.objective ?? (browserSession ? "Qualify the remote browser provider boundary" : detailUnavailable ? "Unavailable" : "No Task Contract for this stage")}</dd></div>
             <div>
               <dt>Capabilities</dt>
-              <dd>{task?.permitted_capabilities.length ? task.permitted_capabilities.join(", ") : browserSession ? "browser.observe, browser.interact, browser.upload, browser.takeover" : "None exposed"}</dd>
+              <dd>{task?.permitted_capabilities.length ? task.permitted_capabilities.join(", ") : browserSession ? "browser.observe, browser.interact, browser.upload, browser.takeover" : detailUnavailable ? "Unavailable" : "None exposed"}</dd>
             </div>
             <div>
               <dt>Browser identity</dt>
-              <dd>{browserSession ? browserSession.browser_identity_id : "Not attached"}</dd>
+              <dd>{browserSession ? browserSession.browser_identity_id : browserUnavailable ? "Unavailable" : "Not attached"}</dd>
             </div>
           </dl>
         </article>
@@ -250,7 +261,7 @@ export default async function WorkflowPage({ params, searchParams }: WorkflowPag
             <div><dt>Business</dt><dd>{businessName}</dd></div>
             <div><dt>Runtime</dt><dd>{detail.run.runtime_provider ?? "Pending"}</dd></div>
             <div><dt>Runtime run</dt><dd><code>{detail.run.runtime_run_id ?? "Not assigned"}</code></dd></div>
-            <div><dt>Browser session</dt><dd><code>{browserSession?.provider_session_id ?? "Not attached"}</code></dd></div>
+            <div><dt>Browser session</dt><dd><code>{browserSession?.provider_session_id ?? (browserUnavailable ? "Unavailable" : "Not attached")}</code></dd></div>
             <div><dt>Started</dt><dd>{formatDateTime(detail.run.started_at ?? detail.run.created_at)}</dd></div>
             <div><dt>Completed</dt><dd>{formatDateTime(detail.run.completed_at)}</dd></div>
           </dl>

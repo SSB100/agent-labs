@@ -53,7 +53,7 @@ export default async function NeedsYouPage({ searchParams }: NeedsYouPageProps) 
   );
   const open = interventions.filter((entry) => entry.status === "open");
   const waitingCount = open.length + accountSetup.records.length;
-  const unavailable = publication.unavailable || accountSetup.unavailable || printfulProduct.unavailable;
+  const unavailable = collection.errors.length > 0 || publication.unavailable || accountSetup.unavailable || printfulProduct.unavailable;
   const resolved = interventions
     .filter((entry) => entry.status !== "open")
     .slice(0, 12);
@@ -73,6 +73,7 @@ export default async function NeedsYouPage({ searchParams }: NeedsYouPageProps) 
 
       {message ? <p className="coreNotice coreNotice-success" role="status">{message}</p> : null}
       {error ? <p className="coreNotice coreNotice-danger" role="alert">{error}</p> : null}
+      {collection.errors.length ? <p className="coreNotice coreNotice-danger" role="alert">Some workflow decisions could not be checked. Existing requests may still need your attention.</p> : null}
       {publication.unavailable ? <p className="coreNotice coreNotice-danger" role="alert">Publication verification requests could not be loaded. Unresolved listing outcomes may still need your attention.</p> : null}
 
       {accountSetup.unavailable ? <p className="coreNotice coreNotice-danger" role="alert">Account setup requests could not be checked. Existing approvals or secure owner steps may still need attention.</p> : null}
@@ -85,7 +86,7 @@ export default async function NeedsYouPage({ searchParams }: NeedsYouPageProps) 
             <p className="coreEyebrow">Open queue</p>
             <h2>{waitingCount ? `${waitingCount} decision${waitingCount === 1 ? "" : "s"} waiting` : unavailable ? "Some requests could not be checked" : "Nothing needs your attention"}</h2>
           </div>
-          <span className="coreCount">{waitingCount}</span>
+          <span className="coreCount">{unavailable ? `${waitingCount} loaded` : waitingCount}</span>
         </div>
 
         {waitingCount ? (
@@ -101,6 +102,8 @@ export default async function NeedsYouPage({ searchParams }: NeedsYouPageProps) 
               const props = {
                 businessName: businessById.get(intervention.business_id)?.name,
                 intervention,
+                definition,
+                run,
                 returnTo: "/dashboard/needs-you",
                 workflowName: definition?.name,
               };
@@ -114,7 +117,7 @@ export default async function NeedsYouPage({ searchParams }: NeedsYouPageProps) 
             })}
           </div>
         ) : (
-          <EmptyPanel icon="needs-you" title={publication.unavailable ? "Publication checks unavailable" : accountSetup.unavailable ? "Account checks unavailable" : printfulProduct.unavailable ? "Printful product checks unavailable" : "No intervention required"}>
+          <EmptyPanel icon="needs-you" title={collection.errors.length ? "Workflow checks unavailable" : publication.unavailable ? "Publication checks unavailable" : accountSetup.unavailable ? "Account checks unavailable" : printfulProduct.unavailable ? "Printful product checks unavailable" : "No intervention required"}>
             <p>{unavailable ? "Account, publication or Printful product outcomes may still need verification. Check the relevant workspace once its records are available." : "Agent Labs will surface decisions here instead of interrupting normal workflow activity."}</p>
           </EmptyPanel>
         )}

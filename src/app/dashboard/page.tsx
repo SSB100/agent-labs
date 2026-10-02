@@ -22,6 +22,8 @@ import {
   currentWorkerRun,
   formatRelativeTime,
   openIntervention,
+  interventionAction,
+  interventionDetailsHref,
 } from "@/lib/core-ui/workflows";
 import { isSupabaseAdminConfigured } from "@/lib/supabase/env";
 
@@ -117,12 +119,21 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   }
 
   const activeRuns = collection.runs.filter((run) => ACTIVE_WORKFLOW_STATUSES.has(run.status));
+  const workUnavailable = collection.errors.length > 0 || context.businessesUnavailable === true;
+  const workingRuns = collection.runs.filter((run) => run.status === "running");
   const completedRuns = collection.runs.filter((run) => run.status === "completed");
   const openInterventions = collection.interventions.filter(
     (intervention) => intervention.status === "open" && intervention.workflow_run_id,
   );
   const latestRuns = activeRuns.length ? activeRuns.slice(0, 3) : collection.runs.slice(0, 3);
   const latestEvents = collection.events.slice(0, 8);
+  const firstDecision = openInterventions[0];
+  const decisionRun = firstDecision ? collection.runs.find((run) => run.id === firstDecision.workflow_run_id) : undefined;
+  const decisionAction = firstDecision ? interventionAction(firstDecision, decisionRun, decisionRun ? definitionById.get(decisionRun.workflow_definition_id) : undefined) : null;
+  const nextHref = workUnavailable ? "/dashboard/workflows" : firstDecision
+    ? decisionAction?.kind === "link" ? decisionAction.href : interventionDetailsHref(firstDecision)
+    : context.needsYouCount || context.needsYouUnavailable ? "/dashboard/needs-you" : activeRuns[0] ? `/dashboard/workflows/${activeRuns[0].id}` : context.businesses.length ? "/dashboard/products#discovery-goal" : "#create-business";
+  const nextLabel = workUnavailable ? "Check work status" : firstDecision ? decisionAction?.kind === "link" ? decisionAction.label : "Review next decision" : context.needsYouCount || context.needsYouUnavailable ? "Review decisions" : activeRuns.length ? "Open current work" : context.businesses.length ? "Start a research goal" : "Create your workspace";
 
   return (
     <AppShell active="dashboard" context={context}>
@@ -149,33 +160,42 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         <div>
           <p className="coreEyebrow">Private owner workspace</p>
           <h2>
-            {context.needsYouCount
-              ? `${context.needsYouCount} decision${context.needsYouCount === 1 ? "" : "s"} need your attention.`
-              : activeRuns.length
-                ? `${activeRuns.length} workflow${activeRuns.length === 1 ? " is" : "s are"} moving.`
+            {workUnavailable
+              ? "Work status could not be confirmed."
+              : context.needsYouUnavailable
+              ? "Your decisions need a fresh check."
+              : context.needsYouCount
+              ? `${context.needsYouCount} decision${context.needsYouCount === 1 ? " needs" : "s need"} your attention.`
+              : workingRuns.length
+                ? `${workingRuns.length} workflow${workingRuns.length === 1 ? " is" : "s are"} working.`
+                : activeRuns.length
+                  ? "Your work is waiting for its next step."
                 : "Agent Labs is ready for the next workflow."}
           </h2>
           <p>
-            {activeRuns.length
+            {workUnavailable
+              ? "Some saved records are unavailable. Check the existing work before starting another run."
+              : activeRuns.length
               ? `The latest durable activity was ${formatRelativeTime(collection.events[0]?.occurred_at)}.`
-              : "Start the durable synthetic workflow to watch state, worker activity, waiting, and owner review update live."}
+              : "Start with a bounded research goal. Review the supported scope and allowance before any work begins."}
           </p>
+          <Link className="coreButton coreButton-primary" href={nextHref}>{nextLabel}</Link>
         </div>
         <div className="overviewHeroStatus">
           <span className={runtimeReady ? "systemPulse systemPulse-ready" : "systemPulse"} />
           <div>
-            <strong>{runtimeReady ? "Core runtime ready" : "Runtime needs configuration"}</strong>
-            <small>Vercel Workflow · Supabase · OpenRouter</small>
+            <strong>{runtimeReady ? "Core connection configured" : "Core connection not configured"}</strong>
+            <small>Configuration only · execution shown per run</small>
           </div>
         </div>
       </section>
 
       <section className="coreMetricGrid" aria-label="Agent Labs summary">
         {[
-          ["Active workflows", activeRuns.length, "workflow"],
-          ["Needs You", context.needsYouCount, "needs-you"],
-          ["Completed", completedRuns.length, "history"],
-          ["Artifacts", collection.artifacts.length, "artifacts"],
+          ["Working", workUnavailable ? "Unknown" : workingRuns.length, "workflow"],
+          ["Needs You", context.needsYouUnavailable ? "Unknown" : context.needsYouCount, "needs-you"],
+          ["Completed", workUnavailable ? "Unknown" : completedRuns.length, "history"],
+          ["Artifacts", workUnavailable ? "Unknown" : collection.artifacts.length, "artifacts"],
         ].map(([label, value, icon]) => (
           <article className="coreMetricCard" key={String(label)}>
             <span><CoreIcon name={icon as "workflow" | "needs-you" | "history" | "artifacts"} /></span>
@@ -198,6 +218,8 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                 <NeedsYouCard
                   businessName={businessById.get(intervention.business_id)?.name}
                   intervention={intervention}
+                  definition={definition}
+                  run={run}
                   key={intervention.id}
                   returnTo="/dashboard"
                   workflowName={definition?.name}
@@ -224,6 +246,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                 const workerRun = currentWorkerRun(workerRunsByRun.get(run.id) ?? []);
                 return (
                   <WorkflowListCard
+                    unavailable={workUnavailable}
                     artifactCount={(artifactsByRun.get(run.id) ?? []).length}
                     business={businessById.get(run.business_id)}
                     definition={definitionById.get(run.workflow_definition_id)}
@@ -233,6 +256,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
                     run={run}
                     stages={stagesByRun.get(run.id) ?? []}
                     task={currentTask(tasksByRun.get(run.id) ?? [])}
+                    workerRun={workerRun}
                     workerDefinition={
                       workerRun ? workerDefinitionById.get(workerRun.worker_definition_id) : null
                     }
@@ -241,20 +265,20 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
               })}
             </div>
           ) : (
-            <EmptyPanel icon="workflow" title="No workflow activity yet">
-              <p>Start a durable workflow from a Business below to see its state update live.</p>
+            <EmptyPanel icon="workflow" title={workUnavailable ? "Work records unavailable" : "No workflow activity yet"}>
+              <p>{workUnavailable ? "Existing runs and outputs may still exist. Check again before starting more work." : "Start a supported research goal to see its state update here."}</p>
             </EmptyPanel>
           )}
         </section>
 
-        <ActivityFeed events={latestEvents} />
+        <ActivityFeed events={latestEvents} unavailable={workUnavailable} />
       </div>
 
       <div className="dashboardColumns dashboardColumns-lower">
         <section className="dashboardSection">
           <div className="sectionTitleRow">
             <div><p className="coreEyebrow">Businesses</p><h2>Workspaces</h2></div>
-            <span className="coreCount">{context.businesses.length}</span>
+            <span className="coreCount">{context.businessesUnavailable ? "Unknown" : context.businesses.length}</span>
           </div>
           {context.businesses.length ? (
             <div className="businessWorkspaceList">
@@ -281,19 +305,19 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
               })}
             </div>
           ) : (
-            <EmptyPanel icon="building" title="No Business yet">
-              <p>Create your first private workspace.</p>
+            <EmptyPanel icon="building" title={context.businessesUnavailable ? "Business records unavailable" : "No Business yet"}>
+              <p>{context.businessesUnavailable ? "Your existing workspaces could not be checked. Please reload before creating another." : "Create your first private workspace."}</p>
             </EmptyPanel>
           )}
         </section>
 
-        <section className="dashboardSection createBusinessPanel">
+        <section className="dashboardSection createBusinessPanel" id="create-business">
           <div><p className="coreEyebrow">New workspace</p><h2>Create a Business</h2></div>
           <p>Businesses keep workflows, artifacts, accounts, and future packs separated.</p>
           <form action={createBusiness} className="coreForm">
             <label htmlFor="business-name">Business name</label>
             <input id="business-name" maxLength={120} name="name" placeholder="Business name" required type="text" />
-            <button className="coreButton coreButton-primary" type="submit">Create Business</button>
+            <button className="coreButton coreButton-primary" disabled={context.businessesUnavailable} type="submit">Create Business</button>
           </form>
         </section>
       </div>
