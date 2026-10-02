@@ -1,0 +1,40 @@
+/* Motion is opt-in on saved-record targets. The wrapper has no layout box. */
+.consoleMotionBoundary { display: contents; }
+.consoleMotionBoundary [data-console-motion-mark] { transform-box: fill-box; transform-origin: center; }
+.consoleMotionBoundary [data-console-motion-state="running"] > [data-console-motion-mark] {
+  animation: consoleReceiptPulse 3200ms ease-in-out var(--console-motion-phase, 0ms) infinite;
+}
+.consoleMotionBoundary [data-console-motion-state="completed"] > [data-console-motion-mark] { color: #84dfbd; }
+.consoleMotionBoundary [data-console-motion-state="attention"] { --console-motion-attention: #e9bd78; }
+.consoleMotionBoundary [data-console-motion-state="attention"] > [data-console-motion-mark] { color: var(--console-motion-attention); }
+.consoleMotionBoundary [data-console-motion-cue="activation"] > [data-console-motion-mark] {
+  animation: consoleAcceptedStart 640ms ease-out var(--console-motion-cue-delay, 0ms) both;
+}
+.consoleMotionBoundary [data-console-motion-cue="completion"] > [data-console-motion-mark] {
+  animation: consoleCompletionSettle 480ms ease-out var(--console-motion-cue-delay, 0ms) both;
+}
+.consoleMotionBoundary [data-console-motion-cue="saved"] {
+  animation: consoleSavedHighlight 1400ms ease-out var(--console-motion-cue-delay, 0ms) both;
+}
+.consoleMotionBoundary [data-console-motion-cue="decision"] {
+  animation: consoleDecisionCue 1200ms ease-out var(--console-motion-cue-delay, 0ms) both;
+}
+/* Only small marks vary in opacity. Text, cards and layout stay still. */
+@keyframes consoleReceiptPulse { 0%, 100% { opacity: .72; } 50% { opacity: 1; } }
+@keyframes consoleAcceptedStart { from { opacity: .65; transform: scale(.96); } to { opacity: 1; transform: scale(1); } }
+@keyframes consoleCompletionSettle { from { opacity: .72; transform: scale(.9); } to { opacity: 1; transform: scale(1); } }
+@keyframes consoleSavedHighlight { from { box-shadow: inset 0 0 0 1px #57cdbf55, inset 0 0 20px #57cdbf18; } to { box-shadow: inset 0 0 0 1px #57cdbf00, inset 0 0 20px #57cdbf00; } }
+@keyframes consoleDecisionCue { from { box-shadow: inset 0 0 0 1px #e9bd7866, inset 0 0 20px #e9bd7820; } to { box-shadow: inset 0 0 0 1px #e9bd7800, inset 0 0 20px #e9bd7800; } }
+@media (prefers-reduced-motion: reduce) {
+  .consoleMotionBoundary [data-console-motion-target],
+  .consoleMotionBoundary [data-console-motion-mark] {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+  }
+}
+
+/* A finite view transition; activity animation still requires saved receipts. */
+.consoleMotionBoundary .consoleCoreVisual,.consoleMotionBoundary .consoleBrowserContent{animation:consoleCentreReveal 160ms ease-out}
+@keyframes consoleCentreReveal{from{opacity:.88}to{opacity:1}}
+@media(prefers-reduced-motion:reduce){.consoleMotionBoundary .consoleCoreVisual,.consoleMotionBoundary .consoleBrowserContent{animation:none!important}}

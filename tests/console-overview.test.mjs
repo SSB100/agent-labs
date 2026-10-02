@@ -6,6 +6,7 @@ import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import ts from "typescript";
+import { browserPresentation } from "./helpers/guided-ui.mjs";
 
 const require = createRequire(import.meta.url);
 const source = readFileSync("src/components/console/console-overview.tsx", "utf8");
@@ -28,6 +29,7 @@ const component = compile(source, {
   "next/link": ({ children, ...props }) => React.createElement("a", props, children),
   "@/components/stage7/icons": { CoreIcon: ({ name }) => React.createElement("svg", { "aria-hidden": true, "data-icon": name }) },
   "@/lib/core-ui/workflows": workflows,
+  "./console-browser-centre": browserPresentation().browserUi,
   "./console-overview.css": {},
 });
 const empty = () => ({ runs: [], definitions: [], stages: [], events: [], interventions: [], tasks: [], workerRuns: [], workerDefinitions: [], artifacts: [], errors: [] });

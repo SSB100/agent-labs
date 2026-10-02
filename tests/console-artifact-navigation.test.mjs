@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { business, components, definition, fixtureDocument, fixtureTime, loadSource, ownerContext, run, workflowCollection } from "./helpers/guided-ui.mjs";
 
 function artifactNavigationFixture({ selected = true } = {}) {
-  const { shell, visuals, workflows, icons, consoleShell } = components();
+  const { shell, visuals, workflows, icons, consoleShell, browserUi } = components();
   const artifacts = Array.from({ length: 18 }, (_, index) => ({
     id: `00000000-0000-4000-8000-${String(8000 + index).padStart(12, "0")}`, business_id: business.id, workflow_run_id: run.id,
     name: `Saved evidence ${index + 1}`, artifact_type: "research.evidence", media_type: "application/json", content: { synthetic: true, ordinal: index + 1 }, metadata: {}, created_at: fixtureTime, updated_at: fixtureTime,
@@ -24,7 +24,7 @@ function artifactNavigationFixture({ selected = true } = {}) {
     "@/components/stage7/app-shell": shell, "@/components/stage7/workflow-visuals": visuals, "@/lib/core-ui/workflows": workflows,
     "@/components/guided/run-outcome": outcomeUi, "@/components/guided/work-context": workContext,
   });
-  const { ConsoleOverview } = loadSource("src/components/console/console-overview.tsx", { "@/components/stage7/icons": icons, "@/lib/core-ui/workflows": workflows, "./console-overview.css": {} });
+  const { ConsoleOverview } = loadSource("src/components/console/console-overview.tsx", { "@/components/stage7/icons": icons, "@/lib/core-ui/workflows": workflows, "./console-browser-centre": browserUi, "./console-overview.css": {} });
   const target = artifacts[7];
   const source = renderToStaticMarkup(React.createElement(ConsoleOverview, { context: ownerContext(), collection }));
   const sourceLink = [...source.matchAll(/<a\b([^>]+)>/g)].find(([, attributes]) => attributes.includes(`data-artifact-id="${target.id}"`));

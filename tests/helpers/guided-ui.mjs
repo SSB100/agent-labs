@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { runInNewContext } from "node:vm";
 import path from "node:path";
+import { wire as browserMetadataWire } from "./console-browser-fixtures.mjs";
 
 const require = createRequire(import.meta.url);
 const ts = require("typescript");
@@ -12,7 +13,7 @@ const { renderToStaticMarkup } = require("react-dom/server");
 const root = fileURLToPath(new URL("../../", import.meta.url));
 export const fixtureTime = "2026-10-02T03:00:00.000Z";
 const noAction = () => { throw new Error("Read-only fixture actions must never execute"); };
-const Link = ({ children, ...props }) => React.createElement("a", props, children);
+const Link = ({ children, ...props }) => { delete props.prefetch; return React.createElement("a", props, children); };
 class FixtureDate extends Date {
   constructor(...values) { super(...(values.length ? values : [fixtureTime])); }
   static now() { return Date.parse(fixtureTime); }
@@ -81,8 +82,17 @@ export function workflowCollection(overrides = {}) {
     tasks: [], workerRuns: [], workerDefinitions: [], artifacts: [], errors: [], ...overrides,
   };
 }
+export function browserPresentation() {
+  const browserView = loadSource("src/browser/console-view.ts");
+  const browserUi = loadSource("src/components/console/console-browser-centre.tsx", { "@/browser/console-view": browserView, "./console-browser-centre.css": {} });
+  return { browserView, browserUi };
+}
+
 export function components() {
   const workflows = loadSource("src/lib/core-ui/workflows.ts");
+  const motion = loadSource("src/lib/core-ui/console-motion.ts", { "./workflows": workflows });
+  const motionDom = loadSource("src/lib/core-ui/console-motion-dom.ts", { "./console-motion": motion });
+  const motionUi = loadSource("src/components/console/console-motion.tsx", { "@/lib/core-ui/console-motion-dom": motionDom, "./console-motion.css": {} });
   const icons = loadSource("src/components/stage7/icons.tsx");
   const live = loadSource("src/components/stage7/live-refresh.tsx", {
     "next/navigation": { useRouter: () => ({ refresh: noAction }) }, "@/lib/supabase/client": { createClient: noAction },
@@ -96,21 +106,33 @@ export function components() {
     "@/app/dashboard/browser-actions": { resumeBrowserControl: noAction }, "@/lib/core-ui/workflows": workflows,
     "./icons": icons, "./app-shell": shell,
   });
-  return { workflows, icons, live, shell, visuals, consoleShell };
+  return { workflows, icons, live, shell, visuals, consoleShell, motion, motionUi, ...browserPresentation() };
 }
 
-export async function renderDashboard({ unavailable = false, empty = false, view = "overview", detail = false, sheet = false, knownZero = false, businessesUnavailable = false, mismatchedBusiness = false, businessFlow = false, omitBusinessQuery = false, inspect, reads = [] } = {}) {
-  const { shell, visuals, icons, workflows, consoleShell } = components();
+export function findFixtureElement(tree, name) {
+  for (const element of React.Children.toArray(tree)) {
+    if (!React.isValidElement(element)) continue;
+    if (element.type?.name === name) return element;
+    const nested = findFixtureElement(element.props.children, name);
+    if (nested) return nested;
+  }
+  return null;
+}
+
+export async function renderDashboard({ unavailable = false, empty = false, view = "overview", detail = false, sheet = false, knownZero = false, businessesUnavailable = false, mismatchedBusiness = false, businessFlow = false, omitBusinessQuery = false, records, contextOverrides = {}, queryOverrides = {}, browserRecords = {}, observedAt = Date.parse(fixtureTime), inspect, reads = [] } = {}) {
+  const { shell, visuals, icons, workflows, consoleShell, motion, motionUi, browserView, browserUi } = components();
   const otherBusiness = { ...business, id: "fixture-other-business", name: "Other authorized Business" };
   const context = ownerContext({ needsYouCount: unavailable || empty ? 0 : 1, needsYouUnavailable: unavailable && !knownZero, businessesUnavailable,
-    businesses: businessesUnavailable ? [] : mismatchedBusiness || businessFlow ? [business, otherBusiness] : [business] });
-  const collection = unavailable || empty ? workflowCollection({ runs: [], definitions: [], stages: [], events: [], interventions: [], errors: unavailable ? ["Synthetic workflow read unavailable"] : [] }) : workflowCollection();
-  const rootRun = businessFlow ? { ...run, business_id: otherBusiness.id } : run;
+    businesses: businessesUnavailable ? [] : mismatchedBusiness || businessFlow ? [business, otherBusiness] : [business], ...contextOverrides });
+  const collection = records ?? (unavailable || empty ? workflowCollection({ runs: [], definitions: [], stages: [], events: [], interventions: [], errors: unavailable ? ["Synthetic workflow read unavailable"] : [] }) : workflowCollection());
+  const rootRun = businessFlow ? { ...run, business_id: otherBusiness.id } : collection.runs.find(item => item.id === run.id) ?? run;
   if (businessFlow) {
     collection.runs = collection.runs.map(item => ({ ...item, business_id: otherBusiness.id }));
     collection.interventions = collection.interventions.map(item => ({ ...item, business_id: otherBusiness.id }));
     collection.events = collection.events.map(item => ({ ...item, business_id: otherBusiness.id }));
   }
+  const browserWire = browserMetadataWire({ sessions: [], runs: collection.runs, ...browserRecords });
+  context.supabase = browserWire.client;
   const accounts = { businessId: rootRun.business_id, configured: false, unavailable, profile: null, accounts: [], runs: [], healthEvents: [], registrationAvailable: false };
   const products = { candidates: [], experiments: [], decisions: [], errors: [] };
   const costData = { costs: { businessId: rootRun.business_id, workflowRunId: run.id, source: "model", calls: unavailable ? { status: "unavailable" } : { status: "ready", records: [{ providerRequestId: "fixture-receipt", reportedUsd: .0182 }] } } };
@@ -121,7 +143,7 @@ export async function renderDashboard({ unavailable = false, empty = false, view
   const command = loadSource("src/components/console/console-command.tsx", {
     "next/navigation": { useRouter: () => ({ push: noAction }) }, "@/lib/core-ui/quest-draft": questDraft, "./console-command.css": {},
   });
-  const overview = loadSource("src/components/console/console-overview.tsx", { "@/components/stage7/icons": icons, "@/lib/core-ui/workflows": workflows, "./console-overview.css": {} });
+  const overview = loadSource("src/components/console/console-overview.tsx", { "@/components/stage7/icons": icons, "@/lib/core-ui/workflows": workflows, "./console-browser-centre": browserUi, "./console-overview.css": {} });
   const outcomes = loadSource("src/lib/core-ui/run-outcome.ts", { "./workflows": workflows });
   const outcomeUi = loadSource("src/components/guided/run-outcome.tsx", { "@/lib/core-ui/run-outcome": outcomes, "./run-outcome.css": {} });
   const workContext = loadSource("src/components/guided/work-context.tsx", { "@/lib/core-ui/workflows": workflows, "./work-context.css": {} });
@@ -144,11 +166,13 @@ export async function renderDashboard({ unavailable = false, empty = false, view
   const { default: Page } = loadSource("src/app/dashboard/page.tsx", {
     "next/navigation": { notFound: () => { throw new Error("Fixture record was not found"); } },
     "@/components/console/console-shell": consoleShell, "@/components/console/console-overview": overview,
+    "@/components/console/console-motion": motionUi, "@/lib/core-ui/console-motion": motion,
+    "@/browser/console-view": browserView, "@/browser/console-server": browserWire.server,
     "@/components/console/console-command": command, "@/components/console/console-work-pane": work, "@/components/guided/quest-kickoff": quest,
     "@/components/guided/creative-library": library, "@/components/stage7/workflow-visuals": visuals,
     "@/lib/core-ui/data": { requireOwnerUiContext: async () => context, loadWorkflowCollection: async () => collection, loadWorkflowDetail: async (_context, id) => { assert.equal(id, run.id); return details; } },
     "@/lib/core-ui/run-outcome-data": { loadRunCostData: async () => costData },
-    "@/lib/core-ui/console-data": { ...consoleData, loadConsoleResearchQuote: async () => ({ one: 370395, two: 530914, verifiedAt: fixtureTime }) },
+    "@/lib/core-ui/console-data": { ...consoleData, loadConsoleObservationTime: async () => observedAt, loadConsoleResearchQuote: async () => ({ one: 370395, two: 530914, verifiedAt: fixtureTime }) },
     "@/accounts/server": { loadAccountWorkspace: async (_context, id) => { if (businessFlow) assert.equal(id, otherBusiness.id); return accounts; }, loadAccountSetupInterventions: async () => ({ records: [], unavailable: unavailable && !knownZero }) },
     "@/etsy-publication/server": { loadPublicationInterventions: async () => ({ records: [], unavailable }) },
     "@/printful/server": { loadPrintfulProductInterventions: async () => ({ records: [], unavailable }) },
@@ -165,9 +189,10 @@ export async function renderDashboard({ unavailable = false, empty = false, view
     "@/components/console/console-panes.css": {}, "./accounts/accounts.css": {}, "./products/products.css": {},
   });
   const query = { view, ...(detail ? { run: run.id } : {}),
-    ...(!omitBusinessQuery && (detail || businessFlow) ? { business: mismatchedBusiness || businessFlow ? otherBusiness.id : business.id } : {}), ...(sheet ? { sheet: "research" } : {}) };
+    ...(!omitBusinessQuery && (detail || businessFlow) ? { business: mismatchedBusiness || businessFlow ? otherBusiness.id : business.id } : {}), ...(sheet ? { sheet: "research" } : {}), ...queryOverrides };
   const tree = await Page({ searchParams: Promise.resolve(query) });
   inspect?.(tree);
+  reads.push(...browserWire.calls);
   return renderToStaticMarkup(tree);
 }
 
@@ -361,7 +386,7 @@ export const fixtureRenderers = {
 export function fixtureDocument(markup, { creative = false, products = false } = {}) {
   // Match RootLayout's cascade exactly; creative imports Products' button styles.
   const styles = ["src/app/globals.css", "src/app/stage1.css", "src/app/stage3.css", "src/app/stage7.css", "src/app/stage7-mobile.css", "src/app/stage8.css", "src/components/guided/work-context.css", "src/components/guided/creative-library.css", "src/components/guided/run-outcome.css",
-    "src/components/console/console-shell.css", "src/components/console/console-overview.css", "src/components/console/console-command.css", "src/components/console/console-panes.css",
+    "src/components/console/console-shell.css", "src/components/console/console-overview.css", "src/components/console/console-browser-centre.css", "src/components/console/console-command.css", "src/components/console/console-motion.css", "src/components/console/console-panes.css",
     "src/app/dashboard/accounts/accounts.css", "src/app/dashboard/products/products.css",
     ...(creative || products ? ["src/app/dashboard/products/products.css"] : []),
     ...(creative ? ["src/app/dashboard/artifacts/artifacts.css"] : []), ...(products ? ["src/components/guided/quest-kickoff.css"] : []),
