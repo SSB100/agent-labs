@@ -264,6 +264,7 @@ test("selected objective, Business discriminator and saved state precede progres
   const css = readFileSync(new URL('../src/components/console/console-research-pane.css', import.meta.url), 'utf8');
   assert.match(css, /\.consoleResearchBusinessIdentity\{[^}]*flex:0 0 auto/);
   assert.match(css, /\.consoleResearchSelectedObjective\{[^}]*-webkit-line-clamp:2/);
+  assert.match(css, /\.consoleResearchBusinessName\{white-space:normal;[^}]*-webkit-line-clamp:2/);
 });
 
 test("same-Business evidence read cannot reintroduce a rejected primary Research Work binding", () => {

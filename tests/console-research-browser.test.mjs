@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { chromium } from 'playwright-core';
-import { createResearchBrowserFixture, browserResearchTables, researchClientState, researchEvidenceState, researchDocument, researchRedirect, researchRedirectResponse, researchRedirectDocument, researchEvidencePayload, researchEvidenceRequest,
+import { createResearchBrowserFixture, browserResearchTables, researchClientState, researchEvidenceState, researchDocument, researchRedirect, researchRedirectResponse, researchRedirectDocument, researchEvidencePayload, researchEvidenceRequest, observeResearchCloseDeparture,
   origin, id, businessId, secondBusinessId, selectedId, selectedBusinessBId, freshRecordId, legacyId, candidateId, orphanId, mismatchedWorkId, literalText,
   rootsRoute, recordsRoute, offFilterRoute, attemptsRoute } from './helpers/console-research-browser.mjs';
 
@@ -18,6 +18,7 @@ const viewports = [
   { width: 1000, height: 800, slug: '1000x800-single' }, { width: 900, height: 768, slug: '900x768' },
   { width: 640, height: 450, slug: '640x450-zoom' }, { width: 390, height: 844, slug: '390x844' }, { width: 320, height: 740, slug: '320x740' },
 ];
+const savedStateRoute = `/dashboard?view=research&type=records&business=${businessId}&q=Duplicate+saved+research+objective&searchField=objective&sort=oldest`;
 
 for (const [kind, route] of [['roots', rootsRoute], ['records', recordsRoute]]) test(`synthetic actual-root Research ${kind} bundles production pane/ready/viewport without provider transport`, async () => {
   const fixture = createResearchBrowserFixture(), html = await researchDocument(route, { fixture });
@@ -48,6 +49,40 @@ test('new Research browser data retains127+ raw records,130 attempts, duplicates
   const mismatch = await researchClientState(`/dashboard?view=research&type=records&selected=${mismatchedWorkId}`, fixture);
   assert.equal(mismatch.pane.data.selection.item.workflow.status, 'unavailable'); assert.equal(mismatch.pane.data.selection.item.workIdentity, null);
   assert.deepEqual(fixture.denied, []);
+});
+
+test('existing exact saved-state rows are reader-proven instead of assumed on the aggregate oldest page', async () => {
+  const fixture = createResearchBrowserFixture(), tables = browserResearchTables(), oldest = await researchClientState('/dashboard?view=research&type=records&sort=oldest', fixture);
+  assert.equal(oldest.pane.data.query.sort, 'oldest'); assert.equal(oldest.pane.data.page.items[0].id, selectedId);
+  assert.ok(oldest.pane.data.page.items.every(row => row.status === 'completed'));
+  const page = await fixture.render(savedStateRoute);
+  assert.equal(page.data.query.sort, 'oldest'); assert.equal(page.data.query.searchField, 'objective'); assert.equal(page.data.query.businessId, businessId); assert.equal(page.data.page.total, 127);
+  for (const [number, status, ended] of [[1000, 'researching', false], [1001, 'reserved', false], [1009, 'researching', true]]) {
+    const raw = tables.product_experiments.find(row => row.id === id(number)), record = page.data.page.items.find(row => row.id === raw.id);
+    assert.ok(record); assert.equal(raw.status, status); assert.equal(!!raw.completed_at, ended); assert.equal(record.status, status); assert.equal(!!record.completed_at, ended);
+    const row = page.markup.match(new RegExp(`<li[^>]*data-research-record="${record.id}"[\\s\\S]*?</li>`))?.[0]; assert.ok(row);
+    assert.match(row, ended ? /End recorded; saved state: researching · inconsistent/ : /Execution not established here/);
+    if (!ended) assert.match(row, new RegExp(`Saved ${status}`));
+  }
+  assert.equal(fixture.ancillaryCalls.length, 0); assert.deepEqual(fixture.denied, []);
+});
+
+test('departure observer reads exact native pointer/click before pane persistence without focus scroll or navigation changes', () => {
+  const body = Object.freeze({ scrollTop: 20 }), results = Object.freeze({ scrollTop: 40 }), detail = Object.freeze({ scrollTop: 123 }), listeners = new Map();
+  const view = { scrollY: 10, location: Object.freeze({ pathname: '/dashboard', search: '?view=research&type=records', hash: '' }) };
+  const pane = Object.freeze({ querySelector: selector => ({ ':scope>.consoleResearchBody': body, '.consoleResearchResults': results, '.consoleResearchDetail': detail })[selector] });
+  const document = { defaultView: view, addEventListener(type, listener, options) { assert.deepEqual(options, { capture: true, passive: true }); listeners.set(type, listener); },
+    removeEventListener(type, listener, capture) { assert.equal(capture, true); assert.equal(listeners.get(type), listener); listeners.delete(type); } };
+  const link = Object.freeze({ ownerDocument: document, tagName: 'A', textContent: 'Close detail', closest: selector => selector === '.consoleResearchPane' ? pane : null,
+    getAttribute: name => name === 'href' ? '/dashboard?view=research&type=records' : null });
+  observeResearchCloseDeparture(link);
+  const event = (type, path) => ({ type, eventPhase: 1, isTrusted: true, composedPath: () => path });
+  listeners.get('pointerdown')(event('pointerdown', [pane, document])); assert.equal(view.__researchCloseDeparture.length, 0);
+  listeners.get('pointerdown')(event('pointerdown', [link, pane, document]));
+  listeners.get('click')(event('click', [link, pane, document]));
+  assert.deepEqual(view.__researchCloseDeparture, ['pointerdown', 'click'].map(type => ({ type, phase: 1, trusted: true, exactClose: true, href: '/dashboard?view=research&type=records', route: '/dashboard?view=research&type=records', reading: { document: 10, body: 20, results: 40, detail: 123 } })));
+  assert.equal(listeners.size, 0); assert.equal(view.scrollY, 10); assert.equal(view.location.search, '?view=research&type=records');
+  assert.match(readFileSync('src/components/console/console-collection-scroll.ts', 'utf8'), /root\.addEventListener\("click", save, true\)/);
 });
 
 test('actual rendered newest-attempt href requests pager1/newest while preserving unrelated aggregate main query', async () => {
@@ -402,8 +437,15 @@ test('hosted Research error/legacy/candidate/orphan/latest/count-null states are
         }
         await capture(h.page, `console-r02-research-truth-${record.slice(-6)}`);
       }
-      await h.page.goto(origin + '/dashboard?view=research&type=records&sort=oldest'); await ready(h.page);
-      assert.match(await h.page.locator('.consoleResearchList').innerText(), /Execution not established here/); assert.match(await h.page.locator('.consoleResearchList').innerText(), /End recorded; saved state: researching · inconsistent/); await clean(h);
+      await h.page.goto(origin + savedStateRoute); await ready(h.page);
+      assert.equal(await h.page.locator('.consoleResearchToolbar [name=sort]').inputValue(), 'oldest');
+      for (const [number, status] of [[1000, 'researching'], [1001, 'reserved']]) {
+        const row = h.page.locator(`.consoleResearchList [data-research-record="${id(number)}"]`); assert.equal(await row.count(), 1);
+        assert.match(await row.innerText(), new RegExp(`Saved ${status}`)); assert.match(await row.innerText(), /Execution not established here/); assert.doesNotMatch(await row.innerText(), /End recorded/);
+      }
+      const ended = h.page.locator(`.consoleResearchList [data-research-record="${id(1009)}"]`); assert.equal(await ended.count(), 1);
+      assert.match(await ended.innerText(), /End recorded; saved state: researching · inconsistent/); assert.doesNotMatch(await ended.innerText(), /Execution not established here/);
+      await capture(h.page, 'console-r02-research-exact-saved-states'); await clean(h);
     } finally { await h.context.close(); }
     for (const latest of ['missing', 'unavailable', 'mismatched']) {
       const h = await setup(browser, viewports[1], { fixtureOptions: { latest } }); try {
@@ -515,10 +557,15 @@ test('hosted delayed exact evidence restores saved position once while retaining
         reloadHold = h.holdEvidence(() => true); await page.reload(); await ready(page, { evidenceReady: false }); await reloadHold.enteredPromise;
         assert.equal(await page.locator('[data-research-evidence-loading]').count(), 1); reloadHold.release(); await ready(page); assert.deepEqual(await position(page), reloadedReading);
         const close = page.getByRole('link', { name: 'Close detail', exact: true }), beforeCloseFocus = await position(page);
-        await close.focus(); await frames(page); await close.scrollIntoViewIfNeeded(); await frames(page); const backReading = await position(page);
+        await close.focus(); await frames(page); await close.scrollIntoViewIfNeeded(); await frames(page); const afterCloseFocus = await position(page);
+        const departureUrl = new URL(page.url()), departureRoute = departureUrl.pathname + departureUrl.search + departureUrl.hash, closeHref = await close.getAttribute('href');
+        await close.evaluate(observeResearchCloseDeparture);
         await close.click(); await ready(page);
-        const saved = await page.evaluate(key => JSON.parse(sessionStorage.getItem(key) || 'null'), seeded.key);
-        t.diagnostic(JSON.stringify({ viewport: viewport.slug, beforeCloseFocus, backReading, saved })); assert.ok(saved);
+        const observations = await page.evaluate(() => window.__researchCloseDeparture), saved = await page.evaluate(key => JSON.parse(sessionStorage.getItem(key) || 'null'), seeded.key);
+        t.diagnostic(JSON.stringify({ viewport: viewport.slug, beforeCloseFocus, afterCloseFocus, observations, saved }));
+        assert.deepEqual(observations.map(row => row.type), ['pointerdown', 'click']);
+        for (const row of observations) { assert.equal(row.trusted, true); assert.equal(row.phase, 1); assert.equal(row.exactClose, true); assert.equal(row.href, closeHref); assert.equal(row.route, departureRoute); }
+        const backReading = observations[1].reading; assert.ok(saved);
         assert.equal(saved.document, backReading.document); assert.equal(saved.detail, backReading.detail); assert.equal(saved.body, seeded.layout === 'split' ? backReading.results : backReading.body);
         backHold = h.holdEvidence(() => true); await page.goBack(); await ready(page, { evidenceReady: false }); await backHold.enteredPromise;
         backHold.release(); await ready(page); assert.deepEqual(await position(page), backReading);

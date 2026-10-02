@@ -170,6 +170,25 @@ export function researchEvidenceRequest({ descriptor, load, onResolve, onDiscard
   }, error => { pending = false; throw error; });
   return { get current() { return current; }, get pending() { return current && pending; }, promise, dispose() { current = false; } };
 }
+/** Observe actual native departure before the production pane's capture-phase
+ * save. This passive document listener neither focuses nor scrolls the link;
+ * Playwright may auto-scroll again when it performs the native click. */
+export function observeResearchCloseDeparture(link) {
+  const document = link.ownerDocument, view = document.defaultView, pane = link.closest('.consoleResearchPane');
+  if (!view || !pane || link.tagName !== 'A' || link.textContent.trim() !== 'Close detail') throw Error('Observe the exact Research Close link only');
+  const body = pane.querySelector(':scope>.consoleResearchBody'), results = pane.querySelector('.consoleResearchResults'), detail = pane.querySelector('.consoleResearchDetail');
+  if (!body || !results || !detail) throw Error('Research departure regions must remain mounted');
+  const observations = []; view.__researchCloseDeparture = observations;
+  const observe = event => {
+    if (!event.composedPath().includes(link)) return;
+    observations.push({ type: event.type, phase: event.eventPhase, trusted: event.isTrusted, exactClose: true, href: link.getAttribute('href'),
+      route: view.location.pathname + view.location.search + view.location.hash,
+      reading: { document: view.scrollY, body: body.scrollTop, results: results.scrollTop, detail: detail.scrollTop } });
+    if (event.type === 'click') { document.removeEventListener('pointerdown', observe, true); document.removeEventListener('click', observe, true); }
+  };
+  document.addEventListener('pointerdown', observe, { capture: true, passive: true });
+  document.addEventListener('click', observe, { capture: true, passive: true });
+}
 export function researchTree(React, modules, state, Progressive) {
   const { ConsoleShell, ConsoleCommandBar, ConsoleResearchPane, ConsoleCollectionViewport, ConsoleResearchSheet, QuestKickoff } = modules;
   return React.createElement(ConsoleShell, { ...state.shell, commandBar: React.createElement(ConsoleCommandBar, state.command) },
