@@ -14,6 +14,17 @@ const render=value=>renderToStaticMarkup(React.createElement(PublicationWorkspac
 test('publication workspace exposes current fee and genuine product blockers without claiming manual-only',()=>{
  const html=render(base);assert.match(html,/Commercial evidence incomplete/);assert.match(html,/not a verified total/);assert.match(html,/No verified Etsy draft/);assert.match(html,/single-unit draft/);assert.doesNotMatch(html,/manual-only|publication forbidden|owner.*JSON|type="text"/);
 });
+test('supplier link and manual-confirmation checks remain separately unverified without changing fee controls',()=>{
+ for(const data of [base,{...base,unavailable:true},{...base,configured:true,drafts:[{id:'draft',title:'Reviewed product',packageHash:'a'.repeat(64),quantity:1,priceMinor:2500,currency:'USD'}]}]){
+  const html=render(data);
+  for(const text of ['Supplier variant link · Unverified.','Supplier manual confirmation · Unverified.',
+   'Creating or publishing an Etsy listing does not establish its variant-to-Printful product link','Agent Labs does not verify that supplier link',
+   'does not verify whether Printful requires manual order confirmation','Do not assume incoming orders will wait for approval',
+   'missing application checks, not a read of your provider settings','No automatic order sync or fulfilment path is implemented',
+   'later Stage 22 work','A public listing alone is not proof of fulfilment readiness','Commercial evidence incomplete','not a verified total'])assert.ok(html.includes(text),text);
+  assert.doesNotMatch(html,/name="(?:supplierVariantLink|manualConfirmation|supplierReady)"/);
+ }
+});
 test('verified draft still cannot approve unknown fees and all four consents remain separate',()=>{
  const html=render({...base,configured:true,drafts:[{id:'draft',title:'Reviewed product',packageHash:'a'.repeat(64),quantity:1,priceMinor:2500,currency:'USD'}]});
  for(const name of ['publicationConsent','publicDataConsent','feeConsent','renewalConsent'])assert.match(html,new RegExp(`<input(?=[^>]*name="${name}")(?=[^>]*required="")(?=[^>]*disabled="")`));

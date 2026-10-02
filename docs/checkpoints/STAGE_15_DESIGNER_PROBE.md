@@ -1,5 +1,7 @@
 # Stage 15 saved-designer qualification contract
 
+Scope clarification, 2026-10-02: this checker remains a native Manual/API-store qualification contract. It does not qualify the [intended Etsy-linked selling topology](ETSY_PRINTFUL_TOPOLOGY.md), link an Etsy purchasable variant or authorize an owner to bind a temporary store to the selling Business. Reuse of evidence contracts for the proposed linked-store route requires explicit verification of that route, not relabeling native results.
+
 Status: schema-free offline candidate checker. No account-specific Printful route is qualified, no provider execution is enabled, and no security/Storage migration is included. PR36's disabled execution and immutable pending observations are unchanged.
 
 ## Why this is the next bounded step

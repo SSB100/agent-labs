@@ -27,6 +27,8 @@ Preflight verifies the actual provider listing and exact approved fields, receip
 
 ## Unresolved commercial evidence
 
+The [2026-10-02 topology audit](ETSY_PRINTFUL_TOPOLOGY.md) also identifies separate selling prerequisites: an independently verified Etsy purchasable-variant → Printful sync-variant association and current supplier manual-confirmation state. Existing publication source/preflight guards do not establish either. Both need authoritative enforcement before future activation is enabled; satisfying fee evidence alone must not be treated as complete selling readiness. The present clarity patch adds explicit UI explanations only and does not add a new SQL guard, inspect supplier settings or enable payment/fulfilment.
+
 Official public Help describes a **US$0.20 base listing charge**, converted to the payment-account currency when posted and potentially subject to tax. The listing's price currency is not evidence of the billing currency. Manual expiration renewal also does not eliminate later multi-quantity/auto-renew-sold listing charges.
 
 The current activation API supplies no all-in prepublication quote, maximum-charge parameter, tax calculation or locked billing-currency conversion. A local cap cannot constrain Etsy's debit. It must not be described as an enforced provider ceiling without a defensible, verified all-in bound.

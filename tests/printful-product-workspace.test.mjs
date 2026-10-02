@@ -60,6 +60,19 @@ test('owner product workspace states the bounded path and absent authority and p
   assert.doesNotMatch(html, /name="(?:credential|password|token|source|sourceJson|fileId|printfulFileId|placementEvidence)"/);
 });
 
+test('native-only execution and separate unverified supplier prerequisites are explicit without claiming a provider check', () => {
+  for (const data of [base, { ...base, unavailable: true }, { ...base, sources: [source], runs: [{ ...attempt, receiptRecorded: true }] }]) {
+    const html = render(data);
+    for (const text of ['durable configuration path is native-product only', 'Ecommerce-linked variant mapping is not implemented',
+      'Changing the connection or selecting a different store type does not unlock execution', 'Supplier variant link · Unverified.',
+      'Supplier manual confirmation · Unverified.', 'does not verify the exact Etsy variant-to-Printful product link',
+      'does not verify whether Printful requires manual order confirmation', 'Do not assume incoming orders will wait for approval',
+      'missing application checks, not a read of your provider settings', 'No automatic order sync or fulfilment path is implemented',
+      'later Stage 22 work', 'physical-placement evidence producer', 'Execution remains unavailable']) assert.ok(html.includes(text), text);
+    assert.doesNotMatch(html, /name="(?:supplierVariantLink|manualConfirmation|supplierReady|storeKind)"/);
+  }
+});
+
 test('exact source review shows hash-bound immutable details and disables start and consent', () => {
   const html = render({ ...base, sources: [source] });
   for (const text of [source.name, sourceHash, assetSha256, '123', '71 / 4012', 'front / DTG', '10 × 12 in', '35.00 NZD', source.expiresAt]) assert.ok(html.includes(text), text);
