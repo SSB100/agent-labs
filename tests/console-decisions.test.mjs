@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
-import { api, businessId, secondBusinessId, id, model, owner, query, terminal, time, fixtureTables, rendered, wire } from './helpers/console-decisions.mjs';
+import { api, businessId, secondBusinessId, id, model, owner, query, terminal, time, fixtureTables, rendered, wire, submit } from './helpers/console-decisions.mjs';
 const selectedRoute = request => `/dashboard?view=decisions&business=${request.business_id}&decision=${request.id}`;
 test('Decisions counts and pages the exact open queue, including old runs beyond eighty', async () => {
   const tables = fixtureTables({ count: 131 }), h = wire(tables), selected = tables.owner_interventions[0];
@@ -173,4 +173,48 @@ test('filter grid and native selects constrain their intrinsic width without hid
   assert.match(css, /\.compactDecisionFilters label\{[^}]*grid-template-columns:minmax\(0,1fr\)/);
   assert.match(css, /\.compactDecisionFilters select\{[^}]*min-inline-size:0;[^}]*width:100%;[^}]*box-sizing:border-box/);
   assert.doesNotMatch(css, /\.compactDecisions\{[^}]*overflow(?:-x)?:hidden/);
+});
+
+
+test('selected-heading reveal is narrow-only and respects current sticky/fixed chrome', () => {
+  function fixture({ width = 640, topPosition = 'static', viewportTop = 0, viewportHeight = 450, headerHeight = 65 } = {}) {
+    let headerTop = 449; const calls = [];
+    const topBar = { position: topPosition, getBoundingClientRect: () => ({ top: viewportTop, bottom: viewportTop + 64 }) };
+    const footer = { position: 'sticky', getBoundingClientRect: () => ({ top: viewportTop + viewportHeight - 60, bottom: viewportTop + viewportHeight }) };
+    const view = { innerHeight: viewportHeight, visualViewport: { offsetTop: viewportTop, height: viewportHeight }, matchMedia: () => ({ matches: width <= 900 }),
+      getComputedStyle: node => ({ position: node.position }), scrollBy: options => { calls.push(['scrollBy', options]); headerTop -= options.top; } };
+    const header = { scrollIntoView: options => { calls.push(['scrollIntoView', options]); headerTop = viewportTop; }, getBoundingClientRect: () => ({ top: headerTop, bottom: headerTop + headerHeight, height: headerHeight }) };
+    const shell = { querySelector: selector => selector === '.consoleTopBar' ? topBar : footer };
+    const heading = { ownerDocument: { defaultView: view }, closest: selector => selector === '.compactDecisionDetailHeader' ? header : shell,
+      getBoundingClientRect: () => ({ top: headerTop + 20, bottom: headerTop + 42, height: 22 }) };
+    return { heading, header, calls };
+  }
+  const desktop = fixture({ width: 1280 }); submit.revealNarrowDecisionHeading(desktop.heading); assert.deepEqual(desktop.calls, []);
+  for (const topPosition of ['static', 'sticky', 'fixed']) {
+    const f = fixture({ topPosition }); submit.revealNarrowDecisionHeading(f.heading);
+    assert.equal(f.header.getBoundingClientRect().top, topPosition === 'static' ? 8 : 72);
+    assert.ok(f.header.getBoundingClientRect().bottom < 390);
+    assert.equal(f.calls.length, 2); assert.equal(f.calls[0][1].behavior, 'instant'); assert.equal(f.calls[1][1].behavior, 'instant');
+  }
+  const visual = fixture({ viewportTop: 20, viewportHeight: 320, topPosition: 'fixed' }); submit.revealNarrowDecisionHeading(visual.heading);
+  assert.equal(visual.header.getBoundingClientRect().top, 92);
+  const source = readFileSync('src/components/console/console-decision-submit.tsx', 'utf8');
+  assert.match(source, /\[noticeId, revision\]/); assert.match(source, /focus\(\{ preventScroll: true \}\)/);
+  assert.doesNotMatch(source, /setInterval|setTimeout|requestAnimationFrame|addEventListener/);
+});
+
+
+test('notice refresh focus preserves native dialogs and active drafts, while explicit selection and acknowledgement can focus', () => {
+  function element({ dialog = false, tag = 'BODY', editable = false } = {}) {
+    return { ownerDocument: { querySelector: selector => selector === 'dialog[open]' && dialog ? {} : null,
+      activeElement: { matches: () => ['INPUT', 'TEXTAREA', 'SELECT'].includes(tag), isContentEditable: editable } } };
+  }
+  for (const selectionChanged of [false, true]) assert.equal(submit.canFocusDecisionHeading(element({ dialog: true }), selectionChanged), false);
+  for (const tag of ['INPUT', 'TEXTAREA', 'SELECT']) {
+    assert.equal(submit.canFocusDecisionHeading(element({ tag }), false), false);
+    assert.equal(submit.canFocusDecisionHeading(element({ tag }), true), true);
+  }
+  assert.equal(submit.canFocusDecisionHeading(element({ editable: true }), false), false);
+  assert.equal(submit.canFocusDecisionHeading(element({ editable: true }), true), true);
+  for (const tag of ['BODY', 'BUTTON', 'H2']) assert.equal(submit.canFocusDecisionHeading(element({ tag }), false), true);
 });

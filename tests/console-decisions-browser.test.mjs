@@ -43,6 +43,7 @@ const decisionViewports = [
   // Also exercises the CSS viewport available on a 1280x900 display at 200% zoom.
   { width: 640, height: 450, label: '640x450 narrow / zoom CSS viewport', slug: '640' },
   { width: 390, height: 844, label: '390x844 mobile', slug: '390' },
+  { width: 320, height: 640, label: '320x640 narrow mobile', slug: '320' },
 ];
 
 async function assertFilterGeometry(page) {
@@ -87,6 +88,38 @@ async function assertInitialEvidenceAboveFold(page) {
   }
 }
 
+async function assertSelectedHeadingVisible(page) {
+  const geometry = await page.evaluate(() => {
+    const heading = document.querySelector('.compactDecisionDetailHeader h2'), header = heading?.closest('.compactDecisionDetailHeader');
+    const rect = node => node?.getBoundingClientRect().toJSON();
+    const headingRect = rect(heading), viewportTop = visualViewport?.offsetTop ?? 0;
+    const blockers = ['.consoleTopBar', '.consoleCommandBar'].map(selector => {
+      const node = document.querySelector(selector);
+      return { selector, rect: rect(node), position: node ? getComputedStyle(node).position : null };
+    });
+    const hitPoints = headingRect ? [headingRect.top + 2, (headingRect.top + headingRect.bottom) / 2, headingRect.bottom - 2].map(y => {
+      const x = headingRect.left + headingRect.width / 2, hit = document.elementFromPoint(x, y);
+      return { x, y, visible: hit === heading || Boolean(heading?.contains(hit)), hit: hit?.tagName ?? null, hitClass: typeof hit?.className === 'string' ? hit.className : null };
+    }) : [];
+    return { viewportTop, viewportBottom: viewportTop + (visualViewport?.height ?? innerHeight), viewportWidth: innerWidth,
+      heading: headingRect, header: rect(header), focused: document.activeElement === heading,
+      documentScroll: document.scrollingElement?.scrollTop ?? 0, blockers, hitPoints };
+  });
+  const detail = JSON.stringify(geometry); assert.ok(geometry.heading && geometry.header, `Selected heading missing: ${detail}`); assert.equal(geometry.focused, true, detail);
+  assert.ok(geometry.header.top >= geometry.viewportTop - 1 && geometry.header.bottom <= geometry.viewportBottom + 1, `Selected header outside visible viewport: ${detail}`);
+  for (const blocker of geometry.blockers) if (blocker.rect && ['fixed', 'sticky'].includes(blocker.position)) {
+    const overlap = Math.min(blocker.rect.bottom, geometry.header.bottom) - Math.max(blocker.rect.top, geometry.header.top);
+    assert.ok(overlap <= 1, `Selected header intersects sticky/fixed chrome: ${detail}`);
+  }
+  assert.ok(geometry.hitPoints.every(point => point.visible), `Focused heading is occluded: ${detail}`);
+  if (geometry.viewportWidth > 900) assert.equal(geometry.documentScroll, 0, `Desktop document must not scroll during focus: ${detail}`);
+}
+
+async function captureDecisionState(page, directory, name, width) {
+  if (width <= 900) await page.screenshot({ path: path.join(directory, `${name}-viewport.png`), fullPage: false });
+  await page.screenshot({ path: path.join(directory, `${name}.png`), fullPage: true });
+}
+
 async function exerciseContextDisclosure(page, desktop) {
   const disclosure = page.locator('.compactDecisionContext');
   assert.equal(await disclosure.count(), 1, 'Saved concept, workflow and Business remain accessible in one disclosure');
@@ -104,7 +137,10 @@ async function exerciseContextDisclosure(page, desktop) {
 }
 
 async function captureFailure(page, filename, testContext) {
-  try { await page.screenshot({ path: filename, fullPage: true, timeout: 5000 }); }
+  try {
+    if (page.viewportSize()?.width <= 900) await page.screenshot({ path: filename.replace(/\.png$/, '-viewport.png'), fullPage: false, timeout: 5000 });
+    await page.screenshot({ path: filename, fullPage: true, timeout: 5000 });
+  }
   catch (captureError) { testContext.diagnostic(`Failure screenshot unavailable: ${captureError.message}`); }
 }
 
@@ -147,13 +183,13 @@ test('hosted real-root Decisions: compact viewports, exact selection, keyboard, 
       };
       const submitAndNavigate = async () => {
         await Promise.all([page.waitForURL(url => url.searchParams.has('error') || url.searchParams.has('message')), page.getByRole('button', { name: 'Mark reviewed', exact: true }).click()]);
-        await ready(); await bounds();
+        await ready(); await bounds(); await assertSelectedHeadingVisible(page);
       };
       try {
         await page.goto(origin + selectedStart); await page.waitForFunction(() => window.__decisionHydrated === true);
-        await page.screenshot({ path: path.join(directory, `console-decisions-root-populated-${slug}.png`), fullPage: true });
+        await captureDecisionState(page, directory, `console-decisions-root-populated-${slug}`, width);
         await ready(); await bounds();
-        assert.equal(await page.locator(".compactDecisionDetailHeader h2").evaluate(node => node === document.activeElement), true, "Exact selected notice receives keyboard focus");
+        await assertSelectedHeadingVisible(page);
         assert.equal(await page.locator('.compactDecisionRow').count(), 25); assert.match(await page.locator('[data-decision-count]').innerText(), /131 open notices/);
         assert.equal(await page.locator('.compactDecisionDetail').getAttribute('data-decision-id'), notice.id);
         assert.equal(await page.locator('.compactDecisionRow[data-selected=true]').count(), 0, 'Exact selection is older than all eighty overview runs and off current page');
@@ -176,7 +212,7 @@ test('hosted real-root Decisions: compact viewports, exact selection, keyboard, 
         await page.waitForFunction(() => document.querySelector('[data-decision-pending=true]'));
         const pending = page.getByRole('button', { name: 'Recording review…', exact: true }); assert.equal(await pending.isDisabled(), true);
         await pending.evaluate(node => node.click()); assert.equal(await page.evaluate(() => window.__decisionActionCalls), 1); assert.equal(fixture.rpcCalls.length, 0);
-        await page.screenshot({ path: path.join(directory, `console-decisions-root-pending-${slug}.png`), fullPage: true });
+        await captureDecisionState(page, directory, `console-decisions-root-pending-${slug}`, width);
         await Promise.all([page.waitForURL(url => url.searchParams.get('error') === 'terminal-review-failed'), page.evaluate(() => window.__releaseDecisionAction())]);
         await ready(); await bounds();
         assert.equal(fixture.rpcCalls.length, 1); assert.equal(fixture.mutations.length, 0); assert.equal(notice.status, 'open');
@@ -196,7 +232,8 @@ test('hosted real-root Decisions: compact viewports, exact selection, keyboard, 
         assert.equal(fixture.mutations.length, 1); assert.equal(fixture.mutations[0].id, notice.id); assert.equal(fixture.context().needsYouCount, 142);
         assert.match(await page.locator('.compactDecisionState').innerText(), /Stopped · reviewed/); assert.equal(await page.getByRole('button', { name: 'Mark reviewed', exact: true }).count(), 0);
         assert.match(await page.locator('.compactDecisionCosts').innerText(), /1 of 3 recorded calls have an unknown charge/);
-        await page.screenshot({ path: path.join(directory, `console-decisions-root-reviewed-${slug}.png`), fullPage: true });
+        await assertSelectedHeadingVisible(page);
+        await captureDecisionState(page, directory, `console-decisions-root-reviewed-${slug}`, width);
         await page.reload(); await ready(); assert.match(await page.locator('.compactDecisionState').innerText(), /Stopped · reviewed/);
         const callsBeforeBack = fixture.rpcCalls.length; await page.goBack(); await ready(); await page.reload(); await ready();
         assert.match(await page.locator('.compactDecisionState').innerText(), /Stopped · reviewed/); assert.equal(fixture.rpcCalls.length, callsBeforeBack);
@@ -213,7 +250,7 @@ test('hosted real-root Decisions: compact viewports, exact selection, keyboard, 
         assert.match(await page.locator('[data-decision-count]').innerText(), /142 open notices/);
         assert.equal(await page.locator('select[name=business] option').count(), 3);
         assert.match(await page.locator('.compactDecisionRows').innerText(), /Saved synthetic workflow review request|Saved browser takeover request|Saved etsy simulation review request/);
-        await page.screenshot({ path: path.join(directory, `console-decisions-root-queue-${slug}.png`), fullPage: true });
+        await captureDecisionState(page, directory, `console-decisions-root-queue-${slug}`, width);
         assert.deepEqual(errors, []); assert.deepEqual(denied, []);
       } catch (error) {
         await captureFailure(page, path.join(directory, `console-decisions-root-failure-${slug}.png`), t);
@@ -253,6 +290,7 @@ test('hosted retained React/Suspense Decisions lifecycle, account disclosure, fo
       const headingFocused = async () => {
         await page.waitForFunction(() => document.activeElement === document.querySelector('.compactDecisionDetailHeader h2'));
         assert.equal(await page.locator('.compactDecisionDetailScroll').evaluate(node => node.scrollTop), 0);
+        await assertSelectedHeadingVisible(page);
       };
       const bounded = async () => {
         await assertFilterGeometry(page);
@@ -267,7 +305,7 @@ test('hosted retained React/Suspense Decisions lifecycle, account disclosure, fo
       };
       try {
         await page.goto(origin + queueStart); await page.waitForFunction(() => window.__decisionHydrated && typeof window.__navigateDecisionRetained === 'function');
-        await page.screenshot({ path: path.join(directory, `console-decisions-retained-initial-${slug}.png`), fullPage: true });
+        await captureDecisionState(page, directory, `console-decisions-retained-initial-${slug}`, width);
         assert.equal(await page.locator('select[name=business]').inputValue(), ''); assert.equal(await page.locator('select[name=status]').inputValue(), 'open');
         await bounded();
         // Paging replaces only the queue scroll region. Selection and Close retain it.
@@ -294,10 +332,32 @@ test('hosted retained React/Suspense Decisions lifecycle, account disclosure, fo
         await navigate(queueStart); assert.equal(await page.locator('select[name=business]').inputValue(), ''); assert.equal(await page.locator('select[name=status]').inputValue(), 'open');
         await commitAfter(() => page.evaluate(() => history.back())); assert.equal(await page.locator('select[name=business]').inputValue(), secondBusiness); assert.equal(await page.locator('select[name=status]').inputValue(), 'resolved');
         await navigate(`/dashboard?view=decisions&decision=${notice.id}`); await headingFocused();
+        // Background version refresh preserves the real root goal field and a native modal barrier.
+        const goal = page.locator('#console-command-input');
+        await goal.fill('Keep this live research goal draft'); await goal.focus();
+        const draftScroll = await page.evaluate(() => scrollY);
+        notice.updated_at = '2026-10-02T04:10:20.123458+00:00';
+        await navigate(`/dashboard?view=decisions&decision=${notice.id}`);
+        assert.equal(await goal.evaluate(node => node === document.activeElement), true);
+        assert.equal(await goal.inputValue(), 'Keep this live research goal draft');
+        assert.equal(await page.evaluate(() => scrollY), draftScroll, 'A background notice revision cannot move an active goal draft');
+        // This native dialog probes focus isolation; actual Research sheet lifecycle has its separate suite.
+        await page.evaluate(() => {
+          const dialog = document.createElement('dialog'); dialog.id = 'decision-modal-focus-probe'; dialog.className = 'consoleResearchSheet';
+          const draft = document.createElement('textarea'); draft.setAttribute('aria-label', 'Native modal draft probe'); draft.value = 'Preserve modal research draft';
+          dialog.append(draft); document.body.append(dialog); dialog.showModal(); draft.focus();
+        });
+        const modalScroll = await page.evaluate(() => scrollY);
+        await navigate(`/dashboard?view=decisions&decision=${other.id}`);
+        assert.equal(await page.locator('#decision-modal-focus-probe textarea').evaluate(node => node === document.activeElement), true);
+        assert.equal(await page.locator('#decision-modal-focus-probe textarea').inputValue(), 'Preserve modal research draft');
+        assert.equal(await page.evaluate(() => scrollY), modalScroll, 'A selected background notice cannot move an open native dialog');
+        await page.evaluate(() => { const dialog = document.querySelector('#decision-modal-focus-probe'); dialog.close(); dialog.remove(); });
+        await navigate(`/dashboard?view=decisions&decision=${notice.id}`); await headingFocused();
         assert.equal(await page.locator('.compactConnectionRequests a').count(), 50); await page.getByText('Connection requests could not be checked.', { exact: false }).waitFor();
         await page.locator('.compactConnectionRequests summary').click(); assert.equal(await page.locator('.compactConnectionRequests').getAttribute('open'), ''); await bounded();
         assert.equal(await page.getByRole('button', { name: 'Mark reviewed', exact: true }).isVisible(), true);
-        await page.screenshot({ path: path.join(directory, `console-decisions-retained-account-disclosure-${slug}.png`), fullPage: true });
+        await captureDecisionState(page, directory, `console-decisions-retained-account-disclosure-${slug}`, width);
         // An unresolved submit must not make a different selected notice's new controls pending.
         fixture.setMode('error'); await page.evaluate(() => { window.__holdDecisionAction = true; });
         await page.getByRole('button', { name: 'Mark reviewed', exact: true }).click(); await page.locator('[data-decision-pending=true]').waitFor();
@@ -321,7 +381,7 @@ test('hosted retained React/Suspense Decisions lifecycle, account disclosure, fo
         assert.match(await page.locator('.compactDecisionState').innerText(), /Stopped · reviewed/); assert.equal(await page.locator('[data-decision-pending=true]').count(), 0);
         assert.equal(await page.getByRole('button', { name: 'Mark reviewed', exact: true }).count(), 0); assert.equal(fixture.mutations.length, 1);
         assert.match(await page.locator('[data-decision-count]').innerText(), /142 open notices/); assert.match(await page.locator('.compactDecisionCosts').innerText(), /1 of 3 recorded calls have an unknown charge/);
-        await bounded(); await page.screenshot({ path: path.join(directory, `console-decisions-retained-reviewed-${slug}.png`), fullPage: true });
+        await bounded(); await captureDecisionState(page, directory, `console-decisions-retained-reviewed-${slug}`, width);
         assert.equal(documents, 1, 'All post-load transitions retained the client root rather than reloading a document');
         assert.deepEqual(errors, []); assert.deepEqual(denied, []);
       } catch (error) {

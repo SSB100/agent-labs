@@ -64,3 +64,12 @@ jobs:
           path: test-results/guided-ui/*.png
           if-no-files-found: warn
           retention-days: 14
+
+      - name: Upload final Decisions screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: decisions-owner-ui-${{ github.sha }}
+          path: test-results/guided-ui/console-decisions-*.png
+          if-no-files-found: warn
+          retention-days: 14

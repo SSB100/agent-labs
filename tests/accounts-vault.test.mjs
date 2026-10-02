@@ -21,8 +21,11 @@ test('account envelopes reject tenant/provider/connection/revision replay and wr
 });
 test('strict authenticated envelope rejects truncation, suffixes, alternate encoding and tampering',()=>{
  const envelope=seal({credential:token},context,key),parts=envelope.split('.');
+ const ciphertext=Buffer.from(parts[3],'base64url'),tampered=Buffer.from(ciphertext);
+ assert.ok(ciphertext.length>0);tampered[0]^=1;
+ assert.notDeepEqual(tampered,ciphertext,'Tampering must change authenticated ciphertext bytes');
  for(const bad of [envelope+'.',envelope+'.extra',envelope.slice(0,-4),envelope.replace('account-v1','v1'),
-  [parts[0],parts[1]+'=',parts[2],parts[3]].join('.'),[parts[0],parts[1],parts[2], 'A'+parts[3].slice(1)].join('.'),
+  [parts[0],parts[1]+'=',parts[2],parts[3]].join('.'),[parts[0],parts[1],parts[2],tampered.toString('base64url')].join('.'),
   [parts[0],parts[1],parts[2].slice(0,8),parts[3]].join('.'),'x'.repeat(90001)]){
   assert.throws(()=>unseal(bad,context,key),/^AccountVaultError: invalid_account_secret$/);
  }
