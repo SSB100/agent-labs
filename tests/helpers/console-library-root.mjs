@@ -41,6 +41,25 @@ export function fixtureTables({ perBusiness = 127 } = {}) {
   failed.creative_cost_settlements.push({ ...failed.creative_cost_settlements[0], call_key: 'generate:2', reported_microusd: null, provider_request_id: null, receipt: { synthetic: true, unavailable: true } });
   return together(db, failed);
 }
+/** Separate historical-cost regression; default fixtures and geometry stay unchanged. */
+export function fixtureTablesWithUnverifiedProviderCharge({ creativeRunId = noAssetRunId, ...options } = {}) {
+  const tables = fixtureTables(options);
+  const reservation = tables.creative_cost_reservations.find(row => row.creative_run_id === creativeRunId);
+  const settlement = tables.creative_cost_settlements.find(row => row.creative_run_id === creativeRunId);
+  assert.ok(reservation && settlement, 'Synthetic cost regression requires an existing exact run');
+  const calls = [
+    { call_key: 'brief:1', reserved_microusd: 30051, reported_microusd: 1979, provider_request_id: 'synthetic-cost-truth-brief-1' },
+    { call_key: 'screen:1', reserved_microusd: 99501, reported_microusd: 8301, provider_request_id: 'synthetic-cost-truth-screen-1' },
+    { call_key: 'generate:1', reserved_microusd: 210000, reported_microusd: 210000, provider_request_id: null },
+  ];
+  tables.creative_cost_reservations = tables.creative_cost_reservations.filter(row => row.creative_run_id !== creativeRunId);
+  tables.creative_cost_settlements = tables.creative_cost_settlements.filter(row => row.creative_run_id !== creativeRunId);
+  for (const call of calls) {
+    tables.creative_cost_reservations.push({ ...reservation, call_key: call.call_key, reserved_microusd: call.reserved_microusd, estimate: { synthetic: true, estimatedMicrousd: call.reserved_microusd } });
+    tables.creative_cost_settlements.push({ ...settlement, call_key: call.call_key, reported_microusd: call.reported_microusd, provider_request_id: call.provider_request_id, receipt: { synthetic: true, reportedCostUsd: call.reported_microusd / 1e6, estimatedMicrousd: call.reserved_microusd } });
+  }
+  return tables;
+}
 export function queryFromRoute(route) {
   const params = new URL(route, origin).searchParams;
   return Object.fromEntries([...new Set(params.keys())].map(key => [key, params.getAll(key).length > 1 ? params.getAll(key) : params.get(key)]));

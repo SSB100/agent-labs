@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import test from 'node:test';
-import { businessId, secondBusinessId, exactContent, exactContentHash, exactRecordId, exactWorkHref, fixtureTables, id, noAssetRunId, noAssetWorkflowId, oldAssetId, oldCreativeRunId, oldImageArtifactId, oldWorkflowId, rootLibraryFixture, selectedDesignRoute, selectedRecordRoute, selectedRunRoute } from './helpers/console-library-root.mjs';
+import { businessId, secondBusinessId, exactContent, exactContentHash, exactRecordId, exactWorkHref, fixtureTables, fixtureTablesWithUnverifiedProviderCharge, id, noAssetRunId, noAssetWorkflowId, oldAssetId, oldCreativeRunId, oldImageArtifactId, oldWorkflowId, rootLibraryFixture, selectedDesignRoute, selectedRecordRoute, selectedRunRoute } from './helpers/console-library-root.mjs';
 const plain = value => JSON.parse(JSON.stringify(value));
 const exact = (read, value) => read.filters.some(([op, key, id]) => op === 'eq' && key === 'id' && id === value);
 const table = (fixture, name) => fixture.reads.filter(read => read.table === name);
@@ -48,6 +48,27 @@ test('exact paid no-asset history retains known and unknown charges, expired app
   assert.equal(detail.selection.item.id,noAssetRunId);assert.equal(detail.workflow.item.id,noAssetWorkflowId);assert.equal(detail.workflow.item.status,'failed');assert.equal(detail.assets.total,0);assert.equal(detail.assets.status,'ready');assert.equal(detail.outputs.total,0);assert.equal(detail.costs.status,'ready');assert.equal(detail.costs.records.length,2);
   assert.equal(page.data.selection.status,'none');assert.match(page.markup,/No saved asset is recorded for this exact run/);assert.match(page.markup,/charge\(s\) remain unknown/);assert.match(page.markup,/US\$0\.001200/);assert.match(page.markup,/expired/i);assert.equal(f.signs.length,0);assert.doesNotMatch(page.markup,/data-library-design|Open full image/);
   assert.ok(page.markup.includes(`view=work&amp;business=${businessId}&amp;selected=${noAssetWorkflowId}`));assert.equal(f.ancillaryCalls.length,0);assert.deepEqual(f.denied,[]);
+});
+
+test('actual Library root excludes a saved estimate without provider request identity from known charges while preserving raw evidence',async()=>{
+  const tables=fixtureTablesWithUnverifiedProviderCharge(),saved=plain(tables),f=rootLibraryFixture({tables});
+  const page=await f.render(`${selectedRunRoute}&q=unmatched`),detail=page.data.runDetail,costs=detail.costs;
+  assert.equal(detail.selection.item.id,noAssetRunId);assert.equal(costs.status,'ready');assert.equal(costs.records.length,3);
+  assert.deepEqual(plain(costs.records.map(row=>({call_key:row.call_key,reserved_microusd:row.reserved_microusd,reported_microusd:row.reported_microusd,provider_request_id:row.provider_request_id}))),[
+    {call_key:'brief:1',reserved_microusd:30051,reported_microusd:1979,provider_request_id:'synthetic-cost-truth-brief-1'},
+    {call_key:'generate:1',reserved_microusd:210000,reported_microusd:210000,provider_request_id:null},
+    {call_key:'screen:1',reserved_microusd:99501,reported_microusd:8301,provider_request_id:'synthetic-cost-truth-screen-1'},
+  ]);
+  const generated=costs.settlements.find(row=>row.call_key==='generate:1');
+  assert.equal(generated.reported_microusd,210000);assert.equal(generated.provider_request_id,null);
+  assert.deepEqual(plain(generated.receipt),{synthetic:true,reportedCostUsd:0.21,estimatedMicrousd:210000});
+  const copy=page.markup.replace(/<[^>]*>/g,'');
+  assert.match(copy,/US\$0\.010280 provider-reported charges/);
+  assert.match(copy,/1 charge\(s\) remain unknown · US\$0\.210000 reserved/);
+  assert.match(copy,/Conservative budget committed: US\$0\.339552/);
+  assert.match(copy,/Unverified saved amount: US\$0\.210000/);
+  assert.doesNotMatch(copy,/US\$0\.220280 provider-reported|Reported provider charge · US\$0\.210000/);
+  assert.deepEqual(plain(tables),saved);assert.equal(f.ancillaryCalls.length,0);assert.deepEqual(f.denied,[]);
 });
 
 for(const kind of ['designs','records'])test(`actual Library ${kind} literal search uses only the promised persisted field`,async()=>{

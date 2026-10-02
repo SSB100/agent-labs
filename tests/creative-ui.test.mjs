@@ -33,7 +33,8 @@ test('Artifacts loads reservations and receipts without dropping expired runs or
   assert.match(page, /summarizeCreativeCosts\(costs\)/);
   assert.match(page, /creativeCostStatus\(c, run\?\.capabilityExpired/);
   assert.match(page, /Missing receipts do not prove zero spend or permit another attempt/);
-  assert.match(page, /larger of each reservation or reported charge, not both/);
+  assert.match(page, /CREATIVE_COST_COMMITMENT_EXPLANATION/);
+  assert.match(readFileSync("src/creative/cost-display.ts", "utf8"), /larger of each reservation or saved amount, not both/);
   assert.match(data, /costsAvailable: !runs\.error && !reservations\.error && !costs\.error/);
   assert.match(page, /!data\.costsAvailable \? "Unavailable"/);
   assert.match(page, /The cost ledger could not be fully loaded/);

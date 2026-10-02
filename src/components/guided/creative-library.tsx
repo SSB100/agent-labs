@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 import type { CreativeApprovalRecord, CreativeAssetRecord, CreativeReviewRecord, CreativeRunRecord, CreativeWorkspaceData } from "@/creative/data";
-import { creativeCostStatus, summarizeCreativeCosts } from "@/creative/cost-display";
+import { CREATIVE_COST_COMMITMENT_EXPLANATION, creativeCostStatus, qualifyCreativeCost, summarizeCreativeCosts } from "@/creative/cost-display";
 
 import "./creative-library.css";
 
@@ -151,12 +151,12 @@ export function CreativeLibrary({ data, businesses, now, historyInPage = false }
 export function CreativeRunCostSummary({ data, approval, run }: { data: Pick<CreativeWorkspaceData, "costs" | "costsAvailable">; approval: CreativeApprovalRecord; run?: CreativeRunRecord }) {
   const costs = run ? data.costs.filter(cost => cost.creative_run_id === run.id) : [];
   const totals = summarizeCreativeCosts(costs);
-  const reportedCalls = costs.filter(cost => cost.reported_microusd !== null).length;
+  const reportedCalls = totals.recordedCalls - totals.uncertainCalls;
   return <div className="guidedCreativeCosts">
     <dl className="guidedLibraryFacts"><div><dt>Approved allowance</dt><dd>{usd(approval.maximum_microusd)}</dd></div><div><dt>{data.costsAvailable ? "Provider-reported charges" : "Known charges in partial receipts"}</dt><dd>{reportedCalls ? usd(totals.reportedMicrousd) : data.costsAvailable ? "No charge reported" : "Unavailable"}</dd></div></dl>
     {!data.costsAvailable ? <p className="guidedLibraryWarning" role="alert">The cost ledger could not be fully loaded. Any receipts below are incomplete; do not assume zero spend or start another attempt.</p> : !costs.length ? <p className="guidedLibraryCostNote">No provider calls are recorded in the loaded ledger. The allowance is a spending limit, not a charge.</p> : null}
     {totals.uncertainCalls ? <p className="guidedLibraryWarning">{totals.uncertainCalls} charge(s) remain unknown · {totals.hasMissingReservation ? "At least " : ""}{usd(totals.uncertainReservedMicrousd)} reserved for those attempts. Missing receipts do not prove zero spend or permit another attempt.</p> : null}
-    {costs.length ? <p className="guidedLibraryCostNote">{!data.costsAvailable || totals.hasMissingReservation ? "Known conservative budget commitment" : "Conservative budget committed"}: {usd(totals.committedMicrousd)}. This uses the larger of each reservation or reported charge, not both; it is not an additional charge.{totals.hasMissingReservation ? " Some reservation details are unavailable; refresh before relying on this total." : ""}</p> : null}
-    {costs.length ? <details className="guidedLibraryDisclosure"><summary>Provider receipts &amp; reservations</summary><ul className="guidedLibraryReceipts">{costs.map(cost => <li key={cost.call_key}><strong>{cost.call_key}</strong><p>{creativeCostStatus(cost, run?.capabilityExpired ?? false)}{cost.reported_microusd === null ? "" : ` · ${usd(cost.reported_microusd)}`}</p><p>Reserved: {cost.reserved_microusd === null ? "Detail unavailable" : usd(cost.reserved_microusd)}<br />Attempt <RecordedDate value={cost.created_at} />{cost.settled_at ? <><br />Receipt <RecordedDate value={cost.settled_at} /></> : null}</p></li>)}</ul></details> : null}
+    {costs.length ? <p className="guidedLibraryCostNote">{!data.costsAvailable || totals.hasMissingReservation ? "Known conservative budget commitment" : "Conservative budget committed"}: {usd(totals.committedMicrousd)}. {CREATIVE_COST_COMMITMENT_EXPLANATION}{totals.hasMissingReservation ? " Some reservation details are unavailable; refresh before relying on this total." : ""}</p> : null}
+    {costs.length ? <details className="guidedLibraryDisclosure"><summary>Provider receipts &amp; reservations</summary><ul className="guidedLibraryReceipts">{costs.map(cost => { const qualified = qualifyCreativeCost(cost); return <li key={cost.call_key}><strong>{cost.call_key}</strong><p>{creativeCostStatus(cost, run?.capabilityExpired ?? false)}{qualified.reportedMicrousd === null ? "" : ` · ${usd(qualified.reportedMicrousd)}`}</p>{qualified.unverifiedMicrousd !== null ? <p>Unverified saved amount: {usd(qualified.unverifiedMicrousd)} · excluded from reported charges</p> : null}<p>Reserved: {cost.reserved_microusd === null ? "Detail unavailable" : usd(cost.reserved_microusd)}<br />Attempt <RecordedDate value={cost.created_at} />{cost.settled_at ? <><br />Receipt <RecordedDate value={cost.settled_at} /></> : null}</p></li>; })}</ul></details> : null}
   </div>;
 }
