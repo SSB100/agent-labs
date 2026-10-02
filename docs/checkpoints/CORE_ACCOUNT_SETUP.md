@@ -14,6 +14,8 @@ Pending → exact approval → one-time routine preparation, where available →
 
 ## Credential boundaries
 
+Store selection clarification (2026-10-02): [Etsy selling topology](ETSY_PRINTFUL_TOPOLOGY.md) requires deliberate selection of the intended Etsy-linked Printful store, rather than a temporary Manual/API store. The secure form has no selected store type by default. Existing SQL binds one store per Business and denies replacing that store ID even after disconnect; this release does not change that restriction. Neither supported connection type enables product execution or establishes supplier order confirmation.
+
 - Etsy OAuth/access/refresh tokens remain in the existing private Etsy envelope and use the existing key, PKCE, owner/browser binding and scope rules. This feature does not migrate or rewrite old Etsy secrets
 - Printful receives an owner-entered store token through a dedicated secure app form outside the managed browser. The server makes bounded read-only `/oauth/scopes`, `/stores`, and `/stores/{id}` requests, rejects broad/unknown/write scopes or multi-store inventory, verifies the exact store ID/type, then encrypts the token
 - Printful's application permission is only `catalog.read`. Provider scopes are separately recorded; no-scope catalog access does not prove absence of all provider capabilities. The provider does not report token client type or actual expiry here, so those facts remain unverified. The local cutoff is at most 31 days

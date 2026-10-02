@@ -2,7 +2,7 @@
 
 Status: implementation reviewed, database installed and PR36 deployed; production activation and the full Stage 15 exit remain open. This checkpoint does not assert a provider request, configured product, physical print verification or listing-ready Product Package. Database installation and software release evidence are recorded separately below.
 
-The next bounded step is the schema-free [saved-designer probe contract and local checker](STAGE_15_DESIGNER_PROBE.md). It identifies the exact account-specific evidence needed before implementing a larger producer. Its output cannot authenticate captures, authorize a provider action or qualify the live route.
+The schema-free [saved-designer probe contract and local checker](STAGE_15_DESIGNER_PROBE.md) identifies account-specific evidence for the bounded native route. Its output cannot authenticate captures, authorize a provider action or qualify the live route. The [2026-10-02 selling-topology correction](ETSY_PRINTFUL_TOPOLOGY.md) selects an Etsy-linked store for the selling Business; this native implementation is not its automatic product/listing/order bridge. Do not require a temporary Manual/API account binding as the next owner setup step.
 
 ## Bounded implementation
 

@@ -3166,6 +3166,8 @@ Exit criteria:
 
 ## Stage 15: Printful Capability Pack
 
+Etsy POD topology clarification (2026-10-02): the intended selling connection is an Etsy-linked Printful store. Native Manual/API-store qualification is a separate bounded implementation and does not automatically associate products with Etsy or route customer orders. Stage 15 product mapping must establish the exact selling-store variant relationship before later selling readiness can be claimed. See [the topology checkpoint](checkpoints/ETSY_PRINTFUL_TOPOLOGY.md) for the current gaps and proposed linked-product/draft-adoption sequence. Account connection or a store-type change alone cannot close them.
+
 Objective:
 
 Create real production-ready POD products.
@@ -3340,6 +3342,8 @@ Exit criteria:
 ---
 
 ## Stage 22: Order and fulfilment automation
+
+Provider-native Etsy order import is not evidence that this stage is implemented. Initial product/listing qualification must preserve manual supplier order confirmation, with the actual store setting and exact Etsy-to-Printful variant association verified before future publication readiness. Automatic supplier confirmation/payment activation cannot bypass this stage's financial and duplicate-prevention controls. The current app does not inspect or change supplier confirmation settings; those controls remain an implementation gap.
 
 Objective:
 

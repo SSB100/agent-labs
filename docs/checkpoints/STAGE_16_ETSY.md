@@ -18,6 +18,8 @@ Based only on remote main `dee7943e3bada6c8db1a15b437a8a9ede1bc4d6b`, including 
 
 ## Qualification and deliberate boundaries
 
+Selling-topology clarification (2026-10-02): current draft creation does not link its purchasable variants to Printful or import orders. Production-partner disclosure and internal Printful provenance are not that link. The [topology checkpoint](ETSY_PRINTFUL_TOPOLOGY.md) describes the proposed Etsy-linked product → existing draft → guarded adoption route and the sequencing gap in today's create-only path. It remains future work; supplier manual-confirmation state is also unverified, and Stage 22 order automation remains separate.
+
 Authenticated production inspection on 2026-10-01 confirms the owner workspace loads for the intended Business, connection controls are disabled while secure setup is unavailable, no qualified Product Package is offered and no draft run exists. This verifies the deployed blocked UI, not account activation, provider readback compatibility or the real-draft exit. The historical unavailable-browser statement below describes the earlier release environment. Stage14's latest approved continuation stopped during planning; no upstream qualification has advanced.
 
 There is no real Etsy draft evidence yet. No Etsy API write, publication, order or paid test was performed during this implementation. Fixtures are synthetic and never qualify upstream work.

@@ -42,6 +42,7 @@ export function ProductConfigurationWorkspace({ data }: { data: ProductWorkspace
   return <section className="printfulPanel printfulProductWorkspace" id="printful-product-configuration" aria-labelledby="printful-product-title">
     <div className="printfulSectionHeader"><div><p className="coreEyebrow">Durable owner controls · Execution blocked</p><h2 id="printful-product-title">Review an exact Printful product configuration</h2></div><span className="printfulBadge">Live qualification open</span></div>
     <p className="printfulNote">This bounded path is for one catalog variant, one front or back DTG placement, and one native product in the exact Manual/API store. It requires a current reviewed TEST, exact production-asset approval, authenticated evidence and separate owner configuration consent.</p>
+    <p className="printfulNote">The durable configuration path is native-product only. Ecommerce-linked variant mapping is not implemented in this path. Changing the connection or selecting a different store type does not unlock execution or turn a native product into an Etsy-linked product.</p>
     {data.unavailable && <p className="printfulProductFeedback" role="alert">Product records could not be checked. Existing attempts may still exist. New configuration stays blocked until their history can be verified.</p>}
     {!data.configured && <p className="printfulNote">Server execution is not configured. Owner history and Stop remain available independently of execution configuration.</p>}
     <div className="printfulGatePanel">
@@ -53,6 +54,14 @@ export function ProductConfigurationWorkspace({ data }: { data: ProductWorkspace
       </ul>
       <p className="printfulNote">Execution remains unavailable. No order, fulfilment submission, marketplace listing or publication is authorized by these controls.</p>
       {data.reasons.length > 0 && <details className="printfulDetails"><summary>Current readiness checks</summary><ul className="printfulList">{Array.from(new Set(data.reasons.map(reasonText))).map(reason => <li key={reason}>{reason}</li>)}</ul></details>}
+    </div>
+    <div className="printfulGatePanel">
+      <h3>Supplier readiness is not established</h3>
+      <ul className="printfulList">
+        <li><strong>Supplier variant link · Unverified.</strong> Agent Labs does not verify the exact Etsy variant-to-Printful product link. A native product receipt or Etsy draft does not establish that link.</li>
+        <li><strong>Supplier manual confirmation · Unverified.</strong> Agent Labs does not verify whether Printful requires manual order confirmation. Do not assume incoming orders will wait for approval.</li>
+      </ul>
+      <p className="printfulNote">These are missing application checks, not a read of your provider settings. No automatic order sync or fulfilment path is implemented in Agent Labs; that remains later Stage 22 work.</p>
     </div>
     <div className="printfulProductSources" aria-labelledby="printful-product-sources-title">
       <h3 id="printful-product-sources-title">Exact owner review</h3>

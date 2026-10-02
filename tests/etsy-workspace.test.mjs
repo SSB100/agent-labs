@@ -15,6 +15,15 @@ const render=data=>renderToStaticMarkup(React.createElement(EtsyWorkspace,{data}
 test('unconfigured UI explains upstream blockers and cannot connect or create',()=>{
   const html=render(base);assert.match(html,/No qualified Product Package available/);assert.match(html,/raw artwork is not a product mockup/);assert.match(html,/Synthetic examples and technical image tests do not satisfy/);assert.match(html,/disabled="">Connect Etsy securely/);assert.doesNotMatch(html,/>Create draft</);
 });
+test('draft preparation does not imply supplier mapping, confirmed settings or automatic fulfilment',()=>{
+ const {package:p}=packageFixture();
+ for(const data of [base,{...base,configured:true,connection:{shopName:'Fixture shop',status:'connected',currency:'NZD'},packages:[p]}]){
+  const html=render(data);
+  for(const text of ['Creating an Etsy draft does not create or verify a Printful variant mapping',
+   'An ecommerce-linked store alone does not establish the exact supplier link or manual order-confirmation setting',
+   'no automatic order sync or fulfilment path yet','later Stage 22 work'])assert.ok(html.includes(text),text);
+ }
+});
 test('qualified fixture has separate draft and asset-sharing approvals without implementation inputs',()=>{
   const {package:p}=packageFixture();const html=render({...base,configured:true,connection:{shopName:'Fixture shop',status:'connected',currency:'NZD'},packages:[p]});
   assert.match(html,/name="draftConsent"/);assert.match(html,/name="assetConsent"/);assert.match(html,/type="hidden" name="packageId"/);assert.match(html,/>Create draft</);assert.doesNotMatch(html,/type="text"|accessToken|vaultKey|serverKey/);

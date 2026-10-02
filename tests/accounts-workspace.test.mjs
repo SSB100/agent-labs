@@ -92,6 +92,21 @@ test('provider-specific followups keep independent access and qualification gate
   assert.match(verified, /Account access does not qualify product execution or publication/); assert.doesNotMatch(verified, /Open secure Printful connection|Approve exact request/);
 });
 
+test('Printful store identity warning precedes setup preparation and exact approval', () => {
+  const html = render(base);
+  const provider = html.slice(html.indexOf('<h3>Printful</h3>'));
+  for (const text of ['one Printful store identity per Business', 'cannot switch it, even after a local disconnect',
+    'Do not bind a temporary Manual/API test store', 'ecommerce-linked Printful store already linked to the intended Etsy shop',
+    'Manual/API is for custom integrations or isolated qualification', 'does not link Etsy variants', 'later Stage 22 work']) {
+    assert.ok(provider.includes(text), text);
+    assert.ok(provider.indexOf(text) < provider.indexOf('Prepare exact review'), `${text} must be visible before setup preparation`);
+  }
+  const pending = render({ ...base, runs: [setup()] });
+  const review = pending.slice(pending.indexOf('<h3>Connect Printful</h3>'));
+  assert.ok(review.indexOf('one Printful store identity per Business') < review.indexOf('Approve exact request'));
+  assert.match(review, /do not bind a temporary Manual\/API qualification store/);
+});
+
 test('registry disconnect requires explicit consent and exact current connection revision', () => {
   const html = render({ ...base, accounts: [{ id: connectionId, provider: 'printful', status: 'connected', revision, label: 'Owner store', externalAccountId: '987', scopes: ['catalog.read'], verifiedAt: base.observedAt, expiresAt: '2026-10-02T12:00:00Z' }] });
   assert.match(html, /Connected account registry/); assert.match(html, /Owner store/);
@@ -140,6 +155,25 @@ test('secure owner action never includes token or provider failure body in redir
   }
 });
 
+test('missing, blank and unknown store types cannot call Printful connection even with consent', async () => {
+  for (const kind of [undefined, '', ' ', 'unknown', 'MANUAL_API', 'etsy']) {
+    const h = actionHarness();
+    const values = { secureAccessConsent: 'on', credential: 'synthetic-owner-token', storeId: 987, expiresAt: '2026-10-02T12:00' };
+    if (kind !== undefined) values.storeKind = kind;
+    const url = await redirectFrom(h.submitOwnerPrintfulCredential(form(values)));
+    assert.match(url, /accountMessage=verification-unavailable/);
+    assert.deepEqual(h.calls, [], `No connection call for store type ${JSON.stringify(kind)}`);
+    assert.deepEqual(h.logs, []);
+  }
+  for (const kind of ['manual_api', 'ecommerce_linked']) {
+    const h = actionHarness();
+    assert.match(await redirectFrom(h.submitOwnerPrintfulCredential(form({ secureAccessConsent: 'on', credential: 'synthetic-owner-token', storeId: 987, storeKind: kind, expiresAt: '2026-10-02T12:00' }))), /accountMessage=verified/);
+    assert.equal(h.calls.length, 1);
+    assert.equal(h.calls[0].name, 'connectPrintfulAccount');
+    assert.equal(h.calls[0].args[2].storeKind, kind);
+  }
+});
+
 test('stale action errors are reduced to fixed safe messages rather than replayed or exposed', async () => {
   const h = actionHarness({ approveAccountSetup: async () => { throw new Error('stale-private-profile-and-credential'); } });
   const url = await redirectFrom(h.approveReviewedAccountSetup(form({ dataConsent: 'on', accessConsent: 'on' })));
@@ -158,6 +192,17 @@ test('secure Printful form renders only for a fresh approved owner handoff with 
     const { html: denied } = await securePage({ ...valid, ...override });
     assert.doesNotMatch(denied, /name="credential"|Verify and store securely/); assert.match(denied, /No credential can be submitted/);
   }
+});
+
+test('secure Printful store type starts blank and explains the durable store choice without expanding scopes', async () => {
+  const { html } = await securePage({ ...base, runs: [setup({ status: 'owner_handoff' })] });
+  assert.match(html, /<select(?=[^>]*name="storeKind")(?=[^>]*required="")(?=[^>]*aria-describedby="printful-store-kind-help")/);
+  assert.match(html, /<option(?=[^>]*value="")(?=[^>]*disabled="")(?=[^>]*selected="")[^>]*>Choose the intended store type/);
+  assert.doesNotMatch(html, /<option(?=[^>]*value="(?:manual_api|ecommerce_linked)")(?=[^>]*selected="")/);
+  for (const text of ['one Printful store identity per Business', 'cannot switch it, even after a local disconnect',
+    'Do not bind a temporary Manual/API test store', 'ecommerce-linked Printful store already linked to the intended Etsy shop',
+    'Manual/API stores are for custom integrations or isolated qualification', 'Selecting a type here does not create an Etsy link',
+    'no automatic order sync or fulfilment path yet', 'later Stage 22 work', 'Allow only stores_list/read', 'Broad, write-enabled or multi-store tokens will be rejected']) assert.ok(html.includes(text), text);
 });
 
 test('secure owner route rejects malformed and foreign Business IDs and run IDs', async () => {
@@ -294,9 +339,23 @@ test('hosted Chromium checks mobile account review and required secure owner for
       assert.equal(await page.getByLabel('Printful private token', { exact: true }).getAttribute('type'), 'password');
       assert.equal(await page.getByLabel(/^Intended Printful store ID/).isVisible(), true);
       assert.equal(await page.getByLabel('Store type', { exact: true }).isVisible(), true, 'The store selector needs an unambiguous accessible name');
+      const kind = page.getByLabel('Store type', { exact: true });
+      assert.equal(await kind.inputValue(), '', 'Store type must not default to Manual/API or ecommerce-linked');
+      assert.equal(await kind.locator('option:checked').textContent(), 'Choose the intended store type');
+      assert.equal(await kind.evaluate(el => el.validity.valueMissing), true);
       assert.equal(await page.locator('form.accountSecureForm').evaluate(el => el.checkValidity()), false);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       assert.equal(await page.locator('input[name=credential]').inputValue(), '');
+      await page.getByLabel('Printful private token', { exact: true }).fill('synthetic-ui-token');
+      await page.getByLabel(/^Intended Printful store ID/).fill('987');
+      await page.locator('[name=expiresAt]').fill('2026-10-02T12:00');
+      await page.locator('[name=secureAccessConsent]').check();
+      assert.equal(await page.locator('form.accountSecureForm').evaluate(el => el.checkValidity()), false, 'All other fields cannot substitute for deliberate store selection');
+      for (const value of ['ecommerce_linked', 'manual_api']) {
+        await kind.selectOption(value);
+        assert.equal(await kind.inputValue(), value);
+        assert.equal(await page.locator('form.accountSecureForm').evaluate(el => el.checkValidity()), true);
+      }
     }
   } finally { await browser.close(); }
 });
