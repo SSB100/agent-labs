@@ -14,6 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
+      CI: "true"
       NEXT_PUBLIC_SUPABASE_URL: https://tfdareuwrshjuevuiwvn.supabase.co
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci_placeholder
       GUIDED_UI_BROWSER: "1"
@@ -32,9 +33,9 @@ jobs:
       - name: Install pinned Chromium for owner UI verification
         run: npx playwright-core install --with-deps chromium
 
-      - name: Capture compact console and Connections preview
+      - name: Capture compact console, Connections and Decisions previews
         continue-on-error: true
-        run: node --test tests/console-visual.test.mjs tests/console-connections.test.mjs
+        run: node --test tests/console-visual.test.mjs tests/console-connections.test.mjs tests/console-decisions-browser.test.mjs
 
       - name: Upload early console preview
         if: always()
@@ -44,8 +45,13 @@ jobs:
           path: |
             test-results/guided-ui/console-overview-*.png
             test-results/guided-ui/console-connections-*.png
+            test-results/guided-ui/console-decisions-*.png
           if-no-files-found: warn
           retention-days: 14
+
+      - name: Require actual Decisions preview screenshots
+        run: >-
+          node -e "const fs=require('node:fs'); for(const width of [1280,1440]) { const file='test-results/guided-ui/console-decisions-root-populated-'+width+'.png'; fs.accessSync(file); console.log('Verified actual hosted capture:',file); }"
 
       - name: Run complete gate
         run: npm run check
@@ -56,5 +62,14 @@ jobs:
         with:
           name: guided-owner-ui-${{ github.sha }}
           path: test-results/guided-ui/*.png
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload final Decisions screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: decisions-owner-ui-${{ github.sha }}
+          path: test-results/guided-ui/console-decisions-*.png
           if-no-files-found: warn
           retention-days: 14

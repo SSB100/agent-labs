@@ -1,6 +1,7 @@
 "use server";
 
 import { randomUUID } from "node:crypto";
+import { safeConsoleDecisionReturnPath, consoleDecisionActionReturnPath } from "@/lib/core-ui/console-decisions-query";
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -50,6 +51,8 @@ function formText(formData: FormData, name: string) {
 
 function safeReturnPath(formData: FormData) {
   const requested = formText(formData, "returnTo");
+  const compact = safeConsoleDecisionReturnPath(requested);
+  if (compact) return compact;
   if (SAFE_RETURN_PATHS.has(requested) || WORKFLOW_DETAIL_PATTERN.test(requested)) {
     return requested;
   }
@@ -281,7 +284,8 @@ export async function startBrowserPlannerQualification(formData: FormData) {
 export async function resumeBrowserControl(formData: FormData) {
   const interventionId = formText(formData, "interventionId");
   const decision = formText(formData, "decision");
-  const returnTo = safeReturnPath(formData);
+  let returnTo = safeReturnPath(formData);
+  returnTo = consoleDecisionActionReturnPath(returnTo, { interventionId }) ?? returnTo;
 
   if (
     !UUID_PATTERN.test(interventionId) ||
@@ -305,6 +309,9 @@ export async function resumeBrowserControl(formData: FormData) {
   ) {
     redirectWith(returnTo, "error", "browser-control-not-open");
   }
+
+  if (safeConsoleDecisionReturnPath(returnTo)) returnTo = consoleDecisionActionReturnPath(returnTo, { interventionId: intervention.id, businessId: intervention.business_id })
+    ?? `/dashboard?view=decisions&decision=${encodeURIComponent(intervention.id)}`;
 
   const expectedType =
     decision === "take_control" ? "browser_takeover" : "browser_return_control";

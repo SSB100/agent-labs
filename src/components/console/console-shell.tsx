@@ -17,6 +17,7 @@ export type ConsoleShellProps = {
   context: OwnerUiContext;
   workflowRunId?: string;
   navigationBusinessId?: string;
+  globalDecisionCount?: boolean;
 };
 
 type ConsoleDestination = {
@@ -59,19 +60,19 @@ export const consoleAdvancedNavigation = [
   { href: "/dashboard/settings", label: "Settings & profile", key: "settings" },
 ] as const;
 
-function DecisionCount({ context }: { context: OwnerUiContext }) {
+function DecisionCount({ context, global = false }: { context: OwnerUiContext; global?: boolean }) {
   if (context.needsYouUnavailable) {
     return (
-      <span className="consoleDecisionCount consoleDecisionCount-unknown" title="Decision count unavailable">
+      <span className="consoleDecisionCount consoleDecisionCount-unknown" title={global ? "Decision count unavailable across all authorized Businesses" : "Decision count unavailable"}>
         <span aria-hidden="true">?</span>
-        <span className="consoleVisuallyHidden">Decision count unavailable</span>
+        <span className="consoleVisuallyHidden">Decision count unavailable{global ? " across all authorized Businesses" : ""}</span>
       </span>
     );
   }
   return (
-    <span className={context.needsYouCount > 0 ? "consoleDecisionCount" : "consoleDecisionCount consoleDecisionCount-empty"}>
+    <span title={global ? `${context.needsYouCount} open decisions across all authorized Businesses` : undefined} className={context.needsYouCount > 0 ? "consoleDecisionCount" : "consoleDecisionCount consoleDecisionCount-empty"}>
       <span aria-hidden="true">{context.needsYouCount > 99 ? "99+" : context.needsYouCount}</span>
-      <span className="consoleVisuallyHidden">{context.needsYouCount} open {context.needsYouCount === 1 ? "decision" : "decisions"}</span>
+      <span className="consoleVisuallyHidden">{context.needsYouCount} open {context.needsYouCount === 1 ? "decision" : "decisions"}{global ? " across all authorized Businesses" : ""}</span>
     </span>
   );
 }
@@ -113,7 +114,7 @@ function OwnerMenu({ context }: { context: OwnerUiContext }) {
 }
 
 /** Shared frame for both root views and direct detail URLs; URL navigation stays native. */
-export function ConsoleShell({ active, children, commandBar, context, workflowRunId, navigationBusinessId }: ConsoleShellProps) {
+export function ConsoleShell({ active, children, commandBar, context, workflowRunId, navigationBusinessId, globalDecisionCount = false }: ConsoleShellProps) {
   const currentView = resolveConsoleView(active);
   const selectedBusinessId = context.businesses.some(business => business.id === navigationBusinessId) ? navigationBusinessId : undefined;
   const destination = (href: string) => selectedBusinessId ? `${href}&business=${encodeURIComponent(selectedBusinessId)}` : href;
@@ -131,10 +132,10 @@ export function ConsoleShell({ active, children, commandBar, context, workflowRu
 
         <nav className="consoleNavigation" aria-label="Workspace views">
           {consoleNavigation.map(item => (
-            <Link key={item.view} className="consoleNavLink" href={destination(item.href)} aria-label={item.view === "connections" ? "Connections" : undefined} aria-current={item.view === currentView ? "page" : undefined}>
+            <Link key={item.view} className="consoleNavLink" href={item.view === "decisions" && globalDecisionCount ? item.href : destination(item.href)} aria-label={item.view === "connections" ? "Connections" : undefined} aria-current={item.view === currentView ? "page" : undefined}>
               <CoreIcon name={item.icon} />
               <span className="consoleNavLabel">{item.view === "connections" ? <><span className="consoleNavFull">Connections</span><span className="consoleNavShort">Connect</span></> : item.label}</span>
-              {item.view === "decisions" ? <DecisionCount context={context} /> : null}
+              {item.view === "decisions" ? <DecisionCount context={context} global={globalDecisionCount} /> : null}
             </Link>
           ))}
         </nav>
@@ -145,7 +146,7 @@ export function ConsoleShell({ active, children, commandBar, context, workflowRu
 
       <header className="consoleTopBar consoleFrame">
         <div className="consoleViewHeading"><span>Command centre</span><strong>{currentLabel}</strong></div>
-        <WorkspaceContext context={context} selectedBusinessId={workflowRunId || currentView === "library" || currentView === "connections" ? selectedBusinessId : undefined} />
+        <WorkspaceContext context={context} selectedBusinessId={workflowRunId || currentView === "library" || currentView === "connections" || currentView === "decisions" ? selectedBusinessId : undefined} />
         {/* Exactly one subscription, for data updates rather than worker execution. */}
         <div className="consoleLiveStatus" role="status" aria-label="Page update connection">
           <LiveRefresh workflowRunId={workflowRunId} />
@@ -160,7 +161,7 @@ export function ConsoleShell({ active, children, commandBar, context, workflowRu
             <span className="consoleCommandLabel"><CoreIcon name="workflow" />Next action</span>
             <span className="consoleCommandHint">Choose work or review a decision</span>
             <Link className="consoleCommandLink" href={destination("/dashboard?view=work")}>Open work</Link>
-            <Link className="consoleCommandLink" href={destination("/dashboard?view=decisions")}>Review decisions</Link>
+            <Link className="consoleCommandLink" href={globalDecisionCount ? "/dashboard?view=decisions" : destination("/dashboard?view=decisions")}>Review decisions</Link>
           </div>
         )}
       </footer>

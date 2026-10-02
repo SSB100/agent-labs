@@ -145,6 +145,9 @@ export async function renderDashboard({ unavailable = false, empty = false, view
   });
   const overview = loadSource("src/components/console/console-overview.tsx", { "@/components/stage7/icons": icons, "@/lib/core-ui/workflows": workflows, "./console-browser-centre": browserUi, "./console-overview.css": {} });
   const outcomes = loadSource("src/lib/core-ui/run-outcome.ts", { "./workflows": workflows });
+  const decisionQuery = loadSource("src/lib/core-ui/console-decisions-query.ts");
+  const decisionView = loadSource("src/lib/core-ui/console-decisions-view.ts", { "./workflows": workflows, "./run-outcome": outcomes });
+  const decisionsUi = loadSource("src/components/console/console-compact-decisions.tsx", { "@/lib/core-ui/workflows": workflows, "@/lib/core-ui/console-decisions-query": decisionQuery, "@/lib/core-ui/console-decisions-view": decisionView, "./console-decision-submit": loadSource("src/components/console/console-decision-submit.tsx"), "./console-compact-decisions.css": {} });
   const outcomeUi = loadSource("src/components/guided/run-outcome.tsx", { "@/lib/core-ui/run-outcome": outcomes, "./run-outcome.css": {} });
   const workContext = loadSource("src/components/guided/work-context.tsx", { "@/lib/core-ui/workflows": workflows, "./work-context.css": {} });
   const work = loadSource("src/components/console/console-work-pane.tsx", {
@@ -192,7 +195,11 @@ export async function renderDashboard({ unavailable = false, empty = false, view
     "@/products/discovery-v2-data": { loadDiscoveryGoalData: async () => { reads.push("discovery"); return { available: true, records: [], errors: [] }; } },
     "@/components/stage13/discovery-goal-workspace": goalUi, "./accounts/account-workspace": accountUi,
     "./accounts/connection-feedback": accountFeedback, "@/accounts/connection-feedback": connectionFeedback,
-    "./actions": { createBusiness: noAction }, "./legacy-dashboard": noAction,
+    "@/components/console/console-compact-decisions": decisionsUi,
+    "@/lib/core-ui/console-decisions-query": decisionQuery,
+    "@/lib/core-ui/console-decisions-data": { loadConsoleDecisionPage: async (_context, options) => { const query = decisionQuery.consoleDecisionQuery(options); const items = collection.interventions.filter(item => decisionQuery.CONSOLE_DECISION_UUID.test(item.id) && decisionQuery.CONSOLE_DECISION_UUID.test(item.business_id) && (query.status === "all" || item.status === query.status)); return { query, page: { items, page: query.page, pageSize: 25, total: unavailable ? null : items.length, complete: !unavailable, hasPrevious: query.page > 1, hasNext: unavailable ? null : false }, selection: { status: "none", item: null }, runs: collection.runs, definitions: collection.definitions, detail: null, errors: unavailable ? ["Decision records could not be checked."] : [] }; } },
+    "./terminal-review-actions": { acknowledgeTerminalCreativeReview: noAction },
+    "./actions": { createBusiness: noAction, resumeSyntheticReview: noAction }, "./browser-actions": { resumeBrowserControl: noAction }, "./packs/actions": { acknowledgeEtsySimulation: noAction }, "./legacy-dashboard": noAction,
     "@/components/console/console-panes.css": {}, "./accounts/accounts.css": {}, "./products/products.css": {},
   });
   const query = { view, ...(detail ? { run: run.id } : {}),
@@ -393,7 +400,7 @@ export const fixtureRenderers = {
 export function fixtureDocument(markup, { creative = false, products = false } = {}) {
   // Match RootLayout's cascade exactly; creative imports Products' button styles.
   const styles = ["src/app/globals.css", "src/app/stage1.css", "src/app/stage3.css", "src/app/stage7.css", "src/app/stage7-mobile.css", "src/app/stage8.css", "src/components/guided/work-context.css", "src/components/guided/creative-library.css", "src/components/guided/run-outcome.css",
-    "src/components/console/console-shell.css", "src/components/console/console-overview.css", "src/components/console/console-browser-centre.css", "src/components/console/console-command.css", "src/components/console/console-motion.css", "src/components/console/console-panes.css",
+    "src/components/console/console-shell.css", "src/components/console/console-overview.css", "src/components/console/console-browser-centre.css", "src/components/console/console-command.css", "src/components/console/console-motion.css", "src/components/console/console-panes.css", "src/components/console/console-compact-decisions.css",
     "src/app/dashboard/accounts/accounts.css", "src/app/dashboard/products/products.css",
     ...(creative || products ? ["src/app/dashboard/products/products.css"] : []),
     ...(creative ? ["src/app/dashboard/artifacts/artifacts.css"] : []), ...(products ? ["src/components/guided/quest-kickoff.css"] : []),

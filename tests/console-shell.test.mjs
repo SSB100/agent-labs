@@ -177,3 +177,12 @@ test("mobile navigation wraps visibly, content page-scrolls, and controls meet 4
   assert.match(css, /\.consoleShell :focus-visible/);
   assert.match(css, /prefers-reduced-motion: reduce/);
 });
+
+test("filtered Decisions header stays scoped while the explicitly global badge opens aggregate Decisions", () => {
+  const business = { id: "second-business", name: "Selected Business B" };
+  const markup = fixture().render({ active: "decisions", navigationBusinessId: business.id, globalDecisionCount: true, context: { ...owner, needsYouCount: 143, businesses: [...owner.businesses, business] } });
+  assert.match(markup, /143 open decisions across all authorized Businesses/);
+  assert.match(markup, /class="consoleWorkspaceName">Selected Business B</);
+  const nav = primaryLinks(markup).find(link => link.label === "Decisions");
+  assert.equal(nav.href, "/dashboard?view=decisions");
+});

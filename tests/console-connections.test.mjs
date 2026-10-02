@@ -216,8 +216,13 @@ async function checkLayout(page, { desktop = false } = {}) {
 }
 
 async function visibleNotice(notice) {
-  const visible = await notice.evaluate(element => { const box = element.getBoundingClientRect(); return box.height > 0 && box.top >= -1 && box.bottom <= innerHeight + 1; });
-  assert.equal(visible, true, "Validation, pending and result notices stay within the visible viewport");
+  const geometry = await notice.evaluate(element => {
+    const box = element.getBoundingClientRect();
+    return { top: box.top, bottom: box.bottom, height: box.height, viewportHeight: innerHeight,
+      focused: document.activeElement === element, scrollY, formBusy: element.closest("form")?.getAttribute("aria-busy") ?? null };
+  });
+  const visible = geometry.height > 0 && geometry.top >= -1 && geometry.bottom <= geometry.viewportHeight + 1;
+  assert.equal(visible, true, `Validation, pending and result notices stay within the visible viewport: ${JSON.stringify(geometry)}`);
 }
 
 async function fillSecure(page) {
@@ -292,7 +297,11 @@ test("hosted actual-root and secure Connections journey validates labels, pendin
         await fillSecure(page); await submit.click();
         await page.waitForFunction(() => window.__connectionsCalls.length === 1);
         assert.equal(await form.getAttribute("aria-busy"), "true"); assert.equal(await submit.isDisabled(), true);
-        assert.match(await notice.innerText(), /Verifying Printful/); await visibleNotice(notice);
+        assert.match(await notice.innerText(), /Verifying Printful/);
+        // The action can begin before AccountForm's scheduled focus/scroll frame.
+        // Wait for that real UI effect without scrolling or moving focus in the test.
+        await page.waitForFunction(() => document.activeElement?.classList.contains("connectionFormNotice"));
+        await visibleNotice(notice);
         await form.evaluate(element => { element.requestSubmit(); element.requestSubmit(); });
         assert.equal(await page.evaluate(() => window.__connectionsCalls.length), 1);
         const call = plain(await page.evaluate(() => window.__connectionsCalls[0]));

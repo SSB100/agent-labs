@@ -9,7 +9,7 @@ import { business, definition, findFixtureElement, fixtureDocument, fixtureTime,
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const base = Date.parse(fixtureTime), iso = offset => new Date(base + offset).toISOString();
 export const integratedMotionOrigin = "https://agentlabs-integrated-motion.test";
-export const integratedMotionIds = { run: run.id, stage: "integration-stage", task: "integration-task", worker: "integration-worker", output: "00000000-0000-4000-8000-000000009001", decision: "integration-decision" };
+export const integratedMotionIds = { run: run.id, stage: "integration-stage", task: "integration-task", worker: "integration-worker", output: "00000000-0000-4000-8000-000000009001", decision: "00000000-0000-4000-8000-000000009002" };
 const ids = integratedMotionIds;
 const activeRun = { ...run, status: "running", current_stage_key: "worker-task", started_at: iso(1000), updated_at: iso(1000) };
 const stage = { ...stages[1], id: ids.stage, status: "running", started_at: iso(1000), completed_at: null, updated_at: iso(1000) };
@@ -34,9 +34,11 @@ export const integratedMotionRecords = {
 export async function integratedMotionPage(name, { view = "overview", detail = false } = {}) {
   const records = structuredClone(integratedMotionRecords[name]);
   assert.ok(records, `Unknown scenario ${name}`);
+  const ownedBusiness = { ...business, id: "00000000-0000-4000-8000-000000009003" };
+  for (const rows of Object.values(records)) if (Array.isArray(rows)) for (const row of rows) if (row && typeof row === "object" && "business_id" in row) row.business_id = ownedBusiness.id;
   let tree;
-  const markup = await renderDashboard({ records, view, detail, observedAt: base + ({ queued: 500, running: 1500, saved: 2500 }[name] ?? 3500),
-    contextOverrides: { needsYouCount: records.interventions.filter(row => row.status === "open").length }, inspect: value => { tree = value; } });
+  const markup = await renderDashboard({ records, view, detail, omitBusinessQuery: true, observedAt: base + ({ queued: 500, running: 1500, saved: 2500 }[name] ?? 3500),
+    contextOverrides: { businesses: [ownedBusiness], needsYouCount: records.interventions.filter(row => row.status === "open").length }, inspect: value => { tree = value; } });
   const boundary = findFixtureElement(tree, "ConsoleMotionBoundary");
   assert.ok(boundary, "Use the actual root page motion boundary");
   return { tree, markup, boundary, overview: findFixtureElement(tree, "ConsoleOverview") };

@@ -145,7 +145,7 @@ test("all navigation remains in root tabs, with exact workflow run selection", (
     const url = new URL(match[1].replaceAll("&amp;", "&"), "https://fixture.invalid");
     assert.equal(url.pathname, "/dashboard");
     assert.ok(["work", "library", "decisions", "connections", "activity", "overview"].includes(url.searchParams.get("view")));
-    for (const key of url.searchParams.keys()) assert.ok(["view", "run", "sheet", "artifact"].includes(key));
+    for (const key of url.searchParams.keys()) assert.ok(["view", "run", "sheet", "artifact", "business", "decision"].includes(key));
     if (url.searchParams.has("artifact")) { assert.equal(url.searchParams.get("run"), run.id); assert.equal(url.hash, `#artifact-${url.searchParams.get("artifact")}`); }
   }
   assert.match(markup, new RegExp(`href="/dashboard\\?view=work&amp;run=${run.id}"`));

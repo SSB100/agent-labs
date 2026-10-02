@@ -13,7 +13,7 @@ function load(path, dependencies) {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
   }).outputText;
   const fixtureModule = { exports: {} };
-  runInNewContext(`(function(require,module,exports){${source}\n})`, { console: { error() {} } })(name => {
+  runInNewContext(`(function(require,module,exports){${source}\n})`, { URL, URLSearchParams, console: { error() {} } })(name => {
     assert.ok(name in dependencies, `Unexpected dependency ${name}`);
     return dependencies[name];
   }, fixtureModule, fixtureModule.exports);
@@ -230,6 +230,7 @@ function actionHarness(options = {}) {
     'node:crypto': require('node:crypto'), 'next/cache': { revalidatePath: value => revalidated.push(value) },
     'next/navigation': { redirect: url => { throw new Error(`redirect:${url}`); } },
     'workflow/api': { resumeHook: async (...args) => { if (options.resumeError) throw new Error('fixture hook failed'); resumed.push(args); }, start: noop },
+    '@/lib/core-ui/console-decisions-query': load('src/lib/core-ui/console-decisions-query.ts', {}),
     '@/lib/core-ui/workflows': ui, '@/lib/supabase/env': { isSupabaseAdminConfigured: () => false },
     '@/lib/supabase/server': { createClient: async () => supabase },
     '@/workflows/synthetic-runtime': { syntheticReviewHookToken: id => `agent-labs:synthetic-review:${id}` },
