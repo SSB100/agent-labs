@@ -13,6 +13,7 @@ import { ConsoleCollectionPagination, ConsoleWorkState, type ConsoleCollectionSe
 import { ConsoleCollectionViewport } from "./console-collection-viewport";
 import { ConsoleLibraryPreview } from "./console-library-preview";
 import { ConsoleLibraryRunLookupSync } from "./console-library-run-lookup";
+import { ConsoleLibraryJsonText } from "./console-library-json-focus";
 import "./console-library-pane.css";
 
 type Business = { id: string; name: string };
@@ -48,7 +49,7 @@ function Disclosure({ title, id, children, open = false }: { title: string; id: 
 function Json({ value, label }: { value: Record<string, unknown>; label: string }) {
   let encoded: string;
   try { encoded = JSON.stringify(value, null, 2); } catch { encoded = "Saved JSON could not be displayed."; }
-  return <pre tabIndex={0} aria-label={label}>{encoded}</pre>;
+  return <ConsoleLibraryJsonText label={label} content={encoded}/>;
 }
 function Errors({ errors }: { errors: readonly string[] }) {
   const unique = [...new Set(errors)];

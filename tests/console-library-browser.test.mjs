@@ -43,17 +43,32 @@ const syntheticPng=await sharp(Buffer.from(`<svg xmlns="http://www.w3.org/2000/s
 test('synthetic route-intercepted preview is a deterministic local512px PNG',async()=>{
  const metadata=await sharp(syntheticPng).metadata();assert.equal(metadata.format,'png');assert.equal(metadata.width,512);assert.equal(metadata.height,512);assert.ok(syntheticPng.length>1000);
 });
+async function layoutFrames(page){await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));}
 async function ready(page){await page.waitForFunction(()=>window.__libraryHydrated===true&&!window.__libraryReadPending&&window.__libraryCommittedRoute===location.pathname+location.search+location.hash);assert.deepEqual(await page.evaluate(()=>window.__libraryErrors),[]);await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));}
 async function bounds(page,width,height){
- const result=await page.evaluate(()=>{const rect=node=>node?.getBoundingClientRect().toJSON(),toolbar=document.querySelector('.consoleLibraryToolbar');return {width:document.documentElement.scrollWidth,height:document.documentElement.scrollHeight,toolbar:rect(toolbar),controls:[...toolbar.querySelectorAll('input:not([type=hidden]),select,button')].map(node=>({rect:rect(node),font:parseFloat(getComputedStyle(node).fontSize)})),footer:rect(document.querySelector('.consoleCollectionPagination')),body:rect(document.querySelector('.consoleCollectionBody')),command:rect(document.querySelector('.consoleCommandDock'))};});
+ const result=await page.evaluate(()=>{const rect=node=>node?.getBoundingClientRect().toJSON(),toolbar=document.querySelector('.consoleLibraryToolbar');return {width:document.documentElement.scrollWidth,height:document.documentElement.scrollHeight,toolbar:rect(toolbar),controls:[...toolbar.querySelectorAll('input:not([type=hidden]),select,button')].map(node=>({rect:rect(node),font:parseFloat(getComputedStyle(node).fontSize)})),footer:rect(document.querySelector('.consoleCollectionPagination')),body:rect(document.querySelector('.consoleCollectionBody')),command:rect(document.querySelector('.consoleCommandBar'))};});
  const detail=JSON.stringify(result);assert.ok(result.width<=width+1,detail);if(width>900){assert.ok(result.height<=height+1,detail);assert.ok(result.footer.bottom<=height+1,detail);assert.ok(result.footer.height>=33,detail);}
  for(const control of result.controls){assert.ok(control.rect.width>0&&control.rect.height>=(width>900?33:43)&&control.rect.left>=-1&&control.rect.right<=width+1,detail);assert.ok(control.font>=12,detail);}
  for(let i=0;i<result.controls.length;i++)for(let j=i+1;j<result.controls.length;j++){const a=result.controls[i].rect,b=result.controls[j].rect;assert.ok(Math.min(a.right,b.right)-Math.max(a.left,b.left)<=1||Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top)<=1,detail);}
 }
 async function visible(page,selector,{focus=false,scroll=false,startOnly=false}={}){
- const locator=page.locator(selector).first();if(scroll)await locator.scrollIntoViewIfNeeded();if(focus)await locator.focus();
+ const locator=page.locator(selector).first();if(scroll)await locator.scrollIntoViewIfNeeded();if(focus){await locator.focus();await layoutFrames(page);}
  const result=await locator.evaluate((node,startOnly)=>{const rect=node.getBoundingClientRect(),x=rect.left+Math.min(15,rect.width/2),top=rect.top+Math.min(8,rect.height/2),bottom=startOnly?Math.min(rect.bottom-4,rect.top+48):rect.bottom-4,hits=[document.elementFromPoint(x,top),document.elementFromPoint(x,bottom)];return {rect:{...rect.toJSON(),bottom:startOnly?Math.min(rect.bottom,rect.top+52):rect.bottom},width:innerWidth,height:innerHeight,focused:document.activeElement===node,hit:hits.every(hit=>node===hit||node.contains(hit)),scroll:document.scrollingElement.scrollTop};},startOnly);
  assert.ok(result.rect.top>=-1&&result.rect.bottom<=result.height+1,JSON.stringify(result));assert.ok(result.rect.left>=-1&&result.rect.right<=result.width+1,JSON.stringify(result));assert.ok(result.hit,JSON.stringify(result));if(focus)assert.equal(result.focused,true,JSON.stringify(result));if(result.width>900)assert.equal(result.scroll,0,JSON.stringify(result));
+}
+async function keyboardFocusJson(page){
+ const content=page.locator('[aria-label="Exact selected artifact content JSON"]'),summary=page.locator(`[data-console-disclosure="content:${exactRecordId}"]>summary`);
+ await summary.focus();await page.keyboard.press('Tab');await layoutFrames(page);
+ assert.equal(await content.evaluate(node=>node===document.activeElement),true,'Tab from the open JSON disclosure must reach its readonly content');
+ await visible(page,'[aria-label="Exact selected artifact content JSON"]');
+}
+async function stableRunStart(page){
+ // Check multiple later frames: a fresh record must not regain the previous detail's
+ // offset after a retained commit, nested disclosure layout or ResizeObserver pass.
+ for(let frame=0;frame<4;frame++){
+  await layoutFrames(page);await visible(page,'.consoleLibraryDetail>header h2');await visible(page,'.consoleLibraryDetail>header>a');await visible(page,'.consoleLibraryRunHeadline');
+  if(await page.evaluate(()=>innerWidth>=1200))assert.ok(await page.locator('.consoleLibraryDetail').evaluate(node=>node.scrollTop)<=1,'A fresh creative run inherited another record’s detail offset');
+ }
 }
 async function compact(page,width,kind){
  if(width<1200)return;
@@ -95,8 +110,8 @@ test('hosted synthetic Library actual-root compact viewport journeys, filters, e
    const row=page.locator('.consoleLibraryList .consoleLibraryTitle').first();await row.focus();await page.keyboard.press('Enter');await ready(page);assert.equal(await page.locator('.consoleLibraryDetail').count(),1);await visible(page,'.consoleLibraryDetail>header h2');await page.reload();await ready(page);await bounds(page,viewport.width,viewport.height);
    await page.evaluate(route=>window.__libraryNavigate(route),selectedRecordRoute);await ready(page);await bounds(page,viewport.width,viewport.height);await visible(page,'.consoleLibraryDetail>header h2');assert.equal(await page.locator('[data-library-artifact]').getAttribute('data-library-artifact'),exactRecordId);
    assert.equal(createHash('sha256').update(await page.locator('[aria-label="Exact selected artifact content JSON"]').textContent()).digest('hex'),exactContentHash);assert.equal(await page.getByRole('textbox',{name:'Exact selected artifact content JSON'}).count(),0);await compact(page,viewport.width,'records');await capture(page,`console-r02-library-record-selected-${viewport.slug}`);
-   await visible(page,'[aria-label="Exact selected artifact content JSON"]',{focus:true,scroll:true});await page.reload();await ready(page);assert.equal(createHash('sha256').update(await page.locator('[aria-label="Exact selected artifact content JSON"]').textContent()).digest('hex'),exactContentHash);
-   await page.evaluate(route=>window.__libraryNavigate(route),selectedRunRoute);await ready(page);await bounds(page,viewport.width,viewport.height);await visible(page,'.consoleLibraryDetail>header h2');assert.equal(await page.locator('[data-library-creative-run]').getAttribute('data-library-creative-run'),noAssetRunId);assert.match(await page.locator('.consoleLibraryExactRun').innerText(),/No saved asset is recorded/);assert.match(await page.locator('.consoleLibraryCosts').innerText(),/charge\(s\) remain unknown/);await compact(page,viewport.width,'no-asset');await capture(page,`console-r02-library-paid-no-asset-${viewport.slug}`);
+   await keyboardFocusJson(page);await page.reload();await ready(page);assert.equal(createHash('sha256').update(await page.locator('[aria-label="Exact selected artifact content JSON"]').textContent()).digest('hex'),exactContentHash);
+   await page.evaluate(route=>window.__libraryNavigate(route),selectedRunRoute);await ready(page);await bounds(page,viewport.width,viewport.height);await stableRunStart(page);assert.equal(await page.locator('[data-library-creative-run]').getAttribute('data-library-creative-run'),noAssetRunId);assert.match(await page.locator('.consoleLibraryExactRun').innerText(),/No saved asset is recorded/);assert.match(await page.locator('.consoleLibraryCosts').innerText(),/charge\(s\) remain unknown/);await compact(page,viewport.width,'no-asset');await capture(page,`console-r02-library-paid-no-asset-${viewport.slug}`);
    if(viewport.width===1000){await openRunLookup(page);await bounds(page,viewport.width,viewport.height);await visible(page,'.consoleLibraryRunLookup input[name=creativeRun]',{focus:true});await page.locator('.consoleLibraryDetail>header h2').scrollIntoViewIfNeeded();await visible(page,'.consoleLibraryRunHeadline');await visible(page,'.consoleLibraryCharge');await visible(page,'.consoleLibraryCosts>.consoleLibraryWarning');await capture(page,'console-r02-library-paid-no-asset-1000-expanded-lookup');await page.locator('.consoleLibraryRunLookup>summary').click();} 
    await page.getByRole('link',{name:'Next',exact:true}).click();await ready(page);assert.equal(new URL(page.url()).searchParams.get('page'),'2');assert.equal(new URL(page.url()).searchParams.get('creativeRun'),noAssetRunId);await page.goBack();await ready(page);await page.goForward();await ready(page);await page.reload();await ready(page);
    await page.locator('.consoleCollectionPagination').scrollIntoViewIfNeeded();await visible(page,'.consoleCollectionPagination');await capture(page,`console-r02-library-footer-${viewport.slug}`);
@@ -252,4 +267,28 @@ test('hosted Library exact-run history reconciliation does not overwrite a newer
   assert.deepEqual(await selection(),{focused:true,start:before.start,end:before.end,x:before.scrollX,y:before.scrollY});
   await capture(page,'console-r02-library-run-lookup-unsent-edit');assert.equal(h.fixture.ancillaryCalls.length,0);clean(h);await paidCalls(page);
  }catch(error){await capture(page,'console-r02-library-run-lookup-unsent-edit-failure').catch(()=>{});throw error;}finally{await h.context.close();await browser.close();}
+});
+
+test('hosted Library split reading positions distinguish the same record, a new list and exact Back/reload history',{skip:!enabled,timeout:180000},async t=>{
+ const browser=await chromium.launch({headless:true});try{for(const viewport of [viewports[0],viewports[1]])await t.test(viewport.slug,async()=>{
+  const h=await setup(browser,viewport),{page}=h;
+  const positions=()=>page.evaluate(()=>({list:document.querySelector('.consoleLibraryResults').scrollTop,detail:document.querySelector('.consoleLibraryDetail').scrollTop,document:scrollY}));
+  const matches=async(expected,label)=>{await layoutFrames(page);const actual=await positions();assert.ok(Math.abs(actual.list-expected.list)<4&&Math.abs(actual.detail-expected.detail)<4&&actual.document===0,`${label}: ${JSON.stringify({expected,actual})}`);};
+  try{
+   await page.goto(origin+selectedRecordRoute);await ready(page);
+   const identity=page.locator(`[data-console-disclosure="identity:${exactRecordId}"]`),metadata=page.locator(`[data-console-disclosure="metadata:${exactRecordId}"]`);
+   await identity.locator(':scope>summary').click();await metadata.locator(':scope>summary').click();
+   await page.evaluate(()=>{document.querySelector('.consoleLibraryResults').scrollTop=640;document.querySelector('.consoleLibraryDetail').scrollTop=260;});const first=await positions();assert.ok(first.list>100&&first.detail>100,JSON.stringify(first));
+   await page.evaluate(()=>new Promise(resolve=>setTimeout(resolve,160)));
+   await page.evaluate(route=>window.__libraryNavigate(route),selectedRecordRoute+'&page=2');await ready(page);await matches({list:0,detail:first.detail},'The new page must reset only its unsaved list');
+   assert.equal(await identity.getAttribute('open'),'');assert.equal(await metadata.getAttribute('open'),'');assert.equal(await page.locator('[data-library-artifact]').getAttribute('data-library-artifact'),exactRecordId);
+   await page.evaluate(()=>{document.querySelector('.consoleLibraryResults').scrollTop=420;document.querySelector('.consoleLibraryDetail').scrollTop=380;});const second=await positions();assert.ok(second.list>100&&second.detail>first.detail,JSON.stringify({first,second}));await page.evaluate(()=>new Promise(resolve=>setTimeout(resolve,160)));
+   await page.goBack();await ready(page);await matches(first,'Back must restore the exact first-page list and detail snapshot');assert.equal(await identity.getAttribute('open'),'');assert.equal(await metadata.getAttribute('open'),'');
+   await page.goForward();await ready(page);await matches(second,'Forward must restore its exact second-page snapshot');await page.reload();await ready(page);await matches(second,'Reload must preserve the exact second-page snapshot');assert.equal(await identity.getAttribute('open'),'');assert.equal(await metadata.getAttribute('open'),'');
+   await capture(page,`console-r02-library-same-record-page-continuity-${viewport.slug}`);
+   // This is a different record and a new Designs list, so no record or list offset transfers.
+   await page.evaluate(route=>window.__libraryNavigate(route),selectedRunRoute);await ready(page);await stableRunStart(page);await matches({list:0,detail:0},'A fresh creative run and new Designs list start at their own top');await capture(page,`console-r02-library-fresh-record-reset-${viewport.slug}`);
+   assert.equal(h.fixture.ancillaryCalls.length,0);clean(h);await paidCalls(page);
+  }catch(error){await capture(page,`console-r02-library-reading-scope-failure-${viewport.slug}`).catch(()=>{});throw error;}finally{await h.context.close();}
+ });}finally{await browser.close();}
 });

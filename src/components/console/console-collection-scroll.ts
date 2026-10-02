@@ -4,6 +4,10 @@ export type ConsoleCollectionScrollState = { version: 1; layout?: Layout; disclo
 const PREFIX = "agentlabs:console-viewport:v1:";
 const MAX_ENTRIES = 64;
 const MAX_AGE = 7 * 24 * 60 * 60 * 1000;
+// Retained DOM is reusable across records. These markers contain only scoped
+// identity/layout, disappear with their elements, and never replace URL snapshots.
+const retainedLists = new WeakMap<HTMLElement, { key: string; layout: Layout }>();
+const retainedDetails = new WeakMap<HTMLElement, { key: string; layout: Layout }>();
 export function consoleCollectionScrollKey(ownerId: string, href: string, listOnly = false): string {
   const url = new URL(href, "https://console.invalid");
   if (url.searchParams.get("view") === "library") {
@@ -31,6 +35,14 @@ export function consoleCollectionScrollKey(ownerId: string, href: string, listOn
   url.searchParams.sort();
   return `${PREFIX}${encodeURIComponent(ownerId)}:${listOnly ? "list" : "exact"}:${url.pathname}?${url.searchParams}`;
 }
+function consoleCollectionDetailKey(ownerId: string, href: string): string {
+  const url = new URL(href, "https://console.invalid");
+  for (const name of ["page", "pageSize", "q", "sort", "status", "mediaType", "artifactType", "sheet"]) url.searchParams.delete(name);
+  // Work artifacts are a reveal within the same run. Library's artifact alias
+  // identifies the selected Record and is normalized by the shared key helper.
+  if (url.searchParams.get("view") === "work") url.searchParams.delete("artifact");
+  return consoleCollectionScrollKey(ownerId, `${url.pathname}${url.search}`);
+}
 export function parseConsoleCollectionScroll(value: string | null, now = Date.now()): ConsoleCollectionScrollState | null {
   if (!value || value.length > 16384) return null;
   try {
@@ -50,6 +62,16 @@ export function mountConsoleCollectionScroll(root: HTMLElement, ownerId: string,
   const body = () => activeLayout === "split" ? results! : collectionBody;
   const scrollers = [...new Set([collectionBody, results].filter((element): element is HTMLElement => !!element))];
   const exactKey = consoleCollectionScrollKey(ownerId, href), listKey = consoleCollectionScrollKey(ownerId, href, true);
+  const detailKey = consoleCollectionDetailKey(ownerId, href);
+  let listReady = false, detailReady = !detail;
+  const positions = () => ({ body: body().scrollTop, detail: detail?.scrollTop ?? 0, document: view.scrollY });
+  let blockedPosition: ReturnType<typeof positions> | null = null;
+  const markRetainedScope = () => {
+    retainedLists.set(body(), { key: listKey, layout: activeLayout });
+    if (detail) retainedDetails.set(detail, { key: detailKey, layout: activeLayout });
+    listReady = true; detailReady = true;
+    blockedPosition = null;
+  };
   const ownerPrefix = `${PREFIX}${encodeURIComponent(ownerId)}:`;
   const marker = root.querySelector<HTMLElement>("[data-console-collection-viewport]");
   const sameScope = () => root.querySelector(".consoleCollectionBody") === collectionBody && (!marker || root.querySelector("[data-console-collection-viewport]") === marker && marker.dataset.consoleCollectionScope === exactKey);
@@ -116,13 +138,16 @@ export function mountConsoleCollectionScroll(root: HTMLElement, ownerId: string,
   const read = (key: string) => { try { return parseConsoleCollectionScroll(view.sessionStorage.getItem(key)); } catch { return null; } };
   let captured: ConsoleCollectionScrollState | null = null;
   const disclosures = () => Array.from(root.querySelectorAll<HTMLDetailsElement>("details[data-console-disclosure]"));
-  const restoreDisclosures = (state: ConsoleCollectionScrollState) => {
+  const restoreDisclosures = (state: ConsoleCollectionScrollState, region: "all" | "list" | "detail" = "all") => {
     if (!state.disclosures) return;
     const open = new Set(state.disclosures);
-    for (const node of disclosures()) node.open = open.has(node.dataset.consoleDisclosure!);
+    for (const node of disclosures()) {
+      const list = node.dataset.consoleDisclosure?.startsWith("row:");
+      if (region === "all" || (region === "list" ? list : !list)) node.open = open.has(node.dataset.consoleDisclosure!);
+    }
   };
   const capture = () => {
-    if (disposed || !restored || !sameScope() || !navigationMatchesScope() || activeLayout !== layout()) return;
+    if (disposed || !restored || !listReady || !detailReady || !sameScope() || !navigationMatchesScope() || activeLayout !== layout()) return;
     captured = { version: 1, layout: activeLayout, disclosures: disclosures().filter(node => node.open).map(node => node.dataset.consoleDisclosure!).filter(key => key.length <= 160).slice(0, 64), body: body().scrollTop, detail: detail?.scrollTop ?? 0, document: view.scrollY, mobile: mobile(), savedAt: Date.now() };
   };
   // Disposal may run after React has replaced/clamped the retained list DOM.
@@ -161,7 +186,7 @@ export function mountConsoleCollectionScroll(root: HTMLElement, ownerId: string,
     const toolbar = root.querySelector<HTMLElement>(".consoleCollectionToolbar");
     if (toolbar) root.style.setProperty("--console-collection-toolbar-height", `${Math.ceil(toolbar.getBoundingClientRect().height)}px`);
   };
-  const restore = () => {
+  const restore = (preserve?: "list" | "detail" | "combined") => {
     if (disposed || !sameScope() || !navigationMatchesScope()) return;
     updateToolbarOffset();
     activeLayout = layout();
@@ -169,27 +194,54 @@ export function mountConsoleCollectionScroll(root: HTMLElement, ownerId: string,
     const exact = compatible(read(`${exactKey}:${activeLayout}`)) ?? compatible(read(exactKey));
     const listCompatible = (state: ConsoleCollectionScrollState | null) => state?.mobile === mobile() ? state : null;
     const fallback = exact ? null : listCompatible(read(`${listKey}:${activeLayout}`)) ?? listCompatible(read(listKey)), state = exact ?? fallback;
-    // Never reposition the inert background or steal the reading position from an active editor.
-    if (hasBlockingInteraction()) { restored = true; capture(); return; }
+    const previousList = retainedLists.get(body()), previousDetail = detail ? retainedDetails.get(detail) : undefined;
+    const sameList = previousList?.key === listKey && previousList.layout === activeLayout;
+    const sameDetail = previousDetail?.key === detailKey && previousDetail.layout === activeLayout;
+    const artifactFragment = hasExactArtifactFragment();
+    // Never reposition the inert background or steal the reading position from
+    // an editor, nor save an inherited old-record position under the new URL.
+    if (hasBlockingInteraction()) {
+      listReady = sameList; detailReady = !detail || sameDetail;
+      blockedPosition = positions();
+      restored = true; capture(); return;
+    }
+    // After a blocked restore, a deliberate scroll owns that region's current
+    // reading position. Initialize only its still-unread companion; never use
+    // inherited old-record DOM as a new snapshot or close the disclosure being read.
+    const keepList = !!preserve && (preserve !== "detail" || listReady);
+    const keepDetail = !!preserve && (preserve !== "list" || detailReady);
     if (state && state.mobile === mobile()) {
-      restoreDisclosures(state);
-      const artifactFragment = hasExactArtifactFragment();
-      if (!artifactFragment || split()) body().scrollTop = state.body;
+      // A list fallback owns row disclosures only. Applying it to a retained
+      // same-record detail would close its JSON and clamp its reading position.
+      if (!keepList && !keepDetail && exact) restoreDisclosures(state);
+      else {
+        if (!keepList) restoreDisclosures(state, "list");
+        if (!keepDetail && exact) restoreDisclosures(state, "detail");
+      }
+      if (!keepList && (!artifactFragment || split())) body().scrollTop = state.body;
       if (exact && !artifactFragment) {
-        if (detail) detail.scrollTop = exact.detail;
-        view.scrollTo({ top: exact.document, behavior: "instant" });
+        if (detail && !keepDetail) detail.scrollTop = exact.detail;
+        if (!preserve) view.scrollTo({ top: exact.document, behavior: "instant" });
       }
       // A newly selected mobile detail keeps its native anchor rather than old document scroll.
+    } else if (!keepList && !sameList && (!artifactFragment || split())) {
+      body().scrollTop = 0;
+      if (activeLayout === "document" && !detail) view.scrollTo({ top: 0, behavior: "instant" });
     }
+    // Reused detail elements do not reset themselves when Record JSON is
+    // replaced by another record/run. Exact snapshots and exact artifact reveal
+    // win; otherwise only an actually unchanged scoped detail inherits scroll.
+    if (!keepDetail && !exact && detail && !sameDetail && !artifactFragment) detail.scrollTop = 0;
     // A direct selected/run URL has no native fragment. Reveal its independently
     // verified detail on the one-column layouts, only on its first visit. Exact
     // Back/reload snapshots and an authorized artifact fragment retain priority.
     const selectedState = detail?.dataset.consoleSelection;
     const freshSelection = selectedState === "found" || new URL(href, "https://console.invalid").searchParams.get("view") === "library" && ["missing", "unavailable"].includes(selectedState ?? "");
     const detailAnchor = view.location?.hash === "#console-collection-detail";
-    if (!exact && detail && activeLayout !== "split" && !hasExactArtifactFragment() && (freshSelection || detailAnchor)) {
+    if (!preserve && !exact && detail && activeLayout !== "split" && (!sameDetail || !sameList) && !artifactFragment && (freshSelection || detailAnchor)) {
       detail.scrollIntoView({ block: "start", inline: "nearest", behavior: "instant" });
     }
+    markRetainedScope();
     restored = true;
     capture();
   };
@@ -197,16 +249,29 @@ export function mountConsoleCollectionScroll(root: HTMLElement, ownerId: string,
     if (disposed || !sameScope()) return;
     restored = false; // Ignore early bfcache/native scroll events until the saved layout is reapplied.
     view.cancelAnimationFrame(firstFrame); view.cancelAnimationFrame(secondFrame);
-    firstFrame = view.requestAnimationFrame(() => { secondFrame = view.requestAnimationFrame(restore); });
+    firstFrame = view.requestAnimationFrame(() => { secondFrame = view.requestAnimationFrame(() => restore()); });
   };
   const onScroll = (event: Event) => {
     // Breakpoint CSS can clamp the old scroller before resize fires. Keep the
     // last observed snapshot until the new layout has been restored.
-    if (activeLayout !== layout()) return;
+    if (disposed || !restored || !sameScope() || !navigationMatchesScope() || activeLayout !== layout()) return;
     // Document scrolling bubbles to the Window listener with Document as its
     // target. Accept only this pane's owning document, never another surface.
     const document = root.ownerDocument ?? view.document;
     if (event.target !== view && event.target !== document && event.target !== body() && !(activeLayout === "split" && event.target === detail)) return;
+    if (hasBlockingInteraction()) {
+      // A modal/editor may cause a native scroll of its own. That is not later
+      // reading intent merely because its queued event arrives after blur.
+      if (!listReady || !detailReady) blockedPosition = positions();
+      return;
+    }
+    if (!listReady || !detailReady) {
+      if (!blockedPosition) return;
+      if (activeLayout === "split" && event.target === detail && detail!.scrollTop !== blockedPosition.detail) restore("detail");
+      else if (activeLayout === "split" && event.target === body() && body().scrollTop !== blockedPosition.body) restore("list");
+      else if (activeLayout === "single" && event.target === body() && body().scrollTop !== blockedPosition.body || activeLayout === "document" && (event.target === view || event.target === document) && view.scrollY !== blockedPosition.document) restore("combined");
+      else return;
+    }
     capture(); view.clearTimeout(timer); timer = view.setTimeout(flush, 120);
   };
   const onPageHide = () => save();
@@ -223,6 +288,7 @@ export function mountConsoleCollectionScroll(root: HTMLElement, ownerId: string,
     updateToolbarOffset();
     const nextLayout = layout();
     if (nextLayout === activeLayout) { save(); return; }
+    if (!listReady || !detailReady) { restore(); flush(); return; }
     const previous = captured;
     flush(); // Never read the old, potentially clamped DOM after a breakpoint.
     activeLayout = nextLayout;
@@ -236,6 +302,7 @@ export function mountConsoleCollectionScroll(root: HTMLElement, ownerId: string,
       body().scrollTop = previous.body;
       if (detail && nextLayout === "split") detail.scrollTop = previous.detail;
     }
+    markRetainedScope();
     capture(); flush();
   };
   for (const scroller of scrollers) scroller.addEventListener("scroll", onScroll, { passive: true });

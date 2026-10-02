@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import { runInNewContext } from "node:vm";
 import test from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { libraryMarkup, libraryDesign, libraryRun, libraryPane, runLookup, preview, id } from "./helpers/console-library-pane-fixtures.mjs";
+import { libraryMarkup, libraryDesign, libraryRun, libraryPane, runLookup, preview, jsonFocus, id } from "./helpers/console-library-pane-fixtures.mjs";
 
 for (const kind of ["designs", "records"]) {
   test(`${kind}: actual pane renders a bounded metadata page representing 127 records and two Businesses`, () => {
@@ -291,4 +291,75 @@ test("desktop Library reclaims the fold without shrinking text or hiding its fiv
   assert.ok(selected.indexOf("consoleLibraryDesignSummary") < selected.indexOf("consoleLibraryBusiness"));
   const summary = selected.slice(selected.indexOf("consoleLibraryBoundaries"), selected.indexOf("consoleLibraryBusiness"));
   for (const label of ["Visual review", "Print-file checks", "Saved approval", "Market ProductTEST", "Listing / publication"]) assert.ok(summary.includes(label), label);
+});
+
+function jsonFocusHarness({ width = 640, height = 450, preTop = 191.0625, preHeight = 260, commandTop = 392, bodyTop = 220, bodyBottom = 590, detailTop = 230, detailBottom = 590, footerTop = 598, footerPosition = "static", modal = false, inert = false, connected = true } = {}) {
+  let documentDelta = 0, maxHeight = 260;
+  const writes = [], scrolls = [], document = {}, bounds = (top, bottom, left = 24, right = width - 24) => ({ top, bottom, left, right, width: right - left, height: bottom - top });
+  const body = { dataset: { hasSelection: "true" }, scrollTop: 77, getBoundingClientRect: () => bounds(bodyTop, bodyBottom) };
+  const detail = { scrollTop: 91, getBoundingClientRect: () => bounds(detailTop, detailBottom) };
+  const command = { position: "sticky", getBoundingClientRect: () => bounds(commandTop, height, 8, width - 8) };
+  const footer = { position: footerPosition, getBoundingClientRect: () => bounds(footerTop, footerTop + 54) };
+  const shell = { querySelector: selector => selector === ".consoleCommandBar" ? command : null };
+  const pane = { querySelector: selector => selector === ".consoleCollectionBody" ? body : selector === ".consoleCollectionPagination" ? footer : null, closest: () => shell, contains: candidate => candidate === detail };
+  const node = { ownerDocument: document, isConnected: connected, scrollTop: 123,
+    matches: selector => selector === 'pre[data-console-library-json="true"]',
+    closest: selector => selector.includes("[inert]") ? inert ? {} : null : selector === ".consoleLibraryPane" ? pane : selector === ".consoleCollectionDetail" ? detail : null,
+    style: { setProperty: (name, value) => { writes.push([name, value]); maxHeight = Math.min(260, Number.parseFloat(value)); } },
+    getBoundingClientRect: () => { const top = preTop - documentDelta - (body.scrollTop - 77) - (detail.scrollTop - 91); return bounds(top, top + Math.min(preHeight, maxHeight), 32, width - 30); },
+    focus: () => { throw new Error("Reveal must never focus"); },
+  };
+  const view = { innerWidth: width, innerHeight: height, visualViewport: null, scrollY: 4909,
+    getComputedStyle: element => ({ position: element.position }),
+    scrollBy: options => { scrolls.push(options); documentDelta += options.top; view.scrollY += options.top; },
+  };
+  Object.assign(document, { defaultView: view, activeElement: node, querySelector: () => modal ? {} : null });
+  return { node, document, view, pane, detail, body, command, footer, writes, scrolls };
+}
+test("focused readonly JSON clears the actual mobile command bar without changing its text or inner reading offset", () => {
+  const fixture = jsonFocusHarness();
+  assert.equal(jsonFocus.revealConsoleLibraryJson(fixture.node), true);
+  const rect = fixture.node.getBoundingClientRect(); assert.ok(rect.bottom <= 384); assert.ok(rect.top >= 8);
+  assert.equal(fixture.node.scrollTop, 123); assert.equal(fixture.document.activeElement, fixture.node);
+  assert.equal(fixture.detail.scrollTop, 91); assert.equal(fixture.body.scrollTop, 77);
+  assert.equal(fixture.scrolls.length, 1); assert.equal(fixture.scrolls[0].behavior, "instant");
+});
+test("desktop JSON reveal scrolls only its contained split/single pane and respects a visible sticky footer", () => {
+  for (const width of [1280, 1000]) {
+    const fixture = jsonFocusHarness({ width, height: 720, preTop: 460, commandTop: 660, footerTop: 570, footerPosition: "sticky" });
+    assert.equal(jsonFocus.revealConsoleLibraryJson(fixture.node), true);
+    const rect = fixture.node.getBoundingClientRect(); assert.ok(rect.bottom <= 562); assert.ok(rect.top >= (width >= 1200 ? 238 : 228));
+    assert.equal(fixture.view.scrollY, 4909); assert.equal(fixture.scrolls.length, 0); assert.equal(fixture.node.scrollTop, 123);
+    if (width >= 1200) { assert.ok(fixture.detail.scrollTop > 91); assert.equal(fixture.body.scrollTop, 77); }
+    else { assert.ok(fixture.body.scrollTop > 77); assert.equal(fixture.detail.scrollTop, 91); }
+  }
+});
+test("small visible JSON area constrains only its outer scroll viewport and preserves full readonly content", () => {
+  const fixture = jsonFocusHarness({ width: 1280, height: 720, preTop: 500, preHeight: 260, detailTop: 480, detailBottom: 600, commandTop: 660 });
+  jsonFocus.revealConsoleLibraryJson(fixture.node);
+  assert.deepEqual(fixture.writes, [["--console-library-json-focus-height", "104px"]]);
+  assert.equal(fixture.node.getBoundingClientRect().height, 104); assert.equal(fixture.node.scrollTop, 123);
+  const content = "Exact saved bytes\n" + "full content ".repeat(500);
+  const element = jsonFocus.ConsoleLibraryJsonText({ label: "Exact saved JSON", content });
+  assert.equal(element.props.children, content); assert.equal(element.props.tabIndex, 0);
+  assert.equal(element.props["data-console-library-json"], "true"); assert.equal(element.props.contentEditable, undefined);
+  assert.doesNotMatch(renderToStaticMarkup(element), /contenteditable|<textarea|<input/);
+});
+test("readonly focus reveal is inert on refresh, detached nodes, editors, inert backgrounds and modal overlays", () => {
+  const fixture = jsonFocusHarness(), element = jsonFocus.ConsoleLibraryJsonText({ label: "Exact saved JSON", content: "unchanged" });
+  renderToStaticMarkup(element); assert.equal(fixture.writes.length, 0); assert.equal(fixture.scrolls.length, 0);
+  for (const options of [{ modal: true }, { inert: true }, { connected: false }]) {
+    const blocked = jsonFocusHarness(options); assert.equal(jsonFocus.revealConsoleLibraryJson(blocked.node), false); assert.equal(blocked.writes.length, 0); assert.equal(blocked.scrolls.length, 0);
+  }
+  fixture.document.activeElement = { tagName: "INPUT" }; assert.equal(jsonFocus.revealConsoleLibraryJson(fixture.node), false); assert.equal(fixture.writes.length, 0);
+  const source = readFileSync("src/components/console/console-library-json-focus.tsx", "utf8");
+  assert.doesNotMatch(source, /useEffect|useLayoutEffect|requestAnimationFrame|setTimeout|\.focus\(/);
+});
+test("visible JSON causes no scroll and readonly pre/tabindex gets mobile safe-area clearance", () => {
+  const fixture = jsonFocusHarness({ preTop: 40 });
+  assert.equal(jsonFocus.revealConsoleLibraryJson(fixture.node), false); assert.equal(fixture.scrolls.length, 0);
+  const css = readFileSync("src/components/console/console-library-pane.css", "utf8");
+  assert.match(css, /:where\(a,button,input,select,summary,pre,\[tabindex\]\)/);
+  assert.match(css, /scroll-margin-block:12px calc\(100px \+ env\(safe-area-inset-bottom\)\)/);
+  assert.match(css, /100dvh - 160px/); assert.match(css, /--console-library-json-focus-height/);
 });

@@ -12,13 +12,14 @@ export const libraryQuery = loadSource("src/lib/core-ui/console-library-query.ts
 export const creativeTypes = loadSource("src/creative/types.ts");
 export const costs = loadSource("src/creative/cost-display.ts");
 export const preview = loadSource("src/components/console/console-library-preview.tsx");
+export const jsonFocus = loadSource("src/components/console/console-library-json-focus.tsx");
 export const runLookup = loadSource("src/components/console/console-library-run-lookup.tsx", { "@/lib/core-ui/console-library-query": libraryQuery, "./console-collection-scroll": scroll });
 const viewport = loadSource("src/components/console/console-collection-viewport.tsx", { "./console-collection-scroll": scroll });
 export const libraryPane = loadSource("src/components/console/console-library-pane.tsx", {
   "@/lib/core-ui/console-library-query": libraryQuery, "@/creative/cost-display": costs,
   "@/creative/types": creativeTypes, "./console-collection-panes": collections,
   "./console-collection-viewport": viewport, "./console-library-preview": preview,
-  "./console-library-pane.css": {}, "./console-library-run-lookup": runLookup,
+  "./console-library-pane.css": {}, "./console-library-run-lookup": runLookup, "./console-library-json-focus": jsonFocus,
 });
 const date = number => new Date(Date.parse("2026-01-01T00:00:00Z") + number * 86400000).toISOString();
 const hash = "a".repeat(64), briefHash = "b".repeat(64), none = () => ({ status: "none", item: null });
