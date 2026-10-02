@@ -3631,3 +3631,7 @@ The first implementation stage should:
 10. stop before implementing workflows
 
 The objective is a clean, deployed, database-backed foundation on which every later stage can be built without repeating V1's architectural mistakes.
+
+## 2026-10-02 activation qualification note
+
+Etsy automation and API-content research remain on an operational hold pending written clarification/authorization for the exact application purpose and operations. Key issuance, personal API access and seller consent are separate from that qualification. UI implementation and synthetic verification may continue without enabling provider actions. See [Etsy activation gates](ETSY_ACTIVATION_GATES.md) for current primary-source terms references and the required evidence. This note does not change schema, permissions or existing runtime policy.

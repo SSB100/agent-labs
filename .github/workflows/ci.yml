@@ -32,16 +32,18 @@ jobs:
       - name: Install pinned Chromium for owner UI verification
         run: npx playwright-core install --with-deps chromium
 
-      - name: Capture dense console preview
+      - name: Capture compact console and Connections preview
         continue-on-error: true
-        run: node --test tests/console-visual.test.mjs
+        run: node --test tests/console-visual.test.mjs tests/console-connections.test.mjs
 
       - name: Upload early console preview
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: console-preview-${{ github.sha }}
-          path: test-results/guided-ui/console-overview-*.png
+          path: |
+            test-results/guided-ui/console-overview-*.png
+            test-results/guided-ui/console-connections-*.png
           if-no-files-found: warn
           retention-days: 14
 

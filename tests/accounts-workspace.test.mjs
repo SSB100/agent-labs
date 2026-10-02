@@ -8,7 +8,7 @@ const { renderToStaticMarkup } = require('react-dom/server');
 function load(path, dependencies, globals = {}) {
   const code = ts.transpileModule(readFileSync(path, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText;
   const m = { exports: {} };
-  runInNewContext(`(function(require,module,exports){${code}\n})`, globals)(name => { assert.ok(name in dependencies, `Unexpected dependency ${name}`); return dependencies[name]; }, m, m.exports);
+  runInNewContext(`(function(require,module,exports){${code}\n})`, { URL, URLSearchParams, ...globals })(name => { assert.ok(name in dependencies, `Unexpected dependency ${name}`); return dependencies[name]; }, m, m.exports);
   return m.exports;
 }
 const C = load('src/accounts/contracts.ts', { 'node:crypto': require('node:crypto') });
@@ -18,7 +18,11 @@ const plain = value => JSON.parse(JSON.stringify(value));
 const noop = async () => {};
 const actionNames = ['saveBusinessAccountProfile', 'requestAccountSetup', 'approveReviewedAccountSetup', 'cancelAccountSetup', 'resumeVerifiedAccountSetup', 'disconnectBusinessAccount', 'submitOwnerPrintfulCredential', 'storeOwnerWebsitePassword', 'removeOwnerWebsitePassword', 'startApprovedAccountRegistration', 'finishOwnerRegistrationSession'];
 const actionStubs = Object.fromEntries(actionNames.map(name => [name, noop]));
+const feedbackContract = load('src/accounts/connection-feedback.ts', {});
+const printfulContract = load('src/accounts/printful.ts', { '../printful/account': {}, '../printful/contracts': {}, './vault': {} });
+const feedbackUi = load('src/app/dashboard/accounts/connection-feedback.tsx', { 'react': React, 'react/jsx-runtime': require('react/jsx-runtime'), 'next/navigation': { unstable_rethrow() {} } });
 const viewDependencies = {
+  'react': React, 'react-dom': require('react-dom'), '@/accounts/connection-feedback': feedbackContract, './connection-feedback': feedbackUi, '../connection-feedback': feedbackUi,
   'react/jsx-runtime': require('react/jsx-runtime'),
   'next/link': ({ children, href, ...props }) => React.createElement('a', { href, ...props }, children),
   'node:crypto': require('node:crypto'), '@/accounts/contracts': C,
@@ -37,10 +41,11 @@ function actionHarness(overrides = {}) {
   const methods = ['accountRpc', 'saveAccountProfile', 'prepareAccountSetup', 'approveAccountSetup', 'resumeAccountSetup', 'handoffAccountConnection', 'connectPrintfulAccount', 'verifyEtsyAccount', 'revokeAccount', 'saveOwnerAccountPassword', 'deleteOwnerAccountPassword', 'prepareApprovedAccountRegistration', 'stopAccountSetup', 'releaseAccountRegistration'];
   const api = Object.fromEntries(methods.map(name => [name, async (...args) => { calls.push({ name, args }); if (overrides[name]) return overrides[name](...args); return setup({ status: 'owner_handoff' }); }]));
   const result = load('src/app/dashboard/accounts/actions.ts', {
+    'node:crypto': require('node:crypto'),
     'next/navigation': { redirect: url => { const error = new Error(url); error.redirect = url; throw error; } },
     'next/cache': { revalidatePath: path => invalidated.push(path) },
     '@/lib/core-ui/data': { requireOwnerUiContext: async () => context },
-    '@/accounts/server': api, '@/accounts/contracts': C,
+    '@/accounts/server': api, '@/accounts/contracts': C, '@/accounts/connection-feedback': feedbackContract, '@/accounts/printful': printfulContract,
   }, { console: { log: (...args) => logs.push(args), error: (...args) => logs.push(args), warn: (...args) => logs.push(args) } });
   return { ...result, calls, logs, invalidated, context };
 }
@@ -55,6 +60,9 @@ async function securePage(data = base, query = { business: businessId, run: runI
     '@/accounts/server': { loadAccountWorkspace: async (_context, id) => { calls.push(id); return data; } },
     '@/accounts/printful': { PRINTFUL_ACCOUNT_LINKS: { tokenManagement: 'https://developers.printful.com/tokens' } },
     '../actions': actionStubs, '../accounts.css': {},
+    '@/components/console/console-shell': { ConsoleShell: ({ children }) => React.createElement('main', null, children) }, '@/components/console/console-panes.css': {},
+    '../account-workspace': { accountMessages: load('src/app/dashboard/accounts/account-workspace.tsx', { ...viewDependencies, './actions': actionStubs }).accountMessages },
+    './secure-form': load('src/app/dashboard/accounts/secure/secure-form.tsx', { ...viewDependencies, '../actions': actionStubs }),
   });
   return { html: renderToStaticMarkup(await Page({ searchParams: Promise.resolve(query) })), calls };
 }
@@ -161,7 +169,7 @@ test('missing, blank and unknown store types cannot call Printful connection eve
     const values = { secureAccessConsent: 'on', credential: 'synthetic-owner-token', storeId: 987, expiresAt: '2026-10-02T12:00' };
     if (kind !== undefined) values.storeKind = kind;
     const url = await redirectFrom(h.submitOwnerPrintfulCredential(form(values)));
-    assert.match(url, /accountMessage=verification-unavailable/);
+    assert.match(url, /accountMessage=verification-input-invalid/);
     assert.deepEqual(h.calls, [], `No connection call for store type ${JSON.stringify(kind)}`);
     assert.deepEqual(h.logs, []);
   }
@@ -214,6 +222,9 @@ async function passwordPage(data, query = { business: businessId, account: conne
     ...viewDependencies, 'next/navigation': { notFound: () => { throw new Error('not-found'); } },
     '@/lib/core-ui/data': { requireOwnerUiContext: async () => ({ businesses: [{ id: businessId }] }) },
     '@/accounts/server': { loadAccountWorkspace: async () => data }, '../actions': actionStubs, '../accounts.css': {},
+    '@/components/console/console-shell': { ConsoleShell: ({ children }) => React.createElement('main', null, children) }, '@/components/console/console-panes.css': {},
+    '../account-workspace': { accountMessages: load('src/app/dashboard/accounts/account-workspace.tsx', { ...viewDependencies, './actions': actionStubs }).accountMessages },
+    './secure-form': load('src/app/dashboard/accounts/secure/secure-form.tsx', { ...viewDependencies, '../actions': actionStubs }),
   });
   return renderToStaticMarkup(await Page({ searchParams: Promise.resolve(query) }));
 }
@@ -297,6 +308,9 @@ async function registrationPage({ denied = false, query = { business: businessId
     '@/lib/core-ui/data': { requireOwnerUiContext: async () => ({ businesses: [{ id: businessId }] }) },
     '@/accounts/server': { loadOwnerRegistrationHandoff: async (...args) => { calls.push(args); if (denied) throw new Error('private-db-error-do-not-render'); return { provider: 'etsy', viewerUrl: 'https://www.browserbase.com/synthetic-owner-session', expiresAt: '2026-10-01T12:15:00Z' }; } },
     '../actions': actionStubs, '../accounts.css': {},
+    '@/components/console/console-shell': { ConsoleShell: ({ children }) => React.createElement('main', null, children) }, '@/components/console/console-panes.css': {},
+    '../account-workspace': { accountMessages: load('src/app/dashboard/accounts/account-workspace.tsx', { ...viewDependencies, './actions': actionStubs }).accountMessages },
+    './secure-form': load('src/app/dashboard/accounts/secure/secure-form.tsx', { ...viewDependencies, '../actions': actionStubs }),
   }, { console: { log: (...args) => logs.push(args), error: (...args) => logs.push(args) } });
   return { html: renderToStaticMarkup(await Page({ searchParams: Promise.resolve(query) })), calls, logs };
 }
@@ -433,4 +447,47 @@ test('saved-password removal stays explicit and revision-bound even after provid
   }
   const absent = render({ ...base, accounts: [{ ...savedAccount, passwordStored: false, passwordRevision: null }] });
   assert.doesNotMatch(absent, /name="passwordRemovalConsent"|Remove saved website password/);
+});
+
+test('Printful verification uses fixed typed outcomes and retains only the exact scoped connection return', async () => {
+  const priorRequestId = '60000000-1111-4111-8111-111111111111';
+  const returnTo = `/dashboard?view=connections&business=${businessId}&connectionRun=${priorRequestId}&provider=printful&credential=never-retain`;
+  const cases = [
+    [new printfulContract.PrintfulConnectionError('credential_scope_rejected'), 'verification-scope-rejected'],
+    [new printfulContract.PrintfulConnectionError('credential_store_scope_rejected'), 'verification-store-scope-rejected'],
+    [new printfulContract.PrintfulConnectionError('store_identity_mismatch'), 'verification-store-mismatch'],
+    [new printfulContract.PrintfulConnectionError('credential_access_denied'), 'verification-access-denied'],
+    [new printfulContract.PrintfulConnectionError('provider_rate_limited'), 'verification-rate-limited'],
+    [new printfulContract.PrintfulConnectionError('provider_timeout'), 'verification-unavailable'],
+    [new printfulContract.PrintfulConnectionError('invalid_provider_response'), 'verification-unavailable'],
+    [new C.AccountError('account_handoff_expired'), 'verification-expired'],
+    [new C.AccountError('account_approval_required'), 'verification-review-required'],
+    [Object.assign(new Error('private token body'), { code: 'credential_scope_rejected' }), 'verification-unavailable'],
+    [new Error('network private provider body'), 'verification-unavailable'],
+    [null, 'verified'],
+  ];
+  for (const [error, message] of cases) {
+    const h = actionHarness({ connectPrintfulAccount: async () => { if (error) throw error; return { browserReleaseVerified: true }; } });
+    const href = await redirectFrom(h.submitOwnerPrintfulCredential(form({ returnTo, provider: 'printful', secureAccessConsent: 'on', credential: 'synthetic-private-token', storeId: 987, storeKind: 'ecommerce_linked', expiresAt: '2026-10-02T12:00' })));
+    const url = new URL(href, 'https://synthetic.invalid');
+    assert.equal(url.pathname, '/dashboard'); assert.equal(url.hash, '#connection-notice');
+    assert.match(url.searchParams.get('accountResult'), C.ACCOUNT_UUID);
+    const scope = new URLSearchParams(url.searchParams); scope.delete('accountResult');
+    assert.deepEqual(Object.fromEntries(scope), { view: 'connections', business: businessId, provider: 'printful', connectionRun: runId, accountMessage: message });
+    assert.equal(h.calls.length, 1, 'No automatic provider retry');
+    assert.deepEqual(h.logs, []); assert.doesNotMatch(href, /synthetic-private-token|never-retain|private|credential|storeId|expiresAt/);
+    assert.ok(h.invalidated.includes('/dashboard'));
+  }
+});
+
+test('every account mutation returns to the Business-scoped root notice without trusting foreign return URLs', async () => {
+  for (const returnTo of ['https://evil.invalid/collect', `//evil.invalid/dashboard?business=${businessId}`, `/dashboard?business=${foreignId}&run=${runId}`]) {
+    const h = actionHarness();
+    const href = await redirectFrom(h.requestAccountSetup(form({ provider: 'printful', mode: 'connect', idempotencyKey: revision, returnTo })));
+    const url = new URL(href, 'https://synthetic.invalid');
+    assert.equal(url.origin, 'https://synthetic.invalid'); assert.equal(url.pathname, '/dashboard'); assert.equal(url.hash, '#connection-notice');
+    assert.equal(url.searchParams.get('business'), businessId); assert.equal(url.searchParams.get('view'), 'connections');
+    assert.equal(url.searchParams.has('run'), false); assert.equal(url.searchParams.get('connectionRun'), runId);
+    assert.doesNotMatch(href, /evil|collect/);
+  }
 });

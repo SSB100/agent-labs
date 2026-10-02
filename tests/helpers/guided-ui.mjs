@@ -119,7 +119,7 @@ export function findFixtureElement(tree, name) {
   return null;
 }
 
-export async function renderDashboard({ unavailable = false, empty = false, view = "overview", detail = false, sheet = false, knownZero = false, businessesUnavailable = false, mismatchedBusiness = false, businessFlow = false, omitBusinessQuery = false, records, contextOverrides = {}, queryOverrides = {}, browserRecords = {}, observedAt = Date.parse(fixtureTime), inspect, reads = [] } = {}) {
+export async function renderDashboard({ unavailable = false, empty = false, view = "overview", detail = false, sheet = false, knownZero = false, businessesUnavailable = false, mismatchedBusiness = false, businessFlow = false, omitBusinessQuery = false, records, contextOverrides = {}, queryOverrides = {}, browserRecords = {}, accountRecords, accountComponents, accountActions, observedAt = Date.parse(fixtureTime), inspect, reads = [] } = {}) {
   const { shell, visuals, icons, workflows, consoleShell, motion, motionUi, browserView, browserUi } = components();
   const otherBusiness = { ...business, id: "fixture-other-business", name: "Other authorized Business" };
   const context = ownerContext({ needsYouCount: unavailable || empty ? 0 : 1, needsYouUnavailable: unavailable && !knownZero, businessesUnavailable,
@@ -133,7 +133,7 @@ export async function renderDashboard({ unavailable = false, empty = false, view
   }
   const browserWire = browserMetadataWire({ sessions: [], runs: collection.runs, ...browserRecords });
   context.supabase = browserWire.client;
-  const accounts = { businessId: rootRun.business_id, configured: false, unavailable, profile: null, accounts: [], runs: [], healthEvents: [], registrationAvailable: false };
+  const accounts = accountRecords ?? { businessId: rootRun.business_id, configured: false, unavailable, observedAt: fixtureTime, profile: null, accounts: [], runs: [], healthEvents: [], registrationAvailable: false };
   const products = { candidates: [], experiments: [], decisions: [], errors: [] };
   const costData = { costs: { businessId: rootRun.business_id, workflowRunId: run.id, source: "model", calls: unavailable ? { status: "unavailable" } : { status: "ready", records: [{ providerRequestId: "fixture-receipt", reportedUsd: .0182 }] } } };
   const questDraft = loadSource("src/lib/core-ui/quest-draft.ts");
@@ -154,9 +154,15 @@ export async function renderDashboard({ unavailable = false, empty = false, view
   });
   const costs = loadSource("src/creative/cost-display.ts");
   const library = loadSource("src/components/guided/creative-library.tsx", { "@/creative/cost-display": costs, "./creative-library.css": {} });
+  const connectionFeedback = loadSource("src/accounts/connection-feedback.ts");
+  const accountFeedback = accountComponents ?? loadSource("src/app/dashboard/accounts/connection-feedback.tsx", {
+    "@/accounts/connection-feedback": connectionFeedback,
+    "next/navigation": { unstable_rethrow: noAction },
+  });
   const accountUi = loadSource("src/app/dashboard/accounts/account-workspace.tsx", {
     "@/accounts/contracts": loadSource("src/accounts/contracts.ts"), "@/components/stage7/app-shell": shell,
-    "./actions": Object.fromEntries(["saveBusinessAccountProfile", "requestAccountSetup", "approveReviewedAccountSetup", "cancelAccountSetup", "resumeVerifiedAccountSetup", "disconnectBusinessAccount", "startApprovedAccountRegistration", "finishOwnerRegistrationSession", "removeOwnerWebsitePassword"].map(name => [name, noAction])),
+    "@/accounts/connection-feedback": connectionFeedback, "./connection-feedback": accountFeedback,
+    "./actions": accountActions ?? Object.fromEntries(["saveBusinessAccountProfile", "requestAccountSetup", "approveReviewedAccountSetup", "cancelAccountSetup", "resumeVerifiedAccountSetup", "disconnectBusinessAccount", "startApprovedAccountRegistration", "finishOwnerRegistrationSession", "removeOwnerWebsitePassword"].map(name => [name, noAction])),
   });
   const consoleData = loadSource("src/lib/core-ui/console-data.ts", { "@/products/discovery-v2-goal": {}, "@/products/discovery-v2-budget": {} });
   const goalUi = loadSource("src/components/stage13/discovery-goal-workspace.tsx", {
@@ -185,6 +191,7 @@ export async function renderDashboard({ unavailable = false, empty = false, view
     "@/products/data": { loadProductWorkspace: async () => { reads.push("products"); return products; } },
     "@/products/discovery-v2-data": { loadDiscoveryGoalData: async () => { reads.push("discovery"); return { available: true, records: [], errors: [] }; } },
     "@/components/stage13/discovery-goal-workspace": goalUi, "./accounts/account-workspace": accountUi,
+    "./accounts/connection-feedback": accountFeedback, "@/accounts/connection-feedback": connectionFeedback,
     "./actions": { createBusiness: noAction }, "./legacy-dashboard": noAction,
     "@/components/console/console-panes.css": {}, "./accounts/accounts.css": {}, "./products/products.css": {},
   });

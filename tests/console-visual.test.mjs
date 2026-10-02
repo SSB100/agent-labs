@@ -61,7 +61,7 @@ test("capture the dense console reference layout before the full quality gate", 
   const browser = await chromium.launch({ headless: true, ...(process.env.GUIDED_UI_CHROMIUM_PATH ? { executablePath: process.env.GUIDED_UI_CHROMIUM_PATH } : {}) });
   try {
     const html = fixtureDocument(consolePreviewMarkup());
-    for (const [width, height] of [[1440, 900], [1280, 900], [1200, 700], [768, 1024], [900, 768], [390, 1000], [320, 1000]]) {
+    for (const [width, height] of [[1440, 900], [1280, 720], [1280, 900], [1200, 700], [768, 1024], [900, 768], [390, 1000], [320, 1000]]) {
       await t.test(`${width}×${height}`, async () => {
         const context = await browser.newContext({ viewport: { width, height }, locale: "en-NZ", timezoneId: "UTC", colorScheme: "dark", reducedMotion: "reduce", serviceWorkers: "block" });
         await context.route("**/*", route => route.abort());
