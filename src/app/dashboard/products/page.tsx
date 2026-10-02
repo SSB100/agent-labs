@@ -2,7 +2,7 @@ import { QuestKickoff } from "@/components/guided/quest-kickoff";
 import "@/components/guided/work-context.css";
 import { randomUUID } from "node:crypto";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import { AppShell, PageHeader } from "@/components/stage7/app-shell";
 import { CoreIcon } from "@/components/stage7/icons";
@@ -30,6 +30,18 @@ function first(value: string | string[] | undefined) {
 export default async function ProductsPage({ searchParams }: ProductsPageProps) {
   const context = await requireOwnerUiContext();
   const query = await searchParams;
+  if (process.env.AGENTLABS_GUIDED_UI !== "legacy" && query.view === "results") {
+    const { consoleResearchAlias } = await import("@/lib/core-ui/console-research-alias");
+    const { consoleResearchHref } = await import("@/lib/core-ui/console-research-query");
+    let researchQuery;
+    try { researchQuery = consoleResearchAlias("products", query); } catch { notFound(); }
+    if (researchQuery) {
+      const businessId = researchQuery.business;
+      if (typeof businessId === "string" && !context.businessesUnavailable && !context.businesses.some(business => business.id === businessId)) notFound();
+      // Former aggregate #discovery-goal-results is not an exact record fragment.
+      redirect(consoleResearchHref(researchQuery, {}));
+    }
+  }
   const requestedBusiness = first(query.business);
   const selectedBusiness = context.businesses.find(business => business.id === requestedBusiness);
   if (requestedBusiness && !selectedBusiness && !context.businessesUnavailable) notFound();

@@ -55,11 +55,11 @@ function primaryLinks(markup) {
   }));
 }
 
-test("seven views use real root URL links inside one responsive navigation", () => {
+test("eight views use real root URL links inside one responsive navigation", () => {
   const markup = fixture().render();
   assert.deepEqual(primaryLinks(markup).map(({ href, label }) => [href, label]), [
     ["/dashboard?view=overview", "Overview"], ["/dashboard?view=work", "Work"],
-    ["/dashboard?view=library", "Library"], ["/dashboard?view=decisions", "Decisions"],
+    ["/dashboard?view=library", "Library"], ["/dashboard?view=research", "Research"], ["/dashboard?view=decisions", "Decisions"],
     ["/dashboard?view=connections", "Connections"], ["/dashboard?view=activity", "Activity"],
     ["/dashboard?view=advanced", "Advanced"],
   ]);
@@ -69,7 +69,7 @@ test("seven views use real root URL links inside one responsive navigation", () 
 });
 
 test("all root views and legacy sections select the correct single primary destination", () => {
-  const views = ["overview", "work", "library", "decisions", "connections", "activity", "advanced"];
+  const views = ["overview", "work", "library", "research", "decisions", "connections", "activity", "advanced"];
   const legacy = { dashboard: "overview", workflows: "work", products: "work", artifacts: "library", "needs-you": "decisions", accounts: "connections", history: "activity", packs: "advanced", settings: "advanced" };
   for (const [active, destination] of [...views.map(view => [view, view]), ...Object.entries(legacy)]) {
     const view = fixture();

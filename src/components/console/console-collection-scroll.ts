@@ -10,34 +10,40 @@ const retainedLists = new WeakMap<HTMLElement, { key: string; layout: Layout }>(
 const retainedDetails = new WeakMap<HTMLElement, { key: string; layout: Layout }>();
 export function consoleCollectionScrollKey(ownerId: string, href: string, listOnly = false): string {
   const url = new URL(href, "https://console.invalid");
-  if (url.searchParams.get("view") === "library") {
-    for (const name of ["business", "selected", "artifact", "creativeRun"]) {
+  if (["library", "research"].includes(url.searchParams.get("view") ?? "")) {
+    for (const name of ["business", "selected", "artifact", "creativeRun", "root", "experiment"]) {
       const value = url.searchParams.get(name);
       if (url.searchParams.getAll(name).length === 1 && value && /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(value)) url.searchParams.set(name, value.toLowerCase());
     }
   }
   if (url.searchParams.get("view") === "work" && url.searchParams.getAll("run").length === 1 && url.searchParams.getAll("selected").length <= 1 && (!url.searchParams.get("selected") || url.searchParams.get("selected") === url.searchParams.get("run"))) { url.searchParams.set("selected", url.searchParams.get("run")!); url.searchParams.delete("run"); }
   if (url.searchParams.get("view") === "library" && url.searchParams.get("type") === "records" && url.searchParams.getAll("artifact").length === 1 && url.searchParams.getAll("selected").length <= 1 && (!url.searchParams.get("selected") || url.searchParams.get("selected") === url.searchParams.get("artifact"))) { url.searchParams.set("selected", url.searchParams.get("artifact")!); url.searchParams.delete("artifact"); }
+  if (url.searchParams.get("view") === "research" && url.searchParams.getAll("experiment").length === 1 && url.searchParams.getAll("selected").length <= 1 && (!url.searchParams.get("selected") || url.searchParams.get("selected") === url.searchParams.get("experiment"))) { url.searchParams.set("selected", url.searchParams.get("experiment")!); url.searchParams.delete("experiment"); }
   // Native GET includes default fields that the server canonicalizes away.
   // Keep equivalent URLs in one scope without collapsing ambiguous duplicates.
-  if (["work", "activity", "library"].includes(url.searchParams.get("view") ?? "")) {
+  if (["work", "activity", "library", "research"].includes(url.searchParams.get("view") ?? "")) {
     const defaults: Record<string, string> = { business: "", q: "", status: "all", sort: "newest", selected: "", run: "", artifact: "", runFilter: "", page: "1", pageSize: "25" };
     if (url.searchParams.get("view") === "library") Object.assign(defaults, { type: "designs", mediaType: "all", artifactType: "all", creativeRun: "" });
+    if (url.searchParams.get("view") === "research") Object.assign(defaults, { type: "roots", searchField: "objective", root: "", experiment: "", attemptPage: "1", attemptSort: "newest" });
     for (const [name, fallback] of Object.entries(defaults)) {
       if (url.searchParams.getAll(name).length !== 1) continue;
+      // Nonempty Research search requires an explicit saved field. Do not let
+      // a malformed field-less URL match a rendered, explicitly scoped search.
+      if (name === "searchField" && url.searchParams.get("view") === "research" && url.searchParams.get("q")?.trim()) continue;
       const raw = url.searchParams.get(name)!;
-      const value = name === "q" ? raw.trim() : ["page", "pageSize"].includes(name) && /^\d+$/.test(raw) && Number.isSafeInteger(Number(raw)) ? String(Number(raw)) : raw;
+      const value = name === "q" ? raw.trim() : ["page", "pageSize", "attemptPage"].includes(name) && /^\d+$/.test(raw) && Number.isSafeInteger(Number(raw)) ? String(Number(raw)) : raw;
       if (value === fallback) url.searchParams.delete(name); else if (value !== raw) url.searchParams.set(name, value);
     }
     if (url.searchParams.getAll("sheet").length === 1 && url.searchParams.get("sheet") === "research") url.searchParams.delete("sheet");
   }
-  if (listOnly) { url.searchParams.delete("selected"); url.searchParams.delete("run"); url.searchParams.delete("artifact"); if (url.searchParams.get("view") === "library") url.searchParams.delete("creativeRun"); }
+  if (listOnly) { url.searchParams.delete("selected"); url.searchParams.delete("run"); url.searchParams.delete("artifact"); if (url.searchParams.get("view") === "library") url.searchParams.delete("creativeRun"); if (url.searchParams.get("view") === "research") for (const name of ["root", "experiment", "attemptPage", "attemptSort"]) url.searchParams.delete(name); }
   url.searchParams.sort();
   return `${PREFIX}${encodeURIComponent(ownerId)}:${listOnly ? "list" : "exact"}:${url.pathname}?${url.searchParams}`;
 }
 function consoleCollectionDetailKey(ownerId: string, href: string): string {
   const url = new URL(href, "https://console.invalid");
   for (const name of ["page", "pageSize", "q", "sort", "status", "mediaType", "artifactType", "sheet"]) url.searchParams.delete(name);
+  if (url.searchParams.get("view") === "research") url.searchParams.delete("searchField");
   // Work artifacts are a reveal within the same run. Library's artifact alias
   // identifies the selected Record and is normalized by the shared key helper.
   if (url.searchParams.get("view") === "work") url.searchParams.delete("artifact");
@@ -103,6 +109,7 @@ export function mountConsoleCollectionScroll(root: HTMLElement, ownerId: string,
     if (historyNavigation || !hasBlockingInteraction()) {
       const defaults: Record<string, string> = { q: "", business: "", status: "all", sort: "newest", runFilter: "" };
       if (params.get("view") === "library") Object.assign(defaults, { mediaType: "all", artifactType: "all" });
+      if (params.get("view") === "research") Object.assign(defaults, { searchField: "objective" });
       for (const field of toolbar.querySelectorAll<HTMLInputElement | HTMLSelectElement>("input[name], select[name]")) {
         if (Object.hasOwn(defaults, field.name)) field.value = params.get(field.name) ?? defaults[field.name];
       }
@@ -137,6 +144,23 @@ export function mountConsoleCollectionScroll(root: HTMLElement, ownerId: string,
   };
   const read = (key: string) => { try { return parseConsoleCollectionScroll(view.sessionStorage.getItem(key)); } catch { return null; } };
   let captured: ConsoleCollectionScrollState | null = null;
+  const scopeParams = new URL(href, "https://console.invalid").searchParams;
+  const research = scopeParams.get("view") === "research";
+  const researchRecordId = scopeParams.get("selected") ?? scopeParams.get("experiment") ?? scopeParams.get("root");
+  const exactResearchDetail = () => research && detail?.dataset.consoleSelection === "found" && !!researchRecordId && detail.dataset.consoleResearchRecord === researchRecordId && !!detail.dataset.consoleResearchBusiness && (!scopeParams.get("business") || detail.dataset.consoleResearchBusiness === scopeParams.get("business"));
+  const researchErrorDetail = () => {
+    // A missing/unavailable result is this exact requested scope's error, not
+    // a found record. Only its fixed server-rendered region may be revealed.
+    const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
+    return research && root.dataset.collection === "research" && !!detail && detail.id === "console-collection-detail" && root.querySelector(".consoleCollectionDetail") === detail
+      && ["missing", "unavailable"].includes(detail.dataset.consoleSelection ?? "") && !detail.dataset.consoleResearchRecord && !detail.dataset.consoleResearchBusiness
+      && !!researchRecordId && uuid.test(researchRecordId) && !scopeParams.has("experiment") && scopeParams.getAll("view").length === 1
+      && ["roots", "records"].includes(scopeParams.get("type") ?? "roots") && scopeParams.getAll("type").length <= 1
+      && ["selected", "root", "business"].every(name => scopeParams.getAll(name).length <= 1 && (!scopeParams.has(name) || uuid.test(scopeParams.get(name)!)))
+      && !!marker && root.querySelector("[data-console-collection-viewport]") === marker && marker.dataset.consoleCollectionScope === exactKey;
+  };
+  const evidencePending = () => exactResearchDetail() && root.querySelector<HTMLElement>("[data-research-evidence-loading]")?.dataset.researchEvidenceLoading === researchRecordId;
+  let capturedWhileEvidencePending = false, evidenceReadyConsumed = false, pendingReadIntent = false;
   const disclosures = () => Array.from(root.querySelectorAll<HTMLDetailsElement>("details[data-console-disclosure]"));
   const restoreDisclosures = (state: ConsoleCollectionScrollState, region: "all" | "list" | "detail" = "all") => {
     if (!state.disclosures) return;
@@ -149,6 +173,7 @@ export function mountConsoleCollectionScroll(root: HTMLElement, ownerId: string,
   const capture = () => {
     if (disposed || !restored || !listReady || !detailReady || !sameScope() || !navigationMatchesScope() || activeLayout !== layout()) return;
     captured = { version: 1, layout: activeLayout, disclosures: disclosures().filter(node => node.open).map(node => node.dataset.consoleDisclosure!).filter(key => key.length <= 160).slice(0, 64), body: body().scrollTop, detail: detail?.scrollTop ?? 0, document: view.scrollY, mobile: mobile(), savedAt: Date.now() };
+    capturedWhileEvidencePending = !!evidencePending();
   };
   // Disposal may run after React has replaced/clamped the retained list DOM.
   // Persist the last observed/pre-navigation snapshot; never read DOM in cleanup.
@@ -158,9 +183,11 @@ export function mountConsoleCollectionScroll(root: HTMLElement, ownerId: string,
     const listState = { ...state, detail: 0, disclosures: state.disclosures?.filter(key => key.startsWith("row:")) };
     try {
       const storage = view.sessionStorage;
-      storage.setItem(exactKey, JSON.stringify(state));
+      // A loading leaf can clamp exact content. Keep its prior exact snapshot
+      // until that same leaf is ready; independently preserve main-list intent.
+      if (!capturedWhileEvidencePending) storage.setItem(exactKey, JSON.stringify(state));
       storage.setItem(listKey, JSON.stringify(listState));
-      storage.setItem(`${exactKey}:${activeLayout}`, JSON.stringify(state));
+      if (!capturedWhileEvidencePending) storage.setItem(`${exactKey}:${activeLayout}`, JSON.stringify(state));
       storage.setItem(`${listKey}:${activeLayout}`, JSON.stringify(listState));
       const entries: { key: string; savedAt: number }[] = [];
       for (let index = 0; index < storage.length; index++) {
@@ -236,9 +263,14 @@ export function mountConsoleCollectionScroll(root: HTMLElement, ownerId: string,
     // verified detail on the one-column layouts, only on its first visit. Exact
     // Back/reload snapshots and an authorized artifact fragment retain priority.
     const selectedState = detail?.dataset.consoleSelection;
-    const freshSelection = selectedState === "found" || new URL(href, "https://console.invalid").searchParams.get("view") === "library" && ["missing", "unavailable"].includes(selectedState ?? "");
-    const detailAnchor = view.location?.hash === "#console-collection-detail";
-    if (!preserve && !exact && detail && activeLayout !== "split" && (!sameDetail || !sameList) && !artifactFragment && (freshSelection || detailAnchor)) {
+    const freshSelection = research ? exactResearchDetail() || researchErrorDetail() : selectedState === "found" || scopeParams.get("view") === "library" && ["missing", "unavailable"].includes(selectedState ?? "");
+    const detailAnchor = view.location?.hash === "#console-collection-detail" && (!research || exactResearchDetail() || researchErrorDetail());
+    const attemptRootId = scopeParams.get("root");
+    const attemptAnchor = research && exactResearchDetail() && attemptRootId && /^[a-f0-9-]{36}$/i.test(attemptRootId) && view.location?.hash === `#console-research-attempts-${attemptRootId}` ? root.querySelector<HTMLElement>(`details[id="console-research-attempts-${attemptRootId}"]`) : null;
+    const ownedAttemptAnchor = attemptAnchor?.dataset.consoleResearchAttemptRoot === attemptRootId && attemptAnchor?.dataset.consoleResearchBusiness === detail?.dataset.consoleResearchBusiness ? attemptAnchor : null;
+    if (!preserve && !exact && ownedAttemptAnchor && !artifactFragment) {
+      ownedAttemptAnchor.scrollIntoView({ block: "start", inline: "nearest", behavior: "instant" });
+    } else if (!preserve && !exact && detail && activeLayout !== "split" && (!sameDetail || !sameList) && !artifactFragment && (freshSelection || detailAnchor)) {
       detail.scrollIntoView({ block: "start", inline: "nearest", behavior: "instant" });
     }
     markRetainedScope();
@@ -265,6 +297,18 @@ export function mountConsoleCollectionScroll(root: HTMLElement, ownerId: string,
       if (!listReady || !detailReady) blockedPosition = positions();
       return;
     }
+    if (evidencePending()) {
+      // Scrollbars and page keys can scroll without a preceding pane input.
+      // Compare against the post-restore baseline; ignore unchanged queued
+      // events and a reachable-end clamp caused by shrinking loading content.
+      const previous = captured ?? blockedPosition;
+      const region = event.target === detail ? "detail" : event.target === body() ? "body" : "document";
+      const position = positions()[region];
+      const scroller = region === "detail" ? detail : region === "body" ? body() : document?.scrollingElement;
+      const maximum = scroller ? scroller.scrollHeight - scroller.clientHeight : Number.NaN;
+      const clamped = !!previous && Number.isFinite(maximum) && maximum >= 0 && previous[region] > maximum && Math.abs(position - maximum) <= 1;
+      if (previous && position !== previous[region] && !clamped) pendingReadIntent = true;
+    }
     if (!listReady || !detailReady) {
       if (!blockedPosition) return;
       if (activeLayout === "split" && event.target === detail && detail!.scrollTop !== blockedPosition.detail) restore("detail");
@@ -283,6 +327,24 @@ export function mountConsoleCollectionScroll(root: HTMLElement, ownerId: string,
     else if (!filtersEdited) scheduleFilterReconciliation();
   };
   const onPopState = () => scheduleFilterReconciliation(true);
+  const onPendingReadIntent = (event: Event) => {
+    if (!evidencePending() || disposed || !sameScope() || !navigationMatchesScope()) return;
+    if (event.type === "keydown" && !["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "].includes((event as KeyboardEvent).key)) return;
+    pendingReadIntent = true;
+  };
+  const onEvidenceReady = (event: Event) => {
+    const ready = root.querySelector<HTMLElement>("[data-console-research-evidence-ready]");
+    if (evidenceReadyConsumed || disposed || !sameScope() || !navigationMatchesScope() || !exactResearchDetail() || !ready || event.target !== ready || ready.dataset.consoleResearchReadyScope !== exactKey || ready.dataset.consoleResearchRecord !== researchRecordId || ready.dataset.consoleResearchBusiness !== detail?.dataset.consoleResearchBusiness || evidencePending()) return;
+    evidenceReadyConsumed = true;
+    // The owner has already chosen where to read or edit. Resolving evidence
+    // must never move that newer intent or reconcile the native GET controls.
+    if (pendingReadIntent || filtersEdited || hasBlockingInteraction()) {
+      markRetainedScope(); restored = true;
+      if (!hasBlockingInteraction()) { capture(); flush(); }
+      return;
+    }
+    restore(); flush();
+  };
   const onResize = () => {
     if (disposed || !restored || !sameScope() || !navigationMatchesScope() || hasBlockingInteraction()) return;
     updateToolbarOffset();
@@ -311,6 +373,10 @@ export function mountConsoleCollectionScroll(root: HTMLElement, ownerId: string,
   root.addEventListener("click", save, true);
   root.addEventListener("submit", save, true);
   root.addEventListener("toggle", save, true);
+  if (research) {
+    root.addEventListener("console-research-evidence-ready", onEvidenceReady);
+    for (const name of ["wheel", "touchmove", "pointerdown", "keydown"]) root.addEventListener(name, onPendingReadIntent, { passive: true });
+  }
   view.addEventListener("resize", onResize, { passive: true });
   view.addEventListener("pagehide", onPageHide);
   view.addEventListener("pageshow", onPageShow);
@@ -325,6 +391,10 @@ export function mountConsoleCollectionScroll(root: HTMLElement, ownerId: string,
     for (const scroller of scrollers) scroller.removeEventListener("scroll", onScroll);
     detail?.removeEventListener("scroll", onScroll);
     view.removeEventListener("scroll", onScroll); root.removeEventListener("click", save, true); root.removeEventListener("submit", save, true); root.removeEventListener("toggle", save, true);
+    if (research) {
+      root.removeEventListener("console-research-evidence-ready", onEvidenceReady);
+      for (const name of ["wheel", "touchmove", "pointerdown", "keydown"]) root.removeEventListener(name, onPendingReadIntent);
+    }
     view.removeEventListener("resize", onResize);
     view.removeEventListener("pagehide", onPageHide); view.removeEventListener("pageshow", onPageShow); view.removeEventListener("popstate", onPopState);
     toolbar?.removeEventListener("input", onFilterEdit);

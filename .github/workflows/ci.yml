@@ -33,10 +33,43 @@ jobs:
       - name: Install pinned Chromium for owner UI verification
         run: npx playwright-core install --with-deps chromium
 
+      - name: Capture the changed Research journeys first
+        id: research-previews
+        continue-on-error: true
+        run: node --test tests/console-research-browser.test.mjs
+
+      - name: Upload early Research viewport previews
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-preview-${{ github.sha }}
+          path: test-results/guided-ui/console-r02-research-*-viewport.png
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload early Research full-page previews
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-fullpage-preview-${{ github.sha }}
+          path: |
+            test-results/guided-ui/console-r02-research-*.png
+            !test-results/guided-ui/console-r02-research-*-viewport.png
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Require the changed Research gate and populated captures
+        env:
+          RESEARCH_OUTCOME: ${{ steps.research-previews.outcome }}
+        run: |
+          echo "Early Research tests: $RESEARCH_OUTCOME" >> "$GITHUB_STEP_SUMMARY"
+          test "$RESEARCH_OUTCOME" = "success"
+          node -e "const fs=require('node:fs'); for(const viewport of ['1280x720','1440x900']) for(const kind of ['roots','records']) fs.accessSync('test-results/guided-ui/console-r02-research-'+kind+'-selected-'+viewport+'-viewport.png')"
+
       - name: Capture compact console and bounded collection previews
         id: owner-previews
         continue-on-error: true
-        run: node --test tests/console-visual.test.mjs tests/console-connections.test.mjs tests/console-decisions-browser.test.mjs tests/console-collection-browser.test.mjs tests/console-library-browser.test.mjs tests/console-business.test.mjs tests/console-sheet.test.mjs
+        run: node --test tests/console-visual.test.mjs tests/console-connections.test.mjs tests/console-decisions-browser.test.mjs tests/console-collection-browser.test.mjs tests/console-library-browser.test.mjs tests/console-business.test.mjs tests/console-sheet.test.mjs tests/guided-ui.test.mjs
 
       - name: Report preview test outcome
         if: always()
@@ -58,6 +91,7 @@ jobs:
             test-results/guided-ui/console-connections-*.png
             test-results/guided-ui/console-decisions-*.png
             test-results/guided-ui/console-r02-*.png
+            !test-results/guided-ui/console-r02-research-*.png
           if-no-files-found: warn
           retention-days: 14
 
@@ -69,6 +103,7 @@ jobs:
           path: |
             test-results/guided-ui/console-r02-*.png
             !test-results/guided-ui/console-r02-library-*.png
+            !test-results/guided-ui/console-r02-research-*.png
           if-no-files-found: warn
           retention-days: 14
 
@@ -116,9 +151,23 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      - name: Upload early shared navigation screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: navigation-preview-${{ github.sha }}
+          path: test-results/guided-ui/navigation-*.png
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Require populated Work and Activity viewport screenshots
         run: >-
           node -e "const fs=require('node:fs'); for(const width of [1280,1440]) for(const view of ['work','activity']) { const file='test-results/guided-ui/console-r02-'+view+'-selected-'+width+'.png'; fs.accessSync(file); console.log('Verified actual populated capture:',file); }"
+
+      - name: Require the early owner UI gate
+        env:
+          PREVIEW_OUTCOME: ${{ steps.owner-previews.outcome }}
+        run: test "$PREVIEW_OUTCOME" = "success"
 
       - name: Run complete gate
         run: npm run check
@@ -149,6 +198,7 @@ jobs:
           path: |
             test-results/guided-ui/console-r02-*.png
             !test-results/guided-ui/console-r02-library-*.png
+            !test-results/guided-ui/console-r02-research-*.png
           if-no-files-found: warn
           retention-days: 14
 
@@ -187,5 +237,34 @@ jobs:
         with:
           name: research-sheet-owner-ui-${{ github.sha }}
           path: test-results/guided-ui/console-sheet-*.png
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload final Research viewport screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-owner-ui-${{ github.sha }}
+          path: test-results/guided-ui/console-r02-research-*-viewport.png
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload final Research full-page screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-fullpage-ui-${{ github.sha }}
+          path: |
+            test-results/guided-ui/console-r02-research-*.png
+            !test-results/guided-ui/console-r02-research-*-viewport.png
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload final shared navigation screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: navigation-owner-ui-${{ github.sha }}
+          path: test-results/guided-ui/navigation-*.png
           if-no-files-found: warn
           retention-days: 14
