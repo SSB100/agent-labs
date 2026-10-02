@@ -8,7 +8,7 @@ import type { OwnerUiContext } from "@/lib/core-ui/data";
 
 import "./console-shell.css";
 
-export type ConsoleView = "overview" | "work" | "library" | "decisions" | "connections" | "activity" | "advanced";
+export type ConsoleView = "overview" | "work" | "library" | "research" | "decisions" | "connections" | "activity" | "advanced";
 
 export type ConsoleShellProps = {
   active: CoreSection | ConsoleView;
@@ -33,6 +33,7 @@ export const consoleNavigation: readonly ConsoleDestination[] = [
   { view: "overview", href: "/dashboard?view=overview", icon: "dashboard", label: "Overview" },
   { view: "work", href: "/dashboard?view=work", icon: "workflow", label: "Work" },
   { view: "library", href: "/dashboard?view=library", icon: "artifacts", label: "Library" },
+  { view: "research", href: "/dashboard?view=research", icon: "products", label: "Research" },
   { view: "decisions", href: "/dashboard?view=decisions", icon: "needs-you", label: "Decisions" },
   { view: "connections", href: "/dashboard?view=connections", icon: "accounts", label: "Connections" },
   { view: "activity", href: "/dashboard?view=activity", icon: "activity", label: "Activity" },
@@ -149,7 +150,7 @@ export function ConsoleShell({ active, children, commandBar, context, workflowRu
 
       <header className="consoleTopBar consoleFrame">
         <div className="consoleViewHeading"><span>Command centre</span><strong>{currentLabel}</strong></div>
-        <WorkspaceContext context={context} aggregate={aggregateContext} selectedBusinessId={workflowRunId || currentView === "library" || currentView === "connections" || currentView === "decisions" || currentView === "work" || currentView === "activity" ? selectedBusinessId : undefined} />
+        <WorkspaceContext context={context} aggregate={aggregateContext} selectedBusinessId={workflowRunId || currentView === "library" || currentView === "research" || currentView === "connections" || currentView === "decisions" || currentView === "work" || currentView === "activity" ? selectedBusinessId : undefined} />
         {/* Exactly one subscription, for data updates rather than worker execution. */}
         <div className="consoleLiveStatus" role="status" aria-label="Page update connection">
           <LiveRefresh workflowRunId={workflowRunId} />

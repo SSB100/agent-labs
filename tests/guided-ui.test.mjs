@@ -65,12 +65,12 @@ test("explicit Business and run mismatch is rejected even when both Businesses a
   assert.deepEqual(reads, []);
 });
 
-test("console navigation exposes seven same-page destinations and unknown counts", () => {
+test("console navigation exposes eight same-page destinations and unknown counts", () => {
   const markup = renderUnknownNavigation();
   const nav = markup.match(/<nav class="consoleNavigation"[^>]*>(.*?)<\/nav>/s)?.[1];
   assert.ok(nav);
-  assert.equal((nav.match(/class="consoleNavLink"/g) ?? []).length, 7);
-  for (const view of ["overview", "work", "library", "decisions", "connections", "activity", "advanced"]) assert.ok(nav.includes(`/dashboard?view=${view}`));
+  assert.equal((nav.match(/class="consoleNavLink"/g) ?? []).length, 8);
+  for (const view of ["overview", "work", "library", "research", "decisions", "connections", "activity", "advanced"]) assert.ok(nav.includes(`/dashboard?view=${view}`));
   assert.match(nav, /Decision count unavailable/);
   assert.doesNotMatch(nav, /0 open decisions/);
   assert.match(markup, /Business records unavailable/);

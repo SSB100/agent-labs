@@ -899,3 +899,153 @@ test("document and single-scroller reading recover without repositioning the sha
     assert.equal(width <= 900 ? saved.document : saved.body, width <= 900 ? 1730 : 730); assert.equal(reveals, 0);
   }
 });
+
+// Research extends only the existing v1 per-tab history contract.
+function researchScrollHarness({ href = `/dashboard?view=research&selected=${id(1000)}`, width = 1280, store = new Map(), loading = false } = {}) {
+  const fixture = toolbarHarness(href, { selected: true, width, store });
+  fixture.fields.push({ name: "searchField", value: "browser-restored-wrong-value" });
+  Object.assign(fixture.detail.dataset, { consoleResearchRecord: id(1000), consoleResearchBusiness: id(1) });
+  let pending = loading, maximum = loading ? 50 : 5000, top = 0, ready = null;
+  Object.defineProperty(fixture.detail, "scrollTop", { get: () => top, set: value => { top = Math.min(maximum, value); } });
+  const pendingMarker = { dataset: { researchEvidenceLoading: id(1000) } };
+  const disclosure = { dataset: { consoleDisclosure: `research:goal:${id(1000)}` }, open: false };
+  const attempt = { dataset: { consoleResearchAttemptRoot: id(1000), consoleResearchBusiness: id(1) }, scrollIntoView() { fixture.detail.scrollTop = 1200; } };
+  const original = fixture.root.querySelector;
+  fixture.root.querySelector = selector => selector === "[data-research-evidence-loading]" ? pending ? pendingMarker : null : selector === "[data-console-research-evidence-ready]" ? ready : selector === `details[id="console-research-attempts-${id(1000)}"]` ? attempt : original(selector);
+  fixture.root.querySelectorAll = () => pending ? [] : [disclosure];
+  const fireReady = (changes = {}) => {
+    pending = false; maximum = 5000;
+    ready = { dataset: { consoleResearchReadyScope: scroll.consoleCollectionScrollKey("owner", href), consoleResearchRecord: id(1000), consoleResearchBusiness: id(1), ...changes } };
+    const event = new Event("console-research-evidence-ready"); Object.defineProperty(event, "target", { value: ready }); fixture.root.dispatchEvent(event);
+  };
+  return { ...fixture, disclosure, attempt, fireReady };
+}
+const researchStored = (layout = "split") => ({ version: 1, layout, body: 450, detail: 730, document: layout === "document" ? 1400 : 0, mobile: layout === "document", disclosures: [`research:goal:${id(1000)}`], savedAt: Date.parse("2026-10-02T03:00:00.000Z") });
+
+test("Research default GET spellings and experiment aliases canonicalize exact history, while list scope excludes independent attempts", () => {
+  const key = (href, list = false) => scroll.consoleCollectionScrollKey("owner", href, list), base = `/dashboard?view=research&selected=${id(1000)}`;
+  assert.equal(key(base), key(`/dashboard?view=research&type=roots&experiment=${id(1000)}&business=&q=&searchField=objective&sort=newest&page=01&pageSize=025&root=&attemptPage=01&attemptSort=newest&sheet=research`));
+  assert.equal(key(base, true), key(`${base}&root=${id(1001)}&attemptPage=3&attemptSort=oldest`, true));
+  for (const suffix of ["type=records", "searchField=hypothesis", "q=saved", "sort=oldest", "page=2", `business=${id(2)}`]) assert.notEqual(key(base, true), key(`${base}&${suffix}`, true), suffix);
+  assert.notEqual(key(`${base}&q=saved`), key(`${base}&q=saved&searchField=objective`), "nonempty search requires its explicit field");
+  assert.notEqual(key(base), key(`${base}&root=${id(1001)}`)); assert.notEqual(key(base), key(`${base}&attemptPage=2`));
+  assert.notEqual(key(base), key(`${base}&selected=${id(1000)}`), "ambiguous duplicate remains distinct");
+});
+test("Research native GET history reconciles searchField with the URL and edit cancellation retains new unsubmitted values", () => {
+  const href = `/dashboard?view=research&selected=${id(1000)}&q=saved&searchField=hypothesis&sort=oldest`, fixture = researchScrollHarness({ href });
+  const cleanup = scroll.mountConsoleCollectionScroll(fixture.root, "owner", href, fixture.view); fixture.settle();
+  assert.equal(fixture.values().searchField, "hypothesis"); assert.equal(fixture.values().q, "saved");
+  fixture.fields.find(field => field.name === "searchField").value = "objective"; fixture.toolbar.dispatchEvent(new Event("change")); fixture.view.dispatchEvent(new Event("pageshow")); fixture.settle();
+  assert.equal(fixture.values().searchField, "objective");
+  fixture.view.dispatchEvent(new Event("popstate")); fixture.settle(); assert.equal(fixture.values().searchField, "hypothesis"); cleanup();
+});
+test("Research independent attempt navigation retains the main list, reveals only an exact server-bound root anchor, and exact Back snapshot wins", () => {
+  const href = `/dashboard?view=research&selected=${id(1000)}&root=${id(1000)}&page=3&q=saved&searchField=hypothesis`, first = researchScrollHarness({ href });
+  let cleanup = scroll.mountConsoleCollectionScroll(first.root, "owner", href, first.view); first.settle(); first.results.scrollTop = 490; first.detail.scrollTop = 410; first.detail.dispatchEvent(new Event("scroll")); cleanup();
+  const next = href + "&attemptPage=2", fixture = researchScrollHarness({ href: next, store: first.store }); fixture.view.location.hash = `#console-research-attempts-${id(1000)}`;
+  cleanup = scroll.mountConsoleCollectionScroll(fixture.root, "owner", next, fixture.view); fixture.settle(); assert.equal(fixture.results.scrollTop, 490); assert.equal(fixture.detail.scrollTop, 1200); cleanup();
+  const returned = researchScrollHarness({ href, store: fixture.store }); returned.view.location.hash = `#console-research-attempts-${id(1000)}`;
+  cleanup = scroll.mountConsoleCollectionScroll(returned.root, "owner", href, returned.view); returned.settle(); assert.equal(returned.results.scrollTop, 490); assert.equal(returned.detail.scrollTop, 410); cleanup();
+  const wrong = researchScrollHarness({ href: next }); wrong.attempt.dataset.consoleResearchBusiness = id(2); wrong.view.location.hash = `#console-research-attempts-${id(1000)}`;
+  cleanup = scroll.mountConsoleCollectionScroll(wrong.root, "owner", next, wrong.view); wrong.settle(); assert.equal(wrong.detail.scrollTop, 0); cleanup();
+});
+test("found Research reveal needs exact record and Business markers; error hashes cannot bypass canonical scope", () => {
+  for (const wrong of ["record", "business", "missing"]) {
+    const href = `/dashboard?view=research&business=${id(1)}&selected=${id(1000)}`, fixture = researchScrollHarness({ href, width: 390 }); let reveals = 0;
+    fixture.detail.scrollIntoView = () => { reveals++; }; fixture.view.location.hash = "#console-collection-detail";
+    if (wrong === "record") fixture.detail.dataset.consoleResearchRecord = id(2000);
+    if (wrong === "business") fixture.detail.dataset.consoleResearchBusiness = id(2);
+    if (wrong === "missing") fixture.detail.dataset.consoleSelection = "missing";
+    const cleanup = scroll.mountConsoleCollectionScroll(fixture.root, "owner", href, fixture.view); fixture.settle(); assert.equal(reveals, 0); cleanup();
+  }
+});
+for (const width of [1280, 1000, 390]) test(`Research delayed evidence restores only its exact ${width}px Back/reload snapshot and disclosures without reconciling filters`, () => {
+  const href = `/dashboard?view=research&selected=${id(1000)}`, fixture = researchScrollHarness({ href, width, loading: true }), state = researchStored(width <= 900 ? "document" : width >= 1200 ? "split" : "single"), key = scroll.consoleCollectionScrollKey("owner", href);
+  fixture.store.set(key, JSON.stringify(state)); const cleanup = scroll.mountConsoleCollectionScroll(fixture.root, "owner", href, fixture.view); fixture.settle();
+  assert.equal(fixture.detail.scrollTop, 50); assert.equal(JSON.parse(fixture.store.get(key)).detail, 730, "loading clamp cannot overwrite old exact evidence position");
+  fixture.fireReady(); assert.equal(fixture.detail.scrollTop, 730); assert.equal(fixture.disclosure.open, true); assert.equal(fixture.results.scrollTop, width >= 1200 ? 450 : 0); assert.equal(fixture.values().searchField, "objective");
+  fixture.detail.scrollTop = 970; fixture.fireReady(); assert.equal(fixture.detail.scrollTop, 970, "repeated ready cannot jump the reader"); cleanup();
+});
+test("Research stale/wrong-scope/foreign ready and navigation-away cannot reveal or overwrite an exact snapshot", () => {
+  for (const wrong of ["record", "business", "scope", "navigation"]) {
+    const href = `/dashboard?view=research&selected=${id(1000)}`, fixture = researchScrollHarness({ href, loading: true }), key = scroll.consoleCollectionScrollKey("owner", href); fixture.store.set(key, JSON.stringify(researchStored()));
+    const cleanup = scroll.mountConsoleCollectionScroll(fixture.root, "owner", href, fixture.view); fixture.settle(); if (wrong === "navigation") fixture.view.location.search = "?view=library";
+    fixture.fireReady(wrong === "record" ? { consoleResearchRecord: id(1001) } : wrong === "business" ? { consoleResearchBusiness: id(2) } : wrong === "scope" ? { consoleResearchReadyScope: scroll.consoleCollectionScrollKey("owner", href + "&page=2") } : {});
+    assert.equal(fixture.detail.scrollTop, 50); assert.equal(JSON.parse(fixture.store.get(key)).detail, 730); cleanup();
+  }
+});
+test("Research evidence resolution respects newer scroll intent, unsubmitted filters, active editor and modal", () => {
+  for (const action of ["scroll", "filter", "editor", "modal"]) {
+    const href = `/dashboard?view=research&selected=${id(1000)}`, fixture = researchScrollHarness({ href, loading: true }), key = scroll.consoleCollectionScrollKey("owner", href); fixture.store.set(key, JSON.stringify(researchStored()));
+    const cleanup = scroll.mountConsoleCollectionScroll(fixture.root, "owner", href, fixture.view); fixture.settle();
+    if (action === "scroll") { fixture.root.dispatchEvent(new Event("wheel")); fixture.detail.scrollTop = 20; fixture.detail.dispatchEvent(new Event("scroll")); }
+    if (action === "filter") { fixture.fields.find(field => field.name === "q").value = "new unsubmitted draft"; fixture.toolbar.dispatchEvent(new Event("input")); }
+    if (["editor", "modal"].includes(action)) fixture.view.document = { querySelector: () => action === "modal" ? {} : null, activeElement: { matches: () => action === "editor" } };
+    fixture.fireReady(); assert.equal(fixture.detail.scrollTop, action === "scroll" ? 20 : 50); if (action === "filter") assert.equal(fixture.values().q, "new unsubmitted draft");
+    if (["editor", "modal"].includes(action)) assert.equal(JSON.parse(fixture.store.get(key)).detail, 730); cleanup();
+  }
+});
+
+test("Research changed document and inner-scroll reading without a pane input survives evidence ready, while queued clamps do not manufacture intent", () => {
+  for (const region of ["document", "body", "detail"]) {
+    const width = region === "document" ? 390 : region === "body" ? 1000 : 1280, href = `/dashboard?view=research&selected=${id(1000)}`, fixture = researchScrollHarness({ href, width, loading: true }), key = scroll.consoleCollectionScrollKey("owner", href);
+    fixture.store.set(key, JSON.stringify(researchStored(region === "document" ? "document" : region === "body" ? "single" : "split")));
+    const cleanup = scroll.mountConsoleCollectionScroll(fixture.root, "owner", href, fixture.view); fixture.settle();
+    if (region === "document") { fixture.view.scrollY = 1800; fixture.view.dispatchEvent(new Event("scroll")); }
+    else { const node = fixture[region]; node.scrollTop = region === "body" ? 600 : 20; node.dispatchEvent(new Event("scroll")); }
+    fixture.fireReady(); assert.equal(region === "document" ? fixture.view.scrollY : fixture[region].scrollTop, region === "document" ? 1800 : region === "body" ? 600 : 20); cleanup();
+  }
+  const href = `/dashboard?view=research&selected=${id(1000)}`, fixture = researchScrollHarness({ href, loading: true }), key = scroll.consoleCollectionScrollKey("owner", href); fixture.store.set(key, JSON.stringify(researchStored()));
+  const cleanup = scroll.mountConsoleCollectionScroll(fixture.root, "owner", href, fixture.view); fixture.settle(); fixture.detail.dispatchEvent(new Event("scroll"));
+  fixture.detail.scrollHeight = 30; fixture.detail.clientHeight = 30; fixture.detail.scrollTop = 0; fixture.detail.dispatchEvent(new Event("scroll")); fixture.fireReady(); assert.equal(fixture.detail.scrollTop, 730); cleanup();
+});
+
+function researchErrorHarness({ status = "missing", href = `/dashboard?view=research&selected=${id(1000)}`, width = 390, store = new Map() } = {}) {
+  const fixture = researchScrollHarness({ href, width, store });
+  fixture.root.dataset.collection = "research"; fixture.detail.id = "console-collection-detail";
+  fixture.detail.dataset.consoleSelection = status; delete fixture.detail.dataset.consoleResearchRecord; delete fixture.detail.dataset.consoleResearchBusiness;
+  const marker = { dataset: { consoleCollectionScope: scroll.consoleCollectionScrollKey("owner", href) } }, original = fixture.root.querySelector;
+  fixture.root.querySelector = selector => selector === "[data-console-collection-viewport]" ? marker : original(selector);
+  let reveals = 0; fixture.detail.scrollIntoView = () => { reveals++; if (width <= 900) fixture.view.scrollY = 1200; else fixture.body.scrollTop = 900; };
+  return { ...fixture, marker, reveals: () => reveals };
+}
+for (const status of ["missing", "unavailable"]) for (const width of [390, 640, 1000]) test(`fresh ${status} Research selection reveals only its owner-scoped error region at${width}px without found-record markers`, () => {
+  const href = `/dashboard?view=research&type=records&business=${id(1)}&selected=${id(1000)}&page=3&q=saved&searchField=hypothesis`, fixture = researchErrorHarness({ href, status, width });
+  const cleanup = scroll.mountConsoleCollectionScroll(fixture.root, "owner", href, fixture.view); fixture.settle();
+  assert.equal(fixture.reveals(), 1); assert.equal(fixture.detail.dataset.consoleResearchRecord, undefined); assert.equal(fixture.detail.dataset.consoleResearchBusiness, undefined);
+  assert.equal(fixture.values().searchField, "hypothesis"); assert.equal(fixture.values().q, "saved"); cleanup();
+});
+test("root-only Research error reveals the validated requested root; an arbitrary fragment never supplies selection identity", () => {
+  const href = `/dashboard?view=research&root=${id(1000)}`, fixture = researchErrorHarness({ href, status: "unavailable" }); fixture.view.location.hash = "#unrelated-target";
+  let cleanup = scroll.mountConsoleCollectionScroll(fixture.root, "owner", href, fixture.view); fixture.settle(); assert.equal(fixture.reveals(), 1); cleanup();
+  const absent = researchErrorHarness({ href: "/dashboard?view=research" }); absent.view.location.hash = "#console-collection-detail";
+  cleanup = scroll.mountConsoleCollectionScroll(absent.root, "owner", "/dashboard?view=research", absent.view); absent.settle(); assert.equal(absent.reveals(), 0); cleanup();
+});
+test("Research error reveal rejects malformed/duplicate identities, stale owner scope, mismatched surface and arbitrary region targets", () => {
+  const valid = `/dashboard?view=research&selected=${id(1000)}`;
+  for (const condition of ["invalid", "duplicate", "wrong-root", "wrong-business", "alias", "type", "owner", "location", "surface", "region", "stale-found"]) {
+    const href = condition === "invalid" ? "/dashboard?view=research&selected=malformed" : condition === "duplicate" ? `${valid}&selected=${id(1000)}` : condition === "wrong-root" ? `${valid}&root=invalid` : condition === "wrong-business" ? `${valid}&business=invalid` : condition === "alias" ? `/dashboard?view=research&experiment=${id(1000)}` : condition === "type" ? `${valid}&type=unexpected` : valid;
+    const fixture = researchErrorHarness({ href }); fixture.view.location.hash = "#console-collection-detail";
+    if (condition === "owner") fixture.marker.dataset.consoleCollectionScope = scroll.consoleCollectionScrollKey("another-owner", href);
+    if (condition === "location") fixture.view.location.search = "?view=library";
+    if (condition === "surface") fixture.root.dataset.collection = "library";
+    if (condition === "region") fixture.detail.id = "arbitrary-region";
+    if (condition === "stale-found") fixture.detail.dataset.consoleResearchRecord = id(1000);
+    const cleanup = scroll.mountConsoleCollectionScroll(fixture.root, "owner", href, fixture.view); fixture.settle(); assert.equal(fixture.reveals(), 0, condition); cleanup();
+  }
+});
+for (const status of ["missing", "unavailable"]) test(`${status} Research error retains exact Back/reload reading and respects editor/modal and later user scrolling`, () => {
+  const href = `/dashboard?view=research&selected=${id(1000)}`, fixture = researchErrorHarness({ href, status });
+  let cleanup = scroll.mountConsoleCollectionScroll(fixture.root, "owner", href, fixture.view); fixture.settle(); assert.equal(fixture.reveals(), 1);
+  fixture.view.scrollY = 1800; fixture.view.dispatchEvent(new Event("scroll")); fixture.flushTimers(); cleanup();
+  for (const transition of ["Back", "reload"]) {
+    const returned = researchErrorHarness({ href, status, store: fixture.store }); returned.view.location.hash = "#console-collection-detail";
+    cleanup = scroll.mountConsoleCollectionScroll(returned.root, "owner", href, returned.view); returned.settle(); assert.equal(returned.reveals(), 0, transition); assert.equal(returned.view.scrollY, 1800, transition); cleanup();
+  }
+  for (const interaction of ["editor", "modal"]) {
+    const blocked = researchErrorHarness({ href, status }); blocked.view.document = { querySelector: () => interaction === "modal" ? {} : null, activeElement: { matches: () => interaction === "editor" } };
+    cleanup = scroll.mountConsoleCollectionScroll(blocked.root, "owner", href, blocked.view); blocked.settle(); assert.equal(blocked.reveals(), 0, interaction);
+    blocked.view.document = { querySelector: () => null, activeElement: { matches: () => false } }; blocked.view.scrollY = 1700; blocked.view.dispatchEvent(new Event("scroll")); blocked.flushTimers();
+    assert.equal(blocked.reveals(), 0, `${interaction} newer reading`); assert.equal(blocked.view.scrollY, 1700); cleanup();
+  }
+});

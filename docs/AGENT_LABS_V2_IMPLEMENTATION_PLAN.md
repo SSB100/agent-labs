@@ -1,7 +1,7 @@
 # Agent Labs V2 remaining implementation plan
 
 Repository: `SSB100/agent-labs`
-Implementation baseline: `30970293b8879cc77529999417ac568ecc2f1b3a`
+Implementation baseline: `62324cbf2e4c33e9206fff53c40a9280ae455c2e` (PR49)
 Document status: active remaining-work plan
 Document scope: remaining work only; one dependency-ordered implementation queue
 
@@ -30,15 +30,15 @@ Tasks R02–R19 are the sole remaining implementation order. Dependencies are ac
 
 **Class:** immediate UI and read-only changes using existing authorized public-table contracts. **Dependency:** the accepted compact Decisions baseline. This is the first remaining task.
 
-- Reconcile held Library, Research and exact creative-recovery source against the accepted head. Do not bulk-merge the frozen populated or profile candidates or treat their tests as acceptance.
-- Complete bounded server page/count/filter/search/sort/exact-detail reads for design and document Library, research results and saved records. Define stable timestamp-plus-ID ordering, field-specific search and count semantics. Return a selected record independently of the current page/filter while preserving the filter context.
+- Reconcile and qualify the remaining Research candidate against the accepted head. Do not bulk-merge the frozen populated or profile candidates or treat their tests as acceptance. Accepted Library and creative-cost corrections are evidence in the crosswalk, not remaining implementation tasks.
+- Finish acceptance of bounded Research metadata pages, counts, explicit objective/hypothesis search, timestamp-plus-ID sorting and exact off-page metadata selection. Keep raw Starting rounds and All records distinct from certified Quests, verified-group totals and latest-state filtering; follow the [Research read contract](CONSOLE_RESEARCH_CONTRACT.md).
 - Keep public-table read improvements separate from private RPC additions. No client-side pager over a newest-N window, hidden fetch-all loop or unbounded artifact preload may be presented as complete history.
-- Recover exact old creative approval/run/artifact links with server-visible identity, preserve receipt anchors, and show unknown state/cost when an independently loaded window cannot establish absence. Do not enable a duplicate start because a related run was not loaded.
+- Qualify separately streamed, exact selected Research evidence with bounded direct-history/source/phase reads, visible loading and missing/malformed/mismatched/unavailable states, source freshness and preserved failed-job truth. Do not promote saved TEST, metadata links or a direct historical binding to product readiness, provider truth, current authority, complete ancestry or budget totals.
 - Preserve real Business scope, URL query state, return destinations, exact artifact positioning and truthful settled/pending/unknown cost labels. Reject missing, foreign, conflicting and malformed selection rather than showing a substitute record.
-- Complete the new root Research navigation/read projection using existing research lineage. Keep former Library research and Products research deep links working. Label legacy research identity accurately until R04/R08 supply canonical Quest linkage.
-- Connect the remaining Library/Research journeys to accepted Work and raw Activity without losing exact scope or reading position. Preserve Activity as underlying audit data until R08 supplies work-episode Events.
+- Finish the new root Research navigation/read projection using existing, domain-specific POD discovery history. Canonicalize former Library research and safe Products results URLs without converting artifact/workflow/candidate IDs or aggregate fragments into Research identity. Preserve other Products actions/outcomes in their existing handler; canonical Quest linkage remains R04/R08.
+- Qualify Research journeys through accepted Library, Work, raw Activity and explicit research setup without losing aggregate or exact Business scope, independent attempt cursors, modal isolation or reading position. Ordinary browse must not request a quote, start work or call a provider. Preserve Activity as underlying audit data until R08 supplies work-episode Events.
 
-**Exit:** each affected root collection passes the shared populated/query/interaction gates, with explicit remaining private-history limitations assigned to R06. Existing read-only scope must be demonstrable in the diff and test networking must remain denied.
+**Exit:** the remaining Research slice passes frozen-source review, populated/query/interaction and hosted exact-head gates, followed by separately authorized release and read-only deployed acceptance. Research is not accepted merely because candidate code or local fixture tests exist. Owner-directory/private-history/index/wire-byte limitations remain R06; broader actual Next transport remains R03. Existing read-only scope must be demonstrable in the diff and test networking must remain denied.
 
 ### R03 Convert all remaining retained routes into the compact console
 

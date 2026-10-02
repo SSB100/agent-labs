@@ -132,7 +132,7 @@ const version = new URL(run.match(/href="([^"]*)">Inspect version 1/)[1].replace
   assert.equal(version.searchParams.get("selected"), id(1000)); assert.equal(version.searchParams.has("creativeRun"), false); assert.equal(version.searchParams.get("page"), "3");
   const records = libraryMarkup("records", { searchParams: { business: id(2), page: "2", mediaType: "application/json" } });
   const research = new URL(records.match(/href="([^"]*)">Research results/)[1].replaceAll("&amp;", "&"), "https://fixture.test");
-  assert.equal(research.pathname, "/dashboard"); assert.equal(research.searchParams.get("business"), id(2)); assert.equal(research.searchParams.get("view"), "library"); assert.equal(research.searchParams.get("type"), "research");
+  assert.equal(research.pathname, "/dashboard"); assert.equal(research.searchParams.get("business"), id(2)); assert.equal(research.searchParams.get("view"), "research"); assert.equal(research.searchParams.get("type"), null);
   const aggregate = libraryMarkup("records", { searchParams: { selected: id(5001), page: "3" } });
   const selectedResearch = new URL(aggregate.match(/href="([^"]*)">Research results/)[1].replaceAll("&amp;", "&"), "https://fixture.test");
   assert.equal(selectedResearch.searchParams.get("business"), id(2));
