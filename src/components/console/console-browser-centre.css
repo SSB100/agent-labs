@@ -1,0 +1,21 @@
+.consoleCentreTabs{display:flex;align-items:center;align-self:center;flex:0 0 auto;gap:2px;height:14px;margin:0;font-size:12px;line-height:1.25}
+.consoleCentreTabs a{display:inline-flex;align-items:center;justify-content:center;min-height:24px;min-width:56px;padding:2px 7px;border:1px solid transparent;border-radius:4px;color:#a9c8d8;font-size:12px;text-decoration:none;letter-spacing:0;text-transform:none}
+.consoleCentreTabs a[aria-current=page]{background:#123043;border-color:#286278;color:#d3f7ff}
+.consoleCentreTabs a:focus-visible,.consoleBrowserContent a:focus-visible,.consoleBrowserContent button:focus-visible,.consoleBrowserContent select:focus-visible,.consoleBrowserContent summary:focus-visible{outline:2px solid #7eeaff;outline-offset:-2px}
+.consoleBrowserContent{position:relative;display:flex;flex:1 1 0;flex-direction:column;gap:4px;min-width:0;min-height:0;padding-top:5px;overflow:hidden;font-size:12px;line-height:1.35}
+.consoleBrowserToolbar{display:flex;flex:0 0 auto;align-items:center;justify-content:space-between;gap:4px;min-width:0;min-height:24px}
+.consoleBrowserToolbar>strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#bedce9;font-size:12px;font-weight:500}
+.consoleBrowserTools{display:flex;flex:0 0 auto;align-items:center;gap:3px}
+.consoleBrowserTools>a,.consoleBrowserContent button,.consoleBrowserContent summary{display:inline-flex;align-items:center;justify-content:center;min-height:24px;min-width:24px;padding:2px 5px;border:1px solid #2a5266;border-radius:4px;background:#0b2332;color:#c9eff8;font:inherit;font-size:12px;line-height:1.35;text-decoration:none;cursor:pointer}
+.consoleBrowserContent button:disabled,.consoleBrowserContent select:disabled{cursor:not-allowed;opacity:.55}
+.consoleBrowserEmpty{display:flex;flex:1 1 0;min-height:0;flex-direction:column;align-items:center;justify-content:center;gap:5px;overflow:auto;padding:6px;text-align:center;color:#c2dce8}
+.consoleBrowserEmpty strong{font-size:13px;line-height:1.35}.consoleBrowserEmpty p{font-size:12px;line-height:1.4;max-width:52ch;margin:0;color:#a9c0ce}
+.consoleBrowserContext{position:static;font-size:12px}.consoleBrowserContext summary{list-style:none}.consoleBrowserContext summary::-webkit-details-marker{display:none}
+.consoleBrowserContext[open] summary{border-color:#7bbcca}
+.consoleBrowserContextMenu{position:absolute;z-index:5;inset:33px 0 0;display:flex;flex-direction:column;align-items:stretch;gap:8px;overflow:auto;overscroll-behavior:contain;padding:10px;border:1px solid #326277;border-radius:4px;background:#0a1d2b;color:#c8dfe9;font-size:12px;line-height:1.45;box-shadow:0 5px 16px #0008}
+.consoleBrowserContextMenu form{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:5px}.consoleBrowserContextMenu label{grid-column:1/-1;font-size:12px}
+.consoleBrowserContextMenu select{min-width:0;width:100%;min-height:28px;padding:3px 5px;border:1px solid #2a4f61;border-radius:4px;background:#091d2b;color:#d2eaf5;font:inherit;font-size:12px}
+.consoleBrowserContextMenu p{margin:0;font-size:12px;line-height:1.45;overflow-wrap:anywhere}.consoleBrowserContextMenu strong{font-size:12px;overflow-wrap:anywhere}
+@media(max-width:900px){.consoleCentreTabs{height:44px;gap:3px}.consoleCentreTabs a,.consoleBrowserTools>a,.consoleBrowserContent button,.consoleBrowserContent summary{min-height:44px;min-width:44px}.consoleCentreTabs a{padding-inline:8px}.consoleBrowserContent{gap:6px}.consoleBrowserToolbar{flex-wrap:wrap;gap:5px;min-height:44px}.consoleBrowserToolbar>strong{flex:1 1 100%;white-space:normal;overflow:visible}.consoleBrowserTools{width:100%;justify-content:flex-end}.consoleBrowserContextMenu{inset:75px 0 0}.consoleBrowserContextMenu select{min-height:44px}.consoleBrowserEmpty{flex:1 1 0}}
+
+.consoleBrowserEmpty .consoleBrowserUnavailable{max-width:52ch;color:#d8eaf4;font-size:12px;font-weight:600}

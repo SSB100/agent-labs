@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import React from "react";
 import { renderToString } from "react-dom/server";
-import { fixtureDocument, loadSource, renderDashboard, run } from "./guided-ui.mjs";
+import { findFixtureElement, fixtureDocument, loadSource, renderDashboard, run } from "./guided-ui.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 export const businessFlow = {
@@ -52,7 +52,7 @@ export async function businessFixtureDocument(view, { detail = false, sheet = fa
   assert.equal(command.businessId, businessFlow.businessId, "Use the real root page's chosen command Business");
   const state = { command };
   if (sheet) {
-    const child = React.Children.toArray(tree.props.children).find(element => element.type?.name === "ConsoleResearchSheet");
+    const child = findFixtureElement(tree, "ConsoleResearchSheet");
     assert.ok(child, "The real root must render the research sheet");
     state.sheet = { returnTo: child.props.returnTo, quest: child.props.children.props };
     assert.deepEqual(Array.from(state.sheet.quest.businesses, item => item.id), [businessFlow.businessId]);

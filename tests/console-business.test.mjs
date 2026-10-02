@@ -36,7 +36,8 @@ test("overview research and connection shortcuts preserve the selected Business"
   const markup = await renderDashboard({ view: "overview", businessFlow: true });
   const quick = markup.match(/<nav class="consoleQuickCommands[^"]*"[^>]*>(.*?)<\/nav>/s)?.[1];
   assert.ok(quick);
-  assert.ok(quick.includes(`/dashboard?view=overview&amp;business=${businessFlow.businessId}&amp;sheet=research`));
+  assert.ok(quick.includes(`/dashboard?view=overview&amp;business=${businessFlow.businessId}&amp;centre=overview&amp;browserRun=`));
+  assert.ok(quick.includes("&amp;sheet=research"));
   const connections = markup.match(/<section[^>]*data-console-panel="connections"[\s\S]*?<\/section>/)?.[0];
   assert.ok(connections);
   const links = [...connections.matchAll(/href="([^"]+)"/g)].map(match => match[1]);

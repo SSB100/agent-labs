@@ -5,13 +5,14 @@ import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { chromium } from "playwright-core";
-import { business, definition, fixtureDocument, fixtureTime, loadSource, ownerContext, run, stages, workflowCollection } from "./helpers/guided-ui.mjs";
+import { browserPresentation, business, definition, fixtureDocument, fixtureTime, loadSource, ownerContext, run, stages, workflowCollection } from "./helpers/guided-ui.mjs";
 
 // A stable presentation fixture: real shell, overview and command bar without
 // importing DashboardPage, auth, provider loaders or any mutation implementation.
 export function consolePreviewMarkup() {
   const icons = loadSource("src/components/stage7/icons.tsx");
   const workflows = loadSource("src/lib/core-ui/workflows.ts");
+  const { browserUi } = browserPresentation();
   const forbidden = () => { throw new Error("The console preview is read-only"); };
   const live = loadSource("src/components/stage7/live-refresh.tsx", {
     "next/navigation": { useRouter: () => ({ refresh: forbidden }) }, "@/lib/supabase/client": { createClient: forbidden },
@@ -20,7 +21,7 @@ export function consolePreviewMarkup() {
     "@/components/stage7/icons": icons, "@/components/stage7/live-refresh": live, "./console-shell.css": {},
   });
   const { ConsoleOverview } = loadSource("src/components/console/console-overview.tsx", {
-    "@/components/stage7/icons": icons, "@/lib/core-ui/workflows": workflows, "./console-overview.css": {},
+    "@/components/stage7/icons": icons, "@/lib/core-ui/workflows": workflows, "./console-browser-centre": browserUi, "./console-overview.css": {},
   });
   const { ConsoleCommandBar } = loadSource("src/components/console/console-command.tsx", {
     "next/navigation": { useRouter: () => ({ push: forbidden }) }, "@/lib/core-ui/quest-draft": loadSource("src/lib/core-ui/quest-draft.ts"), "./console-command.css": {},
@@ -38,7 +39,7 @@ export function consolePreviewMarkup() {
   const context = ownerContext();
   const commandBar = React.createElement(ConsoleCommandBar, { ownerId: context.userId, businessId: business.id, returnTo: "/dashboard?view=overview" });
   return renderToStaticMarkup(React.createElement(ConsoleShell, { active: "overview", context, commandBar }, React.createElement(ConsoleOverview, {
-    context, collection,
+    context, collection, centreMode: "overview", browserData: { status: "ready", businesses: context.businesses, selectedBusinessId: business.id, selectedRunId: run.id, sessions: [], selectedSession: null, truncated: false },
     costs: { status: "ready", recordedMicrousd: 18200, uncertainCount: 0, scopeLabel: "Synthetic selected-run receipts", workflowRunId: run.id },
     connections: { status: "ready", items: [{ id: "fixture-etsy", name: "Etsy", state: "configured", detail: "Saved configuration; execution needs its own approval" }, { id: "fixture-printful", name: "Printful", state: "needs_attention", detail: "Connection verification required" }] },
   })));

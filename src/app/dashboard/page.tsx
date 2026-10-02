@@ -3,6 +3,10 @@ import { notFound } from "next/navigation";
 import { ConsoleShell, consoleAdvancedNavigation, type ConsoleView } from "@/components/console/console-shell";
 import { ConsoleOverview, deriveConsoleOverview } from "@/components/console/console-overview";
 import { ConsoleCommandBar, ConsoleResearchSheet } from "@/components/console/console-command";
+import { ConsoleMotionBoundary } from "@/components/console/console-motion";
+import { consoleCentreMode } from "@/browser/console-view";
+import { loadConsoleBrowserWorkspace } from "@/browser/console-server";
+import { deriveConsoleMotionSnapshot } from "@/lib/core-ui/console-motion";
 import { ConsoleWorkPane } from "@/components/console/console-work-pane";
 import { QuestKickoff } from "@/components/guided/quest-kickoff";
 import { CreativeLibrary } from "@/components/guided/creative-library";
@@ -32,9 +36,11 @@ const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 export default async function DashboardPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   if (process.env.AGENTLABS_GUIDED_UI === "legacy") return <LegacyDashboard searchParams={searchParams}/>;
   const context = await requireOwnerUiContext(), query = await searchParams;
-  const observedAt = await loadConsoleObservationTime();
   const proposedView = first(query.view) as ConsoleView | undefined;
   const view = proposedView && views.has(proposedView) ? proposedView : "overview";
+  const centreMode = consoleCentreMode(first(query.centre));
+  const browserRunId = view === "overview" ? first(query.browserRun) : undefined;
+  if (browserRunId && !uuid.test(browserRunId)) notFound();
   const runId = first(query.run), businessId = first(query.business), researchSheet = first(query.sheet) === "research";
   if (runId && !uuid.test(runId)) notFound();
   const workArtifactId = view === "work" ? first(query.artifact) : undefined;
@@ -45,16 +51,21 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const overviewState = deriveConsoleOverview(context, collection);
   const selectedBusiness = context.businesses.find(business => business.id === (businessId ?? detail?.run.business_id ?? overviewState.currentRun?.business_id)) ?? context.businesses[0];
   const scopedContext = selectedBusiness ? { ...context, businesses: [selectedBusiness] } : context;
+  const focusRun = detail?.run ?? overviewState.currentRun ?? collection.runs[0];
+  const focusDefinition = detail?.definition ?? collection.definitions.find(definition => definition.id === focusRun?.workflow_definition_id);
+  const selectedBrowserRunId = browserRunId ?? (focusRun?.business_id === selectedBusiness?.id ? focusRun?.id : undefined);
   const current = new URLSearchParams({ view });
   if (selectedBusiness) current.set("business", selectedBusiness.id);
+  if (view === "overview") {
+    current.set("centre", centreMode);
+    if (selectedBrowserRunId) current.set("browserRun", selectedBrowserRunId);
+  }
   if (view === "work" && runId) current.set("run", runId);
   if (workArtifactId) current.set("artifact", workArtifactId);
   if (view === "library" && ["research", "records"].includes(first(query.type) ?? "")) current.set("type", first(query.type)!);
   if (view === "library" && first(query.artifact)) current.set("artifact", first(query.artifact)!);
   const returnTo = `/dashboard?${current.toString()}`;
-  const focusRun = detail?.run ?? overviewState.currentRun ?? collection.runs[0];
-  const focusDefinition = detail?.definition ?? collection.definitions.find(definition => definition.id === focusRun?.workflow_definition_id);
-  const [accounts, costs, products, creative, catalog, accountRequests, publicationRequests, printfulRequests] = await Promise.all([
+  const [accounts, costs, products, creative, catalog, accountRequests, publicationRequests, printfulRequests, browserData] = await Promise.all([
     (view === "overview" || view === "connections") && selectedBusiness ? loadAccountWorkspace(context, selectedBusiness.id) : null,
     (view === "overview" || (view === "work" && detail)) && focusRun ? loadRunCostData(context, focusRun, focusDefinition) : null,
     !context.businessesUnavailable && ((view === "work" && detail) || (view === "library" && first(query.type) === "research")) ? loadProductWorkspace(scopedContext, view === "work" ? runId : undefined) : null,
@@ -63,6 +74,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     context.businessesUnavailable ? { records: [], unavailable: true } : loadAccountSetupInterventions(context),
     view === "decisions" ? loadPublicationInterventions(context) : null,
     view === "decisions" ? loadPrintfulProductInterventions(context) : null,
+    view === "overview" ? loadConsoleBrowserWorkspace(context, { businessId: selectedBusiness?.id, workflowRunId: selectedBrowserRunId }) : null,
   ]);
   const artifactId = view === "library" && first(query.type) === "records" ? first(query.artifact) : undefined;
   if (artifactId && !uuid.test(artifactId)) notFound();
@@ -76,12 +88,17 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   }
   const discovery = view === "library" && products ? await loadDiscoveryGoalData(scopedContext, products.experiments) : null;
   const quote = researchSheet || discovery ? await loadConsoleResearchQuote(scopedContext, catalog?.available === true || discovery?.available === true) : null;
+  const observedAt = await loadConsoleObservationTime();
+  const motionCollection = detail ? { ...detail, runs: [detail.run] } : collection;
+  const motionSnapshot = deriveConsoleMotionSnapshot(motionCollection, { businessIds: context.businesses.map(business => business.id), observedAt, unavailable: context.businessesUnavailable || (!detail && collection.truncated === true) });
+  const motionScope = detail ? `run:${detail.run.id}` : "recent-owned-work";
   const displayContext = { ...context, needsYouCount: context.needsYouCount + (accountRequests?.records.length ?? 0), needsYouUnavailable: context.needsYouUnavailable || context.businessesUnavailable || accountRequests?.unavailable === true };
   const interventions = [...new Map([...collection.interventions, ...(publicationRequests?.records ?? []), ...(printfulRequests?.records ?? [])].map(item => [item.id, item])).values()].filter(item => item.status === "open");
   const decisionUnavailable = collection.errors.length > 0 || collection.truncated === true || publicationRequests?.unavailable || printfulRequests?.unavailable || accountRequests?.unavailable;
   const group = (type: string) => type === "creative_review" ? "Needs a fix" : type.includes("reconcile") ? "Verify an existing result" : "Review request";
   return <ConsoleShell active={view} context={displayContext} navigationBusinessId={selectedBusiness?.id} workflowRunId={detail?.run.id} commandBar={<ConsoleCommandBar ownerId={context.userId} businessId={selectedBusiness?.id} returnTo={returnTo} unavailable={context.businessesUnavailable}/> }>
-    {view === "overview" ? <ConsoleOverview context={displayContext} navigationBusinessId={selectedBusiness?.id} researchHref={`${returnTo}&sheet=research`} collection={collection} costs={consoleCostSummary(costs, `Current timeline run · ${focusRun?.id.slice(0, 8) ?? "not selected"}`, focusRun?.id)} connections={consoleConnectionSummary(accounts, selectedBusiness?.name ?? "Business", observedAt)}/> : null}
+    <ConsoleMotionBoundary ownerId={context.userId} scopeKey={motionScope} snapshot={motionSnapshot}>
+    {view === "overview" ? <ConsoleOverview context={displayContext} centreMode={centreMode} browserData={browserData ?? undefined} navigationBusinessId={selectedBusiness?.id} researchHref={`${returnTo}&sheet=research`} collection={collection} costs={consoleCostSummary(costs, `Current timeline run · ${focusRun?.id.slice(0, 8) ?? "not selected"}`, focusRun?.id)} connections={consoleConnectionSummary(accounts, selectedBusiness?.name ?? "Business", observedAt)}/> : null}
     {view === "work" ? <ConsoleWorkPane context={context} selectedArtifactId={workArtifactId} navigationBusinessId={selectedBusiness?.id} researchHref={`${returnTo}&sheet=research`} collection={collection} detail={detail} products={products ?? undefined} costs={costs}/> : null}
     {view === "decisions" ? <section className="consolePane"><header className="consolePaneHeader"><div><h1>Decisions</h1><p>Exact requests, validation issues and uncertain results</p></div><span>{decisionUnavailable ? "Some records unavailable" : `${interventions.length + (accountRequests?.records.length ?? 0)} loaded`}</span></header><div className="consolePaneScroll">
       {decisionUnavailable ? <p className="coreNotice" role="alert">Request completeness could not be checked. Known requests remain below.</p> : null}
@@ -94,5 +111,6 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     {view === "activity" ? <section className="consolePane"><header className="consolePaneHeader"><div><h1>Recorded activity</h1><p>Recent persisted events · no invented live activity</p></div></header><div className="consolePaneScroll"><ActivityFeed events={collection.events} unavailable={collection.errors.length > 0}/></div></section> : null}
     {view === "advanced" ? <section className="consolePane"><header className="consolePaneHeader"><div><h1>Advanced</h1><p>Qualification tools, detailed records and owner settings</p></div></header><div className="consolePaneScroll"><div className="consoleActionGrid">{consoleAdvancedNavigation.map(item => <Link key={item.href} href={selectedBusiness && ["/dashboard/products", "/dashboard/artifacts", "/dashboard/accounts"].includes(item.href) ? `${item.href}?business=${selectedBusiness.id}` : item.href}>{item.label}<small>Open the existing protected workspace</small></Link>)}</div><details className="consoleDetails" id="workspace-setup" open={!context.businesses.length && !context.businessesUnavailable}><summary>Create a Business workspace</summary><form action={createBusiness} className="coreForm"><label htmlFor="console-business-name">Business name</label><input id="console-business-name" name="name" minLength={1} maxLength={120} required/><button className="coreButton coreButton-primary" disabled={context.businessesUnavailable} type="submit">Create workspace</button></form></details></div></section> : null}
     {researchSheet ? <ConsoleResearchSheet returnTo={returnTo}><QuestKickoff ownerId={context.userId} businesses={scopedContext.businesses} businessesUnavailable={context.businessesUnavailable} available={catalog?.available === true} quote={quote}/></ConsoleResearchSheet> : null}
+    </ConsoleMotionBoundary>
   </ConsoleShell>;
 }

@@ -24,6 +24,7 @@ import {
   formatRelativeTime,
   humanize,
   latestEvent,
+  latestStageByKey,
   interventionAction,
   workflowExecutionEnded,
   workflowNextStepLink,
@@ -45,15 +46,18 @@ type WorkflowTimelineProps = {
 export function WorkflowTimeline({ definition, run, stages, unavailable = false }: WorkflowTimelineProps) {
   if (unavailable) return <p className="coreNotice" role="alert">Stage records unavailable. Refresh to check saved progress.</p>;
   const timeline = workflowTimelineStages(definition, run, stages);
+  const receipts = latestStageByKey(stages.filter(stage => stage.workflow_run_id === run.id));
   return (
     <ol className="visualTimeline" aria-label="Workflow stage timeline">
       {timeline.map((stage, index) => (
         <li
           className={`visualStage visualStage-${statusTone(stage.status)} ${stage.isCurrent ? "visualStage-current" : ""}`}
           key={stage.key}
+          data-console-motion-target={receipts.get(stage.key) ? "stage" : undefined}
+          data-console-motion-id={receipts.get(stage.key)?.id}
           aria-current={stage.isCurrent ? "step" : undefined}
         >
-          <span className="visualStageNode" aria-hidden="true">
+          <span className="visualStageNode" aria-hidden="true" data-console-motion-mark="true">
             {stage.status === "completed" ? "✓" : index + 1}
           </span>
           <div><strong>{stage.label}</strong><small>{stage.detail}</small></div>
@@ -90,8 +94,8 @@ export function NeedsYouCard({
   const detailsOnly = action.kind === "link" && action.section === "details";
 
   return (
-    <article className={`needsYouCard ${browserDecision ? "browserInterventionCard" : ""}`}>
-      <span className="needsYouIcon">
+    <article className={`needsYouCard ${browserDecision ? "browserInterventionCard" : ""}`} data-console-motion-target="decision" data-console-motion-id={intervention.id}>
+      <span className="needsYouIcon" data-console-motion-mark="true">
         <CoreIcon name={browserDecision ? "browser" : "needs-you"} />
       </span>
       <div className="needsYouCopy">

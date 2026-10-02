@@ -54,3 +54,16 @@ On 2026-10-02 the owner replaced the spacious-card direction with a supplied Jar
 Primary tabs share `/dashboard?view=...`; `run` selects an owned saved run and `sheet=research` opens a native modal with the existing bounded research form. Close/Back preserve the underlying view. The command entry only prepares the supported research draft, with explicit approval before any paid work. Voice, CPU, memory, fictitious agents and unsupported general chat are not displayed.
 
 Cost panels use complete same-Business/run-scoped ledgers and exact creative-run joins; provider-reported amounts, reservations, allowance and unknown charges stay separate. Read-only tests use synthetic data. This direction supersedes the earlier spacious shell descriptions, while retaining their truth/consent improvements and legacy navigation fallback.
+
+
+### Compact console release
+
+PR #40 merged as `f936dfce95a308fb8416ee510d9713eb9b81a0c7`, source tree `8e0d9e56f58ebf115b4be9ba01b9f61947f8fc24`. Exact-head and merged-main CI each passed 1,453 tests, lint, TypeScript and optimized build. The 99 hosted synthetic screenshots include seven viewport sizes and actual hydration/history tests. Production `dpl_DSezzduaPW4GppdVTGt7x132pfpC` is READY on the canonical alias; health returned200, read-only owner acceptance passed, and the release error/fatal scan was clear.
+
+### Follow-on: receipt motion and saved Browser status
+
+Motion is anchored to saved record identities and timestamps, not subscription connectivity. First load remains quiet; real transitions can briefly highlight accepted work, completed stages, newly saved outputs and owner decisions. Polling/remounts do not replay cues, failed/stopped/incomplete data cannot animate as working, and reduced motion preserves all static state.
+
+The centre Overview/Browser switch preserves URL/Business/run context. Browser mode shows only saved session metadata and safe root Work links. Live streaming remains **unimplemented**: existing bearer viewers do not enforce a continuously non-sensitive, revocable stream contract. No iframe, provider viewer URL, watch route, private RPC, new credential or provider call is shipped by this addition. See `docs/CONSOLE_BROWSER_VIEWER_CONTRACT.md`.
+
+Populated collection readers/panes remain a separate upcoming phase; their presence in a working directory is not release verification.

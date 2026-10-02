@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { useId, type ReactNode } from "react";
 
+import { ConsoleBrowserCentre, ConsoleCentreTabs } from "./console-browser-centre";
+import type { ConsoleBrowserWorkspace, ConsoleCentreMode } from "@/browser/console-view";
 import { CoreIcon, type CoreIconName } from "@/components/stage7/icons";
 import type { OwnerUiContext, WorkflowCollection } from "@/lib/core-ui/data";
 import {
-  ACTIVE_WORKFLOW_STATUSES, currentWorkerSummary, eventLabel, interventionAction,
+  ACTIVE_WORKFLOW_STATUSES, currentWorkerSummary, latestStageByKey, eventLabel, interventionAction,
   stageLabel, statusLabel, workflowExecutionEnded, workflowTimelineStages,
   type OwnerInterventionRecord,
 } from "@/lib/core-ui/workflows";
@@ -44,6 +46,8 @@ export type ConsoleOverviewProps = {
   outputPreviews?: ConsoleOutputPreview[];
   researchHref?: string;
   navigationBusinessId?: string;
+  centreMode?: ConsoleCentreMode;
+  browserData?: ConsoleBrowserWorkspace;
 };
 
 type RootView = "work" | "library" | "decisions" | "connections" | "activity";
@@ -147,7 +151,7 @@ function CoreOrb({ working }: { working: boolean }) {
 }
 
 function DecisionRow({ intervention, businessId }: { intervention: OwnerInterventionRecord; businessId?: string }) {
-  return <Link href={rootLink("decisions", businessId)} className="consoleDecision" data-intervention-id={intervention.id}><span className="consoleIconBox" data-tone="attention"><CoreIcon name="needs-you"/></span><span><strong title={intervention.title}>{intervention.title}</strong><small>{stageLabel(intervention.intervention_type)} · needs you</small></span><span aria-hidden="true">›</span></Link>;
+  return <Link href={rootLink("decisions", businessId)} className="consoleDecision" data-console-motion-target="decision" data-console-motion-id={intervention.id} data-intervention-id={intervention.id}><span className="consoleIconBox" data-tone="attention" data-console-motion-mark="true"><CoreIcon name="needs-you"/></span><span><strong title={intervention.title}>{intervention.title}</strong><small>{stageLabel(intervention.intervention_type)} · needs you</small></span><span aria-hidden="true">›</span></Link>;
 }
 
 function CostPanel({ costs, businessId }: { costs: ConsoleCosts; businessId?: string }) {
@@ -178,7 +182,7 @@ function ConnectionPanel({ connections, businessId }: { connections: ConsoleConn
   </Panel>;
 }
 
-export function ConsoleOverview({ context, collection, costs = { status: "not_loaded" }, connections = { status: "not_loaded" }, outputPreviews = [], researchHref, navigationBusinessId }: ConsoleOverviewProps) {
+export function ConsoleOverview({ context, collection, costs = { status: "not_loaded" }, connections = { status: "not_loaded" }, outputPreviews = [], researchHref, navigationBusinessId, centreMode = "overview", browserData }: ConsoleOverviewProps) {
   const rootLink = (view: RootView) => `/dashboard?view=${view}${navigationBusinessId ? `&business=${encodeURIComponent(navigationBusinessId)}` : ""}`;
   const scopedResearchHref = researchHref ?? `/dashboard?view=overview${navigationBusinessId ? `&business=${encodeURIComponent(navigationBusinessId)}` : ""}&sheet=research`;
   const data = deriveConsoleOverview(context, collection, scopedResearchHref);
@@ -187,6 +191,7 @@ export function ConsoleOverview({ context, collection, costs = { status: "not_lo
   const events = [...collection.events].filter(event => !event.workflow_run_id || data.runById.get(event.workflow_run_id)?.business_id === event.business_id).sort((a, b) => b.occurred_at.localeCompare(a.occurred_at));
   const currentDefinition = currentRun ? data.definitions.get(currentRun.workflow_definition_id) : undefined;
   const stages = currentRun ? workflowTimelineStages(currentDefinition, currentRun, collection.stages) : [];
+  const stageReceipts = latestStageByKey(collection.stages.filter(stage => stage.workflow_run_id === currentRun?.id));
   const focusIndex = currentRun ? stages.findIndex(stage => stage.key === currentRun.current_stage_key) : -1;
   const stageStart = focusIndex < 0 || currentRun?.status === "completed" ? Math.max(0, stages.length - 2) : focusIndex;
   const visibleStages = stages.slice(stageStart, stageStart + 2);
@@ -197,6 +202,10 @@ export function ConsoleOverview({ context, collection, costs = { status: "not_lo
   const working = unavailable || unconfirmedWorker ? "?" : String(activeWorkers.length);
   const coreState = unavailable ? "Status unavailable" : unconfirmedWorker ? "Run active · worker unconfirmed" : activeWorkers.length ? "Work in progress" : "Idle · no worker running";
   const businessLabel = context.businessesUnavailable ? "Unavailable" : context.businesses.length === 1 ? context.businesses[0].name : context.businesses.length ? `${context.businesses.length} workspaces` : "No workspace yet";
+  const coreVisual = <>
+    <div className="consoleCoreVisual"><CoreOrb working={!unavailable && activeWorkers.length > 0}/><div className="consoleCoreIdentity"><span className="consoleCoreOverline">Private command centre</span><h1>AGENT LABS</h1><p><strong>{working}</strong> working<span aria-hidden="true"> / </span><strong>{waiting}</strong> waiting</p><span className="consoleCoreCaption">{unavailable ? (collection.truncated ? "Recent history loaded; older work is not confirmed" : "Saved work needs a fresh check") : unconfirmedWorker ? "Current worker activity is not confirmed" : decisionCount === null ? "Decision count unavailable" : decisionCount > 0 ? "Waiting for owner decisions" : data.activeRuns.length ? "Saved work is active or waiting" : "Ready for a bounded research goal"}</span></div></div>
+        <div className="consoleNextAction" data-next-action={next.kind}><div><span>Recommended next step</span><strong title={next.detail}>{next.detail}</strong></div><Link className="consolePrimaryAction" href={next.href}>{next.label}<span aria-hidden="true"> ›</span></Link></div>
+  </>;
   return <div className="consoleOverview" data-console-overview="true" data-work-state={unavailable ? "unknown" : unconfirmedWorker ? "unconfirmed" : activeWorkers.length ? "working" : "idle"}>
     <div className="consoleOverviewRow consoleOverviewTop">
       <Panel name="status" title="Core overview">
@@ -209,9 +218,8 @@ export function ConsoleOverview({ context, collection, costs = { status: "not_lo
         </div>
       </Panel>
       <section className="consolePanel consoleCore" data-console-panel="core" aria-label="Agent Labs workspace core">
-        <div className="consoleCoreTopline"><span><span className="consoleStateDot" data-active={!unavailable && activeWorkers.length > 0}/>{coreState}</span><span>Owner control</span></div>
-        <div className="consoleCoreVisual"><CoreOrb working={!unavailable && activeWorkers.length > 0}/><div className="consoleCoreIdentity"><span className="consoleCoreOverline">Private command centre</span><h1>AGENT LABS</h1><p><strong>{working}</strong> working<span aria-hidden="true"> / </span><strong>{waiting}</strong> waiting</p><span className="consoleCoreCaption">{unavailable ? (collection.truncated ? "Recent history loaded; older work is not confirmed" : "Saved work needs a fresh check") : unconfirmedWorker ? "Current worker activity is not confirmed" : decisionCount === null ? "Decision count unavailable" : decisionCount > 0 ? "Waiting for owner decisions" : data.activeRuns.length ? "Saved work is active or waiting" : "Ready for a bounded research goal"}</span></div></div>
-        <div className="consoleNextAction" data-next-action={next.kind}><div><span>Recommended next step</span><strong title={next.detail}>{next.detail}</strong></div><Link className="consolePrimaryAction" href={next.href}>{next.label}<span aria-hidden="true"> ›</span></Link></div>
+        <div className="consoleCoreTopline"><span data-console-motion-target="core"><span data-console-motion-mark="true" className="consoleStateDot" data-active={!unavailable && activeWorkers.length > 0}/>{coreState}</span>{browserData ? <ConsoleCentreTabs mode={centreMode} data={browserData}/> : <span>Owner control</span>}</div>
+        {browserData ? <ConsoleBrowserCentre mode={centreMode} data={browserData}>{coreVisual}</ConsoleBrowserCentre> : coreVisual}
       </section>
       <Panel name="feed" title="Decisions & activity" href={rootLink("activity")} action="Activity">
         <div className="consoleFeed consolePanelScroll">
@@ -225,10 +233,10 @@ export function ConsoleOverview({ context, collection, costs = { status: "not_lo
     </div>
     <div className="consoleOverviewRow consoleOverviewMiddle">
       <Panel name="workers" title="Worker receipts" href={rootLink("work")} action="All work">
-        {receipts.length ? <div className="consoleWorkerGrid consolePanelScroll">{receipts.slice(0, 9).map(({ worker, run, task, summary, name }) => <Link href={runLink(run.id)} className="consoleWorkerTile" data-worker-id={worker.id} data-worker-active={Boolean(summary.active) && !unavailable} key={worker.id} title={`${name}: ${summary.active && !unavailable ? "Working on the current stage" : `Last recorded: ${statusLabel(worker.status)}`}. ${task.objective}`}><span className="consoleWorkerIcon"><CoreIcon name="lab"/></span><span className="consoleWorkerText"><strong>{name}</strong><span className="consoleWorkerState">{unavailable ? "Recorded · status unconfirmed" : summary.active ? "Working now" : `Last: ${statusLabel(worker.status)}`}</span><small>{task.objective}</small><span className="consoleWorkerReceipt">Receipt · {worker.id.slice(0, 8)}</span></span><span className="consoleReceiptMark" aria-hidden="true">{!unavailable && summary.active ? "◉" : worker.status === "completed" ? "✓" : "·"}</span></Link>)}</div> : <Empty icon="lab" title={unavailable ? "Worker receipts unavailable" : "No worker executions recorded"} detail="Worker tiles appear only with matching run and task receipts."/>}
+        {receipts.length ? <div className="consoleWorkerGrid consolePanelScroll">{receipts.slice(0, 9).map(({ worker, run, task, summary, name }) => <Link href={runLink(run.id)} className="consoleWorkerTile" data-console-motion-target="worker" data-console-motion-id={worker.id} data-worker-id={worker.id} data-worker-active={Boolean(summary.active) && !unavailable} key={worker.id} title={`${name}: ${summary.active && !unavailable ? "Working on the current stage" : `Last recorded: ${statusLabel(worker.status)}`}. ${task.objective}`}><span className="consoleWorkerIcon" data-console-motion-mark="true"><CoreIcon name="lab"/></span><span className="consoleWorkerText"><strong>{name}</strong><span className="consoleWorkerState">{unavailable ? "Recorded · status unconfirmed" : summary.active ? "Working now" : `Last: ${statusLabel(worker.status)}`}</span><small>{task.objective}</small><span className="consoleWorkerReceipt">Receipt · {worker.id.slice(0, 8)}</span></span><span className="consoleReceiptMark" aria-hidden="true">{!unavailable && summary.active ? "◉" : worker.status === "completed" ? "✓" : "·"}</span></Link>)}</div> : <Empty icon="lab" title={unavailable ? "Worker receipts unavailable" : "No worker executions recorded"} detail="Worker tiles appear only with matching run and task receipts."/>}
       </Panel>
       <Panel name="timeline" title="Workflow timeline" href={currentRun ? runLink(currentRun.id) : rootLink("work")} action="Open">
-        {currentRun ? <div className="consoleTimelineBody consolePanelScroll"><div className="consoleCurrentRun"><strong title={currentDefinition?.name ?? "Recorded workflow"}>{currentDefinition?.name ?? "Recorded workflow"}</strong><span>{unavailable ? "Status unconfirmed" : statusLabel(currentRun.status)} · {currentRun.id.slice(0, 8)}</span></div><ol className="consoleTimeline">{visibleStages.map(stage => <li key={stage.key} data-current={!unavailable && stage.isCurrent} data-status={stage.status}><span className="consoleTimelinePoint" aria-hidden="true"/><div><strong>{stage.label}</strong><small>{unavailable ? `Last recorded: ${stage.detail}` : stage.detail}</small></div><span className="consoleStageMark" aria-hidden="true">{stage.status === "completed" ? "✓" : stage.isCurrent && !unavailable ? "›" : ""}</span></li>)}</ol></div> : <Empty icon="workflow" title={unavailable ? "Work history unavailable" : "No workflow yet"} detail="Recorded stages appear here after a workflow starts."/>}
+        {currentRun ? <div className="consoleTimelineBody consolePanelScroll"><div className="consoleCurrentRun"><strong title={currentDefinition?.name ?? "Recorded workflow"}>{currentDefinition?.name ?? "Recorded workflow"}</strong><span>{unavailable ? "Status unconfirmed" : statusLabel(currentRun.status)} · {currentRun.id.slice(0, 8)}</span></div><ol className="consoleTimeline">{visibleStages.map(stage => <li key={stage.key} data-console-motion-target={stageReceipts.get(stage.key) ? "stage" : undefined} data-console-motion-id={stageReceipts.get(stage.key)?.id} data-current={!unavailable && stage.isCurrent} data-status={stage.status}><span className="consoleTimelinePoint" aria-hidden="true" data-console-motion-mark="true"/><div><strong>{stage.label}</strong><small>{unavailable ? `Last recorded: ${stage.detail}` : stage.detail}</small></div><span className="consoleStageMark" aria-hidden="true">{stage.status === "completed" ? "✓" : stage.isCurrent && !unavailable ? "›" : ""}</span></li>)}</ol></div> : <Empty icon="workflow" title={unavailable ? "Work history unavailable" : "No workflow yet"} detail="Recorded stages appear here after a workflow starts."/>}
         {currentRun ? <Link className="consoleTimelineMore" href={runLink(currentRun.id)}>All {stages.length} stages · inspect full history <span aria-hidden="true">↗</span></Link> : null}
       </Panel>
       <Panel name="commands" title="Quick commands">
@@ -238,7 +246,7 @@ export function ConsoleOverview({ context, collection, costs = { status: "not_lo
     <div className="consoleOverviewRow consoleOverviewBottom">
       <CostPanel costs={costs} businessId={navigationBusinessId}/><ConnectionPanel connections={connections} businessId={navigationBusinessId}/>
       <Panel name="outputs" title="Saved outputs" href={rootLink("library")} action="Library">
-        {outputs.length ? <div className="consoleOutputList consolePanelScroll">{outputs.slice(0, 8).map(artifact => { const preview = previews.get(artifact.id); return <Link href={artifact.workflow_run_id ? `${runLink(artifact.workflow_run_id)}&artifact=${encodeURIComponent(artifact.id)}#artifact-${encodeURIComponent(artifact.id)}` : `/dashboard?view=library&type=records&artifact=${encodeURIComponent(artifact.id)}&business=${encodeURIComponent(artifact.business_id)}`} className="consoleOutput" data-artifact-id={artifact.id} key={artifact.id}>{preview ? <span className="consoleOutputPreview">{/* A server-issued, explicitly provided signed URL only. */}
+        {outputs.length ? <div className="consoleOutputList consolePanelScroll">{outputs.slice(0, 8).map(artifact => { const preview = previews.get(artifact.id); return <Link href={artifact.workflow_run_id ? `${runLink(artifact.workflow_run_id)}&artifact=${encodeURIComponent(artifact.id)}#artifact-${encodeURIComponent(artifact.id)}` : `/dashboard?view=library&type=records&artifact=${encodeURIComponent(artifact.id)}&business=${encodeURIComponent(artifact.business_id)}`} className="consoleOutput" data-console-motion-target="output" data-console-motion-id={artifact.id} data-artifact-id={artifact.id} key={artifact.id}>{preview ? <span className="consoleOutputPreview">{/* A server-issued, explicitly provided signed URL only. */}
 {/* eslint-disable-next-line @next/next/no-img-element */}
 <img src={preview.signedUrl} alt={preview.alt} loading="lazy" referrerPolicy="no-referrer"/></span> : <span className="consoleOutputGlyph"><CoreIcon name="artifacts"/></span>}<span><strong title={artifact.name}>{artifact.name}</strong><small>{stageLabel(artifact.artifact_type)}</small><span className="consoleOutputTime"><RecordedTime value={artifact.created_at}/></span></span><span aria-hidden="true">›</span></Link>; })}</div> : <Empty icon="artifacts" title={unavailable ? "Saved outputs unavailable" : "No saved outputs yet"} detail={unavailable ? "Existing artifacts may still be available in the Library." : "Research, designs and other saved work will appear here."}/>}
       </Panel>
