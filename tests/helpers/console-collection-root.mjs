@@ -105,7 +105,7 @@ export function rootCollectionFixture({ tables = fixtureTables(), readOptions = 
     'server-only': {},
   };
   const forbidden = /(?:^@\/(?:accounts|creative|products|browser)\/(?:server|data|console-server)$|\/actions$|\/discovery-actions$|\/terminal-review-actions$|\/browser-actions$|legacy-dashboard$|workflow\/api|supabase|openrouter|provider)/;
-  const inert = new Set(['@/components/guided/creative-library', '@/components/console/console-work-pane', '@/components/stage13/discovery-goal-workspace', './accounts/account-workspace', '@/lib/core-ui/console-decisions-data', '@/components/console/console-compact-decisions']);
+  const inert = new Set(['@/components/guided/creative-library', '@/components/console/console-work-pane', '@/components/stage13/discovery-goal-workspace', './accounts/account-workspace', '@/lib/core-ui/console-decisions-data', '@/components/console/console-compact-decisions', '@/components/console/console-library-dashboard']);
   function load(file) {
     if (cache.has(file)) return cache.get(file);
     const exports = {}, fixtureModule = { exports }; cache.set(file, exports);

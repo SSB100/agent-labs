@@ -8,6 +8,7 @@ import { consoleCentreMode } from "@/browser/console-view";
 import { loadConsoleBrowserWorkspace } from "@/browser/console-server";
 import { deriveConsoleMotionSnapshot } from "@/lib/core-ui/console-motion";
 import { ConsolePopulatedDashboard } from "@/components/console/console-populated-dashboard";
+import { ConsoleLibraryDashboard } from "@/components/console/console-library-dashboard";
 import { QuestKickoff } from "@/components/guided/quest-kickoff";
 import { CreativeLibrary } from "@/components/guided/creative-library";
 import type { ArtifactRecord } from "@/lib/core-ui/workflows";
@@ -42,6 +43,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const proposedView = first(query.view) as ConsoleView | undefined;
   const view = proposedView && views.has(proposedView) ? proposedView : "overview";
   if (view === "work" || view === "activity") return <ConsolePopulatedDashboard context={context} query={query} view={view}/>;
+  if (view === "library" && first(query.type) !== "research") return <ConsoleLibraryDashboard context={context} query={query}/>;
   let decisionQuery: ConsoleDecisionQuery | null = null;
   if (view === "decisions") {
     try { decisionQuery = consoleDecisionQuery(consoleDecisionOptionsFromSearch(query)); }

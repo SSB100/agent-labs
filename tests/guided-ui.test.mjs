@@ -51,8 +51,9 @@ test("failed work reads with a known-zero decision queue still show an unconfirm
 test("Library Business read failures cannot invoke empty-return domain loaders", async () => {
   const reads = [];
   const markup = await renderDashboard({ view: "library", businessesUnavailable: true, reads });
-  assert.match(markup, /Business records are unavailable\. Saved outputs could not be checked/);
-  assert.doesNotMatch(markup, /No saved designs yet|0 saved versions/);
+  assert.match(markup, /Business records are unavailable; saved Library records could not be checked/);
+  assert.match(markup, /Total unavailable/);
+  assert.doesNotMatch(markup, /No matching saved designs|No saved designs yet|0 saved versions/);
   assert.deepEqual(reads, []);
 });
 

@@ -24,7 +24,7 @@ export function ConsoleCommandBar({ ownerId, businessId, returnTo, unavailable =
   return <form className="consoleCommand" onSubmit={openResearch}>
     <span className="consoleCommandScope"><span aria-hidden="true">⌘</span>Product research</span>
     <label className="consoleCommandInput"><span className="consoleSrOnly">Research goal</span><input id="console-command-input" value={goal} onChange={event => setGoal(event.target.value)} maxLength={1200} placeholder="What should we research?" disabled={unavailable} /></label>
-    <button type="submit" disabled={unavailable}>{businessId ? "Review goal" : businessSelectionAvailable ? "Choose Business" : "Create workspace"}<span aria-hidden="true">↗</span></button>
+    <button type="submit" disabled={unavailable}>{unavailable ? "Unavailable" : businessId ? "Review goal" : businessSelectionAvailable ? "Choose Business" : "Create workspace"}<span aria-hidden="true">↗</span></button>
     <span className="consoleCommandHint" role={storageWarning ? "status" : undefined}>{storageWarning ? "Draft storage unavailable; enter the goal in the sheet" : "Bounded workflow · approval before spend"}</span>
   </form>;
 }

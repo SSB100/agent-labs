@@ -1,0 +1,109 @@
+/* R02 keeps the collection viewport contract; every override is Library-scoped. */
+.consoleLibraryPane{gap:7px;overflow-wrap:anywhere}
+.consoleLibraryHeader{display:flex;align-items:center;justify-content:space-between;gap:10px;flex:0 0 auto;min-width:0;padding:2px}
+.consoleLibraryHeader h1{margin:0;font-size:19px;line-height:1.3}
+.consoleLibraryHeader p{margin:2px 0 0;color:var(--collection-muted);font-size:12px}
+.consoleLibraryHeader nav{display:flex;gap:5px;flex:0 0 auto}
+.consoleLibraryHeader nav a{display:inline-flex;align-items:center;justify-content:center;min-height:44px;min-width:70px;border:1px solid var(--collection-border);border-radius:4px;padding:6px 10px}
+.consoleLibraryHeader nav a[aria-current=page]{border-color:var(--collection-cyan);background:#113647;color:#e8fbff}
+.consoleLibraryPane .consoleLibraryToolbar{padding:7px;gap:6px}
+.consoleLibraryPane .consoleLibraryToolbar label{flex:1 1 135px}
+.consoleLibraryPane .consoleLibraryToolbar label.consoleCollectionSearch{flex:1.4 1 180px}
+.consoleLibraryPane .consoleLibraryToolbar label.consoleCollectionBusinessFilter{flex:1.4 1 180px;max-width:260px}
+.consoleLibraryPane :is(input:not([type=hidden]),select,button){min-height:44px;font-size:13px}
+.consoleLibraryPane .consoleCollectionFilterActions :is(a,button),.consoleLibraryPane .consoleCollectionDetail>header>a{min-height:44px}
+.consoleLibraryRunLookup{flex:0 0 auto;border-bottom:1px solid var(--collection-border);font-size:12px;color:var(--collection-muted)}
+.consoleLibraryRunLookup>summary{min-height:44px;align-content:center;cursor:pointer;color:var(--collection-cyan);padding:0 7px}
+.consoleLibraryRunLookup form{display:flex;gap:8px;align-items:end;flex-wrap:wrap;padding:2px 7px 8px}
+.consoleLibraryRunLookup label{display:grid;gap:3px;flex:1 1 280px;min-width:0}
+.consoleLibraryRunLookup input{width:100%;border:1px solid #33566a;border-radius:4px;background:#091d2c;color:var(--collection-text);padding:6px 8px;font:inherit}
+.consoleLibraryRunLookup button{border:1px solid #5bbccb;border-radius:4px;background:#133e4e;color:#e6fbff;padding:7px 12px;font:inherit;cursor:pointer}
+.consoleLibraryRunLookup p{flex-basis:100%;margin:0}
+.consoleLibraryList{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:7px;align-items:start}
+.consoleLibraryPane[data-library-kind=records] .consoleLibraryList{grid-template-columns:minmax(0,1fr)}
+.consoleLibraryRow{min-width:0;background:#081a29;border:1px solid var(--collection-border);border-radius:4px;padding:8px 9px;overflow-wrap:anywhere}
+.consoleLibraryRow[data-selected=true]{border-color:var(--collection-cyan);box-shadow:inset 3px 0 0 var(--collection-cyan)}
+.consoleLibraryDesignRow{display:flex;align-items:flex-start;gap:10px;min-width:0}
+.consoleLibraryRowCopy{min-width:0;flex:1}
+.consoleLibraryTitle{display:flex;align-items:center;min-height:44px;min-width:0;color:var(--collection-text)!important;font-size:14px;line-height:1.4;font-weight:650}
+.consoleLibraryTitle>span,.consoleLibraryBusiness{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden;overflow-wrap:anywhere}
+.consoleLibraryBusiness{font-size:12px;line-height:1.4;color:var(--collection-muted)}
+.consoleLibraryMeta{display:flex;align-items:center;flex-wrap:wrap;gap:2px 10px;margin-top:3px;font-size:12px;color:var(--collection-muted);font-variant-numeric:tabular-nums}
+.consoleLibraryMuted{color:var(--collection-muted);font-size:12px}
+.consoleLibraryPreview{display:grid;place-items:center;flex:0 0 84px;width:84px;min-width:0;margin:0;background:#04111b;border:1px solid #244354;border-radius:3px;overflow:hidden}
+.consoleLibraryPreview img{display:block;object-fit:contain;width:84px;height:84px;background:repeating-conic-gradient(#102633 0% 25%,#071722 0% 50%) 50% / 14px 14px}
+.consoleLibraryPreviewMissing{display:grid;align-content:center;justify-items:center;gap:3px;width:100%;min-height:84px;padding:6px;text-align:center;color:#b3c7d5;font-size:12px;line-height:1.35}
+.consoleLibraryPreviewMissing>span:first-child{font-size:24px;line-height:1}
+.consoleLibraryPreviewLarge{width:100%;margin:10px 0}
+.consoleLibraryPreviewLarge img{width:100%;height:200px;max-height:24vh;min-height:120px;object-fit:contain}
+.consoleLibraryPreviewLarge .consoleLibraryPreviewMissing{min-height:130px}
+.consoleLibraryPreview figcaption{width:100%;display:flex;justify-content:space-between;align-items:center;gap:2px 8px;flex-wrap:wrap;padding:5px 8px;color:var(--collection-muted);font-size:12px;background:#081a29;border-top:1px solid var(--collection-border)}
+.consoleLibraryPreview figcaption a{display:inline-flex;align-items:center;min-height:44px}
+.consoleLibraryPreview figcaption>span{flex-basis:100%}
+.consoleLibraryDisclosure{min-width:0;margin-top:4px;border-top:1px solid var(--collection-border);color:var(--collection-muted)}
+.consoleLibraryDisclosure>summary{cursor:pointer;min-height:44px;align-content:center;font-size:12px;font-weight:600;color:var(--collection-cyan);padding:3px 0}
+.consoleLibraryDisclosure>div{padding:4px 6px 8px;min-width:0;background:#061520;border-left:2px solid #244354}
+.consoleLibraryDisclosure p{white-space:pre-wrap;overflow-wrap:anywhere}
+.consoleLibraryDisclosure .consoleLibraryFullName{color:var(--collection-text)}
+.consoleLibraryFacts{display:grid;gap:5px;margin:8px 0;font-size:12px}
+.consoleLibraryFacts>div{display:grid;grid-template-columns:minmax(105px,.36fr) minmax(0,1fr);gap:8px;min-width:0}
+.consoleLibraryFacts dt{color:var(--collection-muted)}
+.consoleLibraryFacts dd{margin:0;color:var(--collection-text);overflow-wrap:anywhere;min-width:0;font-variant-numeric:tabular-nums}
+.consoleLibraryDetail{padding:9px}
+.consoleLibraryDetail h3{font-size:16px;line-height:1.4;margin:0 0 6px;overflow-wrap:anywhere}
+.consoleLibraryDetail h4{font-size:13px;margin:0 0 5px;color:var(--collection-text)}
+.consoleLibraryDetail p{margin:6px 0;font-size:12px;color:var(--collection-muted)}
+.consoleLibraryDetail ul{padding-left:18px;margin:6px 0}
+.consoleLibraryDetail li{margin:6px 0;overflow-wrap:anywhere}
+.consoleLibraryDetail pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:min(260px,var(--console-library-json-focus-height,260px));overflow:auto;border:1px solid var(--collection-border);background:#030f1a;padding:8px;font-size:12px;line-height:1.5;scroll-padding:8px;color:var(--collection-text)}
+.consoleLibraryPane .consoleLibraryWarning{color:#f1d08a}
+.consoleLibraryBoundaries,.consoleLibraryCosts{padding:8px;border:1px solid var(--collection-border);border-radius:4px;margin:8px 0;background:#081c2b}
+.consoleLibraryBoundaries{border-color:#386579}
+.consoleLibraryTextLink{display:inline-flex;align-items:center;min-height:44px;max-width:100%;padding-block:5px;overflow-wrap:anywhere}
+.consoleLibraryNotice{border:1px solid #74613e;border-radius:4px;background:#292519;color:#eed4a0;padding:7px 9px;margin-bottom:8px;font-size:12px}
+.consoleLibraryNotice summary{min-height:44px;align-content:center;cursor:pointer}
+.consoleLibraryNotice p{margin:5px 0}
+.consoleLibraryNotice ul{padding-left:18px;margin:5px 0}
+.consoleLibraryEmpty{padding:16px 12px;border:1px dashed var(--collection-border);border-radius:4px;color:var(--collection-muted)}
+.consoleLibraryEmpty h2{font-size:15px;color:var(--collection-text);margin:0 0 6px}
+.consoleLibraryEmpty p{margin:0;font-size:13px}
+.consoleLibraryPane .consoleCollectionPagination nav>:is(a,span){min-height:44px;min-width:44px}
+@media(min-width:1200px){.consoleLibraryBody[data-has-selection=true]{grid-template-columns:minmax(340px,.85fr) minmax(0,1.15fr)}.consoleLibraryBody[data-has-selection=true] .consoleLibraryList{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:1199px) and (min-width:901px){.consoleLibraryBody[data-has-selection=true] .consoleLibraryList{grid-template-columns:repeat(2,minmax(0,1fr))}.consoleLibraryPreview{flex-basis:68px;width:68px}.consoleLibraryPreview img{width:68px;height:84px}.consoleLibraryPreviewLarge{width:100%}.consoleLibraryPreviewLarge img{width:100%;height:200px}}
+@media(max-width:900px){.consoleLibraryPane{height:auto}.consoleLibraryHeader{flex-wrap:wrap}.consoleLibraryPane .consoleLibraryToolbar label.consoleCollectionBusinessFilter{max-width:none}.consoleLibraryPreviewLarge img{max-height:260px}.consoleLibraryPane .consoleCollectionPagination{position:static}.consoleLibraryPane :where(a,button,input,select,summary,pre,[tabindex]){scroll-margin-bottom:calc(100px + env(safe-area-inset-bottom));scroll-margin-top:12px}.consoleLibraryRunLookup form{align-items:stretch}.consoleLibraryRunLookup button{align-self:end}}
+@media(max-width:600px){.consoleLibraryList{grid-template-columns:minmax(0,1fr)}.consoleLibraryHeader{gap:5px}.consoleLibraryHeader nav{width:100%}.consoleLibraryHeader nav>a{flex:1}.consoleLibraryPane .consoleLibraryToolbar label{flex:1 1 calc(50% - 8px)}.consoleLibraryPane .consoleLibraryToolbar label.consoleCollectionSearch,.consoleLibraryPane .consoleLibraryToolbar label.consoleCollectionBusinessFilter{flex-basis:100%}.consoleLibraryFacts>div{grid-template-columns:minmax(0,1fr);gap:1px}.consoleLibraryPreview{flex-basis:68px;width:68px}.consoleLibraryPreview img{width:68px;height:84px}.consoleLibraryPreviewLarge{width:100%}.consoleLibraryPreviewLarge img{width:100%;height:210px}.consoleLibraryRow{padding:7px}.consoleLibraryPreviewMissing{font-size:12px}.consoleLibraryPreviewLarge .consoleLibraryPreviewMissing{font-size:12px}}
+@media(prefers-reduced-motion:reduce){.consoleLibraryPane *{scroll-behavior:auto!important}}
+/* The detail fold answers state/charges first; full immutable identity remains keyboard-accessible. */
+.consoleLibraryDetailTitle{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden}
+.consoleLibraryDesignSummary{display:grid;grid-template-columns:minmax(110px,.55fr) minmax(0,1.45fr);gap:8px;align-items:stretch;margin-top:8px}
+.consoleLibraryDesignSummary .consoleLibraryPreviewLarge{margin:0}
+.consoleLibraryDesignSummary .consoleLibraryPreviewLarge img{height:135px;min-height:90px;max-height:none}
+.consoleLibraryDesignSummary .consoleLibraryPreviewLarge figcaption{font-size:12px;line-height:1.35;padding:4px 6px}
+.consoleLibraryDesignSummary .consoleLibraryPreviewMissing{min-height:96px}
+.consoleLibraryDesignSummary .consoleLibraryBoundaries{margin:0;padding:6px}
+.consoleLibraryDesignSummary .consoleLibraryFacts{gap:4px;margin:0}
+.consoleLibraryDesignSummary .consoleLibraryFacts>div{grid-template-columns:minmax(0,1fr);gap:0}
+.consoleLibraryDesignSummary .consoleLibraryFacts dt{font-size:12px}
+.consoleLibraryDesignSummary .consoleLibraryFacts dd{font-size:12px;line-height:1.3}
+.consoleLibraryDetailLinks{display:flex;gap:4px 14px;align-items:center;flex-wrap:wrap}
+.consoleLibraryRunHeadline{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.consoleLibraryRunHeadline h3{margin:0}
+.consoleLibraryRunHeadline>span{font-size:12px;color:var(--collection-muted)}
+.consoleLibraryDetail .consoleLibraryCharge{font-size:13px;margin:4px 0}
+.consoleLibraryCharge strong{color:var(--collection-text);font-size:16px}
+@media(max-width:450px){.consoleLibraryDesignSummary{grid-template-columns:minmax(90px,.65fr) minmax(0,1.35fr)}.consoleLibraryHeader nav{flex-wrap:wrap}.consoleLibraryDesignSummary .consoleLibraryPreviewLarge figcaption a{font-size:12px}.consoleLibraryDesignSummary .consoleLibraryBoundaries{padding:5px}}
+/* Desktop matches Work's compact controls; mobile/zoom retains the44px targets above. */
+@media(min-width:901px){
+ .consoleLibraryPane .consoleLibraryHeader nav a,.consoleLibraryPane .consoleLibraryToolbar :is(input:not([type=hidden]),select,button),.consoleLibraryPane .consoleCollectionFilterActions :is(a,button),.consoleLibraryPane .consoleCollectionDetail>header>a,.consoleLibraryPane .consoleLibraryRunLookup>summary,.consoleLibraryPane .consoleLibraryRunLookup :is(input,button),.consoleLibraryPane .consoleLibraryDisclosure>summary,.consoleLibraryPane .consoleLibraryTextLink,.consoleLibraryPane .consoleLibraryPreview figcaption a{min-height:34px}
+ .consoleLibraryPane .consoleCollectionPagination nav>:is(a,span){min-height:34px;min-width:34px}
+ .consoleLibraryPane .consoleLibraryBusiness{-webkit-line-clamp:1;line-clamp:1}
+ .consoleLibraryDesignSummary{grid-template-columns:140px minmax(0,1fr);margin-top:6px;margin-bottom:6px;align-items:start}
+ .consoleLibraryDesignSummary .consoleLibraryPreviewLarge img{height:80px;min-height:80px;max-height:80px}
+ .consoleLibraryDesignSummary .consoleLibraryPreviewLarge .consoleLibraryPreviewMissing{min-height:80px}
+ .consoleLibraryDesignSummary .consoleLibraryPreviewLarge figcaption{padding:4px 6px;gap:0;font-size:12px;line-height:1.35}
+ .consoleLibraryDesignSummary .consoleLibraryFacts>div{grid-template-columns:minmax(115px,.62fr) minmax(0,1.38fr);gap:7px}
+ .consoleLibraryDesignSummary .consoleLibraryFacts dt,.consoleLibraryDesignSummary .consoleLibraryFacts dd{font-size:12px;line-height:1.4}
+ .consoleLibraryDesignSummary .consoleLibraryFacts{gap:5px}
+}
+
+@media(max-width:900px){.consoleLibraryDetail pre{max-height:min(260px,max(48px,calc(100dvh - 160px)),var(--console-library-json-focus-height,260px));scroll-margin-block:12px calc(100px + env(safe-area-inset-bottom))}}
