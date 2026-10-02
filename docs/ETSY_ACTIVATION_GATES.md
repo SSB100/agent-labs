@@ -4,6 +4,12 @@ Reviewed 2026-10-02 against [Etsy API Terms of Use](https://www.etsy.com/legal/a
 
 Section3 requires Etsy's approval of the application purpose. Section5 restricts automated access, analysis and scraping of Etsy services/data, and API content collection for analytics or machine-learning purposes, absent Etsy's express written authorization. An issued key, personal-access approval or seller OAuth consent must not be described as blanket permission for autonomous agents or marketplace research. This is the project's conservative operational hold pending written clarification of the exact intended functions, not a legal determination about every possible implementation.
 
+## Owner-reported application status
+
+The owner reported Etsy application status **Personal Access** at **2026-10-02 20:58:56 UTC**. Direct verification was not performed. App-pending is no longer the current owner-reported gate. This is a dated status correction, not a claim that the application's exact automation/research/AI purpose is authorized.
+
+Keep separate and unresolved/unverified: section 5 automation-purpose/data-use written authorization, callback/vault/server configuration, owner OAuth and operation-specific gates. No provider activation authority follows from this status update, R02 software qualification, an issued key or OAuth consent. Safe UI development and inert qualification can continue independently.
+
 ## Current implementation boundary
 
 - Do not activate Etsy automated research, browsing, provider actions or execution while this hold is unresolved

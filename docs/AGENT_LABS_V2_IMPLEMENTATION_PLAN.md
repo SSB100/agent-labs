@@ -1,7 +1,7 @@
 # Agent Labs V2 remaining implementation plan
 
 Repository: `SSB100/agent-labs`
-Implementation baseline: `62324cbf2e4c33e9206fff53c40a9280ae455c2e` (PR49)
+Implementation baseline: `49be7f61d99d1d89b052e55917cf021010f5826d` (PR50 read-only release accepted)
 Document status: active remaining-work plan
 Document scope: remaining work only; one dependency-ordered implementation queue
 
@@ -24,25 +24,11 @@ This document specifies the intended product and future engineering work. It gra
 
 ## The active queue
 
-Tasks R02–R19 are the sole remaining implementation order. Dependencies are acceptance gates, not permission to execute. A blocked external qualification must not cause unrelated safe UI or contract review to stop; retain its position and dependency explicitly. Backend and activation work must not be folded into an otherwise UI-only release.
-
-### R02 Finish the remaining root collections and immediate read projections
-
-**Class:** immediate UI and read-only changes using existing authorized public-table contracts. **Dependency:** the accepted compact Decisions baseline. This is the first remaining task.
-
-- Reconcile and qualify the remaining Research candidate against the accepted head. Do not bulk-merge the frozen populated or profile candidates or treat their tests as acceptance. Accepted Library and creative-cost corrections are evidence in the crosswalk, not remaining implementation tasks.
-- Finish acceptance of bounded Research metadata pages, counts, explicit objective/hypothesis search, timestamp-plus-ID sorting and exact off-page metadata selection. Keep raw Starting rounds and All records distinct from certified Quests, verified-group totals and latest-state filtering; follow the [Research read contract](CONSOLE_RESEARCH_CONTRACT.md).
-- Keep public-table read improvements separate from private RPC additions. No client-side pager over a newest-N window, hidden fetch-all loop or unbounded artifact preload may be presented as complete history.
-- Qualify separately streamed, exact selected Research evidence with bounded direct-history/source/phase reads, visible loading and missing/malformed/mismatched/unavailable states, source freshness and preserved failed-job truth. Do not promote saved TEST, metadata links or a direct historical binding to product readiness, provider truth, current authority, complete ancestry or budget totals.
-- Preserve real Business scope, URL query state, return destinations, exact artifact positioning and truthful settled/pending/unknown cost labels. Reject missing, foreign, conflicting and malformed selection rather than showing a substitute record.
-- Finish the new root Research navigation/read projection using existing, domain-specific POD discovery history. Canonicalize former Library research and safe Products results URLs without converting artifact/workflow/candidate IDs or aggregate fragments into Research identity. Preserve other Products actions/outcomes in their existing handler; canonical Quest linkage remains R04/R08.
-- Qualify Research journeys through accepted Library, Work, raw Activity and explicit research setup without losing aggregate or exact Business scope, independent attempt cursors, modal isolation or reading position. Ordinary browse must not request a quote, start work or call a provider. Preserve Activity as underlying audit data until R08 supplies work-episode Events.
-
-**Exit:** the remaining Research slice passes frozen-source review, populated/query/interaction and hosted exact-head gates, followed by separately authorized release and read-only deployed acceptance. Research is not accepted merely because candidate code or local fixture tests exist. Owner-directory/private-history/index/wire-byte limitations remain R06; broader actual Next transport remains R03. Existing read-only scope must be demonstrable in the diff and test networking must remain denied.
+Tasks R03–R19 are the sole remaining implementation order. Completed R02 root-collection/read-only implementation and acceptance are retained in the evidence crosswalk, not re-queued here. Dependencies are acceptance gates, not permission to execute. A blocked external qualification must not cause unrelated safe UI or contract review to stop; retain its position and dependency explicitly. Backend and activation work must not be folded into an otherwise UI-only release.
 
 ### R03 Convert all remaining retained routes into the compact console
 
-**Class:** immediate UI and existing read projections. **Dependency:** R02; complete historical-data acceptance also depends on R06.
+**Class:** immediate UI and existing read projections. **Dependency:** the accepted R02 root-collection/read-only foundation; complete historical-data acceptance also depends on R06.
 
 - Cover every remaining row in the [route checklist](CONSOLE_ROUTE_ACCEPTANCE.md), including routes reachable only through Advanced. Preserve the accepted shell geometry, compact rows, frequent actions, contained long content and exact record links.
 - Adapt legacy Workflows, Needs You and History routes into canonical scoped views without losing action outcomes, record identity or Back behavior. Keep technical workflow detail and its error boundary inside a consistent bounded workspace with all stage/task/worker/artifact/browser tabs accessible.
@@ -89,7 +75,7 @@ Tasks R02–R19 are the sole remaining implementation order. Dependencies are ac
 
 ### R06 Complete bounded historical reads and read-model contracts
 
-**Class:** reviewed backend read APIs and projections. **Dependency:** R04 for new identity; R02/R03 define callers. Keep independent of R05 execution admission.
+**Class:** reviewed backend read APIs and projections. **Dependency:** R04 for new identity; the root-collection contracts and R03 define callers. Keep independent of R05 execution admission.
 
 - Define owner/Business/Quest-scoped page/count/filter/exact-detail contracts for private account setup, Etsy draft/listing/publication, Printful configuration, product experiments/decisions, workflow children/events, packs, model routing and evaluations where existing reads are insufficient.
 - Bound and independently count the owner Business directory used to establish aggregate scope. An API-capped Business list must not silently omit owned Businesses while downstream collections claim an owner-wide total; exact selection must remain owner-verified outside that directory page.
@@ -117,7 +103,7 @@ Tasks R02–R19 are the sole remaining implementation order. Dependencies are ac
 
 ### R08 Complete the owner-facing Business and Quest workspace
 
-**Class:** UI/read projections over reviewed R04/R06/R07 contracts. **Dependency:** R04, R06, R07; R02/R03 layout foundations.
+**Class:** UI/read projections over reviewed R04/R06/R07 contracts. **Dependency:** R04, R06, R07; the root-collection and R03 layout foundations.
 
 - Make Overview show only the selected Business and its selected/current or most recent Quest. Display explicit selection, objective, real progress, current episode/step/agent, next action, cost exposure, results and exceptions. Do not choose an unrelated decision/active/latest run from an owner-wide recent sample. When none exists, show that truth without invented work.
 - Provide Quest history and exact selection outside the current page. Preserve Business/Quest/episode/step/artifact URL context, Back/Forward/reload and return from every action or secure handoff.
@@ -242,7 +228,7 @@ Tasks R02–R19 are the sole remaining implementation order. Dependencies are ac
 
 ### R18 Qualify the complete operating lifecycle
 
-**Class:** end-to-end simulation, production qualification and whole-app acceptance. **Dependency:** the accepted foundation and R02–R17 for the capabilities claimed; explicitly exclude any still-blocked optional provider rather than silently declaring it passed.
+**Class:** end-to-end simulation, production qualification and whole-app acceptance. **Dependency:** the accepted foundation and R03–R17 for the capabilities claimed; explicitly exclude any still-blocked optional provider rather than silently declaring it passed.
 
 - Run the coherent lifecycle: Business/rules → confirmed Quest/envelope → bounded plan/research/challenge → production assets/product → reviewed linked listing → permitted launch/promotion → paid order/fulfilment → measurement/settled profit → bounded improvement/reviewed learning.
 - Exercise model fallback, stale policy, account expiry, browser interruption, supplier anomaly, unknown costs, owner exceptions, cancellation, pause/resume, delayed callbacks, deployment restart, independent review failure and duplicate prevention. Verify preserved queued work and no repeated external effects.
