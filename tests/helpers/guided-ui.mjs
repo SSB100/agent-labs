@@ -126,6 +126,7 @@ export async function renderDashboard({ unavailable = false, empty = false, view
   const outcomeUi = loadSource("src/components/guided/run-outcome.tsx", { "@/lib/core-ui/run-outcome": outcomes, "./run-outcome.css": {} });
   const workContext = loadSource("src/components/guided/work-context.tsx", { "@/lib/core-ui/workflows": workflows, "./work-context.css": {} });
   const work = loadSource("src/components/console/console-work-pane.tsx", {
+    "./console-artifact-position": loadSource("src/components/console/console-artifact-position.tsx"),
     "@/components/stage7/app-shell": shell, "@/components/stage7/workflow-visuals": visuals, "@/lib/core-ui/workflows": workflows,
     "@/components/guided/run-outcome": outcomeUi, "@/components/guided/work-context": workContext,
   });

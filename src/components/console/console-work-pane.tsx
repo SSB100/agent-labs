@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ConsoleArtifactPosition } from "./console-artifact-position";
 import type { OwnerUiContext, WorkflowCollection, loadWorkflowDetail } from "@/lib/core-ui/data";
 import type { ProductWorkspaceData } from "@/products/types";
 import type { RunCostData } from "@/lib/core-ui/run-outcome-data";
@@ -21,7 +22,8 @@ export function ConsoleWorkPane({ context, collection, detail, products, costs, 
   const run = detail.run, unavailable = detail.errors.length > 0;
   const task = currentTask(detail.tasks), worker = currentWorkerRun(detail.workerRuns), intervention = openIntervention(detail.interventions);
   const definition = worker ? detail.workerDefinitions.find(item => item.id === worker.worker_definition_id) ?? null : null;
-  return <section className="consolePane"><header className="consolePaneHeader"><div><h1>{workDisplayTitle(detail.definition)}</h1><p>{detail.business?.name ?? "Business"} · updated {formatRelativeTime(run.updated_at)}</p></div><Link href={workHref}>All work</Link></header><div className="consolePaneScroll">
+  return <section className="consolePane"><header className="consolePaneHeader"><div><h1>{workDisplayTitle(detail.definition)}</h1><p>{detail.business?.name ?? "Business"} · updated {formatRelativeTime(run.updated_at)}</p></div><Link href={workHref}>All work</Link></header><div className="consolePaneScroll" data-console-evidence-run={run.id}>
+    {selectedArtifact ? <ConsoleArtifactPosition artifactId={selectedArtifact.id} workflowRunId={run.id}/> : null}
     <div className="consoleDetailTop"><StatusPill status={run.status}/><Link className="consoleMiniAction" href={`/dashboard/workflows/${run.id}`}>Full technical record</Link></div>
     <RunOutcome run={run} definition={detail.definition} artifacts={unavailable ? { status: "unavailable" } : { status: "ready", records: detail.artifacts }} interventions={unavailable ? { status: "unavailable" } : { status: "ready", records: detail.interventions }} experiments={!products || products.errors.length ? { status: "unavailable" } : { status: "ready", records: products.experiments }} events={unavailable ? { status: "unavailable" } : { status: "ready", records: detail.events }} {...costs}/>
     {intervention ? <NeedsYouCard intervention={intervention} run={run} definition={detail.definition ?? undefined} businessName={detail.business?.name} workflowName={workDisplayTitle(detail.definition)} returnTo={`/dashboard/workflows/${run.id}`}/> : null}

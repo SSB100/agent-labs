@@ -163,7 +163,9 @@ async function releaseRegistrationRuns(context: OwnerUiContext, businessId: stri
 }
 export async function loadAccountSetupInterventions(context: OwnerUiContext) {
   const workspaces = await Promise.all(context.businesses.map(b => loadAccountWorkspace(context, b.id)));
-  return { unavailable: workspaces.some(w => w.unavailable), records: workspaces.flatMap(w => w.runs
+  // The existing private workspace RPC returns only the latest 50 setup runs.
+  // A full window cannot establish that older owner requests do not exist.
+  return { unavailable: workspaces.some(w => w.unavailable || w.runs.length >= 50), records: workspaces.flatMap(w => w.runs
     .filter(r => ["pending_approval", "approved", "preparation_started", "owner_handoff"].includes(r.status))
     .map(r => ({ businessId: w.businessId, runId: r.id, provider: r.provider, status: r.status }))) };
 }

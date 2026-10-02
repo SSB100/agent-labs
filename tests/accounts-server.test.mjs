@@ -309,3 +309,14 @@ test('registration viewer never decrypts or exposes a session outside the approv
     assert.deepEqual(h.calls.map(c => c.args.p_operation), ['resume']); assert.deepEqual(h.providerCalls, []);
   }
 });
+
+
+test('a full private account history window cannot claim a complete empty decision queue', async () => {
+  for (const count of [49, 50]) {
+    const h = harness({ rpc: async () => ({ data: { profile, accounts: [], runs: Array.from({ length: count }, (_, index) => run({ id: `20000000-1111-4111-8111-${String(index).padStart(12, '0')}`, status: 'verified' })), healthEvents: [] } }) });
+    const summary = await h.loadAccountSetupInterventions(h.context);
+    assert.equal(summary.records.length, 0);
+    assert.equal(summary.unavailable, count === 50);
+    assert.deepEqual(h.providerCalls, []);
+  }
+});
