@@ -176,7 +176,7 @@ test('owner sees retained paid source as explicitly unvalidated, separate from a
   const html = await renderWorkspace(f.context, data);
   assert.match(html, /Unvalidated provider source retained after failure/);
   assert.match(html, /not a validated design or review PASS/);
-  assert.match(html, /No validated images are available in the gallery/);
+  assert.match(html, /No validated images were returned in this loaded gallery window/);
   assert.match(html, /Open retained unvalidated source/);
   assert.doesNotMatch(html, /Nothing has been generated yet/);
 });

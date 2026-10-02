@@ -229,7 +229,7 @@ export default async function ModelRouterPage({ searchParams }: Props) {
             </article>
           ))}
           <article className="summaryCard">
-            <span className="summaryLabel">Loaded reported charges</span>
+            <span className="summaryLabel">Loaded reported charges</span><p>{invocations.filter(i=>i.reported_cost_usd==null || !i.provider_request_id).length} unknown charge(s); estimates do not settle them.</p>
             <strong style={{ fontSize: "1.3rem" }}>{loadError ? "Unavailable" : formatUsd(totalCost)}</strong>
           </article>
         </section>
@@ -263,7 +263,7 @@ export default async function ModelRouterPage({ searchParams }: Props) {
                           <div>
                             <strong>Attempt {attempt.attempt}: {modelById.get(attempt.model_definition_id)?.display_name ?? attempt.provider_model_id}</strong>
                             <small>
-                              {humanize(attempt.status)} · {attempt.input_tokens + attempt.output_tokens} tokens · {(attempt.reported_cost_usd == null || !attempt.provider_request_id) ? "Charge unknown" : formatUsd((attempt.provider_request_id ? numberValue(attempt.reported_cost_usd) : 0))} · estimate {formatUsd(numberValue(attempt.estimated_cost_usd))}
+                              {humanize(attempt.status)} · {attempt.input_tokens + attempt.output_tokens} tokens · {(attempt.reported_cost_usd == null || !attempt.provider_request_id) ? "Charge unknown" : formatUsd((attempt.provider_request_id ? numberValue(attempt.reported_cost_usd) : 0))} · estimate {formatUsd(numberValue(attempt.estimated_cost_usd))}{!attempt.provider_request_id && attempt.reported_cost_usd!=null ? ` · unverified saved amount ${formatUsd(numberValue(attempt.reported_cost_usd))}, excluded from reported charges` : ""}
                               {attempt.failure_category ? ` · ${humanize(attempt.failure_category)}` : ""}
                             </small>
                           </div>

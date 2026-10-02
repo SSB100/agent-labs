@@ -33,3 +33,9 @@
 }
 
 .consoleRecentRows { grid-column: 1 / -1; min-width: 0; }
+
+.consoleRetained .creativeRun > summary { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; min-height: 44px; cursor: pointer; }
+.consoleRetained .creativeRun > summary strong { flex: 1 1 45%; font-size: 13px; }
+.consoleRetained .creativeRun > summary span { color: var(--console-muted); font-size: 12px; }
+.consoleRetained .creativeRun:not([open]) { margin-bottom: 4px; padding: 6px 10px; }
+.consoleRetained .productCandidateGrid { grid-template-columns: minmax(0,1fr); }

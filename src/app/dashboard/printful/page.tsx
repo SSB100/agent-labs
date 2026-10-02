@@ -29,7 +29,7 @@ export default async function PrintfulPage({ searchParams }: { searchParams: Pro
   const accountHref = `/dashboard/accounts${business ? `?business=${business.id}` : ""}#business-accounts`;
 
   return <AppShell toolDestination="printful" active="accounts" context={context} navigationBusinessId={business?.id}>
-    <ConsoleRetainedWorkspace ownerId={context.userId} notice={<p className="coreNotice">Recent sources and configuration runs only (up to 50). Earlier history remains pending R06.</p>} header={<><PageHeader eyebrow="Stage 15 · Printful foundation" title="Printful workspace"
+    <ConsoleRetainedWorkspace ownerId={context.userId} notice={<p className="coreNotice">Recent sources and configuration runs only (up to 50). Earlier history remains pending R06.</p>} header={<>{context.businessesUnavailable ? <p role="alert">Business records are unavailable. No alternate Business was selected.</p> : null}<PageHeader eyebrow="Stage 15 · Printful foundation" title="Printful workspace"
       description="Inspect the production contract and model unit economics with explicitly synthetic examples. Live qualification remains open."
       actions={<Link className="coreButton" href={`/dashboard/accounts${business ? `?business=${business.id}` : ""}`}>Back to Accounts</Link>} />
 <ProductActionFeedback message={query.productMessage} /></>} panels={[{ id: "configuration", label: "Configuration", content: <>{productWorkspace && <ProductConfigurationWorkspace data={productWorkspace} />}</> },

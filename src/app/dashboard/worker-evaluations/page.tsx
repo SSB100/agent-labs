@@ -348,7 +348,7 @@ export default async function WorkerEvaluationsPage({ searchParams }: Props) {
                             </div>
                           </li>
                         );
-                      })} />
+                      })}
                     </ol>
                     <div className="workflowMeta">
                       <span>Score {run.score === null ? "pending" : `${numberValue(run.score).toFixed(1)}%`}</span>
@@ -358,7 +358,7 @@ export default async function WorkerEvaluationsPage({ searchParams }: Props) {
                     </div>
                   </article>
                 );
-              })}
+              })} />
             </div>
           ) : (
             <div className="emptyState">

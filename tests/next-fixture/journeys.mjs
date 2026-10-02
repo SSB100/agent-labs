@@ -13,8 +13,8 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false}) {
     assert.equal(response.status,307);assert.match(response.headers.get('location'),/view=work/);assert.match(response.headers.get('location'),/status=ended/);
   });
   await check('real Next Suspense streams the detail fallback before delayed saved content',async()=>{
-    await fetch(boundary.origin+'/control',{method:'POST',body:JSON.stringify({delayId:id(400050),delayMs:1200})});
-    const response=await fetch(origin+`/dashboard/workflows/${id(400050)}?business=${id(1)}`);
+    await fetch(boundary.origin+'/control',{method:'POST',body:JSON.stringify({delayId:id(1001),delayMs:1200})});
+    const response=await fetch(origin+`/dashboard/workflows/${id(1001)}?business=${id(1)}`);
     const start=Date.now(),reader=response.body.getReader();let text='',chunks=0,first='';
     for(;;){const value=await reader.read();if(value.done)break;chunks++;const part=new TextDecoder().decode(value.value);text+=part;if(chunks===1)first=part;}
     assert.match(first,/Loading exact saved workflow/);assert.ok(chunks>1);assert.ok(Date.now()-start>=900,'No delayed stream boundary observed');assert.match(text,/data-work-detail/);
@@ -100,16 +100,28 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false}) {
       }
       await control({actionMode:'success'});await second.close();
     });
+    await check('new browser history navigation interrupts a pending modal dismissal',async()=>{
+      await page.goto(origin+`/dashboard/settings?business=${business}`);
+      await page.getByRole('link',{name:'Work',exact:true}).click();await page.waitForURL(/view=work/);
+      await page.locator('#console-command-input').fill('Inert research draft');await page.getByRole('button',{name:'Review goal',exact:false}).click();await page.getByRole('dialog').waitFor();
+      const pattern='**/dashboard?*';
+      await page.route(pattern,async route=>{const u=new URL(route.request().url());if(u.searchParams.get('view')==='work' && !u.searchParams.has('sheet') && u.searchParams.has('_rsc'))await new Promise(resolve=>setTimeout(resolve,1800));return route.continue().catch(()=>{});});
+      await page.getByRole('button',{name:'Close research setup',exact:true}).click();
+      // Native browser history events exercise Next's real popstate integration.
+      await page.evaluate(()=>history.go(-2));await page.waitForURL(/dashboard\/settings/);await page.getByRole('heading',{name:'Owner profile',exact:true}).waitFor();
+      await page.waitForTimeout(1900);assert.match(page.url(),/dashboard\/settings/);assert.equal(await page.getByRole('dialog').count(),0);await page.unroute(pattern);
+    });
     const effectCount=boundary.effects.length;
     const routes=[['overview','/dashboard'],['work','/dashboard?view=work'],['history','/dashboard/history'],['needs-you','/dashboard/needs-you'],['library','/dashboard?view=library'],['research','/dashboard?view=research'],['activity','/dashboard?view=activity'],['connections','/dashboard?view=connections'],['products','/dashboard/products'],['artifacts','/dashboard/artifacts'],['packs','/dashboard/packs'],['model-router','/dashboard/model-router'],['worker-proof','/dashboard/worker-proof'],['evaluations','/dashboard/worker-evaluations'],['settings','/dashboard/settings'],['diagnostics','/dashboard/accounts?diagnostics=platform'],['printful','/dashboard/printful'],['etsy','/dashboard/etsy'],['workflow','/dashboard/workflows/'+id(1001)],['secure','/dashboard/accounts/secure?run='+id(770000)],['password','/dashboard/accounts/password?account='+id(770000)],['registration','/dashboard/accounts/registration?run='+id(770000)]];
     for(const [name,route]of routes)await check(`actual retained route ${name}`,async()=>{
-      for(const [width,height]of [[1280,720],[1440,900],[390,844]]){
+      for(const [width,height]of [[1280,720],[1440,900],[390,844],[320,800],[640,360]]){
         await page.setViewportSize({width,height});const url=new URL(route,origin);url.searchParams.set('business',business);await page.goto(url.href);await page.locator('body').waitFor();
         assert.equal(await page.getByText('Application error',{exact:false}).count(),0);
         const metrics=await page.evaluate(()=>({width:document.documentElement.scrollWidth,height:document.documentElement.scrollHeight,innerWidth,innerHeight}));
         assert.ok(metrics.width<=width+1,`Horizontal overflow ${JSON.stringify(metrics)}`);
         if(width>=1280)assert.ok(metrics.height<=height+1,`Document viewport overflow ${JSON.stringify(metrics)}`);
         await page.screenshot({path:path.join(output,`${name}-${width}x${height}.png`),fullPage:true,mask:page.locator('[data-private=true]')});
+        if(width===640)results.push({name:`${name} 200 percent desktop reflow equivalent`,status:'passed',viewport:'640x360 CSS pixels corresponds to 1280x720 at 200 percent zoom'});
       }
     });
     assert.deepEqual(external,[],'Browser attempted external effects');
