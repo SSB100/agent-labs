@@ -244,7 +244,8 @@ async function assertFocusedControlVisible(page, label) {
 }
 
 async function assertConsoleDisclosures(page, width) {
-  assert.equal(await page.locator(".consoleNavLink").count(), 7);
+  assert.equal(await page.locator(".consoleNavLink").count(), 8);
+  assert.equal(await page.locator(".consoleNavLink[href='/dashboard?view=research']").count(), 1);
   assert.equal(await page.locator(".consoleNavLink[href='/dashboard?view=advanced']").count(), 1);
   await page.locator(".consoleOwnerSummary").focus();
   await page.keyboard.press("Enter");
