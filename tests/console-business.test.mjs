@@ -34,6 +34,12 @@ test("real B-run routing preserves the authorized Business in root navigation, d
   const sheet = docs.get(businessFlow.sheet).markup;
   assert.match(sheet, /value="00000000-0000-4000-8000-000000000911" selected=""/);
   assert.doesNotMatch(sheet, /name="confirmResearch"/);
+  const library = docs.get(businessFlow.library).markup;
+  assert.match(library, /class="consoleLibraryHeader"[\s\S]*?<h1[^>]*>Library<\/h1>/);
+  assert.match(library, /data-library-kind="designs"/);
+  const businessSelect = library.match(/<select name="business"[^>]*>(.*?)<\/select>/s)?.[1];
+  assert.ok(businessSelect?.includes(`value="${businessFlow.businessId}" selected=""`));
+  assert.match(library, /class="consoleWorkspaceName">Other authorized Business<\/span>/);
 });
 
 test("overview research and connection shortcuts preserve the selected Business", async () => {
@@ -103,7 +109,10 @@ test("B run to Library to Connections to hydrated research keeps B without provi
         await page.waitForFunction(() => window.__businessHydrated);
         await page.locator(`.consoleNavLink[href='${businessFlow.library}']`).click();
         await page.waitForURL(businessFlow.origin + businessFlow.library);
-        assert.ok((await page.locator(".consolePaneHeader").innerText()).includes(businessFlow.name));
+        assert.equal(await page.locator(".consoleLibraryHeader h1").innerText(), "Library");
+        assert.equal(await page.locator(".consoleLibraryPane").getAttribute("data-library-kind"), "designs");
+        assert.equal(await page.locator('form.consoleCollectionToolbar select[name="business"]').inputValue(), businessFlow.businessId);
+        assert.ok((await page.locator(".consoleWorkspaceContext").innerText()).includes(businessFlow.name));
         await page.locator(`.consoleNavLink[href='${businessFlow.connections}']`).click();
         await page.waitForURL(businessFlow.origin + businessFlow.connections);
         await page.waitForFunction(() => window.__businessHydrated);

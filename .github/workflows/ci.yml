@@ -36,7 +36,7 @@ jobs:
       - name: Capture compact console and bounded collection previews
         id: owner-previews
         continue-on-error: true
-        run: node --test tests/console-visual.test.mjs tests/console-connections.test.mjs tests/console-decisions-browser.test.mjs tests/console-collection-browser.test.mjs tests/console-library-browser.test.mjs
+        run: node --test tests/console-visual.test.mjs tests/console-connections.test.mjs tests/console-decisions-browser.test.mjs tests/console-collection-browser.test.mjs tests/console-library-browser.test.mjs tests/console-business.test.mjs
 
       - name: Report preview test outcome
         if: always()
@@ -98,6 +98,15 @@ jobs:
         run: >-
           node -e "const fs=require('node:fs'); for(const width of [1280,1440]) for(const view of ['design-selected','record-selected','paid-no-asset']) { const file='test-results/guided-ui/console-r02-library-'+view+'-'+width+'-viewport.png'; fs.accessSync(file); console.log('Verified actual Library capture:',file); }"
 
+      - name: Upload early Business continuity screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: business-continuity-preview-${{ github.sha }}
+          path: test-results/guided-ui/business-B-research-*.png
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Require populated Work and Activity viewport screenshots
         run: >-
           node -e "const fs=require('node:fs'); for(const width of [1280,1440]) for(const view of ['work','activity']) { const file='test-results/guided-ui/console-r02-'+view+'-selected-'+width+'.png'; fs.accessSync(file); console.log('Verified actual populated capture:',file); }"
@@ -151,5 +160,14 @@ jobs:
           path: |
             test-results/guided-ui/console-r02-library-*.png
             !test-results/guided-ui/console-r02-library-*-viewport.png
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload final Business continuity screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: business-continuity-owner-ui-${{ github.sha }}
+          path: test-results/guided-ui/business-B-research-*.png
           if-no-files-found: warn
           retention-days: 14
