@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import React from 'react';
 import { renderToString } from 'react-dom/server';
@@ -19,6 +20,7 @@ export const recordsRoute = `/dashboard?view=research&type=records&selected=${se
 export const offFilterRoute = `/dashboard?view=research&type=records&selected=${selectedBusinessBId}&page=3&q=unmatched&searchField=hypothesis&sort=oldest`;
 export const attemptsRoute = `/dashboard?view=research&type=records&selected=${selectedId}&root=${selectedId}&page=3&q=unmatched&searchField=hypothesis&attemptPage=2&attemptSort=oldest`;
 const root = process.cwd(), plain = value => JSON.parse(JSON.stringify(value));
+const require = createRequire(import.meta.url);
 
 /** Persisted production shapes, including deliberately malformed historical states.
  * This adds data in this new harness only; it does not alter shared/root fixtures. */
@@ -111,6 +113,32 @@ export async function researchRedirect(route, fixture) {
   catch (error) { if (error.code === 'FIXTURE_REDIRECT') return error.href; throw error; }
   throw Error('Expected actual read-only alias redirect');
 }
+/** Decode the actual installed Next redirect primitive for the exact target
+ * produced by the owner route. This is a source/unit307+Location assertion,
+ * not a hosted HTTP response or Next server-transport qualification. */
+export async function researchRedirectResponse(route, fixture) {
+  const location = await researchRedirect(route, fixture), target = new URL(location, origin);
+  assert.ok(location.startsWith('/dashboard?') && !location.startsWith('//') && !/[\u0000-\u001f\u007f]/.test(location));
+  assert.equal(target.origin, origin); assert.equal(target.pathname, '/dashboard'); assert.equal(target.searchParams.get('view'), 'research');
+  const next = require('next/dist/client/components/redirect');
+  try { next.redirect(location); } catch (error) {
+    return { status: next.getRedirectStatusCodeFromError(error), headers: { location: next.getURLFromRedirectError(error) } };
+  }
+  throw Error('Actual Next redirect must terminate the source route');
+}
+/** Playwright route handlers do not intercept redirected follow-up requests.
+ * Use a new native navigation to the actual, validated owner-route target so
+ * this inert fixture cannot fall through to DNS/network. This is explicitly
+ * synthetic navigation; HTTP307 delivery is checked only by the unit above.
+ * Carry an existing fragment unchanged, as a native HTTP redirect would. */
+export function researchRedirectDocument(response) {
+  assert.equal(response.status, 307);
+  assert.ok(typeof response.headers.location === 'string' && response.headers.location.startsWith('/dashboard?') && !response.headers.location.startsWith('//') && !/[\u0000-\u001f\u007f]/.test(response.headers.location));
+  const target = new URL(response.headers.location, origin);
+  assert.equal(target.origin, origin); assert.equal(target.pathname, '/dashboard'); assert.equal(target.searchParams.get('view'), 'research');
+  const location = JSON.stringify(response.headers.location).replace(/</g, '\\u003c');
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="icon" href="data:,"><title>SYNTHETIC owner-route redirect navigation</title></head><body><script>const target=new URL(${location},location.origin);if(!target.hash)target.hash=location.hash;location.replace(target.href)</script></body></html>`;
+}
 /** Props derive from actual DashboardPage, bounded metadata readers and adapter leaf. */
 export async function researchClientState(route, fixture) {
   const page = await fixture.render(route), shell = { ...page.tree.props }, pane = { ...page.pane.props };
@@ -129,6 +157,18 @@ export async function researchEvidenceState(route, fixture) {
   const result = await leaf.type(leaf.props), content = find(result, 'ConsoleResearchEvidenceContent'), ready = find(result, 'ConsoleResearchEvidenceReady');
   assert.ok(content && ready); assert.equal(content.props.record.id, ready.props.recordId);
   return plain({ record: content.props.record, evidence: content.props.evidence, ready: ready.props });
+}
+/** Retained fixture payloads belong to a particular descriptor generation,
+ * even when production's exact Suspense key remains unchanged. */
+export function researchEvidencePayload(resolved, descriptor) { return resolved?.descriptor === descriptor ? resolved.payload : null; }
+export function researchEvidenceRequest({ descriptor, load, onResolve, onDiscard }) {
+  let current = true, pending = true;
+  const promise = Promise.resolve().then(() => load(descriptor.route)).then(payload => {
+    pending = false;
+    if (current) onResolve({ descriptor, payload }); else onDiscard();
+    return payload;
+  }, error => { pending = false; throw error; });
+  return { get current() { return current; }, get pending() { return current && pending; }, promise, dispose() { current = false; } };
 }
 export function researchTree(React, modules, state, Progressive) {
   const { ConsoleShell, ConsoleCommandBar, ConsoleResearchPane, ConsoleCollectionViewport, ConsoleResearchSheet, QuestKickoff } = modules;
@@ -149,12 +189,16 @@ import {ConsoleResearchEvidenceReady} from './src/components/console/console-res
 import {ConsoleCollectionViewport} from './src/components/console/console-collection-viewport';
 import {QuestKickoff} from './src/components/guided/quest-kickoff';
 const modules={ConsoleShell,ConsoleCommandBar,ConsoleResearchSheet,ConsoleResearchPane,ConsoleCollectionViewport,QuestKickoff};
-const researchTree=${researchTree.toString()},renderDomWire=${renderDomWire.toString()};
-window.__researchErrors=[];window.__researchRevision=0;window.__researchReadRequests=[];window.__researchCommits=0;window.__researchDiscarded=0;window.__researchPaidCalls=0;window.__researchEvidenceRequests=[];window.__researchEvidenceDiscarded=0;
+const researchTree=${researchTree.toString()},renderDomWire=${renderDomWire.toString()},researchEvidencePayload=${researchEvidencePayload.toString()},researchEvidenceRequest=${researchEvidenceRequest.toString()};
+window.__researchErrors=[];window.__researchRevision=0;window.__researchReadRequests=[];window.__researchCommits=0;window.__researchDiscarded=0;window.__researchPaidCalls=0;window.__researchEvidenceRequests=[];window.__researchEvidenceDiscarded=0;window.__researchEvidenceGeneration=0;window.__researchEvidenceCurrent=0;window.__researchEvidencePending=false;
 function checked(target){const url=new URL(target,location.origin);if(url.origin!==location.origin||url.pathname!=='/dashboard'||url.searchParams.get('view')!=='research')throw Error('Unsafe Research fixture navigation');return url.pathname+url.search+url.hash;}
 function Progressive({descriptor}){
- const [payload,setPayload]=useState(descriptor.payload);
- useEffect(()=>{if(descriptor.payload)return;let current=true;window.__researchEvidenceRequests.push(descriptor.route);window.__loadResearchEvidenceFixture(descriptor.route).then(value=>{if(current)setPayload(value);else window.__researchEvidenceDiscarded++;}).catch(error=>window.__researchErrors.push(error.message));return()=>{current=false};},[descriptor]);
+ const [resolved,setResolved]=useState({descriptor,payload:descriptor.payload}),payload=researchEvidencePayload(resolved,descriptor);
+ useEffect(()=>{if(descriptor.payload)return;const generation=++window.__researchEvidenceGeneration;window.__researchEvidenceCurrent=generation;window.__researchEvidencePending=true;window.__researchEvidenceRequests.push(descriptor.route);
+  const request=researchEvidenceRequest({descriptor,load:route=>window.__loadResearchEvidenceFixture(route),onResolve:value=>{setResolved(value);if(window.__researchEvidenceCurrent===generation)window.__researchEvidencePending=false;},onDiscard:()=>{window.__researchEvidenceDiscarded++;}});
+  request.promise.catch(error=>{if(request.current)window.__researchErrors.push(error.message);if(window.__researchEvidenceCurrent===generation)window.__researchEvidencePending=false;});
+  return()=>{request.dispose();if(window.__researchEvidenceCurrent===generation)window.__researchEvidencePending=false;};
+ },[descriptor]);
  return payload?<><ConsoleResearchEvidenceContent record={payload.record} evidence={payload.evidence}/><ConsoleResearchEvidenceReady {...payload.ready}/></>:renderDomWire(React,descriptor.loading);
 }
 function Harness(){

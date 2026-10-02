@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { chromium } from 'playwright-core';
-import { createResearchBrowserFixture, browserResearchTables, researchClientState, researchEvidenceState, researchDocument, researchRedirect,
+import { createResearchBrowserFixture, browserResearchTables, researchClientState, researchEvidenceState, researchDocument, researchRedirect, researchRedirectResponse, researchRedirectDocument, researchEvidencePayload, researchEvidenceRequest,
   origin, id, businessId, secondBusinessId, selectedId, selectedBusinessBId, freshRecordId, legacyId, candidateId, orphanId, mismatchedWorkId, literalText,
   rootsRoute, recordsRoute, offFilterRoute, attemptsRoute } from './helpers/console-research-browser.mjs';
 
@@ -48,6 +48,15 @@ test('new Research browser data retains127+ raw records,130 attempts, duplicates
   const mismatch = await researchClientState(`/dashboard?view=research&type=records&selected=${mismatchedWorkId}`, fixture);
   assert.equal(mismatch.pane.data.selection.item.workflow.status, 'unavailable'); assert.equal(mismatch.pane.data.selection.item.workIdentity, null);
   assert.deepEqual(fixture.denied, []);
+});
+
+test('actual rendered newest-attempt href requests pager1/newest while preserving unrelated aggregate main query', async () => {
+  const fixture = createResearchBrowserFixture(), page = await fixture.render(attemptsRoute), match = page.markup.match(/<a [^>]*href="([^"]+)"[^>]*>Newest first<\/a>/);
+  assert.ok(match); const target = new URL(match[1].replaceAll('&amp;', '&'), origin), next = await researchClientState(target.pathname + target.search + target.hash, fixture);
+  assert.equal(next.pane.data.query.attemptPage, 1); assert.equal(next.pane.data.query.attemptSort, 'newest');
+  assert.equal(next.pane.data.attempts.page.page, 1); assert.equal(next.pane.data.attempts.page.total, 130);
+  for (const key of ['page', 'query', 'searchField', 'businessId', 'kind', 'selectedId', 'rootId']) assert.equal(next.pane.data.query[key], page.data.query[key]);
+  assert.equal(next.pane.data.attempts.page.items[0].id, fixture.newestId); assert.equal(fixture.ancillaryCalls.length, 0); assert.deepEqual(fixture.denied, []);
 });
 
 test('exact evidence uses original adapter and producer IDs, scoped B command and escaped saved TEST text', async () => {
@@ -100,6 +109,39 @@ test('canonical aliases run actual redirects before metadata and keep real aggre
   }
 });
 
+test('actual owner-route targets decode to installed Next307 Location while browser delivery stays explicitly synthetic', async () => {
+  for (const route of [`/dashboard?view=library&type=research&business=${businessId}&experiment=${selectedId}`, `/dashboard/products?view=results&business=${businessId}#discovery-goal-results`]) {
+    const fixture = createResearchBrowserFixture(), response = await researchRedirectResponse(route, fixture);
+    assert.equal(response.status, 307); const target = new URL(response.headers.location, origin);
+    assert.equal(target.origin, origin); assert.equal(target.pathname, '/dashboard'); assert.equal(target.searchParams.get('view'), 'research'); assert.equal(target.searchParams.get('business'), businessId);
+    assert.equal(target.searchParams.get('selected'), route.includes('experiment=') ? selectedId : null); assert.equal(target.hash, '');
+    assert.equal(fixture.reads.length, 0); assert.equal(fixture.ancillaryCalls.length, 0); assert.deepEqual(fixture.denied, []);
+    const document = researchRedirectDocument(response); assert.match(document, /SYNTHETIC owner-route redirect navigation/); assert.match(document, /location\.replace\(target\.href\)/);
+    assert.match(document, /target\.hash=location\.hash/); assert.doesNotMatch(document, /hydrateRoot|discovery-actions|supabase/);
+  }
+  assert.throws(() => researchRedirectDocument({ status: 307, headers: { location: 'https://foreign.invalid/dashboard?view=research' } }));
+  assert.throws(() => researchRedirectDocument({ status: 307, headers: { location: '/dashboard/products?view=results' } }));
+  assert.throws(() => researchRedirectDocument({ status: 307, headers: { location: `https://agentlabs-research-root.test/dashboard?view=research` } }));
+  assert.throws(() => researchRedirectDocument({ status: 307, headers: { location: `//agentlabs-research-root.test/dashboard?view=research` } }));
+  assert.throws(() => researchRedirectDocument({ status: 307, headers: { location: 'javascript:alert(1)' } }));
+  const literal = '/dashboard?view=research&type=roots&q=</script><script>window.__unsafeResearch=true</script>&searchField=objective', document = researchRedirectDocument({ status: 307, headers: { location: literal } });
+  assert.match(document, /\\u003c\/script>/); assert.equal((document.match(/<script>/g) ?? []).length, 1); assert.equal((document.match(/<\/script>/g) ?? []).length, 1); assert.doesNotMatch(document, /q=<\/script>/);
+});
+
+test('same production key starts a genuinely pending descriptor-bound read and cannot show a stale payload', async () => {
+  const fixture = createResearchBrowserFixture(), original = await researchClientState(offFilterRoute, fixture), oldPayload = await researchEvidenceState(original.progressive.route, fixture), sheet = await researchClientState(original.pane.researchHref, fixture);
+  assert.equal(original.progressive.key, sheet.progressive.key); assert.notEqual(original.progressive.route, sheet.progressive.route);
+  let resolved = { descriptor: original.progressive, payload: oldPayload }, discarded = 0, releaseFirst, releaseSecond;
+  const firstGate = new Promise(resolve => { releaseFirst = resolve; }), secondGate = new Promise(resolve => { releaseSecond = resolve; });
+  const first = researchEvidenceRequest({ descriptor: original.progressive, load: async route => { await firstGate; return researchEvidenceState(route, fixture); }, onResolve: value => { resolved = value; }, onDiscard: () => { discarded++; } });
+  assert.equal(first.pending, true); first.dispose(); assert.equal(first.pending, false);
+  const second = researchEvidenceRequest({ descriptor: sheet.progressive, load: async route => { await secondGate; return researchEvidenceState(route, fixture); }, onResolve: value => { resolved = value; }, onDiscard: () => { discarded++; } });
+  assert.equal(second.pending, true); assert.equal(researchEvidencePayload(resolved, sheet.progressive), null);
+  releaseFirst(); await first.promise; assert.equal(discarded, 1); assert.equal(second.pending, true); assert.equal(researchEvidencePayload(resolved, sheet.progressive), null);
+  releaseSecond(); await second.promise; assert.equal(second.pending, false); assert.equal(researchEvidencePayload(resolved, sheet.progressive).record.id, selectedBusinessBId);
+  assert.equal(researchEvidencePayload(resolved, original.progressive), null); assert.deepEqual(fixture.denied, []);
+});
+
 test('ordinary browse is quote/catalogue-free; supplied Plan research URL alone loads selected B setup', async () => {
   const fixture = createResearchBrowserFixture(), browse = await researchClientState(offFilterRoute, fixture);
   assert.equal(fixture.ancillaryCalls.length, 0); const setup = await researchClientState(browse.pane.researchHref, fixture);
@@ -122,7 +164,7 @@ test('new browser fixture preserves missing unavailable count-null error and una
 async function frames(page) { await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))); }
 async function ready(page, { evidenceReady = true } = {}) {
   await page.waitForFunction(() => window.__researchHydrated === true && !window.__researchReadPending && window.__researchCommittedRoute === location.pathname + location.search + location.hash);
-  if (evidenceReady) await page.waitForFunction(() => !document.querySelector('[data-research-evidence-loading]'));
+  if (evidenceReady) await page.waitForFunction(() => !window.__researchEvidencePending && !document.querySelector('[data-research-evidence-loading]'));
   assert.deepEqual(await page.evaluate(() => window.__researchErrors), []); await frames(page);
 }
 async function capture(page, name) {
@@ -179,9 +221,9 @@ async function setup(browser, viewport, { retained = true, fixtureOptions = {}, 
     const request = route.request(), url = new URL(request.url());
     if (url.origin === origin && request.method() === 'GET' && request.resourceType() === 'document' && ['/dashboard', '/dashboard/products'].includes(url.pathname)) {
       if (url.pathname === '/dashboard/products' || url.searchParams.get('view') === 'library') {
-        const before = fixture.reads.length, location = await researchRedirect(url.pathname + url.search + url.hash, fixture);
-        assert.equal(fixture.reads.length, before); redirects.push({ from: url.pathname + url.search, location });
-        return route.fulfill({ status: 307, headers: { location } });
+        const before = fixture.reads.length, response = await researchRedirectResponse(url.pathname + url.search + url.hash, fixture);
+        assert.equal(fixture.reads.length, before); redirects.push({ from: url.pathname + url.search, status: response.status, location: response.headers.location });
+        return route.fulfill({ contentType: 'text/html', body: researchRedirectDocument(response) });
       }
       if (url.searchParams.get('view') === 'research') {
         documents.push(url.pathname + url.search); return route.fulfill({ contentType: 'text/html', body: await researchDocument(url.pathname + url.search + url.hash, { fixture, retained, initialEvidence }) });
@@ -304,7 +346,12 @@ test('hosted retained Research exact row Close/history/reload and independent130
         await page.getByRole('navigation', { name: 'Associated attempt pages' }).getByRole('link', { name: 'Next', exact: true }).click(); await ready(page);
         const url = new URL(page.url()); for (const [key, value] of [['page', '3'], ['q', 'unmatched'], ['searchField', 'hypothesis'], ['attemptPage', '3'], ['attemptSort', 'oldest'], ['root', selectedId]]) assert.equal(url.searchParams.get(key), value);
         assert.equal(url.searchParams.has('business'), false); assert.deepEqual(await rows(page), mainRows); assert.equal(await page.locator('.consoleResearchPane>.consoleResearchPagination .consoleCollectionCount').innerText(), mainCount);
-        await page.getByRole('link', { name: 'Newest first', exact: true }).click(); await ready(page); assert.equal(new URL(page.url()).searchParams.has('attemptPage'), false); assert.equal(new URL(page.url()).searchParams.get('page'), '3');
+        const newestLink = page.getByRole('link', { name: 'Newest first', exact: true }), intendedHref = new URL(await newestLink.getAttribute('href'), origin);
+        await newestLink.click(); await ready(page);
+        const newest = new URL(page.url()); assert.equal(newest.href, intendedHref.href);
+        for (const [key, value] of [['page', '3'], ['q', 'unmatched'], ['searchField', 'hypothesis'], ['selected', selectedId], ['root', selectedId]]) assert.equal(newest.searchParams.get(key), value);
+        assert.equal(newest.searchParams.has('business'), false); assert.deepEqual(await rows(page), mainRows); assert.equal(await page.locator('.consoleResearchPane>.consoleResearchPagination .consoleCollectionCount').innerText(), mainCount);
+        assert.match(await page.locator('.consoleResearchAttemptPagination').innerText(), /Page 1 of 6/); assert.equal(metadata(h.fixture).at(-1).result.attempts.page.page, 1); assert.equal(metadata(h.fixture).at(-1).result.query.attemptSort, 'newest');
         await capture(page, `console-r02-research-associated-attempt-history-${viewport.slug}`); await clean(h);
       } finally { await h.context.close(); }
     });
@@ -345,6 +392,14 @@ test('hosted Research error/legacy/candidate/orphan/latest/count-null states are
     const h = await setup(browser, viewports[1]); try {
       for (const [record, copy] of [[legacyId, /Legacy saved record/], [candidateId, /Required saved evidence|could not be read|not established/], [orphanId, /could not be checked|missing|not established/], [mismatchedWorkId, /Exact Work linkage unavailable/], [freshRecordId, /Within the saved timing window/]]) {
         await h.page.goto(origin + `/dashboard?view=research&type=records&selected=${record}`); await ready(h.page); assert.match(await h.page.locator('.consoleResearchDetail').innerText(), copy);
+        if (record === mismatchedWorkId) {
+          assert.equal(await selected(h.page), record); assert.match(await h.page.locator('.consoleResearchDetail').innerText(), /Last job context unavailable/);
+          assert.equal(await h.page.getByRole('link', { name: 'Inspect exact Work run' }).count(), 0);
+          assert.equal(metadata(h.fixture).at(-1).result.selection.item.workflow.status, 'unavailable'); assert.equal(metadata(h.fixture).at(-1).result.selection.item.workIdentity, null);
+          assert.equal(evidence(h.fixture).at(-1).result.integrity, 'malformed');
+          await h.page.locator(`[data-console-disclosure="research:evidence-limits:${record}"]>summary`).click();
+          assert.match(await h.page.locator('.consoleResearchDetail').innerText(), /Metadata-only Work and Library links do not certify artifact content, provider truth or completed review/);
+        }
         await capture(h.page, `console-r02-research-truth-${record.slice(-6)}`);
       }
       await h.page.goto(origin + '/dashboard?view=research&type=records&sort=oldest'); await ready(h.page);
@@ -368,7 +423,7 @@ test('hosted Research error/legacy/candidate/orphan/latest/count-null states are
   } finally { await browser.close(); }
 });
 
-test('hosted Research old Library and safe Products URLs address-match actual canonical redirects without false fragment-ID bridges', { skip: !enabled, timeout: 120000 }, async () => {
+test('hosted synthetic native navigation address-matches actual Research alias targets without claiming HTTP redirects', { skip: !enabled, timeout: 120000 }, async () => {
   const browser = await chromium.launch({ headless: true }), h = await setup(browser, viewports[1]), { page } = h;
   try {
     await page.goto(origin + `/dashboard?view=library&type=research&business=${businessId}&experiment=${selectedId}`); await ready(page);
@@ -421,9 +476,11 @@ test('hosted first-ready record Business owner/full-filter scope and stale DOM e
       const current = document.querySelector('[data-console-research-evidence-ready]'), old = current.cloneNode(true);
       current.parentElement.append(old); old.dispatchEvent(new Event('console-research-evidence-ready', { bubbles: true })); old.remove();
     }); await frames(page); assert.deepEqual(await position(page), before);
-    const maximum = await page.locator('.consoleResearchDetail').evaluate(node => node.scrollHeight - node.clientHeight), expected = Math.min(seeded.value.detail, maximum);
+    // The valid event restores saved disclosures before assigning scrollTop.
+    // Its clamp limit is the expanded layout, not the still-closed pre-event DOM.
+    await repeatReady(page); const restored = await position(page), maximum = await page.locator('.consoleResearchDetail').evaluate(node => node.scrollHeight - node.clientHeight), expected = Math.min(seeded.value.detail, maximum);
     assert.ok(expected > before.detail + 100, JSON.stringify({ before, maximum, expected }));
-    await repeatReady(page); const restored = await position(page); assert.ok(Math.abs(restored.detail - expected) <= 2, JSON.stringify({ restored, expected }));
+    assert.ok(Math.abs(restored.detail - expected) <= 2, JSON.stringify({ restored, expected }));
     await repeatReady(page); assert.deepEqual(await position(page), restored); await capture(page, 'console-r02-research-first-ready-full-scope-epoch'); await clean(h);
   } finally { hold.release(); await h.context.close(); await browser.close(); }
 });
@@ -457,8 +514,12 @@ test('hosted delayed exact evidence restores saved position once while retaining
         const reloadedReading = await position(page);
         reloadHold = h.holdEvidence(() => true); await page.reload(); await ready(page, { evidenceReady: false }); await reloadHold.enteredPromise;
         assert.equal(await page.locator('[data-research-evidence-loading]').count(), 1); reloadHold.release(); await ready(page); assert.deepEqual(await position(page), reloadedReading);
-        const close = page.getByRole('link', { name: 'Close detail', exact: true }); await close.scrollIntoViewIfNeeded(); await frames(page); const backReading = await position(page);
+        const close = page.getByRole('link', { name: 'Close detail', exact: true }), beforeCloseFocus = await position(page);
+        await close.focus(); await frames(page); await close.scrollIntoViewIfNeeded(); await frames(page); const backReading = await position(page);
         await close.click(); await ready(page);
+        const saved = await page.evaluate(key => JSON.parse(sessionStorage.getItem(key) || 'null'), seeded.key);
+        t.diagnostic(JSON.stringify({ viewport: viewport.slug, beforeCloseFocus, backReading, saved })); assert.ok(saved);
+        assert.equal(saved.document, backReading.document); assert.equal(saved.detail, backReading.detail); assert.equal(saved.body, seeded.layout === 'split' ? backReading.results : backReading.body);
         backHold = h.holdEvidence(() => true); await page.goBack(); await ready(page, { evidenceReady: false }); await backHold.enteredPromise;
         backHold.release(); await ready(page); assert.deepEqual(await position(page), backReading);
         await capture(page, `console-r02-research-delayed-back-reload-${viewport.slug}`); await clean(h);

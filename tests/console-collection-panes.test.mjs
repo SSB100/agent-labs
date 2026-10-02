@@ -901,11 +901,17 @@ test("document and single-scroller reading recover without repositioning the sha
 });
 
 // Research extends only the existing v1 per-tab history contract.
-function researchScrollHarness({ href = `/dashboard?view=research&selected=${id(1000)}`, width = 1280, store = new Map(), loading = false } = {}) {
+// This is an inert scroll-anchoring model, not a local/browser qualification.
+function researchAnchorOptOutSelectors() {
+  const css = readFileSync("src/components/console/console-research-pane.css", "utf8");
+  return [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter(([, , declarations]) => /overflow-anchor\s*:\s*none\b/.test(declarations))
+    .flatMap(([, selectors]) => selectors.replace(/\/\*[\s\S]*?\*\//g, "").split(",").map(selector => selector.trim().replace(/\s+/g, " ")));
+}
+function researchScrollHarness({ href = `/dashboard?view=research&selected=${id(1000)}`, width = 1280, store = new Map(), loading = false, pendingMaximum = 50, nativeReadyShift = 0 } = {}) {
   const fixture = toolbarHarness(href, { selected: true, width, store });
   fixture.fields.push({ name: "searchField", value: "browser-restored-wrong-value" });
   Object.assign(fixture.detail.dataset, { consoleResearchRecord: id(1000), consoleResearchBusiness: id(1) });
-  let pending = loading, maximum = loading ? 50 : 5000, top = 0, ready = null;
+  let pending = loading, maximum = loading ? pendingMaximum : 5000, top = 0, ready = null;
   Object.defineProperty(fixture.detail, "scrollTop", { get: () => top, set: value => { top = Math.min(maximum, value); } });
   const pendingMarker = { dataset: { researchEvidenceLoading: id(1000) } };
   const disclosure = { dataset: { consoleDisclosure: `research:goal:${id(1000)}` }, open: false };
@@ -914,7 +920,15 @@ function researchScrollHarness({ href = `/dashboard?view=research&selected=${id(
   fixture.root.querySelector = selector => selector === "[data-research-evidence-loading]" ? pending ? pendingMarker : null : selector === "[data-console-research-evidence-ready]" ? ready : selector === `details[id="console-research-attempts-${id(1000)}"]` ? attempt : original(selector);
   fixture.root.querySelectorAll = () => pending ? [] : [disclosure];
   const fireReady = (changes = {}) => {
-    pending = false; maximum = 5000;
+    const replacingLoadingLeaf = pending; pending = false; maximum = 5000;
+    // Model the pre-effect UA anchor adjustment seen in the hosted gate. The
+    // actual production CSS must opt this particular Research surface out.
+    if (replacingLoadingLeaf && nativeReadyShift) {
+      const selector = width >= 1200 ? ".consoleResearchPane .consoleResearchDetail" : width > 900 ? ".consoleResearchPane > .consoleResearchBody" : ".consoleResearchPane";
+      if (!researchAnchorOptOutSelectors().includes(selector)) {
+        if (width >= 1200) top += nativeReadyShift; else if (width > 900) fixture.body.scrollTop += nativeReadyShift; else fixture.view.scrollY += nativeReadyShift;
+      }
+    }
     ready = { dataset: { consoleResearchReadyScope: scroll.consoleCollectionScrollKey("owner", href), consoleResearchRecord: id(1000), consoleResearchBusiness: id(1), ...changes } };
     const event = new Event("console-research-evidence-ready"); Object.defineProperty(event, "target", { value: ready }); fixture.root.dispatchEvent(event);
   };
@@ -1048,4 +1062,35 @@ for (const status of ["missing", "unavailable"]) test(`${status} Research error 
     blocked.view.document = { querySelector: () => null, activeElement: { matches: () => false } }; blocked.view.scrollY = 1700; blocked.view.dispatchEvent(new Event("scroll")); blocked.flushTimers();
     assert.equal(blocked.reveals(), 0, `${interaction} newer reading`); assert.equal(blocked.view.scrollY, 1700); cleanup();
   }
+});
+
+
+test("Research anchoring rule is available before hydration and cannot alter Work/Library/modal/document styles", () => {
+  const selectors = researchAnchorOptOutSelectors();
+  assert.deepEqual(selectors, [".consoleResearchPane", ".consoleResearchPane > .consoleResearchBody", ".consoleResearchPane .consoleResearchResults", ".consoleResearchPane .consoleResearchDetail"]);
+  assert.ok(selectors.every(selector => selector.startsWith(".consoleResearchPane")));
+  assert.ok(!selectors.some(selector => /consoleResearchSheet|consoleLibraryPane|consoleWorkPane|^html$|^body$|:root/.test(selector)));
+  const helper = readFileSync("src/components/console/console-collection-scroll.ts", "utf8");
+  assert.doesNotMatch(helper, /overflowAnchor|setProperty\(\s*["']overflow-anchor|documentElement.*style|scrollingElement.*style/);
+});
+for (const width of [1280, 1000, 390]) test(`inert anchor model: resolved-leaf growth cannot override accepted native reading at${width}px`, () => {
+  const href = `/dashboard?view=research&selected=${id(1000)}`, fixture = researchScrollHarness({ href, width, loading: true, pendingMaximum: 900, nativeReadyShift: 574 });
+  const cleanup = scroll.mountConsoleCollectionScroll(fixture.root, "owner", href, fixture.view); fixture.settle();
+  if (width >= 1200) { fixture.detail.scrollTop = 120; fixture.detail.dispatchEvent(new Event("scroll")); }
+  else if (width > 900) { fixture.body.scrollTop = 120; fixture.body.dispatchEvent(new Event("scroll")); }
+  else { fixture.view.scrollY = 160; fixture.view.dispatchEvent(new Event("scroll")); }
+  fixture.fireReady(); assert.equal(width >= 1200 ? fixture.detail.scrollTop : width > 900 ? fixture.body.scrollTop : fixture.view.scrollY, width <= 900 ? 160 : 120); cleanup();
+});
+for (const interaction of ["editor", "modal", "blurred-filter"]) test(`inert anchor model: pre-ready DOM growth cannot move ${interaction} reading authority`, () => {
+  const href = `/dashboard?view=research&selected=${id(1000)}`, fixture = researchScrollHarness({ href, loading: true, pendingMaximum: 900, nativeReadyShift: interaction === "editor" ? 556 : 574 });
+  const cleanup = scroll.mountConsoleCollectionScroll(fixture.root, "owner", href, fixture.view); fixture.settle();
+  const chosen = interaction === "blurred-filter" ? 259 : 700; fixture.detail.scrollTop = chosen; fixture.detail.dispatchEvent(new Event("scroll"));
+  if (interaction === "blurred-filter") { fixture.fields.find(field => field.name === "q").value = "retain this unsubmitted filter"; fixture.toolbar.dispatchEvent(new Event("input")); }
+  else fixture.view.document = { querySelector: () => interaction === "modal" ? {} : null, activeElement: { matches: () => interaction === "editor" } };
+  fixture.fireReady(); assert.equal(fixture.detail.scrollTop, chosen); if (interaction === "blurred-filter") assert.equal(fixture.values().q, "retain this unsubmitted filter"); cleanup();
+});
+test("inert anchor model: exact Back/reload restoration remains enabled after Research-only opt-out", () => {
+  const href = `/dashboard?view=research&selected=${id(1000)}`, fixture = researchScrollHarness({ href, loading: true, pendingMaximum: 50, nativeReadyShift: 574 }), key = scroll.consoleCollectionScrollKey("owner", href);
+  fixture.store.set(key, JSON.stringify(researchStored())); const cleanup = scroll.mountConsoleCollectionScroll(fixture.root, "owner", href, fixture.view); fixture.settle();
+  assert.equal(fixture.detail.scrollTop, 50); assert.equal(JSON.parse(fixture.store.get(key)).detail, 730); fixture.fireReady(); assert.equal(fixture.detail.scrollTop, 730); cleanup();
 });

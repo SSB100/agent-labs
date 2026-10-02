@@ -1,4 +1,6 @@
 /* Compact read-only Research frame. All overrides stay inside this pane. */
+/* Streamed evidence must not make the browser move the owner's reading position. */
+.consoleResearchPane,.consoleResearchPane > .consoleResearchBody,.consoleResearchPane .consoleResearchResults,.consoleResearchPane .consoleResearchDetail{overflow-anchor:none}
 .consoleResearchPane{gap:7px;min-width:0;min-height:0;overflow:hidden}
 .consoleResearchHeader{padding:2px;gap:6px;flex-wrap:nowrap}
 .consoleResearchHeader h1{font-size:19px}
@@ -23,8 +25,18 @@
 .consoleResearchStateLabel{font-size:12px;color:var(--collection-muted)}
 .consoleResearchState>span:last-child:not(.consoleCollectionBadge){overflow-wrap:anywhere}
 .consoleResearchMeta{display:flex;flex-wrap:wrap;gap:2px 10px;font-size:12px;color:var(--collection-muted);font-variant-numeric:tabular-nums;min-width:0}
-.consoleResearchBusiness{flex-basis:100%;min-width:0;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--collection-muted);font-size:12px}
-.consoleResearchBusiness>span{font-variant-numeric:tabular-nums}
+.consoleResearchBusiness{flex-basis:100%;min-width:0;display:flex;gap:6px;align-items:baseline;color:var(--collection-muted);font-size:12px}
+.consoleResearchBusinessIdentity{flex:0 0 auto;font-variant-numeric:tabular-nums;color:var(--collection-text)}
+.consoleResearchBusinessName{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.consoleResearchSelectedIdentity{padding:0 0 7px;min-width:0}
+.consoleResearchDetail .consoleResearchSelectedObjective{margin:0 0 4px;color:var(--collection-text);font-size:13px;font-weight:600;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.consoleResearchSelectedRecord{display:flex;gap:5px 10px;align-items:baseline;font-size:12px;min-width:0;color:var(--collection-muted)}
+.consoleResearchSelectedRecord>.consoleResearchBusiness{flex:1 1 auto}
+.consoleResearchSelectedRecord>span:last-child{flex:0 0 auto}
+.consoleResearchSelectedState{display:flex;flex-wrap:wrap;gap:3px 10px;align-items:center;margin-top:4px;font-size:12px;color:var(--collection-muted)}
+.consoleResearchSelectedState .consoleResearchState{display:inline-flex;flex-wrap:wrap;gap:4px;align-items:center;max-width:100%}
+.consoleResearchSelectedState .consoleResearchStateLabel{display:inline}
+@media(min-width:1200px){.consoleResearchDetail>header>a{min-height:32px!important}.consoleResearchPane .consoleResearchLinks a{min-height:32px}}
 .consoleResearchMeta time{white-space:normal}
 .consoleResearchDetail{padding:8px;min-width:0}
 .consoleResearchDetail h3{margin:0 0 5px;font-size:15px;line-height:1.4;overflow-wrap:anywhere}
@@ -74,5 +86,5 @@
 @media(min-width:1200px){.consoleResearchPane > .consoleResearchBody[data-has-selection=true]{grid-template-columns:minmax(310px,.82fr) minmax(0,1.18fr);grid-template-rows:minmax(0,1fr);overflow:hidden}.consoleResearchPane > .consoleResearchBody[data-has-selection=true] .consoleResearchResults,.consoleResearchPane > .consoleResearchBody[data-has-selection=true] .consoleResearchDetail{min-height:0;max-height:100%;overflow:auto;scrollbar-width:thin;scrollbar-color:#275267 transparent}.consoleResearchDetail>header{position:sticky;top:-8px;background:#091b2a;z-index:2;margin-top:-8px;padding-top:8px}}
 @media(max-width:1199px){.consoleResearchHeader{flex-wrap:wrap}.consoleResearchPane .consoleResearchToolbar{position:static}.consoleResearchPane > .consoleResearchBody[data-has-selection=true]{grid-template-columns:minmax(0,1fr);grid-template-rows:max-content}.consoleResearchDetail{max-height:none}.consoleResearchResults{overflow:visible}}
 @media(max-width:900px){.consoleResearchPane{height:auto;overflow:visible}.consoleResearchHeader nav{flex-wrap:wrap}.consoleResearchPane > .consoleResearchBody{overflow:visible}.consoleResearchPane .consoleResearchToolbar .consoleCollectionBusinessFilter{max-width:none}.consoleResearchPagination{position:static}.consoleResearchPane :where(a,button,input,select,summary){scroll-margin-bottom:110px}.consoleResearchAttemptList{max-height:none;overflow:visible}.consoleResearchDetail{scroll-margin-top:12px}}
-@media(max-width:600px){.consoleResearchHeader nav{width:100%}.consoleResearchHeader nav>a{flex:1 1 auto}.consoleResearchPane .consoleResearchToolbar label{flex:1 1 calc(50% - 6px)}.consoleResearchPane .consoleResearchToolbar .consoleCollectionSearch,.consoleResearchPane .consoleResearchToolbar .consoleCollectionBusinessFilter{flex-basis:100%}.consoleResearchRowTop{flex-wrap:wrap;gap:3px}.consoleResearchTitle{flex-basis:100%}.consoleResearchState{max-width:100%;display:flex;gap:5px;flex-wrap:wrap;align-items:center}.consoleResearchBusiness{white-space:normal;overflow-wrap:anywhere}.consoleResearchFacts>div{grid-template-columns:minmax(0,1fr);gap:1px}.consoleResearchPagination nav{width:100%;justify-content:space-between}.consoleResearchDetail{padding:7px}.consoleResearchSelectedContext .consoleResearchBusiness{white-space:normal}}
+@media(max-width:600px){.consoleResearchHeader nav{width:100%}.consoleResearchHeader nav>a{flex:1 1 auto}.consoleResearchPane .consoleResearchToolbar label{flex:1 1 calc(50% - 6px)}.consoleResearchPane .consoleResearchToolbar .consoleCollectionSearch,.consoleResearchPane .consoleResearchToolbar .consoleCollectionBusinessFilter{flex-basis:100%}.consoleResearchRowTop{flex-wrap:wrap;gap:3px}.consoleResearchTitle{flex-basis:100%}.consoleResearchState{max-width:100%;display:flex;gap:5px;flex-wrap:wrap;align-items:center}.consoleResearchBusiness{white-space:normal;overflow-wrap:anywhere}.consoleResearchFacts>div{grid-template-columns:minmax(0,1fr);gap:1px}.consoleResearchPagination nav{width:100%;justify-content:space-between}.consoleResearchDetail{padding:7px}.consoleResearchSelectedRecord{flex-wrap:wrap}.consoleResearchSelectedRecord>.consoleResearchBusiness{flex-basis:100%}.consoleResearchBusinessName{white-space:normal;overflow-wrap:anywhere}}
 @media(prefers-reduced-motion:reduce){.consoleResearchPane *{scroll-behavior:auto!important}}

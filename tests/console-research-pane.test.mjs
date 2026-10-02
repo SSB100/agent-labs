@@ -246,3 +246,33 @@ test("failed experiment metadata does not assert an executed workflow failed", (
   assert.match(markup, /Saved research record failed/);
   assert.doesNotMatch(markup, /research job failed|workflow failed/);
 });
+
+
+test("selected objective, Business discriminator and saved state precede progressive evidence", () => {
+  const fixture = researchFixture("records", { searchParams: selectedSearch });
+  const record = fixture.data.selection.item;
+  const loading = React.createElement("section", { "data-test-evidence-loading": record.id }, "Loading selected evidence");
+  const markup = researchMarkup("records", { searchParams: selectedSearch, evidence: null, props: { evidenceContent: loading } });
+  const detail = markup.slice(markup.indexOf(`<article data-selected-research="${record.id}"`));
+  const beforeEvidence = detail.slice(0, detail.indexOf('data-test-evidence-loading'));
+  assert.match(beforeEvidence, /consoleResearchSelectedObjective/);
+  assert.match(beforeEvidence, /consoleResearchBusinessIdentity/);
+  assert.match(beforeEvidence, /Record /);
+  assert.match(beforeEvidence, /Saved record state/);
+  assert.match(beforeEvidence, /Last saved job:|Last job context unavailable/);
+  assert.ok(beforeEvidence.indexOf('consoleResearchBusinessIdentity') < beforeEvidence.indexOf('consoleResearchBusinessName'));
+  const css = readFileSync(new URL('../src/components/console/console-research-pane.css', import.meta.url), 'utf8');
+  assert.match(css, /\.consoleResearchBusinessIdentity\{[^}]*flex:0 0 auto/);
+  assert.match(css, /\.consoleResearchSelectedObjective\{[^}]*-webkit-line-clamp:2/);
+});
+
+test("same-Business evidence read cannot reintroduce a rejected primary Research Work binding", () => {
+  const record = researchHistorical(0, { historicalBinding: "unverified", workIdentity: null, workflow: { status: "unavailable", item: null } });
+  const evidence = researchEvidence(0);
+  assert.ok(evidence.workIdentity);
+  const markup = researchMarkup("records", { searchParams: { selected: id(10) }, data: { selection: { status: "found", item: record } }, evidence });
+  assert.match(markup, /Last job context unavailable/);
+  assert.match(markup, /Exact Work linkage unavailable/);
+  assert.doesNotMatch(markup, /Inspect exact Work run/);
+  assert.match(markup, /Metadata-only links establish the saved target/);
+});
