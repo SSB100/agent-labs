@@ -4,3 +4,9 @@
 .creativeProductionChoice{border-top:1px solid var(--core-border);padding:20px 0}.creativeProductionChoice>summary{cursor:pointer;display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px}.creativeProductionChoice>summary span{color:var(--core-muted);font-size:.85rem}.creativePolicyScreens{border:1px solid var(--core-border-strong);border-radius:10px;padding:16px;min-width:0}.creativePolicyScreen{display:grid;gap:10px;border-top:1px solid var(--core-border);margin-top:16px;padding-top:12px}.creativePolicyScreen h4{margin:0;text-transform:capitalize}
 
 .creativeIntro p{max-width:78ch;line-height:1.65}.creativeIntro a,.creativeMuted a{color:var(--core-accent-strong);text-decoration:underline;text-underline-offset:3px}.creativeForm input:not([type=checkbox]),.creativeForm select,.creativeTextField textarea{min-height:44px;font:inherit}.creativeForm input[type=checkbox]{width:20px;height:20px;flex:0 0 20px;accent-color:var(--core-accent)}.creativeForm>label{line-height:1.55}.creativeForm select option{background:var(--core-bg);color:var(--core-text)}
+/* Native select options must not set a grid's intrinsic minimum width on phones. */
+.creativeForm{min-width:0;grid-template-columns:minmax(0,1fr)}
+.creativeFormRow{min-width:0;grid-template-columns:minmax(0,2fr) minmax(0,1fr)}
+.creativeForm label,.creativeFormRow>*{min-width:0;overflow-wrap:anywhere}
+.creativeForm :is(input:not([type=checkbox]),select,textarea){width:100%;max-width:100%;min-width:0}
+@media(max-width:800px){.creativeFormRow{grid-template-columns:minmax(0,1fr)}}
