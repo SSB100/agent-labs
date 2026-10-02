@@ -61,7 +61,7 @@ test("protected route AppShell forwards only an authorized Business to console d
   assert.doesNotMatch(render("not-owned"), /business=not-owned/);
   for (const page of ["accounts", "accounts/registration", "accounts/password", "accounts/secure", "artifacts", "products", "printful", "etsy"]) {
     const source = readFileSync(`src/app/dashboard/${page}/page.tsx`, "utf8");
-    assert.match(source, /<AppShell[^>]*navigationBusinessId=/, `${page} must pass its validated Business to the shared shell`);
+    assert.match(source, /<(?:AppShell|ConsoleShell)[^>]*navigationBusinessId=/, `${page} must pass its validated Business to the shared shell`);
   }
 });
 

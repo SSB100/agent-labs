@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { accountReturnHref } from "@/accounts/connection-feedback";
+import { notFound, redirect } from "next/navigation";
 import { loadAccountWorkspace } from "@/accounts/server";
-import { BusinessAccountWorkspace, accountMessages } from "./account-workspace";
+import { BusinessAccountWorkspace, accountNoticeMessage } from "./account-workspace";
 import "./accounts.css";
 
 import {
@@ -83,6 +84,20 @@ function record<T>(value: unknown): T | null {
 export default async function AccountsPage({ searchParams }: AccountsPageProps) {
   const context = await requireOwnerUiContext();
   const query = await searchParams;
+  if (process.env.AGENTLABS_GUIDED_UI !== "legacy" && first(query.diagnostics) !== "platform") {
+    const businessId = first(query.business) ?? context.businesses[0]?.id;
+    if (businessId && !context.businessesUnavailable && !context.businesses.some(business => business.id === businessId)) notFound();
+    const notice = first(query.message), failure = first(query.error);
+    if ((notice && Object.hasOwn(messages, notice)) || (failure && Object.hasOwn(errors, failure))) {
+      const diagnostics = new URLSearchParams({ diagnostics: "platform" });
+      if (businessId) diagnostics.set("business", businessId);
+      if (notice && Object.hasOwn(messages, notice)) diagnostics.set("message", notice);
+      if (failure && Object.hasOwn(errors, failure)) diagnostics.set("error", failure);
+      redirect(`/dashboard/accounts?${diagnostics.toString()}`);
+    }
+    if (businessId) redirect(accountReturnHref(businessId, { returnTo: first(query.returnTo), runId: first(query.connectionRun) ?? first(query.run), message: first(query.accountMessage), provider: first(query.provider) }));
+    redirect("/dashboard?view=connections");
+  }
   const message = messages[first(query.message) ?? ""];
   const error = errors[first(query.error) ?? ""];
   const browserConfigured = isDefaultBrowserProviderConfigured();
@@ -90,7 +105,10 @@ export default async function AccountsPage({ searchParams }: AccountsPageProps) 
   if (requestedBusiness && !context.businessesUnavailable && !context.businesses.some(business => business.id === requestedBusiness)) notFound();
   const selectedBusiness = context.businesses.find(b => b.id === requestedBusiness) ?? context.businesses[0];
   const accountWorkspace = selectedBusiness ? await loadAccountWorkspace(context, selectedBusiness.id) : null;
-  const accountMessage = accountMessages[first(query.accountMessage) ?? ""];
+  const selectedRequestId = first(query.connectionRun) ?? first(query.run);
+  const selectedRequest = accountWorkspace?.runs.find(run => run.id === selectedRequestId);
+  const messageProvider = selectedRequest?.provider ?? (first(query.provider) === "etsy" ? "etsy" : "printful");
+  const accountMessage = accountNoticeMessage(accountWorkspace, messageProvider, selectedRequestId, first(query.accountMessage));
 
   const [providerResult, sessionResult, plannerResult, plannerCaseResult] = await Promise.all([
     context.supabase
