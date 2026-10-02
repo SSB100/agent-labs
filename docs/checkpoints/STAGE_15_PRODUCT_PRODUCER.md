@@ -1,6 +1,6 @@
 # Stage 15 single-product configuration producer
 
-Status: implementation prepared; production activation and the full Stage 15 exit remain open. This checkpoint does not assert a provider request, configured product, physical print verification or listing-ready Product Package. Database installation and software release evidence are recorded separately below.
+Status: implementation reviewed and database installed; production activation and the full Stage 15 exit remain open. This checkpoint does not assert a provider request, configured product, physical print verification or listing-ready Product Package. Database installation and software release evidence are recorded separately below.
 
 ## Bounded implementation
 
@@ -51,9 +51,9 @@ Truthful finished-product mockups/provenance and the authenticated Stage 17 full
 
 Focused transport, engine, server and UI tests cover exact scope/source hashes, key-order persistence, missing stock/cost/placement provenance, pre-dispatch markers, concurrent starts, cancellation, expiry/revocation, uncertain responses, delayed observations, atomic receipt failure and safe unavailable states. The final test counts, independent review, SQL preservation and exact hosted release gate are recorded when complete.
 
-No hosted SQL application, provider request, upload, key configuration, scope expansion, paid call, order or Etsy publication was performed to implement this slice.
+Hosted SQL installation is verified below. No provider request, upload, key configuration, scope expansion, paid call, order or Etsy publication was performed to implement this slice.
 
-### Frozen offline release candidate
+### Reviewed release candidate and hosted installation
 
 - Clean remote ancestry: `d752486f85d58906ff4dbf26b506b7d08e02e8ea`
 - Full final local test run: 1,044 tests, 1,038 passed, zero failed, six existing browser-only checks skipped in this executor. The new isolated SQL test was explicitly enabled and passed
@@ -61,5 +61,7 @@ No hosted SQL application, provider request, upload, key configuration, scope ex
 - Independent execution/security review resolved four findings: upstream/readback fact-hash domain mismatch; incomplete source-review projection; unrelated invoker Core-write regression; late Stop/approval/lease/TEST change while credential authorization awaited. The final request fence now runs after authorization and before each provider dispatch; the independent cancellation reproduction produced zero POSTs
 - Needs You loads exact owner-scoped, workflow-independent Printful reconciliation requests and links the saved attempt. Missing/partial reads remain unavailable rather than reporting a falsely empty queue
 - The cloud browser could not open the local synthetic UI fixture (`ERR_BLOCKED_BY_CLIENT`). Static React render and action/queue tests passed; authenticated/browser visual acceptance is not claimed
-- Migration is frozen, offline-tested and awaiting separate hosted approval. SHA-256: `46088d3246608419c861a6e88979f6d3aec467d6b93a6b31599102d21cfba62f`. See [exact database contract](STAGE_15_PRODUCT_SQL_CONTRACT.md)
-- Draft PR, exact-commit hosted CI/preview and production deployment verification: pending
+- Migration was applied with explicit owner approval and native confirmation at 2026-10-02 00:42:56 UTC, recorded as `20261002004256_stage15_product_configuration`. All existing function/table/trigger metadata and row counts were preserved; six new private tables are empty and deny application-role access. SQL bytes are unchanged. SHA-256: `46088d3246608419c861a6e88979f6d3aec467d6b93a6b31599102d21cfba62f`. See [exact database contract](STAGE_15_PRODUCT_SQL_CONTRACT.md)
+- [PR36](https://github.com/SSB100/agent-labs/pull/36) initial exact-head CI passed: 1,044 tests, 1,043 passed, zero failed, one explicitly skipped opt-in SQL test; the same SQL suite separately passed 7/7 locally. Optimized build passed in [run 36940355933](https://github.com/SSB100/agent-labs/actions/runs/36940355933)
+- Preview deployment was READY and its unauthenticated Printful route correctly required owner sign-in
+- The post-install commit changes only the migration filename and this installation evidence. Final exact-head hosted gate, merge and production verification remain the release steps; database installation does not qualify live provider behavior

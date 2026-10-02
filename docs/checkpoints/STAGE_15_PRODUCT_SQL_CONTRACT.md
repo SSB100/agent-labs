@@ -1,6 +1,6 @@
 # Stage15 product configuration persistence contract
 
-Status: code-only and offline-tested. Migration `20261001222843_stage15_product_configuration` has not been applied to a hosted database. It was generated with the cached official Supabase CLI 2.101.0 using `supabase migration new stage15_product_configuration`. No source, account, credential, enabled authority, provider request, deployment, paid action, or live qualification is created by this migration.
+Status: reviewed and installed on the Agent Labs hosted database at 2026-10-02 00:42:56 UTC, after explicit owner approval and native confirmation. Hosted migration version is `20261002004256_stage15_product_configuration`; the filename was aligned without changing the approved SQL bytes. The original migration was generated with the cached official Supabase CLI 2.101.0 using `supabase migration new stage15_product_configuration`. No source, account, credential, enabled authority, provider request, deployment, paid action, or live qualification is created by this migration.
 
 ## Scope and authority
 
@@ -113,7 +113,11 @@ Supabase's current changelog and database function/RLS guidance were checked on 
 - https://supabase.com/docs/guides/database/postgres/row-level-security
 - https://developers.printful.com/docs/
 
-Still required: independent final code/security review, explicit migration approval and hosted application, role/advisor/permission review on the target database, separately approved credential/write-scope provisioning, authenticated upload and physical-placement producers, then one specifically authorized real configuration and its independent qualification. None is implied by these offline results.
+Independent final code/security review, explicit migration approval, hosted application and target role/advisor review are complete. Still required: final exact-head software release verification, separately approved credential/write-scope provisioning, authenticated upload and physical-placement producers, then one specifically authorized real configuration and its independent qualification. None is implied by the database installation.
+
+Hosted preservation checks found all 160 existing function definitions/security/ACLs, 77 existing table ACL/RLS definitions and 109 existing triggers unchanged. Every existing table count remained unchanged (1,219 total rows); no credential/session-secret columns were read for those checks. The six new tables are empty, have RLS, and deny direct access to anon/authenticated/service_role. The owner RPC denies anon and service_role execution and retains its owner check and separate server-key guard.
+
+Security advisors report the expected six private deny-all RLS/no-policy INFOs and one authenticated SECURITY DEFINER warning for the deliberately owner-guarded RPC. No new anonymous definer exposure was introduced. Existing runtime-capability warnings and the prior Auth leaked-password-protection warning remain outside this migration. See the [function advisory](https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable), [deny-all RLS advisory](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy), and [password-protection guidance](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection).
 
 ## Reviewed offline file fingerprints
 
@@ -121,4 +125,4 @@ Still required: independent final code/security review, explicit migration appro
 - Rollback SQL regression SHA-256: `733cf7975c07d02e04afd8c02545a1ced2c672ec0c76d7b03ed01aacb1c3b858`
 - Node static/wire test SHA-256: `19be2a82792ecd8d13c91c811713c79dac5824137e085fd036b878b87d1c6802`
 
-These fingerprints identify offline-tested code only, not hosted approval, activation or live qualification.
+These fingerprints identify the reviewed, offline-tested and installed migration bytes. They do not prove provider activation or live qualification.
