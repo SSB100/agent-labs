@@ -72,9 +72,13 @@ async function browserBundle() {
     return result.outputFiles[0].text.replace(/<\/script/gi,'<\\/script');
   });
 }
-export async function libraryDocument(route, { fixture = rootLibraryFixture(), retained = true } = {}) {
+export async function libraryDocument(route, { fixture = rootLibraryFixture(), retained = true, deferHydration = false } = {}) {
   const state=await libraryClientState(route,fixture),modules={...fixture.load('src/components/console/console-shell.tsx'),...fixture.load('src/components/console/console-command.tsx'),...fixture.load('src/components/console/console-library-pane.tsx'),...fixture.load('src/components/guided/quest-kickoff.tsx')};
   const markup=renderToString(React.createElement(React.Suspense,{fallback:React.createElement('p',{role:'status'},'Loading synthetic saved Library…')},libraryTree(React,modules,state)));
   const styles=['src/app/globals.css','src/app/stage1.css','src/app/stage3.css','src/app/stage7.css','src/app/stage7-mobile.css','src/app/stage8.css','src/components/console/console-shell.css','src/components/console/console-command.css','src/components/console/console-panes.css','src/components/console/console-collection-panes.css','src/components/console/console-library-pane.css','src/components/guided/quest-kickoff.css'].map(file=>readFileSync(file,'utf8')).join('\n');
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="data:,"><title>SYNTHETIC actual-root read-only Library fixture</title><style>${styles}</style></head><body data-synthetic-fixture="read-only-library"><div id="library-root-island" style="display:contents">${markup}</div><script>window.__libraryRetained=${JSON.stringify(retained)};window.__libraryState=${JSON.stringify(state).replace(/</g,'\\u003c')}</script><script>${await browserBundle()}</script></body></html>`;
+  const hydration=await browserBundle();
+  // A test-only barrier proves image errors occurring before React listeners exist.
+  // It never changes production code or permits any additional request destination.
+  const script=deferHydration?`window.__libraryHydrationDeferred=true;window.__libraryStartHydration=()=>{if(!window.__libraryHydrationDeferred)throw Error('Synthetic hydration already started');window.__libraryHydrationDeferred=false;${hydration}};`:hydration;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="data:,"><title>SYNTHETIC actual-root read-only Library fixture</title><style>${styles}</style></head><body data-synthetic-fixture="read-only-library"><div id="library-root-island" style="display:contents">${markup}</div><script>window.__libraryRetained=${JSON.stringify(retained)};window.__libraryState=${JSON.stringify(state).replace(/</g,'\\u003c')}</script><script>${script}</script></body></html>`;
 }

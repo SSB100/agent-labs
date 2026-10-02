@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import { runInNewContext } from "node:vm";
 import test from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { libraryMarkup, libraryDesign, libraryRun, libraryPane, runLookup, id } from "./helpers/console-library-pane-fixtures.mjs";
+import { libraryMarkup, libraryDesign, libraryRun, libraryPane, runLookup, preview, id } from "./helpers/console-library-pane-fixtures.mjs";
 
 for (const kind of ["designs", "records"]) {
   test(`${kind}: actual pane renders a bounded metadata page representing 127 records and two Businesses`, () => {
@@ -112,7 +112,7 @@ test("actual private preview leaf replaces expired image and link without retryi
   const source = readFileSync("src/components/console/console-library-preview.tsx", "utf8");
   const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022 } }).outputText;
   let failed = false; const fixtureModule = { exports: {} };
-  runInNewContext(`(function(require,module,exports){${code}\n})`)(name => name === "react" ? { useState: () => [failed, value => { failed = value; }] } : require(name), fixtureModule, fixtureModule.exports);
+  runInNewContext(`(function(require,module,exports){${code}\n})`)(name => name === "react" ? { useState: () => [failed, value => { failed = value; }], useCallback: callback => callback } : require(name), fixtureModule, fixtureModule.exports);
   const props = { signedUrl: "https://fixture.invalid/private?token=must-not-enter-error", reason: null, version: 1, large: true };
   const leaf = fixtureModule.exports.ConsoleLibraryPreview;
   const findImage = node => !node || typeof node !== "object" ? null : node.type === "img" ? node : (Array.isArray(node) ? node : [node.props?.children]).flat(Infinity).map(findImage).find(Boolean);
@@ -255,4 +255,40 @@ test("lookup new typing wins over fresh native history restoration before either
     fixture.field.value = "User typed after history mount"; fixture.form.dispatchEvent(new Event("input"));
     fixture.view.dispatchEvent(lookupPageShow(false)); fixture.settle(); assert.equal(fixture.field.value, "User typed after history mount"); cleanup();
   }
+});
+
+test("private preview commit check distinguishes a completed pre-hydration failure from unloaded lazy, pending, loaded and stale sources", () => {
+  const signedUrl = "https://fixture.invalid/private-preview?token=inert";
+  const image = changes => Object.freeze({ complete: true, currentSrc: signedUrl, naturalWidth: 0, src: signedUrl, getAttribute: name => name === "src" ? signedUrl : null, ...changes });
+  assert.equal(preview.consoleLibraryPreviewFailed(image({}), signedUrl), true);
+  for (const changes of [{ complete: false }, { currentSrc: "" }, { currentSrc: "", complete: false }, { naturalWidth: 1 }, { currentSrc: "https://fixture.invalid/older-preview" }, { getAttribute: () => "https://fixture.invalid/different-preview" }]) assert.equal(preview.consoleLibraryPreviewFailed(image(changes), signedUrl), false);
+  assert.equal(preview.consoleLibraryPreviewFailed(image({}), null), false);
+});
+test("actual committed preview callback replaces a request already failed before hydration and keeps new URL reset keyed", () => {
+  const require = createRequire(import.meta.url), ts = require("typescript"), source = readFileSync("src/components/console/console-library-preview.tsx", "utf8");
+  const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022 } }).outputText;
+  let failed = false; const fixtureModule = { exports: {} };
+  runInNewContext(`(function(require,module,exports){${code}\n})`)(name => name === "react" ? { useState: () => [failed, value => { failed = value; }], useCallback: callback => callback } : require(name), fixtureModule, fixtureModule.exports);
+  const leaf = fixtureModule.exports.ConsoleLibraryPreview, signedUrl = "https://fixture.invalid/private?token=never-print-token", props = { signedUrl, reason: null, version: 1, large: true, compact: true };
+  const findImage = node => !node || typeof node !== "object" ? null : node.type === "img" ? node : (Array.isArray(node) ? node : [node.props?.children]).flat(Infinity).map(findImage).find(Boolean);
+  const requestAlreadyFailed = Object.freeze({ src: signedUrl, currentSrc: signedUrl, complete: true, naturalWidth: 0, getAttribute: () => signedUrl });
+  const first = leaf(props); findImage(first).props.ref(requestAlreadyFailed);
+  const recovered = renderToStaticMarkup(leaf(props));
+  assert.match(recovered, /Private preview unavailable/); assert.match(recovered, /Reload to refresh private access/); assert.doesNotMatch(recovered, /<img|Open full image|never-print-token/);
+  findImage(first).props.ref(null); assert.equal(failed, true, "unmount is inert");
+  // The parent provides a new key for a newly supplied signed URL; no old URL is retried.
+  failed = false; const renewed = leaf({ ...props, signedUrl: "https://fixture.invalid/new-approved-source" });
+  findImage(renewed).props.ref({ ...requestAlreadyFailed, src: "https://fixture.invalid/new-approved-source", currentSrc: "", complete: false, getAttribute: () => "https://fixture.invalid/new-approved-source" });
+  assert.equal(failed, false); assert.match(renderToStaticMarkup(renewed), /new-approved-source/);
+});
+test("desktop Library reclaims the fold without shrinking text or hiding its five independent states", () => {
+  const css = readFileSync("src/components/console/console-library-pane.css", "utf8");
+  assert.match(css, /@media\(min-width:901px\)/); assert.match(css, /min-height:34px/); assert.match(css, /min-height:44px/);
+  assert.match(css, /grid-template-columns:140px minmax\(0,1fr\)/); assert.match(css, /grid-template-columns:minmax\(115px,\.62fr\) minmax\(0,1\.38fr\)/);
+  assert.doesNotMatch(css, /font-size:(?:[0-9]|1[01])px/);
+  const markup = libraryMarkup("designs", { searchParams: { selected: id(1000) } });
+  const selected = markup.slice(markup.indexOf(`data-library-design="${id(1000)}"`));
+  assert.ok(selected.indexOf("consoleLibraryDesignSummary") < selected.indexOf("consoleLibraryBusiness"));
+  const summary = selected.slice(selected.indexOf("consoleLibraryBoundaries"), selected.indexOf("consoleLibraryBusiness"));
+  for (const label of ["Visual review", "Print-file checks", "Saved approval", "Market ProductTEST", "Listing / publication"]) assert.ok(summary.includes(label), label);
 });

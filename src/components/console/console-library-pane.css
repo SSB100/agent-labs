@@ -92,3 +92,16 @@
 .consoleLibraryDetail .consoleLibraryCharge{font-size:13px;margin:4px 0}
 .consoleLibraryCharge strong{color:var(--collection-text);font-size:16px}
 @media(max-width:450px){.consoleLibraryDesignSummary{grid-template-columns:minmax(90px,.65fr) minmax(0,1.35fr)}.consoleLibraryHeader nav{flex-wrap:wrap}.consoleLibraryDesignSummary .consoleLibraryPreviewLarge figcaption a{font-size:12px}.consoleLibraryDesignSummary .consoleLibraryBoundaries{padding:5px}}
+/* Desktop matches Work's compact controls; mobile/zoom retains the44px targets above. */
+@media(min-width:901px){
+ .consoleLibraryPane .consoleLibraryHeader nav a,.consoleLibraryPane .consoleLibraryToolbar :is(input:not([type=hidden]),select,button),.consoleLibraryPane .consoleCollectionFilterActions :is(a,button),.consoleLibraryPane .consoleCollectionDetail>header>a,.consoleLibraryPane .consoleLibraryRunLookup>summary,.consoleLibraryPane .consoleLibraryRunLookup :is(input,button),.consoleLibraryPane .consoleLibraryDisclosure>summary,.consoleLibraryPane .consoleLibraryTextLink,.consoleLibraryPane .consoleLibraryPreview figcaption a{min-height:34px}
+ .consoleLibraryPane .consoleCollectionPagination nav>:is(a,span){min-height:34px;min-width:34px}
+ .consoleLibraryPane .consoleLibraryBusiness{-webkit-line-clamp:1;line-clamp:1}
+ .consoleLibraryDesignSummary{grid-template-columns:140px minmax(0,1fr);margin-top:6px;margin-bottom:6px;align-items:start}
+ .consoleLibraryDesignSummary .consoleLibraryPreviewLarge img{height:80px;min-height:80px;max-height:80px}
+ .consoleLibraryDesignSummary .consoleLibraryPreviewLarge .consoleLibraryPreviewMissing{min-height:80px}
+ .consoleLibraryDesignSummary .consoleLibraryPreviewLarge figcaption{padding:4px 6px;gap:0;font-size:12px;line-height:1.35}
+ .consoleLibraryDesignSummary .consoleLibraryFacts>div{grid-template-columns:minmax(115px,.62fr) minmax(0,1.38fr);gap:7px}
+ .consoleLibraryDesignSummary .consoleLibraryFacts dt,.consoleLibraryDesignSummary .consoleLibraryFacts dd{font-size:12px;line-height:1.4}
+ .consoleLibraryDesignSummary .consoleLibraryFacts{gap:5px}
+}
