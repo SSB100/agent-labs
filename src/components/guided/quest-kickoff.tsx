@@ -143,12 +143,12 @@ function QuestKickoffForm({ ownerId, businesses, available, quote }: QuestKickof
       <div className="questKickoffBody">
         <div className="questKickoffStepHeading"><p className="questKickoffEyebrow">Step {step + 1} of 3</p><h3 ref={headingRef} tabIndex={-1}>{["What would you like to learn?", "Set the boundaries", "Review before research starts"][step]}</h3></div>
         {step === 0 ? <div className="questKickoffFields">
-          <label htmlFor={fieldId("businessId")}>Business context
-            <select id={fieldId("businessId")} name="businessId" required value={draft.businessId} onChange={event => edit("businessId", event.target.value)} aria-invalid={Boolean(errorFor("businessId"))}>
+          <label htmlFor={fieldId("businessId")}><span id={fieldId("business-label")}>Business context</span>
+            <select id={fieldId("businessId")} aria-labelledby={fieldId("business-label")} aria-describedby={fieldId("business-help")} name="businessId" required value={draft.businessId} onChange={event => edit("businessId", event.target.value)} aria-invalid={Boolean(errorFor("businessId"))}>
               {!businessIds.includes(draft.businessId) ? <option value="">Choose a Business</option> : null}
               {businesses.map(business => <option key={business.id} value={business.id}>{business.name}</option>)}
             </select>
-            <small>Original goals and receipts stay private to this Business.</small>
+            <small id={fieldId("business-help")}>Original goals and receipts stay private to this Business.</small>
           </label>
           {!businesses.length ? <p className="questKickoffNotice" role="status">Create a Business before starting research. You can still prepare your goal here.</p> : null}
           <label htmlFor={fieldId("goal")}>What do you want to learn about original POD T-shirts?

@@ -138,9 +138,10 @@ export default async function WorkflowPage({ params, searchParams }: WorkflowPag
       active="workflows"
       context={context}
       workflowRunId={detail.run.id}
+      navigationBusinessId={detail.run.business_id}
     >
       <div className="workflowBreadcrumbs">
-        <Link href="/dashboard/workflows">Work</Link>
+        <Link href={`/dashboard?view=work&business=${detail.run.business_id}`}>Work</Link>
         <span>/</span>
         <span>{workflowName}</span>
       </div>
@@ -149,7 +150,7 @@ export default async function WorkflowPage({ params, searchParams }: WorkflowPag
         actions={
           <div className="workflowHeaderActions">
             <StatusPill status={detail.run.status} />
-            <Link className="coreButton coreButton-secondary" href="/dashboard/workflows">
+            <Link className="coreButton coreButton-secondary" href={`/dashboard?view=work&business=${detail.run.business_id}`}>
               Back to work
             </Link>
           </div>

@@ -155,7 +155,7 @@ export default async function AccountsPage({ searchParams }: AccountsPageProps) 
   ];
 
   return (
-    <AppShell active="accounts" context={context}>
+    <AppShell active="accounts" context={context} navigationBusinessId={selectedBusiness?.id}>
       <PageHeader
         description="Business accounts, the access you approved, and the exact next setup step."
         eyebrow="Connections"

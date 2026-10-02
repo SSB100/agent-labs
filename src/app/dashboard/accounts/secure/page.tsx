@@ -18,7 +18,7 @@ export default async function SecureAccountPage({ searchParams }: { searchParams
   const workspace = await loadAccountWorkspace(context, businessId), run = workspace.runs.find(r => r.id === runId);
   const eligible = !workspace.unavailable && workspace.vaultConfigured && run?.provider === "printful" &&
     run.status === "owner_handoff" && !!run.approvalExpiresAt && Date.parse(run.approvalExpiresAt) > Date.parse(workspace.observedAt);
-  return <AppShell active="accounts" context={context}>
+  return <AppShell active="accounts" context={context} navigationBusinessId={businessId}>
     <PageHeader eyebrow="Owner-only secure step" title="Connect your Printful store" description="Enter this credential yourself in your own browser, outside any automated or recorded session. The application keeps it out of models and workflow artifacts."
       actions={<Link className="coreButton" href={`/dashboard/accounts?business=${businessId}#business-accounts`}>Back to account setup</Link>} />
     <section className="accountSecurePanel" data-agent-labs-secure="true" data-private="true" aria-labelledby="secure-owner-title">

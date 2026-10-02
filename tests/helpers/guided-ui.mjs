@@ -250,8 +250,10 @@ export function renderTimelines() {
   ));
 }
 
-export async function renderCreative() {
+export async function renderCreative({ businessFlow = false } = {}) {
   const { shell, icons } = components();
+  const otherBusiness = { ...business, id: "fixture-other-business", name: "Other authorized Business" };
+  const creativeContext = ownerContext({ businesses: businessFlow ? [business, otherBusiness] : [business] });
   const productTypes = loadSource("src/products/types.ts");
   const productHistory = loadSource("src/products/history.ts", { "./types": productTypes });
   const { ProductSubmitButton } = loadSource("src/components/stage13/products-workspace.tsx", {
@@ -266,10 +268,10 @@ export async function renderCreative() {
     "@/creative/cost-display": loadSource("src/creative/cost-display.ts"),
     "@/creative/proposal": { FLUX_KLEIN_PROVIDER_TERMS: ["https://example.invalid/developer-terms", "https://example.invalid/api-terms"], TECHNICAL_PRINT_SPECIFICATION: { sourceUrl: "https://example.invalid/specification", verifiedAt: fixtureTime } },
     "@/creative/image-provider": { FLUX_KLEIN_PNG_POLICY: { modelId: "black-forest-labs/flux.2-klein-4b" } },
-    "@/creative/types": loadSource("src/creative/types.ts"), "@/lib/core-ui/data": { requireOwnerUiContext: async () => ownerContext() },
+    "@/creative/types": loadSource("src/creative/types.ts"), "@/lib/core-ui/data": { requireOwnerUiContext: async () => creativeContext },
     "./actions": { approveCreativeCandidate: noAction, approveProductionCreativeCandidate: noAction, closeExpiredCreativeRun: noAction, startCreativeRun: noAction }, "./artifacts.css": {},
   });
-  return renderToStaticMarkup(await Page({ searchParams: Promise.resolve({}) }));
+  return renderToStaticMarkup(await Page({ searchParams: Promise.resolve(businessFlow ? { business: otherBusiness.id } : {}) }));
 }
 
 export const researchGoal = "Compare supported starting markets for original nature T-shirts and preserve the evidence for review.";

@@ -54,8 +54,8 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
   const recordsUnavailable = context.businessesUnavailable || data.errors.length > 0 || discovery.errors.length > 0;
   const activeResearch = data.experiments.filter((experiment) => ["reserved", "researching"].includes(experiment.status)).length;
 
-  return <AppShell active="products" context={context}>
-    <PageHeader eyebrow="Work · Supported research" title="Research quest" description="Define a bounded goal and review the scope before any paid work." actions={<Link className="coreButton coreButton-secondary" href="/dashboard/workflows">Back to work</Link>} />
+  return <AppShell active="products" context={context} navigationBusinessId={selectedBusiness?.id}>
+    <PageHeader eyebrow="Work · Supported research" title="Research quest" description="Define a bounded goal and review the scope before any paid work." actions={<Link className="coreButton coreButton-secondary" href={`/dashboard?view=work${selectedBusiness ? `&business=${selectedBusiness.id}` : ""}`}>Back to work</Link>} />
     {selectedBusiness ? <p className="coreNotice">Business: {selectedBusiness.name} · <Link href="/dashboard/products">View all businesses</Link></p> : null}
     {message ? <p className="coreNotice coreNotice-success" role="status">{message}</p> : null}
     {error ? <p className="coreNotice coreNotice-danger" role="alert">{error}</p> : null}

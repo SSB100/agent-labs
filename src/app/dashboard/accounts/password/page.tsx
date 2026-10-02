@@ -15,7 +15,7 @@ export default async function AccountPasswordPage({ searchParams }: { searchPara
   if (!ACCOUNT_UUID.test(businessId) || !ACCOUNT_UUID.test(connectionId) || !context.businesses.some(b => b.id === businessId)) notFound();
   const data = await loadAccountWorkspace(context, businessId), account = data.accounts.find(a => a.id === connectionId);
   const eligible = !data.unavailable && data.vaultConfigured && account?.status === "connected";
-  return <AppShell active="accounts" context={context}><PageHeader eyebrow="Owner-only secure vault" title="Save a service password"
+  return <AppShell active="accounts" context={context} navigationBusinessId={businessId}><PageHeader eyebrow="Owner-only secure vault" title="Save a service password"
     description="Optional encrypted storage for a unique website password, separate from API tokens. Enter it yourself; never send it in chat."
     actions={<Link className="coreButton" href={`/dashboard/accounts?business=${businessId}#business-accounts`}>Back to Accounts</Link>} />
     <section className="accountSecurePanel" data-agent-labs-secure="true" data-private="true">

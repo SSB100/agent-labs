@@ -139,7 +139,13 @@ test("primary action chooses oldest decision, then exact current run, then resea
 test("all navigation remains in root tabs, with exact workflow run selection", () => {
   const collection = { ...active(), interventions: [intervention], artifacts: [artifact], events: [{ id: "event-1", workflow_run_id: run.id, business_id: "business-1", event_type: "worker.completed", occurred_at: timestamp }] };
   const markup = render({ collection });
-  for (const match of markup.matchAll(/href="([^"]+)"/g)) assert.match(match[1], /^\/dashboard\?view=(work|library|decisions|connections|activity|overview)(?:&amp;(run|sheet)=[^"&]+)?$/);
+  for (const match of markup.matchAll(/href="([^\"]+)"/g)) {
+    const url = new URL(match[1].replaceAll("&amp;", "&"), "https://fixture.invalid");
+    assert.equal(url.pathname, "/dashboard");
+    assert.ok(["work", "library", "decisions", "connections", "activity", "overview"].includes(url.searchParams.get("view")));
+    for (const key of url.searchParams.keys()) assert.ok(["view", "run", "sheet", "artifact"].includes(key));
+    if (url.searchParams.has("artifact")) { assert.equal(url.searchParams.get("run"), run.id); assert.equal(url.hash, `#artifact-${url.searchParams.get("artifact")}`); }
+  }
   assert.match(markup, new RegExp(`href="/dashboard\\?view=work&amp;run=${run.id}"`));
   assert.match(markup, /Worker completed/);
   assert.match(markup, /02 Oct, 02:30 UTC/);

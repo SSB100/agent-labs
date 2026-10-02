@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import path from "node:path";
 import test from "node:test";
 import { chromium } from "playwright-core";
 import { businessFlow, businessFixtureDocument } from "./helpers/console-business-browser.mjs";
-import { renderDashboard } from "./helpers/guided-ui.mjs";
+import { business, components, ownerContext, renderCreative, renderDashboard } from "./helpers/guided-ui.mjs";
 
 let documents;
 function loadDocuments() {
@@ -42,6 +44,38 @@ test("overview research and connection shortcuts preserve the selected Business"
   assert.ok(links.every(href => href === `/dashboard?view=connections&amp;business=${businessFlow.businessId}`));
 });
 
+test("Work pane header research and All work links retain Business B", async () => {
+  const list = await renderDashboard({ view: "work", businessFlow: true });
+  const detail = await renderDashboard({ view: "work", detail: true, businessFlow: true, omitBusinessQuery: true });
+  assert.ok(list.includes(`href="/dashboard?view=work&amp;business=${businessFlow.businessId}&amp;sheet=research"`));
+  assert.ok(detail.includes(`href="/dashboard?view=work&amp;business=${businessFlow.businessId}">All work</a>`));
+});
+
+test("protected route AppShell forwards only an authorized Business to console destinations", () => {
+  const { shell } = components();
+  const context = ownerContext({ businesses: [business, { ...business, id: businessFlow.businessId, name: businessFlow.name }] });
+  const render = id => renderToStaticMarkup(React.createElement(shell.AppShell, { active: "accounts", context, navigationBusinessId: id }, React.createElement("h1", null, "Protected account detail")));
+  const markup = render(businessFlow.businessId);
+  for (const view of ["overview", "library", "connections", "work"]) assert.ok(markup.includes(`/dashboard?view=${view}&amp;business=${businessFlow.businessId}`));
+  assert.doesNotMatch(render("not-owned"), /business=not-owned/);
+  for (const page of ["accounts", "accounts/registration", "accounts/password", "accounts/secure", "artifacts", "products", "printful", "etsy"]) {
+    const source = readFileSync(`src/app/dashboard/${page}/page.tsx`, "utf8");
+    assert.match(source, /<AppShell[^>]*navigationBusinessId=/, `${page} must pass its validated Business to the shared shell`);
+  }
+});
+
+test("protected Artifacts and Printful evidence links preserve Business selection", async () => {
+  const markup = await renderCreative({ businessFlow: true });
+  assert.ok(markup.includes(`href="/dashboard/products?business=${businessFlow.businessId}"`));
+  assert.ok(markup.includes(`/dashboard?view=connections&amp;business=${businessFlow.businessId}`));
+  const select = markup.match(/<select name="businessId"[^>]*>(.*?)<\/select>/s)?.[1];
+  assert.ok(select?.includes(`value="${businessFlow.businessId}"`));
+  assert.ok(!select?.includes('value="fixture-business"'));
+  const printful = readFileSync("src/app/dashboard/printful/page.tsx", "utf8");
+  assert.ok(printful.includes('href={`/dashboard/products${business ? `?business=${business.id}` : ""}`}'));
+  assert.ok(printful.includes('href={`/dashboard/artifacts${business ? `?business=${business.id}` : ""}`}'));
+});
+
 const enabled = process.env.GUIDED_UI_BROWSER === "1" || Boolean(process.env.GUIDED_UI_CHROMIUM_PATH);
 test("B run to Library to Connections to hydrated research keeps B without provider actions", { skip: !enabled, timeout: 120_000 }, async t => {
   const docs = await loadDocuments();
@@ -76,7 +110,9 @@ test("B run to Library to Connections to hydrated research keeps B without provi
         const dialog = page.getByRole("dialog", { name: "Research setup", exact: true });
         await dialog.waitFor();
         await page.waitForFunction(() => document.querySelector("dialog")?.matches(":modal"));
-        assert.equal(await dialog.getByLabel("Business context", { exact: true }).inputValue(), businessFlow.businessId);
+        await page.screenshot({ path: path.join(directory, `business-B-research-${width}.png`), animations: "disabled" });
+        assert.deepEqual(await page.evaluate(() => window.__businessHydrationErrors), []);
+        assert.equal(await dialog.getByRole("combobox", { name: /Business context/ }).inputValue(), businessFlow.businessId);
         assert.equal(await dialog.locator('select[name="businessId"] option').count(), 1);
         assert.equal(await dialog.locator('textarea[name="goal"]').inputValue(), goal);
         assert.equal(await page.evaluate(() => sessionStorage.getItem("fixture-paid-call")), null);

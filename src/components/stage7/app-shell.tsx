@@ -24,6 +24,7 @@ type AppShellProps = {
   children: ReactNode;
   context: OwnerUiContext;
   workflowRunId?: string;
+  navigationBusinessId?: string;
 };
 
 type NavItem = {
