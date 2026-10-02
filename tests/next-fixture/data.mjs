@@ -1,3 +1,4 @@
+import { fixtureTables as collectionSeed } from '../helpers/console-collection-root.mjs';
 import { seed as librarySeed } from '../helpers/console-library-data-fixtures.mjs';
 import { seed as researchSeed } from '../helpers/console-research-data-fixtures.mjs';
 import { fixtureTables as decisionTables, businesses, owner, id, time } from '../helpers/console-decisions.mjs';
@@ -7,6 +8,7 @@ export function fixtureData() {
   const db = decisionTables({ count: 3 });
   const add = seed => { for (const [table, rows] of Object.entries(seed)) { db[table] ??= []; db[table].push(...rows); } };
   for (let b = 0; b < 2; b++) { add(librarySeed(127, businesses[b].id, 400000 + b * 10000)); add(researchSeed(127, businesses[b].id, 500000 + b * 10000)); }
+  add(collectionSeed({perBusiness:127}));
   for (const [table, rows] of Object.entries(db)) db[table] = rows.filter((r,i) => !r.id || rows.findIndex(other => other.id === r.id) === i);
   db.businesses = businesses.map(b => ({ ...b, owner_user_id: owner })); db.profiles = [{ id: owner, display_name: 'Inert owner with a deliberately long display name' }];
   db.product_candidates = Array.from({length: 51}, (_,n) => ({ id: id(600000+n), business_id: businesses[n%2].id, concept: `Saved candidate ${n} with a very long original concept `.repeat(3), audience: 'Synthetic weekend hikers', hypothesis: 'Synthetic hypothesis only, no actual provider work.', original_design: true, rights_status: 'unclear', source_domains: ['example.invalid'], created_at: time, updated_at: time }));
@@ -27,6 +29,7 @@ export function fixtureData() {
   db.installed_packs=[{id:id(790000),business_id:businesses[0].id,root_pack_id:db.packs[0].id,status:'active',snapshot:{rootPackId:db.packs[0].id,releases:[db.packs[0]]}}];
   const suite=id(800000);
   db.worker_evaluation_suites=[{id:suite,suite_key:'worker.generic-researcher.qualification',version:'1.0.0',name:'Saved researcher qualification '.repeat(5),status:'experimental',minimum_score:90,require_all_required:true}];
+  db.worker_definitions ??= [];
   db.worker_definitions.push({id:id(502),worker_key:'generic.researcher',version:'1.0.0',name:'Inert model researcher',role:'research',status:'experimental',pack_id:id(501)});
   db.worker_evaluation_cases=[{id:id(800001),suite_id:suite,case_key:'fixture.uncertain',name:'Saved unknown provider response',category:'uncertainty',execution_mode:'live',model_target:'fixture.model',required:true,weight:1}];
   db.worker_evaluations=Array.from({length:21},(_,n)=>({id:id(801000+n),suite_id:suite,status:n%2?'failed':'passed',score:n%2?0:100,passed_case_count:n%2?0:1,failed_case_count:n%2?1:0,required_case_count:1,required_failure_count:n%2?1:0,source:'fixture',subject_fingerprint:'a'.repeat(64),started_at:time,completed_at:time,created_at:time}));

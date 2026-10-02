@@ -20,7 +20,7 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false}) {
     assert.match(first,/Loading exact saved workflow/);assert.ok(chunks>1);assert.ok(Date.now()-start>=900,'No delayed stream boundary observed');assert.match(text,/data-work-detail/);
     await fetch(boundary.origin+'/control',{method:'POST',body:JSON.stringify({delayId:null,delayMs:0})});
   });
-  if(httpOnly){await report();return;}
+  if(httpOnly){await report();assert.ok(results.every(result=>result.status==='passed'),'HTTP streaming checks failed; see acceptance.json');return;}
   const browser=await chromium.launch({headless:true,args:['--no-sandbox']});
   try {
     const context=await browser.newContext({viewport:{width:1280,height:720},reducedMotion:'reduce'});
@@ -64,6 +64,25 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false}) {
       await page.goto(origin+`/dashboard/products?business=${id(2)}&panel=new`);
       assert.equal(await page.locator('input[name=concept]').inputValue(),'');
     });
+    await check('retained candidate server action preserves exact Business, duplicate outcome and error drafts',async()=>{
+      const target=origin+`/dashboard/products?business=${business}&panel=new`;
+      const second=await context.newPage();await Promise.all([page.goto(target),second.goto(target)]);
+      for(const current of [page,second]){
+        await current.locator('input[name=concept]').fill('New inert candidate from real Next action');await current.locator('input[name=audience]').fill('Synthetic weekend hikers');
+        await current.locator('textarea[name=hypothesis]').fill('We expect this synthetic adult audience to prefer an original trail journal graphic.');
+        await current.locator('input[name=sourceDomains]').fill('example.invalid');await current.locator('input[name=originalDesign]').check();
+      }
+      await Promise.all([page.getByRole('button',{name:'Save candidate',exact:true}).click(),second.getByRole('button',{name:'Save candidate',exact:true}).click()]);
+      await Promise.all([page.waitForURL(/message=candidate-(saved|reused)/),second.waitForURL(/message=candidate-(saved|reused)/)]);
+      assert.equal(boundary.effects.filter(e=>e.kind==='in-memory-candidate').length,1);
+      const saved=boundary.state().db.product_candidates.find(c=>c.concept==='New inert candidate from real Next action');
+      assert.equal(new URL(page.url()).searchParams.get('candidate'),saved.id);assert.equal(new URL(page.url()).searchParams.get('business'),business);
+      await page.reload();await page.getByRole('heading',{name:saved.concept,exact:true}).waitFor();
+      await page.goto(target);await page.locator('input[name=concept]').fill('New uncertain inert draft');await page.locator('input[name=originalDesign]').check();
+      await control({actionMode:'uncertain'});await page.getByRole('button',{name:'Save candidate',exact:true}).click();await page.waitForURL(/error=candidate-outcome-unconfirmed/);
+      assert.equal(await page.locator('input[name=concept]').inputValue(),'New uncertain inert draft');
+      await control({actionMode:'success'});await second.close();
+    });
     await check('duplicate real server actions have one exact inert acknowledgment and revalidate saved state',async()=>{
       const notice=boundary.state().db.owner_interventions.find(n=>n.intervention_type==='creative_review');
       const target=origin+`/dashboard?view=decisions&business=${business}&decision=${notice.id}`;
@@ -82,7 +101,7 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false}) {
       await control({actionMode:'success'});await second.close();
     });
     const effectCount=boundary.effects.length;
-    const routes=[['overview','/dashboard'],['work','/dashboard?view=work'],['history','/dashboard/history'],['needs-you','/dashboard/needs-you'],['library','/dashboard?view=library'],['research','/dashboard?view=research'],['activity','/dashboard?view=activity'],['connections','/dashboard?view=connections'],['products','/dashboard/products'],['artifacts','/dashboard/artifacts'],['packs','/dashboard/packs'],['model-router','/dashboard/model-router'],['worker-proof','/dashboard/worker-proof'],['evaluations','/dashboard/worker-evaluations'],['settings','/dashboard/settings'],['diagnostics','/dashboard/accounts?diagnostics=platform'],['printful','/dashboard/printful'],['etsy','/dashboard/etsy'],['workflow','/dashboard/workflows/'+id(400050)],['secure','/dashboard/accounts/secure?run='+id(770000)],['password','/dashboard/accounts/password?account='+id(770000)],['registration','/dashboard/accounts/registration?run='+id(770000)]];
+    const routes=[['overview','/dashboard'],['work','/dashboard?view=work'],['history','/dashboard/history'],['needs-you','/dashboard/needs-you'],['library','/dashboard?view=library'],['research','/dashboard?view=research'],['activity','/dashboard?view=activity'],['connections','/dashboard?view=connections'],['products','/dashboard/products'],['artifacts','/dashboard/artifacts'],['packs','/dashboard/packs'],['model-router','/dashboard/model-router'],['worker-proof','/dashboard/worker-proof'],['evaluations','/dashboard/worker-evaluations'],['settings','/dashboard/settings'],['diagnostics','/dashboard/accounts?diagnostics=platform'],['printful','/dashboard/printful'],['etsy','/dashboard/etsy'],['workflow','/dashboard/workflows/'+id(1001)],['secure','/dashboard/accounts/secure?run='+id(770000)],['password','/dashboard/accounts/password?account='+id(770000)],['registration','/dashboard/accounts/registration?run='+id(770000)]];
     for(const [name,route]of routes)await check(`actual retained route ${name}`,async()=>{
       for(const [width,height]of [[1280,720],[1440,900],[390,844]]){
         await page.setViewportSize({width,height});const url=new URL(route,origin);url.searchParams.set('business',business);await page.goto(url.href);await page.locator('body').waitFor();

@@ -34,7 +34,8 @@ function loadSource(path, overrides) {
 }
 function renderWorkspace(data, view = 'Candidates') {
   const { ProductsWorkspace } = loadSource('src/components/stage13/products-workspace.tsx', {
-    react: { ...React, useState: initial => [initial === 'Candidates' ? view : initial, () => {}] },
+    react: React,
+    'next/navigation': { usePathname:()=>'/dashboard/products', useSearchParams:()=>new URLSearchParams({candidateView:view}), useRouter:()=>({push(){throw Error('SSR fixture cannot navigate')}}) },
     'react-dom': { useFormStatus: () => ({ pending: false }) },
     'next/link': ({ children, ...props }) => React.createElement('a', props, children),
     '@/app/dashboard/products/actions': { reconcileProductDiscovery() {}, recordProductAssessment() {}, reconsiderProductCandidate() {}, startProductResearch() {} },

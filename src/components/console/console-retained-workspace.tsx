@@ -21,12 +21,17 @@ export function ConsoleRetainedWorkspace({ ownerId, header, panels, initialPanel
     const fields = () => [...node.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>("input[name],textarea[name],select[name]")].filter(field =>
       !field.closest("[data-private],[data-agent-labs-secure]") && !/password|token|secret|consent|approval|authority|revision|nonce|hash|idempotency/i.test(field.name) &&
       !(field instanceof HTMLInputElement && ["hidden", "password", "checkbox", "radio", "file", "submit"].includes(field.type)));
+    const fieldKey = (field:HTMLInputElement|HTMLTextAreaElement|HTMLSelectElement) => {
+      const form=field.closest("form");
+      const ids=form ? [...form.querySelectorAll<HTMLInputElement>('input[type=hidden]')].filter(input=>/^(candidateId|experimentId|creativeRunId|installationId|workflowRunId|qualificationRunId|runId|sourceId)$/.test(input.name)).map(input=>`${input.name}:${input.value}`).join(":") : "";
+      return `${ids || `form:${[...node.querySelectorAll("form")].indexOf(form!)}`}:${field.name}`;
+    };
     try {
       const saved = JSON.parse(sessionStorage.getItem(key) ?? "null");
-      if (saved?.version === 1) {
+      if (saved?.version === 2) {
         node.scrollTop = saved.scroll ?? 0;
         for (const field of fields()) {
-          const value = saved.drafts?.[field.name];
+          const value = saved.drafts?.[fieldKey(field)];
           if (typeof value === "string" && value.length <= 50000) {
             const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")?.set;
             setter?.call(field, value); field.dispatchEvent(new Event("input", { bubbles: true })); field.dispatchEvent(new Event("change", { bubbles: true }));
@@ -36,8 +41,8 @@ export function ConsoleRetainedWorkspace({ ownerId, header, panels, initialPanel
     } catch { /* Storage is optional; credential/consent fields are never retained. */ }
     const save = () => {
       const drafts: Record<string, string> = {};
-      for (const field of fields()) if (field.value !== (field instanceof HTMLSelectElement ? [...field.options].find(option => option.defaultSelected)?.value ?? field.options[0]?.value : field.defaultValue) && field.value.length <= 50000) drafts[field.name] = field.value;
-      try { sessionStorage.setItem(key, JSON.stringify({ version: 1, scroll: node.scrollTop, drafts })); } catch { /* Optional tab-local continuity. */ }
+      for (const field of fields()) if (field.value !== (field instanceof HTMLSelectElement ? [...field.options].find(option => option.defaultSelected)?.value ?? field.options[0]?.value : field.defaultValue) && field.value.length <= 50000) drafts[fieldKey(field)] = field.value;
+      try { sessionStorage.setItem(key, JSON.stringify({ version: 2, scroll: node.scrollTop, drafts })); } catch { /* Optional tab-local continuity. */ }
     };
     node.addEventListener("scroll", save, { passive: true }); node.addEventListener("input", save); window.addEventListener("pagehide", save);
     return () => { save(); node.removeEventListener("scroll", save); node.removeEventListener("input", save); window.removeEventListener("pagehide", save); };

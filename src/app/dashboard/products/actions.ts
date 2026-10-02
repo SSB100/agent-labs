@@ -20,15 +20,20 @@ function finish(message: string): never {
 function uuid(form: FormData, key: string) { const value = text(form, key); if (!UUID.test(value)) fail("Invalid product reference."); return value; }
 
 export async function createProductCandidate(form: FormData) {
-  const context = await requireOwnerUiContext(), businessId = uuid(form, "businessId");
-  if (!context.businesses.some(business => business.id === businessId)) fail("Business not found.");
+  const context = await requireOwnerUiContext(), businessId = text(form, "businessId");
+  const owned=UUID.test(businessId) && context.businesses.some(business=>business.id===businessId);
+  const finishCandidate = (code:string,success=false,candidateId?:string):never => {
+    if(success){revalidatePath("/dashboard/products");revalidatePath("/dashboard");}
+    redirect(`/dashboard/products?panel=${success ? "candidates" : "new"}${owned ? `&business=${businessId}` : ""}${candidateId ? `&candidate=${candidateId}` : ""}&${success ? "message" : "error"}=${code}`);
+  };
+  if(!owned)finishCandidate("candidate-business-unavailable");
   const candidate: CandidateInput = { concept: text(form, "concept"), audience: text(form, "audience"), hypothesis: text(form, "hypothesis"),
     originalDesign: ["on", "true"].includes(text(form, "originalDesign")), rightsStatus: text(form, "rightsStatus") as CandidateInput["rightsStatus"],
     sourceDomains: text(form, "sourceDomains").split(",").map(domain => domain.trim().toLowerCase()).filter(Boolean) };
-  try { validateCandidateInput(candidate); } catch (error) { fail(error instanceof Error ? error.message : "Invalid candidate."); }
-  const result = await context.supabase.rpc("create_product_candidate", { p_business_id: businessId, p_candidate: candidate });
-  if (result.error) fail(result.error.message);
-  finish(result.data?.cached ? "This candidate already exists. Its original hypothesis and evidence history were preserved." : "Candidate saved. Research remains unvalidated until source evidence is collected.");
+  try { validateCandidateInput(candidate); } catch { finishCandidate("candidate-invalid"); }
+  const result = await context.supabase.rpc("create_product_candidate", { p_business_id: businessId, p_candidate: candidate }).then(value=>value,()=>({data:null,error:true}));
+  if(result.error || !result.data || typeof result.data.candidateId!=="string" || !UUID.test(result.data.candidateId) || typeof result.data.cached!=="boolean")finishCandidate("candidate-outcome-unconfirmed");
+  finishCandidate(result.data.cached ? "candidate-reused" : "candidate-saved",true,result.data.candidateId);
 }
 
 export async function startProductResearch(form: FormData) {

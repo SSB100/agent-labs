@@ -1,5 +1,5 @@
 import { AppShell } from "@/components/stage7/app-shell";
-import { ConsoleRetainedWorkspace } from "@/components/console/console-retained-workspace";
+import { ConsoleRetainedWorkspace, ConsoleRecentRows } from "@/components/console/console-retained-workspace";
 import { requireOwnerUiContext } from "@/lib/core-ui/data";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -294,8 +294,8 @@ export default async function WorkerEvaluationsPage({ searchParams }: Props) {
             <strong className="summaryValue">{totalTokens.toLocaleString("en-NZ")}</strong>
           </article>
           <article className="summaryCard">
-            <span className="summaryLabel">Loaded evaluation cost</span>
-            <strong style={{ fontSize: "1.3rem" }}>{formatUsd(totalCost)}</strong>
+            <span className="summaryLabel">Loaded reported charges</span>
+            <strong style={{ fontSize: "1.3rem" }}>{loadError ? "Unavailable" : formatUsd(totalCost)}</strong><p>{results.filter(result=>result.reported_cost_usd==null).length} unknown charge(s). Estimates are separate from reported charges.</p>
           </article>
         </section>
 <section className="operationsPanel">
@@ -305,7 +305,7 @@ export default async function WorkerEvaluationsPage({ searchParams }: Props) {
           </div>
           {runs.length ? (
             <div className="workflowList">
-              {runs.map((run) => {
+              <ConsoleRecentRows label="Loaded evaluation runs" rows={runs.map((run) => {
                 const caseResults = resultsByRun.get(run.id) ?? [];
                 const runCost = caseResults.reduce(
                   (sum, result) =>
@@ -348,7 +348,7 @@ export default async function WorkerEvaluationsPage({ searchParams }: Props) {
                             </div>
                           </li>
                         );
-                      })}
+                      })} />
                     </ol>
                     <div className="workflowMeta">
                       <span>Score {run.score === null ? "pending" : `${numberValue(run.score).toFixed(1)}%`}</span>

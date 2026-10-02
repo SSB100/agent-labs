@@ -70,7 +70,7 @@ test("eight views use real root URL links inside one responsive navigation", () 
 
 test("all root views and legacy sections select the correct single primary destination", () => {
   const views = ["overview", "work", "library", "research", "decisions", "connections", "activity", "advanced"];
-  const legacy = { dashboard: "overview", workflows: "work", products: "work", artifacts: "library", "needs-you": "decisions", accounts: "connections", history: "activity", packs: "advanced", settings: "advanced" };
+  const legacy = { dashboard: "overview", workflows: "work", products: "work", artifacts: "library", "needs-you": "decisions", accounts: "connections", history: "work", packs: "advanced", settings: "advanced" };
   for (const [active, destination] of [...views.map(view => [view, view]), ...Object.entries(legacy)]) {
     const view = fixture();
     assert.equal(view.exports.resolveConsoleView(active), destination);

@@ -19,7 +19,7 @@ export async function startFixtureBoundary() {
       if(input.table===control.failTable||input.mode==='unavailable')return send({data:null,count:null,error:{message:'Inert unavailable read'}});
       let rows=structuredClone(state.db[input.table]??[]),columns='*',settings={},limit=null,range=null,single=false;
       const operations=input.operations??[];
-      if(control.delayId&&operations.some(([op,key,val])=>op==='eq'&&key==='id'&&val===control.delayId))await new Promise(r=>setTimeout(r,control.delayMs));
+      if(control.delayId && !operations.some(([op,key])=>op==='select'&&key==='business_id') && operations.some(([op,key,val])=>key==='id'&&((op==='eq'&&val===control.delayId)||(op==='in'&&val.includes(control.delayId)))))await new Promise(r=>setTimeout(r,control.delayMs));
       // RLS analogue: rows from a third Business are never exposed, including exact lookups.
       rows=rows.filter(r=>!r.business_id||state.businesses.some(b=>b.id===r.business_id));
       const orders=[];
@@ -46,6 +46,16 @@ export async function startFixtureBoundary() {
     }
     if(req.url==='/rpc'){
       const {name,args}=input;const business=args.p_business_id;
+      if(name==='create_product_candidate'&&state.businesses.some(b=>b.id===business)){
+        if(control.actionMode==='uncertain')return send({data:null,error:null});
+        if(control.actionMode==='conflict')return send({data:null,error:{message:'inert private error must never appear'}});
+        const c=args.p_candidate;
+        const existing=state.db.product_candidates.find(r=>r.business_id===business&&r.concept===c.concept&&r.audience===c.audience&&r.hypothesis===c.hypothesis);
+        if(existing)return send({data:{candidateId:existing.id,cached:true},error:null});
+        const candidate={id:id(900000+state.db.product_candidates.length),business_id:business,concept:c.concept,audience:c.audience,hypothesis:c.hypothesis,original_design:c.originalDesign,rights_status:c.rightsStatus,source_domains:c.sourceDomains,created_at:time,updated_at:time};
+        state.db.product_candidates.push(candidate);effects.push({kind:'in-memory-candidate',id:candidate.id,business});
+        return send({data:{candidateId:candidate.id,cached:false},error:null});
+      }
       if(args.p_operation==='workspace'&&state.businesses.some(b=>b.id===business)){
         log.push({rpc:name,business});
         if(name==='account_owner_transition')return send({data:{profile:null,accounts:[],runs:[],healthEvents:[]},error:null});
