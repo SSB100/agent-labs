@@ -5,21 +5,21 @@ import {createRequire} from 'node:module';
 import {runInNewContext} from 'node:vm';
 import {applySwcTransform} from '@workflow/builders';
 const require=createRequire(import.meta.url),ts=require('typescript');
-function load(path,deps){const code=ts.transpileModule(readFileSync(path,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;const m={exports:{}};runInNewContext(`(function(require,module,exports){${code}\n})`)(name=>{assert.ok(name in deps,`Unexpected dependency ${name}`);return deps[name];},m,m.exports);return m.exports;}
+function load(path,deps){const code=ts.transpileModule(readFileSync(path,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;const m={exports:{}};runInNewContext(`(function(require,module,exports){${code}\n})`,{structuredClone})(name=>{assert.ok(name in deps,`Unexpected dependency ${name}`);return deps[name];},m,m.exports);return m.exports;}
 const contracts=require('../.core-tests/etsy/contracts.js');
 function production(throwEarly=false){
  const calls=[],verified=[];let repository;
  const input={businessId:'business',listingRunId:'run',coreWorkflowRunId:'workflow',runtimeCapability:'fixture-capability'};
  let raw={id:'run',businessId:'business',workflowRunId:'workflow',sourceArtifactId:'source',outputArtifactId:'output',input:{},inputHash:'hash',knowledgeHash:'knowledge',workerHashes:{},status:'running',phase:'specialist',maximumMicrousd:100000,quote:{},taskIds:{},outputs:{},sourceEnvelope:'fixture-source-envelope',costs:{committedMicrousd:1},reason:null};
  const rpc=async(name,args)=>{calls.push({name,args});return{data:raw};};
- const exports=load('src/workflows/listing-runtime-steps.ts',{'workflow':{FatalError:class extends Error{}},'../lib/supabase/runtime':{createRuntimeClient:()=>({rpc})},'../etsy/contracts':contracts,'../listing/engine':{executeListingRun:async value=>{repository=value;if(throwEarly)throw new Error('private model configuration');return{status:'completed'};}},'../listing/server':{assertRuntimeListingSource:value=>verified.push(value),issueListingEnvelopes:()=>({})}});
+ const exports=load('src/workflows/listing-runtime-steps.ts',{'workflow':{FatalError:class extends Error{}},'../lib/admission-runtime':{modelDispatchAdmission:()=>async()=>{throw Error('Fixture does not authorize dispatch');}},'../lib/supabase/runtime':{createRuntimeClient:()=>({rpc})},'../etsy/contracts':contracts,'../listing/engine':{executeListingRun:async value=>{repository=value;if(throwEarly)throw new Error('private model configuration');return{status:'completed'};}},'../listing/server':{assertRuntimeListingSource:value=>verified.push(value),issueListingEnvelopes:()=>({})}});
  return{calls,verified,input,exports,getRepository:async()=>{await exports.executeListingPreparation(input,'runtime-workflow');return repository;},setRaw:value=>raw=value,raw};
 }
 function qualification(throwEarly=false){
  const calls=[];let repository;
  const input={businessId:'business',qualificationRunId:'qual-run',coreWorkflowRunId:'workflow',runtimeCapability:'fixture-capability'};
  const raw={id:'qual-run',businessId:'business',workflowRunId:'workflow',status:'running',suiteHash:'suite',knowledgeHash:'policy',workerHashes:{},maximumMicrousd:100000,quote:{},taskIds:{},cases:{},costs:{committedMicrousd:1},reason:'private'};
- const exports=load('src/workflows/listing-qualification-runtime-steps.ts',{'workflow':{FatalError:class extends Error{}},'../lib/supabase/runtime':{createRuntimeClient:()=>({rpc:async(name,args)=>{calls.push({name,args});return{data:raw};}})},'../etsy/contracts':contracts,'../listing/qualification':{executeListingQualification:async value=>{repository=value;if(throwEarly)throw new Error('private setup detail');return{status:'passed'};}}});
+ const exports=load('src/workflows/listing-qualification-runtime-steps.ts',{'workflow':{FatalError:class extends Error{}},'../lib/admission-runtime':{modelDispatchAdmission:()=>async()=>{throw Error('Fixture does not authorize dispatch');}},'../lib/supabase/runtime':{createRuntimeClient:()=>({rpc:async(name,args)=>{calls.push({name,args});return{data:raw};}})},'../etsy/contracts':contracts,'../listing/qualification':{executeListingQualification:async value=>{repository=value;if(throwEarly)throw new Error('private setup detail');return{status:'passed'};}}});
  return{calls,input,exports,getRepository:async()=>{await exports.executeListingQualificationStep(input,'runtime');return repository;}};
 }
 test('listing durable repository binds business, workflow and one-run capability on every RPC',async()=>{

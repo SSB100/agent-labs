@@ -26,7 +26,7 @@ const json = (body, options = {}) => new Response(JSON.stringify(body), { status
 const authorization = quote => ({ quote, reservationId: "creative:attempt-1", reservedMicrousd: 210000, preauthorized: true });
 function fixture(options = {}) {
   const calls = [];
-  const adapter = new OpenRouterImageAdapter({ config, now: () => timestamp, ...options, fetcher: async (url, init) => {
+  const adapter = new OpenRouterImageAdapter({ admitDispatch: async () => {}, config, now: () => timestamp, ...options, fetcher: async (url, init) => {
     calls.push({ url, init });
     if (options.fetcher) return options.fetcher(url, init, calls.length);
     return init.method === "GET" ? json(catalog) : json(success(), { headers: { "x-request-id": "image-request-1" } });
@@ -34,6 +34,11 @@ function fixture(options = {}) {
   return { adapter, calls, paidCalls: () => calls.filter(call => call.init.method === "POST") };
 }
 const isError = category => error => error instanceof ImageProviderError && error.category === category && error.retryable === false;
+test('image generation without operating admission sends no paid request', async()=>{
+  const f=fixture({admitDispatch:undefined}),quote=await f.adapter.preflight(request);
+  await assert.rejects(f.adapter.generate(request,authorization(quote)));
+  assert.equal(f.paidCalls().length,0);
+});
 const canonical = value => Array.isArray(value) ? `[${value.map(canonical).join(",")}]` :
   value !== null && typeof value === "object" ? `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonical(value[key])}`).join(",")}}` : JSON.stringify(value);
 const hash = value => createHash("sha256").update(value).digest("hex");
@@ -294,7 +299,7 @@ test("failed or oversized catalog validation never sends a paid request", async 
 
 test("configuration cannot send credentials to other origins or raise the hard timeout", () => {
   for (const options of [{ config: { ...config, baseUrl: "https://attacker.example/api/v1" } }, { timeoutMs: 120001 }, { timeoutMs: 0 }, { timeoutMs: Infinity }]) {
-    assert.throws(() => new OpenRouterImageAdapter({ config, ...options }), isError("configuration_required"));
+    assert.throws(() => new OpenRouterImageAdapter({ admitDispatch: async () => {}, config, ...options }), isError("configuration_required"));
   }
 });
 
@@ -369,7 +374,7 @@ test("policy lookup is a frozen closed allowlist and preserves the legacy defaul
   assert.ok(Object.isFrozen(policy) && Object.isFrozen(nativePolicy));
   for (const modelId of ["", "black-forest-labs/flux.2-klein-9b", "flux.2-klein-4b", "recraft/recraft-v4", "toString", null, {}]) {
     assert.throws(() => getImageGenerationPolicy(modelId), isError("configuration_required"));
-    assert.throws(() => new OpenRouterImageAdapter({ config, modelId }), isError("configuration_required"));
+    assert.throws(() => new OpenRouterImageAdapter({ admitDispatch: async () => {}, config, modelId }), isError("configuration_required"));
     assert.throws(() => parseImageGenerationQuote(nativeCatalog, request, new Date(timestamp).toISOString(), modelId), isError("configuration_required"));
   }
 });

@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { fixtureData, id, time } from './data.mjs';
 import { readQuestFixture, saveQuestFixture } from './quests.mjs';
+import { admissionFixture, saveAdmissionFixture } from './admission.mjs';
 export async function startFixtureBoundary() {
   let state = fixtureData(), control = { delayId: null, delayMs: 0, failTable: null, actionMode: 'success' };
   const log = [], effects = [], denied = [];
@@ -47,6 +48,8 @@ export async function startFixtureBoundary() {
     }
     if(req.url==='/rpc'){
       const {name,args}=input;const business=args.p_business_id;
+      if(name==='r05_admission_read')return send(admissionFixture(state,args,id,input.mode));
+      if(name==='r05_policy_owner')return send(saveAdmissionFixture(state,args,id,effects,control.actionMode));
       if(name==='r04_quest_read'){
         log.push({rpc:name,business,goal:args.p_goal_id,limit:args.p_limit,offset:args.p_offset});
         if(control.delayId===args.p_goal_id)await new Promise(resolve=>setTimeout(resolve,control.delayMs));

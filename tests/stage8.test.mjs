@@ -91,7 +91,7 @@ test("Steel creates a minimal stable session and release remains idempotent", as
     }
     return new Response("not found", { status: 404 });
   };
-  const adapter = new SteelBrowserAdapter({
+  const adapter = new SteelBrowserAdapter({ admitDispatch: async () => {},
     config: {
       apiKey: "steel-secret-test-key",
       baseUrl: "https://api.steel.dev",
@@ -133,7 +133,7 @@ test("Steel authentication is never forwarded to external replay resources", asy
       headers: { "content-type": "application/vnd.apple.mpegurl" },
     });
   };
-  const adapter = new SteelBrowserAdapter({
+  const adapter = new SteelBrowserAdapter({ admitDispatch: async () => {},
     config: {
       apiKey: "steel-secret-test-key",
       baseUrl: "https://api.steel.dev",

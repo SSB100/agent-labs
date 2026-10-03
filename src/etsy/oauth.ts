@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { requireTransportAdmission, type TransportAdmission } from "../core/transport-admission";
 import { ETSY_SCOPES, requireEtsy, record, positiveId } from "./contracts";
 import { etsyJson, formBody } from "./adapter";
 import { randomSecret } from "./vault";
@@ -13,7 +14,8 @@ export function beginOAuth(config: OAuthConfig) {
   const query = new URLSearchParams({ response_type: "code", client_id: config.keystring, redirect_uri: config.redirectUri, scope: ETSY_SCOPES.join(" "), state, code_challenge: challenge, code_challenge_method: "S256" });
   return { state, verifier, browserNonce, url: `https://www.etsy.com/oauth/connect?${query}` };
 }
-export async function exchangeOAuth(config: OAuthConfig, input: { code: string; verifier: string } | { refreshToken: string }, fetcher: typeof fetch = fetch): Promise<EtsyTokens> {
+export async function exchangeOAuth(config: OAuthConfig, input: { code: string; verifier: string } | { refreshToken: string }, fetcher: typeof fetch = fetch, admitDispatch?: TransportAdmission): Promise<EtsyTokens> {
+  await requireTransportAdmission(admitDispatch, { provider: "etsy", operation: "account.oauth", method: "POST", endpoint: "https://api.etsy.com/v3/public/oauth/token" });
   const fields = "code" in input ? { grant_type: "authorization_code", client_id: config.keystring, redirect_uri: config.redirectUri, code: input.code, code_verifier: input.verifier } : { grant_type: "refresh_token", client_id: config.keystring, refresh_token: input.refreshToken };
   const result = record(await etsyJson(fetcher, "https://api.etsy.com/v3/public/oauth/token", { method: "POST", headers: { "x-api-key": `${config.keystring}:${config.sharedSecret}`, Accept: "application/json" }, body: formBody(fields) }));
   requireEtsy(result.token_type === "Bearer" && typeof result.access_token === "string" && /^\d+\.[^\s]{8,8192}$/.test(result.access_token) && typeof result.refresh_token === "string" && /^\d+\.[^\s]{8,8192}$/.test(result.refresh_token) && Number.isSafeInteger(result.expires_in) && Number(result.expires_in) > 0 && Number(result.expires_in) <= 3600, "invalid_oauth_response");
@@ -23,7 +25,8 @@ export async function exchangeOAuth(config: OAuthConfig, input: { code: string; 
   requireEtsy(String(userId) === result.refresh_token.split(".")[0], "oauth_identity_mismatch");
   return { accessToken: result.access_token, refreshToken: result.refresh_token, userId, scopes, expiresAt: new Date(Date.now() + Number(result.expires_in) * 1000 - 30_000).toISOString() };
 }
-export async function discoverShop(config: OAuthConfig, tokens: EtsyTokens, fetcher: typeof fetch = fetch) {
+export async function discoverShop(config: OAuthConfig, tokens: EtsyTokens, fetcher: typeof fetch = fetch, admitDispatch?: TransportAdmission) {
+  await requireTransportAdmission(admitDispatch, { provider: "etsy", operation: "account.read", method: "GET", endpoint: "https://api.etsy.com/v3/application/users/shops" });
   const value = record(await etsyJson(fetcher, `https://api.etsy.com/v3/application/users/${positiveId(tokens.userId)}/shops`, { headers: { "x-api-key": `${config.keystring}:${config.sharedSecret}`, Authorization: `Bearer ${tokens.accessToken}`, Accept: "application/json" } }));
   positiveId(value.shop_id);
   requireEtsy(value.user_id === tokens.userId && typeof value.shop_name === "string" && value.shop_name.length <= 160 && typeof value.currency_code === "string" && ["NZD", "USD", "AUD", "GBP"].includes(value.currency_code), "shop_identity_mismatch");

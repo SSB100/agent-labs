@@ -1,0 +1,43 @@
+import assert from 'node:assert/strict';
+import {createServer} from 'node:http';
+import {createHash} from 'node:crypto';
+import test from 'node:test';
+import runtimeModule from '../.core-tests/lib/admission-runtime.js';
+import researchRuntime from '../.core-tests/research/runtime-budget.js';
+const {modelDispatchAdmission}=runtimeModule;
+const id='10000000-0000-4000-8000-000000000001';
+const binding=()=>({operationKey:'research.model',requestHash:'a'.repeat(64),callKey:'plan:1',reservedMicrousd:5000,
+ providerModelId:'openai/gpt-5.6-luna',accounting:{kind:'research',callKey:'plan:1'},dataClasses:['business_context','public_evidence']});
+const wire=()=>({url:'https://openrouter.ai/api/v1/chat/completions',method:'POST',body:JSON.stringify({model:'openai/gpt-5.6-luna',max_tokens:1500,stream:false,messages:[{role:'user',content:'Private prompt never sent to admission RPC'}]})});
+test('trusted runtime guard transmits only exact saved scope and fingerprints and refuses uncertain/replayed decisions',async t=>{
+ const calls=[];let decision={decision:'allowed',reason:'admitted',shouldDispatch:true,requestId:id};
+ const server=createServer(async(req,res)=>{let body='';for await(const chunk of req)body+=chunk;calls.push({url:req.url,input:JSON.parse(body)});res.setHeader('content-type','application/json');res.end(JSON.stringify(decision));});
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+ const keys=['NEXT_PUBLIC_SUPABASE_URL','NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY','R05_ADMISSION_SERVER_KEY'];
+ const previous=Object.fromEntries(keys.map(key=>[key,process.env[key]]));
+ t.after(async()=>{for(const key of keys){if(previous[key]===undefined)delete process.env[key];else process.env[key]=previous[key];}await new Promise(resolve=>server.close(resolve));});
+ process.env.NEXT_PUBLIC_SUPABASE_URL=`http://127.0.0.1:${server.address().port}`;process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY='inert-test-key';process.env.R05_ADMISSION_SERVER_KEY='inert-server-authority';
+ const scope={businessId:id,coreWorkflowRunId:id,runtimeCapability:'inert-exact-workflow-capability'},source=binding(),guard=modelDispatchAdmission(scope,source),request=wire();
+ source.reservedMicrousd=1;scope.businessId='changed';
+ await guard(request);
+ assert.equal(calls.length,1);assert.equal(calls[0].url,'/rest/v1/rpc/r05_admission_server');
+ const sent=calls[0].input;assert.equal(sent.p_business_id,id);assert.equal(sent.p_payload.liabilityMicrounits,'5000');assert.equal(sent.p_payload.requestHash,'a'.repeat(64));
+ assert.equal(sent.p_payload.wireRequestHash,createHash('sha256').update(request.body).digest('hex'));assert.equal(sent.p_payload.maximumOutputTokens,1500);
+ assert.equal(sent.p_payload.wireRequestBytes,Buffer.byteLength(request.body,'utf8'));
+ assert.ok(!JSON.stringify(sent).includes('Private prompt'));assert.equal(sent.p_payload.runtimeCapability,'inert-exact-workflow-capability');
+ for(const value of [null,{}, {decision:'allowed',shouldDispatch:false,requestId:id},{decision:'blocked',shouldDispatch:true,requestId:id},{decision:'allowed',shouldDispatch:true,requestId:null}]){decision=value;await assert.rejects(guard(request),/dispatch_denied/);}
+ const count=calls.length;delete process.env.R05_ADMISSION_SERVER_KEY;await assert.rejects(guard(request),/admission_unavailable/);assert.equal(calls.length,count);
+ process.env.R05_ADMISSION_SERVER_KEY='inert-server-authority';
+ for(const change of [{url:'https://evil.invalid/chat/completions'},{body:JSON.stringify({model:'other/model',max_tokens:1500,stream:false})},{body:JSON.stringify({model:source.providerModelId,max_tokens:1500,stream:false,tools:[{type:'function'}]})}])await assert.rejects(guard({...request,...change}));
+ assert.equal(calls.length,count);
+ const researchScope={businessId:id,coreWorkflowRunId:id,runtimeCapability:'original-scope'};
+ const ledger=researchRuntime.runtimeResearchBudget(researchScope);
+ researchScope.businessId='foreign';researchScope.coreWorkflowRunId='foreign';researchScope.runtimeCapability='foreign';
+ const reservation={attemptKey:'plan:1',requestHash:'b'.repeat(64),reservedMicrousd:5000,estimate:{quote:{modelId:binding().providerModelId}}};
+ decision={shouldCall:true,totalReservedMicrousd:5000};await ledger.reserve(reservation);
+ const reserved=calls.at(-1).input;
+ assert.equal(reserved.p_business_id,id);assert.equal(reserved.p_workflow_run_id,id);assert.equal(reserved.p_runtime_capability,'original-scope');
+ decision={decision:'allowed',shouldDispatch:true,requestId:id};await ledger.admissionFor(reservation)(request);
+ const admitted=calls.at(-1).input;
+ assert.equal(admitted.p_business_id,reserved.p_business_id);assert.equal(admitted.p_payload.workflowRunId,reserved.p_workflow_run_id);assert.equal(admitted.p_payload.runtimeCapability,reserved.p_runtime_capability);
+});

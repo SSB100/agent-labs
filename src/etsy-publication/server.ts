@@ -1,5 +1,8 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
+import { existingEffectReadAdmission } from "../core/existing-effect-read";
+import { requireExistingEffectReadEligibility } from "../lib/existing-effect-read-runtime";
+import type { TransportAdmission } from "../core/transport-admission";
 import type { OwnerUiContext } from "../lib/core-ui/data";
 import type { OwnerInterventionRecord } from "../lib/core-ui/workflows";
 import { etsyConfigured, etsyConfig, ownerBusiness, resolveEtsyConnection } from "../etsy/server";
@@ -118,7 +121,21 @@ export async function runEtsyPublication(context:OwnerUiContext,businessId:strin
   const repository=publicationRepository(context,businessId,runId),state=await repository.acquire();let engineEntered=false;
   try{
     if(reconcileOnly)requireEtsy(state.activation && typeof state.activation === "object" && !Array.isArray(state.activation),"publication_not_dispatched");
-    const config=etsyConfig(),provider=new EtsyPublicationAdapter({authorize:()=>resolveEtsyConnection(context,businessId),apiKey:`${config.keystring}:${config.sharedSecret}`,scope:state,connectionRevision:state.connectionRevision,listingId:state.listingId});
+    const saved = structuredClone(state);
+    // Only an authenticated acquire containing an existing immutable activation
+    // can enter this lane. Ordinary preflight reads never inherit it.
+    const admitReconciliation: TransportAdmission | undefined = saved.activation ? async request => {
+      const original = await repository.guard("reconcile");
+      requireEtsy(original.requestHash === saved.requestHash && original.connection.revision === saved.connectionRevision &&
+        hash(original.package) === saved.packageHash && hash(original.preflight) === saved.preflightHash, "publication_binding_mismatch");
+      const root = "https://api.etsy.com/v3/application", shop = `${root}/shops/${saved.shopId}`, listing = `${root}/listings/${saved.listingId}`;
+      await existingEffectReadAdmission({ businessId:saved.businessId, runId:saved.id, requestHash:saved.requestHash,
+        sentAt:saved.activation!.sentAt, connectionId:saved.connectionId, connectionRevision:saved.connectionRevision, provider:"etsy",
+        endpoints:[shop,listing,`${listing}/inventory`,`${listing}/images`,`${shop}/listings/${saved.listingId}/properties`,
+          `${shop}/shipping-profiles/${original.package.shippingProfileId}`,`${shop}/policies/return/${original.preflight.returnPolicyId}`,
+          `${shop}/readiness-state-definitions/${original.package.readinessStateId}`] }, requireExistingEffectReadEligibility)(request);
+    } : undefined;
+    const config=etsyConfig(),provider=new EtsyPublicationAdapter({authorize:()=>resolveEtsyConnection(context,businessId),apiKey:`${config.keystring}:${config.sharedSecret}`,scope:state,connectionRevision:state.connectionRevision,listingId:state.listingId,admitReconciliation});
     engineEntered=true;return await executeEtsyPublication({...repository,acquire:async()=>state},provider);
   }catch(error){if(!engineEntered){try{await repository.release();}catch{/* Preserve uncertain state without retry. */}}throw error;}
 }

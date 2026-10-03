@@ -11,6 +11,24 @@ const catalog = { data: [
   { id: "google/gemini-3.6-flash", pricing: { prompt: "0.00000075", completion: "0.00000375", input_cache_read: "0.000000075", input_cache_write: "0.0000000416666666666667", internal_reasoning: "0.00000375" } },
 ] };
 const quote = async modelId => budget.parseResearchPriceQuote(catalog, modelId);
+test('research owns prompts and source domains before pricing and reservation awaits',async()=>{
+ for(const kind of ['selector','search']){
+  const input=kind==='selector'?request():{model:request().model,query:'Exact original research',allowedDomains:['example.com']};
+  const original=structuredClone(input);let reserved,sent;
+  const adapter=new budget.BudgetedResearchAdapter({reserve:async value=>{
+    reserved=structuredClone(value);
+    if(kind==='selector')input.messages[0].content='Changed after reservation';else input.allowedDomains.push('unapproved.invalid');
+    value.requestHash='forged';return{shouldCall:true,totalReservedMicrousd:value.reservedMicrousd};
+  },settle:async()=>{}},{invokeStructured:async value=>{sent=value;return response;},invokeWebSearch:async value=>{sent=value;return response;}},async model=>{
+    if(kind==='selector')input.outputSchema.properties.injected={type:'string'};else input.query='Changed during pricing';
+    return quote(model);
+  });
+  await (kind==='selector'?adapter.invokeStructured(input):adapter.invokeWebSearch(input));
+  assert.notEqual(reserved.requestHash,'forged');
+  if(kind==='selector'){assert.equal(sent.messages[0].content,original.messages[0].content);assert.deepEqual(sent.outputSchema,original.outputSchema);}
+  else{assert.equal(sent.query,original.query);assert.deepEqual(sent.allowedDomains,original.allowedDomains);}
+ }
+});
 const request = () => ({ model: registry.resolveModelRoute("standard.default").primary, schemaName: "budget_test", outputSchema: { type: "object", properties: {} }, messages: [{ role: "user", content: "Select one supplied evidence identifier." }], requestMetadata: {} });
 const response = { output: {}, provider: "mock", providerModelId: "test", providerRequestId: "budget-test", latencyMs: 1,
   usage: { inputTokens: 20, outputTokens: 5, totalTokens: 25, cachedInputTokens: 0, reasoningTokens: 0, reportedCostUsd: 0.00001, estimatedCostUsd: 0.00001 }, metadata: {} };
@@ -84,7 +102,7 @@ test("failed preflight, exhausted envelope, or unpersisted settlement stops furt
 });
 test("provider cap applies to both search and selection and disables extra provider fallback", async () => {
   const bodies = [];
-  const adapter = new models.OpenRouterAdapter({ config: { apiKey: "test", baseUrl: "https://openrouter.ai/api/v1", appUrl: "https://agent-labs-two.vercel.app", appName: "Agent Labs" }, fetcher: async (_url, options) => {
+  const adapter = new models.OpenRouterAdapter({ admitDispatch: async()=>{}, config: { apiKey: "test", baseUrl: "https://openrouter.ai/api/v1", appUrl: "https://agent-labs-two.vercel.app", appName: "Agent Labs" }, fetcher: async (_url, options) => {
     bodies.push(JSON.parse(options.body)); return new Response(JSON.stringify({ choices: [{ message: { content: "{}", annotations: [{ type: "url_citation" }] } }], usage: { server_tool_use_details: { web_search_requests: 1 } } }), { status: 200 });
   } });
   const providerPriceLimit = { prompt: 0.4, completion: 1.8, request: 0 };

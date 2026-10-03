@@ -57,7 +57,7 @@ test("uncited narrative, missing excerpts and out-of-scope sources are not evide
 const config={apiKey:"test-key",baseUrl:"https://openrouter.ai/api/v1",appUrl:"https://agent-labs-two.vercel.app",appName:"Agent Labs"};
 test("OpenRouter research uses one bounded Exa server tool and preserves provider citations",async()=>{
   let body;
-  const adapter=new models.OpenRouterAdapter({config,fetcher:async(url,options)=>{
+  const adapter=new models.OpenRouterAdapter({ admitDispatch: async()=>{},config,fetcher:async(url,options)=>{
     assert.equal(url,"https://openrouter.ai/api/v1/chat/completions");body=JSON.parse(options.body);
     return new Response(JSON.stringify({id:"research-test",choices:[{message:{content:"Cited reply",annotations:result.annotations}}],usage:{prompt_tokens:20,completion_tokens:30,cost:0.0071,server_tool_use_details:{web_search_requests:1,tool_calls_executed:1,tool_calls_requested:1}}}),{status:200});
   }});
@@ -67,12 +67,12 @@ test("OpenRouter research uses one bounded Exa server tool and preserves provide
   assert.deepEqual(response.output.annotations,result.annotations);assert.equal(response.usage.reportedCostUsd,0.0071);
 });
 test("a provider answer without an executed search cannot pass live research",async()=>{
-  const adapter=new models.OpenRouterAdapter({config,fetcher:async()=>new Response(JSON.stringify({choices:[{finish_reason:"stop",message:{content:"Unverified guidance"}}],usage:{prompt_tokens:20,completion_tokens:30}}),{status:200})});
+  const adapter=new models.OpenRouterAdapter({ admitDispatch: async()=>{},config,fetcher:async()=>new Response(JSON.stringify({choices:[{finish_reason:"stop",message:{content:"Unverified guidance"}}],usage:{prompt_tokens:20,completion_tokens:30}}),{status:200})});
   await assert.rejects(adapter.invokeWebSearch({model:registry.resolveModelRoute("standard.default").candidates[0],...request}),/searches=0, annotations=0/);
 });
 test("search accounting rejects extra calls and accepts the documented legacy receipt",async()=>{
   for (const count of [0,1,2]) {
-    const adapter=new models.OpenRouterAdapter({config,fetcher:async()=>new Response(JSON.stringify({choices:[{message:{annotations:result.annotations}}],usage:{server_tool_use:{web_search_requests:count}}}),{status:200})});
+    const adapter=new models.OpenRouterAdapter({ admitDispatch: async()=>{},config,fetcher:async()=>new Response(JSON.stringify({choices:[{message:{annotations:result.annotations}}],usage:{server_tool_use:{web_search_requests:count}}}),{status:200})});
     const invocation=adapter.invokeWebSearch({model:registry.resolveModelRoute("standard.default").candidates[0],...request});
     if (count===1) assert.equal((await invocation).metadata.searchRequests,1);
     else await assert.rejects(invocation,/requires one search/);

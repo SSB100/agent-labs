@@ -1,6 +1,7 @@
 import { FatalError } from "workflow";
 import type { JsonObject } from "../core/contracts";
 import { createRuntimeClient } from "../lib/supabase/runtime";
+import { modelDispatchAdmission } from "../lib/admission-runtime";
 import { EtsyError, requireEtsy } from "../etsy/contracts";
 import { executeListingQualification, type QualificationState, type ListingQualificationRepository } from "../listing/qualification";
 import type { ListingQualificationRuntimeInput } from "./listing-qualification-runtime";
@@ -9,6 +10,7 @@ async function transition(input:ListingQualificationRuntimeInput,operation:strin
   if(result.error)throw new EtsyError("listing_qualification_state_unavailable");return result.data;
 }
 function listingQualificationRepository(input:ListingQualificationRuntimeInput,runtimeRunId:string):ListingQualificationRepository {
+  input=structuredClone(input);
   async function state(operation:"load"|"guard") {
     const result=await transition(input,operation,{runtimeRunId}) as QualificationState&{workflowRunId:string};
     requireEtsy(result.id===input.qualificationRunId && result.businessId===input.businessId && result.workflowRunId===input.coreWorkflowRunId,"listing_qualification_scope_mismatch");
@@ -21,7 +23,10 @@ function listingQualificationRepository(input:ListingQualificationRuntimeInput,r
 }
 export async function executeListingQualificationStep(input:ListingQualificationRuntimeInput,runtimeRunId:string) {
   "use step";
-  try{return await executeListingQualification(listingQualificationRepository(input,runtimeRunId),{maximumNewCalls:1});}
+  input=structuredClone(input);
+  try{return await executeListingQualification(listingQualificationRepository(input,runtimeRunId),{maximumNewCalls:1,
+    admissionFor:value=>modelDispatchAdmission(input,{...value,operationKey:"listing.qualification",
+      accounting:{kind:"listing_qualification",runId:input.qualificationRunId,callKey:value.callKey},dataClasses:["synthetic_qualification"]})});}
   catch{
     try{await transition(input,"fail",{reason:"listing_qualification_runtime_failed"});}catch{/* A lost state service remains unresolved; never retry a paid step. */}
     throw new FatalError("Listing worker qualification stopped. Its costs and history are preserved; no automatic retry is permitted.");

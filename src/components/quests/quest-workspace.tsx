@@ -64,7 +64,7 @@ export function QuestWorkspace({ state, ownerId }: { state: R04Read; ownerId: st
   }
 
   return <div className="questWorkspace">
-    <p className="coreNotice">Execution is unavailable until operating controls are qualified. Saved pause, stop and completion preferences do not stop any existing legacy workflow. Use that workflow’s existing controls.</p>
+    <p className="coreNotice">Saved intent and lifecycle preferences do not authorize or stop provider work. <Link href={`/dashboard/quests/controls?business=${state.businessId}${selected ? `&quest=${selected.id}` : ""}`}>Review financial authority and pause controls</Link>.</p>
     {message ? <p role="status" className="coreNotice">{message}</p> : null}
     <details><summary>Business rules · version {state.business.revision} · {state.business.preference.replaceAll("_", " ")}</summary>
       <form onSubmit={event => { event.preventDefault(); void save("business.save", { expectedRevision: state.business.revision, content: rules, preference: state.business.preference === "legacy_unmanaged" ? "setup" : state.business.preference }); }}>

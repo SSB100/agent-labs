@@ -526,7 +526,7 @@ test('shared output guide traverses nullable anyOf and oneOf with numeric, strin
 });
 test('actual provider-projected request still transports complete output limits and knowledge in prompt', async () => {
   const f = preparedFixture(), request = worker.buildStrategistRequestV2(f.prepared, now), sent = [];
-  const adapter = new modelProvider.OpenRouterAdapter({ config: { apiKey: 'test-only', baseUrl: 'https://openrouter.ai/api/v1', appUrl: 'https://example.com', appName: 'contract test' }, fetcher: async (_url, options) => {
+  const adapter = new modelProvider.OpenRouterAdapter({ admitDispatch: async()=>{}, config: { apiKey: 'test-only', baseUrl: 'https://openrouter.ai/api/v1', appUrl: 'https://example.com', appName: 'contract test' }, fetcher: async (_url, options) => {
     sent.push(JSON.parse(options.body));
     return new Response(JSON.stringify({ id: 'provider-contract-response', model: request.model.providerModelId, provider: 'OpenAI', choices: [{ message: { content: '{}' }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1, cost: 0 } }), { status: 200 });
   } });

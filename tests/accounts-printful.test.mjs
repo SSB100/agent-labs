@@ -15,10 +15,10 @@ function transport(changes={},calls=[]){return async(url,init)=>{
  const part=url==='https://api.printful.com/oauth/scopes'?'scopes':url==='https://api.printful.com/stores'?'stores':url==='https://api.printful.com/stores/12'?'store':null;
  assert.ok(part,`unapproved endpoint ${url}`);const body=Object.hasOwn(changes,part)?changes[part]:normal[part];return body instanceof Response?body:json(body);
 };}
-const verify=(changes={},input=request(),options={})=>P.verifyPrintfulConnection(input,{fetcher:transport(changes),...options});
+const verify=(changes={},input=request(),options={})=>P.verifyPrintfulConnection(input,{admitDispatch:async()=>{},fetcher:transport(changes),...options});
 async function stored(){const verified=await verify(),key='a'.repeat(64);return {verified,key,row:{...verified.binding,envelope:sealAccountSecret(verified.secret,{businessId,provider:'printful',connectionId,revision},key)}};}
 test('real verification requires scope evidence, complete exact-store inventory and selected store detail',async()=>{
- const calls=[],result=await P.verifyPrintfulConnection(request(),{fetcher:transport({},calls)});
+ const calls=[],result=await P.verifyPrintfulConnection(request(),{admitDispatch:async()=>{},fetcher:transport({},calls)});
  assert.deepEqual(calls.map(x=>x.url),['https://api.printful.com/oauth/scopes','https://api.printful.com/stores','https://api.printful.com/stores/12']);
  assert.equal(result.binding.connectionResourceId,connectionId);assert.equal(result.binding.storeId,12);assert.equal(result.binding.revision,revision);
  assert.deepEqual(result.receipt.permittedOperations,['catalog.read']);assert.deepEqual(result.receipt.providerScopes,['stores_list/read']);
@@ -32,7 +32,7 @@ test('only an explicit provider-verified empty scope set can activate a public-c
 });
 test('provider write, unrelated read, unknown and duplicate scopes fail closed before store reads',async()=>{
  for(const scope of ['orders','orders/read','sync_products','sync_products/read','file_library/read','catalog.read','catalog/read','*',credential]){
-  const calls=[];await assert.rejects(P.verifyPrintfulConnection(request(),{fetcher:transport({scopes:{code:200,result:{scopes:[{scope}]}}},calls)}),/^PrintfulConnectionError: credential_scope_rejected$/);assert.equal(calls.length,1);
+  const calls=[];await assert.rejects(P.verifyPrintfulConnection(request(),{admitDispatch:async()=>{},fetcher:transport({scopes:{code:200,result:{scopes:[{scope}]}}},calls)}),/^PrintfulConnectionError: credential_scope_rejected$/);assert.equal(calls.length,1);
  }
  await assert.rejects(verify({scopes:{code:200,result:{scopes:[{scope:'stores_list/read'},{scope:'stores_list/read'}]}}}));
 });
@@ -49,9 +49,9 @@ test('provider content and credential echoes cannot leak into receipts, error me
   stores:{...normal.stores,debug:credential},store:{code:200,result:{id:12,type:'native',name:credential},debug:credential}});
  assert.ok(!JSON.stringify({binding:result.binding,receipt:result.receipt}).includes(credential));
  for(const status of [301,302,307,308,400,401,403,404,429,500]){
-  let count=0;await assert.rejects(P.verifyPrintfulConnection(request(),{fetcher:async()=>{count++;return new Response(credential,{status,headers:{location:`https://evil.test/${credential}`}})}}),error=>!String(error).includes(credential)&&error.cause===undefined);assert.equal(count,1);
+  let count=0;await assert.rejects(P.verifyPrintfulConnection(request(),{admitDispatch:async()=>{},fetcher:async()=>{count++;return new Response(credential,{status,headers:{location:`https://evil.test/${credential}`}})}}),error=>!String(error).includes(credential)&&error.cause===undefined);assert.equal(count,1);
  }
- await assert.rejects(P.verifyPrintfulConnection(request(),{fetcher:async()=>{throw new Error(`Bearer ${credential} ${JSON.stringify(normal)}`)}}),/^PrintfulConnectionError: provider_failure$/);
+ await assert.rejects(P.verifyPrintfulConnection(request(),{admitDispatch:async()=>{},fetcher:async()=>{throw new Error(`Bearer ${credential} ${JSON.stringify(normal)}`)}}),/^PrintfulConnectionError: provider_failure$/);
  await assert.rejects(verify({scopes:new Response(credential,{headers:{'content-type':'application/json'}})}),/^PrintfulConnectionError: invalid_provider_response$/);
 });
 test('redirected fetch results, malformed JSON, media types and bounded bodies are rejected',async()=>{
@@ -60,18 +60,18 @@ test('redirected fetch results, malformed JSON, media types and bounded bodies a
  for(const response of [new Response(JSON.stringify(normal.scopes)),new Response('x'.repeat(65537),{headers:{'content-type':'application/json'}}),new Response('{}',{headers:{'content-type':'application/json','content-length':'999999'}}),new Response('{}',{headers:{'content-type':'application/json','content-length':'bad'}}),new Response('{}',{headers:{'content-type':'application/json-evil'}})])await assert.rejects(verify({scopes:response}));
 });
 test('timeout bounds fetch and body streams with no automatic retry or leaking abort causes',async()=>{
- let calls=0;await assert.rejects(P.verifyPrintfulConnection(request(),{timeoutMs:5,fetcher:async()=>{calls++;return new Promise(()=>{})}}),/^PrintfulConnectionError: provider_timeout$/);assert.equal(calls,1);
+ let calls=0;await assert.rejects(P.verifyPrintfulConnection(request(),{admitDispatch:async()=>{},timeoutMs:5,fetcher:async()=>{calls++;return new Promise(()=>{})}}),/^PrintfulConnectionError: provider_timeout$/);assert.equal(calls,1);
  let canceled=false;const stream=new ReadableStream({start(controller){controller.enqueue(new TextEncoder().encode('{'))},cancel(){canceled=true}});
  await assert.rejects(verify({scopes:new Response(stream,{headers:{'content-type':'application/json'}})},request(),{timeoutMs:5}),/^PrintfulConnectionError: provider_timeout$/);assert.equal(canceled,true);
 });
 test('invalid credentials, targets, expiries and expiration during verification stop activation',async()=>{
  for(const change of [{credential:'short'},{credential:'Bearer token with spaces'},{credential:'x'.repeat(8193)},{credential:'secret\r\nInjected'},{businessId:other+'x'},{connectionId:'bad'}, {revision:'bad'},{storeId:1.5},{storeId:0},{storeKind:'unknown'},{expiresAt:'bad'},{expiresAt:new Date(0).toISOString()},{expiresAt:new Date(Date.now()+32*86400000).toISOString()}]){
-  let calls=0;await assert.rejects(P.verifyPrintfulConnection({...request(),...change},{fetcher:async()=>{calls++;return json(normal.scopes)}}),/^PrintfulConnectionError: invalid_connection_request$/);assert.equal(calls,0);
+  let calls=0;await assert.rejects(P.verifyPrintfulConnection({...request(),...change},{admitDispatch:async()=>{},fetcher:async()=>{calls++;return json(normal.scopes)}}),/^PrintfulConnectionError: invalid_connection_request$/);assert.equal(calls,0);
  }
  const input=request(),start=Date.now();let clocks=0;await assert.rejects(verify({},input,{now:()=>clocks++===0?start:Date.parse(input.expiresAt)+1}));
 });
 test('submitted input cannot mutate store binding while provider reads are in flight',async()=>{
- const input=request(),fetcher=transport();let calls=0;const result=await P.verifyPrintfulConnection(input,{fetcher:async(...args)=>{if(calls++===0){input.storeId=99;input.connectionId=other;input.credential='replacement-token'}return fetcher(...args)}});
+ const input=request(),fetcher=transport();let calls=0;const result=await P.verifyPrintfulConnection(input,{admitDispatch:async()=>{},fetcher:async(...args)=>{if(calls++===0){input.storeId=99;input.connectionId=other;input.credential='replacement-token'}return fetcher(...args)}});
  assert.equal(result.binding.storeId,12);assert.equal(result.binding.connectionResourceId,connectionId);assert.equal(result.secret.credential,credential);
 });
 test('trusted persisted resolver checks owner, current binding, AEAD context and exact secret before catalog access',async()=>{

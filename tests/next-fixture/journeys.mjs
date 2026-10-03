@@ -5,8 +5,9 @@ import { chromium } from 'playwright-core';
 import { id } from './data.mjs';
 import { actualZoomBrowser } from './browser-zoom.mjs';
 import { runQuestJourneys } from './quest-journeys.mjs';
+import { runAdmissionJourneys } from './admission-journeys.mjs';
 
-export async function runNextJourneys({origin,boundary,output,httpOnly=false,questsOnly=false}) {
+export async function runNextJourneys({origin,boundary,output,httpOnly=false,questsOnly=false,controlsOnly=false}) {
   const results=[];
   const report=()=>writeFile(path.join(output,'acceptance.json'),JSON.stringify({results,browser:httpOnly?'unrun':'actual Chromium against production Next'},null,2));
   const check=async(name,fn)=>{try{await fn();results.push({name,status:'passed'});console.log('PASS:',name);}catch(error){results.push({name,status:'failed',error:String(error.stack)});console.error('FAIL:',name,String(error.stack));await report();}finally{await fetch(boundary.origin+'/control',{method:'POST',body:JSON.stringify({delayId:null,delayMs:0,failTable:null,actionMode:'success'})});}};
@@ -37,6 +38,8 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false,que
     await context.route('**/*',route=>{const u=new URL(route.request().url());if(['http:','https:'].includes(u.protocol)&&u.origin!==origin){external.push(u.origin);return route.abort('blockedbyclient');}return route.continue();});
     page.on('response',r=>{if(r.headers()['content-type']?.includes('text/x-component'))requests.push({url:r.url(),status:r.status()});if(r.request().method()==='POST'&&r.request().headers()['next-action'])actions.push({url:r.url(),status:r.status(),revalidated:r.headers()['x-action-revalidated']??null,redirect:r.headers()['x-action-redirect']??null});});
     const business=id(1);
+    if(!questsOnly)await runAdmissionJourneys({page,context,origin,boundary,output,check,actions});
+    if(controlsOnly){assert.deepEqual(external,[]);assert.deepEqual(boundary.denied,[]);assert.ok(results.every(r=>r.status==='passed'),'Operating controls failed; see acceptance.json');await context.close();return;}
     await runQuestJourneys({page,context,origin,boundary,output,check,requests,actions,zoomOnly:questsOnly});
     if(questsOnly){
       assert.deepEqual(external,[],'Quest browser attempted external effects');

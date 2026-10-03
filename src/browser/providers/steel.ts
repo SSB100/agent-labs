@@ -4,6 +4,7 @@ import type {
   BrowserSessionCreateRequest,
 } from "../types";
 import { BrowserProviderError } from "../types";
+import { requireTransportAdmission, type TransportAdmission } from "../../core/transport-admission";
 
 const DEFAULT_BASE_URL = "https://api.steel.dev";
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -69,19 +70,23 @@ export class SteelBrowserAdapter implements BrowserProviderAdapter {
   readonly configured = isSteelConfigured();
   private readonly config: SteelConfig;
   private readonly fetcher: typeof fetch;
+  private readonly admitDispatch?: TransportAdmission;
 
   constructor(options?: {
     config?: SteelConfig;
     fetcher?: typeof fetch;
+    admitDispatch?: TransportAdmission;
   }) {
     this.config = options?.config ?? getSteelConfig();
     this.fetcher = options?.fetcher ?? fetch;
+    this.admitDispatch = options?.admitDispatch;
   }
 
   private async request(
     pathOrUrl: string,
     init: RequestInit = {},
     timeoutMs = DEFAULT_TIMEOUT_MS,
+    releaseExistingSession = false,
   ) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -93,6 +98,12 @@ export class SteelBrowserAdapter implements BrowserProviderAdapter {
     const providerAuthenticated = target.origin === providerOrigin;
 
     try {
+      // Release remains possible after pause, to stop an already-incurred lease.
+      if (!releaseExistingSession) {
+        try { await requireTransportAdmission(this.admitDispatch, { provider: "steel", operation: "browser.session", method: init.method ?? "GET", endpoint: target.origin + target.pathname }); }
+        catch { throw new BrowserProviderError("configuration_required", "Operating policy admission is required for this browser operation.", false); }
+      }
+      if (controller.signal.aborted) throw new BrowserProviderError("provider_timeout", "Browser admission expired before dispatch.", false);
       const response = await this.fetcher(target, {
         ...init,
         cache: "no-store",
@@ -209,6 +220,7 @@ export class SteelBrowserAdapter implements BrowserProviderAdapter {
         `/v1/sessions/${encodeURIComponent(providerSessionId)}/release`,
         { method: "POST" },
         30_000,
+        true,
       );
     } catch (error) {
       if (

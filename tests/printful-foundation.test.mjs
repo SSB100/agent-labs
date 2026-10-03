@@ -89,8 +89,12 @@ test('uncertain external mutation requires reconciliation and never authorizes b
 const {PrintfulCatalogAdapter}=require('../.core-tests/printful/adapter.js');
 const mockConnection=()=>({businessId,externalResourceId:'66666666-6666-4666-8666-666666666666',storeId:123,provider:'printful',status:'connected',permittedOperations:['catalog.read'],credential:'synthetic-secret-not-a-real-token'});
 const jsonResponse=value=>new Response(JSON.stringify(value),{headers:{'content-type':'application/json'}});
+test('catalog transport denies absent operating admission before sending credentials',async()=>{
+ let calls=0;const adapter=new PrintfulCatalogAdapter({mode:'fixture',freshnessMs:1000,authorize:async()=>mockConnection(),fetcher:async()=>{calls++;throw Error('must not call');}});
+ await assert.rejects(adapter.product(businessId,C.catalogProductId(71)));assert.equal(calls,0);
+});
 test('read adapter is fixed-host GET-only and excludes credentials from normalized artifacts and receipts',async()=>{
-  const f=fixture(),calls=[];const adapter=new PrintfulCatalogAdapter({mode:'fixture',freshnessMs:60000,authorize:async()=>mockConnection(),fetcher:async(url,init)=>{calls.push({url,init});return jsonResponse(url.includes('/prices')?f.priceBody:url.includes('catalog-variants')?f.variantBody:f.productBody);}});
+  const f=fixture(),calls=[];const adapter=new PrintfulCatalogAdapter({ admitDispatch: async () => {},mode:'fixture',freshnessMs:60000,authorize:async()=>mockConnection(),fetcher:async(url,init)=>{calls.push({url,init});return jsonResponse(url.includes('/prices')?f.priceBody:url.includes('catalog-variants')?f.variantBody:f.productBody);}});
   const product=await adapter.product(businessId,C.catalogProductId(71));const variant=await adapter.variant(businessId,C.catalogVariantId(4018),product.value.id);const prices=await adapter.prices(businessId,variant.value,'USD','north_america');
   assert.equal(prices.value.techniques[0].regularMinor,950);assert.equal(calls.length,3);
   assert.ok(calls.every(call=>call.init.method==='GET'&&call.init.redirect==='error'&&new URL(call.url).origin==='https://api.printful.com'));
@@ -99,23 +103,23 @@ test('read adapter is fixed-host GET-only and excludes credentials from normaliz
   assert.ok(!JSON.stringify([product,variant,prices]).includes(mockConnection().credential));
 });
 test('read adapter denies missing/cross-Business authority before transport and fixture mode has no live default',async()=>{
-  assert.throws(()=>new PrintfulCatalogAdapter({mode:'fixture',freshnessMs:1000,authorize:async()=>mockConnection()}),/mock transport/);
+  assert.throws(()=>new PrintfulCatalogAdapter({ admitDispatch: async () => {},mode:'fixture',freshnessMs:1000,authorize:async()=>mockConnection()}),/mock transport/);
   let calls=0;const fetcher=async()=>{calls++;throw Error('unexpected fetch');};
   for(const connection of [{...mockConnection(),businessId:assetId},{...mockConnection(),permittedOperations:['catalog.read','orders.write']},{...mockConnection(),status:'revoked'}]){
-    const adapter=new PrintfulCatalogAdapter({mode:'fixture',freshnessMs:1000,authorize:async()=>connection,fetcher});
+    const adapter=new PrintfulCatalogAdapter({ admitDispatch: async () => {},mode:'fixture',freshnessMs:1000,authorize:async()=>connection,fetcher});
     await assert.rejects(()=>adapter.product(businessId,C.catalogProductId(71)),/verified same-Business/);
   }assert.equal(calls,0);
 });
 test('read failure retains safe categories without retrying or echoing provider/authentication content',async()=>{
-  for(const status of [401,403,404,429,500]){let calls=0;const adapter=new PrintfulCatalogAdapter({mode:'fixture',freshnessMs:1000,authorize:async()=>mockConnection(),fetcher:async()=>{calls++;return new Response(mockConnection().credential,{status});}});await assert.rejects(()=>adapter.product(businessId,C.catalogProductId(71)),error=>{assert.ok(!error.message.includes(mockConnection().credential));assert.ok(error.category);return true;});assert.equal(calls,1);}
-  const adapter=new PrintfulCatalogAdapter({mode:'fixture',freshnessMs:1000,authorize:async()=>{throw Error(mockConnection().credential);},fetcher:async()=>{throw Error('unexpected');}});
+  for(const status of [401,403,404,429,500]){let calls=0;const adapter=new PrintfulCatalogAdapter({ admitDispatch: async () => {},mode:'fixture',freshnessMs:1000,authorize:async()=>mockConnection(),fetcher:async()=>{calls++;return new Response(mockConnection().credential,{status});}});await assert.rejects(()=>adapter.product(businessId,C.catalogProductId(71)),error=>{assert.ok(!error.message.includes(mockConnection().credential));assert.ok(error.category);return true;});assert.equal(calls,1);}
+  const adapter=new PrintfulCatalogAdapter({ admitDispatch: async () => {},mode:'fixture',freshnessMs:1000,authorize:async()=>{throw Error(mockConnection().credential);},fetcher:async()=>{throw Error('unexpected');}});
   await assert.rejects(()=>adapter.product(businessId,C.catalogProductId(71)),error=>error.category==='connection_required'&&!error.message.includes(mockConnection().credential));
 });
 test('read adapter rejects oversized/malformed bodies and preserves the requested ID across asynchronous authorization',async()=>{
   const f=fixture();for(const response of [new Response('broken',{headers:{'content-type':'application/json'}}),new Response('{}',{headers:{'content-type':'application/json','content-length':'2000001'}})]){
-    const adapter=new PrintfulCatalogAdapter({mode:'fixture',freshnessMs:1000,authorize:async()=>mockConnection(),fetcher:async()=>response});await assert.rejects(()=>adapter.product(businessId,C.catalogProductId(71)),error=>error.category==='invalid_response');
+    const adapter=new PrintfulCatalogAdapter({ admitDispatch: async () => {},mode:'fixture',freshnessMs:1000,authorize:async()=>mockConnection(),fetcher:async()=>response});await assert.rejects(()=>adapter.product(businessId,C.catalogProductId(71)),error=>error.category==='invalid_response');
   }
-  const id=C.catalogProductId(71);const adapter=new PrintfulCatalogAdapter({mode:'fixture',freshnessMs:1000,authorize:async()=>{id.value=999;return mockConnection();},fetcher:async url=>{assert.match(url,/\/71$/);return jsonResponse(f.productBody);}});
+  const id=C.catalogProductId(71);const adapter=new PrintfulCatalogAdapter({ admitDispatch: async () => {},mode:'fixture',freshnessMs:1000,authorize:async()=>{id.value=999;return mockConnection();},fetcher:async url=>{assert.match(url,/\/71$/);return jsonResponse(f.productBody);}});
   assert.equal((await adapter.product(businessId,id)).value.id.value,71);
 });
 
@@ -137,6 +141,6 @@ test('price identities are copied and modified configuration proposals cannot cr
  for(const change of [{variantId:999},{requires:[]},{executionAuthorized:true}])assert.throws(()=>F.assertPrintfulConfigurationPlan({...plan,...change}));
 });
 test('valid JSON with malformed provider schema is categorized without echoing response data',async()=>{
- const adapter=new PrintfulCatalogAdapter({mode:'fixture',freshnessMs:1000,authorize:async()=>mockConnection(),fetcher:async()=>jsonResponse({secret:'synthetic-secret'})});
+ const adapter=new PrintfulCatalogAdapter({ admitDispatch: async () => {},mode:'fixture',freshnessMs:1000,authorize:async()=>mockConnection(),fetcher:async()=>jsonResponse({secret:'synthetic-secret'})});
  await assert.rejects(()=>adapter.product(businessId,C.catalogProductId(71)),error=>error.category==='invalid_response'&&!error.message.includes('synthetic-secret'));
 });

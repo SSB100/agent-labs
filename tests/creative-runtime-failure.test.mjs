@@ -11,7 +11,7 @@ class FixtureFatalError extends Error {}
 function loadSource(path, dependencies) {
   const compiled = ts.transpileModule(readFileSync(path, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
   const fixtureModule = { exports: {} };
-  runInNewContext(`(function(require, module, exports) { ${compiled}\n})`)(name => {
+  runInNewContext(`(function(require, module, exports) { ${compiled}\n})`, { structuredClone })(name => {
     if (!(name in dependencies)) throw new Error(`Unexpected fixture dependency: ${name}`);
     return dependencies[name];
   }, fixtureModule, fixtureModule.exports);
@@ -32,7 +32,7 @@ test('creative phase converts failures to FatalError and explicitly disables dur
   const operations = [];
   const { executeCreativePhase } = loadSource('src/workflows/creative-runtime-steps.ts', {
     '@supabase/supabase-js': {}, workflow: { FatalError: FixtureFatalError },
-    '../lib/supabase/runtime': { createRuntimeClient: () => ({ rpc: async (_name, args) => {
+    '../lib/admission-runtime': {modelDispatchAdmission:()=>async()=>{throw Error('Fixture does not authorize dispatch');}}, '../lib/supabase/runtime': { createRuntimeClient: () => ({ rpc: async (_name, args) => {
       operations.push(args.p_operation);
       return { error: null, data: args.p_operation === 'load' ? { status: 'running', phaseKey: 'brief:1', approval: { purpose: 'technical_qualification' }, assets: [] } : { worker: {}, context: {} } };
     } }) }, '../lib/supabase/env': {}, '../creative/contracts': { validateCreativeApproval: () => {} },
@@ -65,7 +65,7 @@ test('normalization failure settles the paid generation and preserves its source
   const source = { storagePath: 'fixture/version-1.original.webp', mediaType: 'image/webp', bytes: 64, sha256: 'a'.repeat(64), uploadConfirmed: true, downloadVerified: true };
   const { executeCreativePhase } = loadSource('src/workflows/creative-runtime-steps.ts', {
     '@supabase/supabase-js': { createClient: () => ({ storage: { from: () => ({}) } }) }, workflow: { FatalError: FixtureFatalError },
-    '../lib/supabase/runtime': { createRuntimeClient: () => ({ rpc: async (_name, args) => {
+    '../lib/admission-runtime': {modelDispatchAdmission:()=>async()=>{throw Error('Fixture does not authorize dispatch');}}, '../lib/supabase/runtime': { createRuntimeClient: () => ({ rpc: async (_name, args) => {
       operations.push(args.p_operation);
       if (args.p_operation === 'record_call') settlements.push(args.p_payload);
       return { error: null, data: args.p_operation === 'load' ? { status: 'running', phaseKey: 'generate:1',
@@ -92,7 +92,7 @@ test('one-image runtime rejects second phases before any provider reservation', 
   const operations = [];
   const { executeCreativePhase } = loadSource('src/workflows/creative-runtime-steps.ts', {
     '@supabase/supabase-js': {}, workflow: { FatalError: FixtureFatalError },
-    '../lib/supabase/runtime': { createRuntimeClient: () => ({ rpc: async (_name, args) => {
+    '../lib/admission-runtime': {modelDispatchAdmission:()=>async()=>{throw Error('Fixture does not authorize dispatch');}}, '../lib/supabase/runtime': { createRuntimeClient: () => ({ rpc: async (_name, args) => {
       operations.push(args.p_operation); return { error: null, data: { status: 'running', phaseKey: 'generate:2', approval: { maximumGenerations: 1 } } };
     } }) }, '../lib/supabase/env': {}, '../creative/contracts': { validateCreativeApproval() {} },
     '../creative/image-provider': {}, '../creative/inspection': {}, '../creative/errors': errors, '../creative/workers': {}, '../creative/stored-image': {},

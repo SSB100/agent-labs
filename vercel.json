@@ -7,7 +7,8 @@
   "git": {
     "deploymentEnabled": {
       "ui/r03-retained-console": false,
-      "feat/r04-business-quest": false
+      "feat/r04-business-quest": false,
+      "feat/r05-operating-envelope": false
     }
   }
 }

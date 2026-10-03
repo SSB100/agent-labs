@@ -10,6 +10,13 @@ const catalog = { data: [
 ] };
 function request(key) { return { model: resolveModelRoute(key === "brief:1" ? "standard.default" : "reviewer.independent").primary, schemaName: "creative_test", outputSchema: { type: "object" }, messages: [{ role: "user", content: "Bounded synthetic context", ...(key.startsWith("review:") ? { images: [{ mediaType: "image/png", base64: "fixture-not-sent" }] } : {}) }], maxOutputTokens: key === "brief:1" ? 2500 : 1800, requestMetadata: {} }; }
 const quote = model => budget.parseCreativeModelQuote(catalog, model);
+test('creative hash and dispatch retain the same owned prompt across pricing and reserve awaits',async()=>{
+ const input=request('brief:1'),original=structuredClone(input);let sent,charged;
+ await budget.callCreativeModel({callKey:'brief:1',request:input,prices:async model=>{input.messages[0].content='Changed during pricing';return quote(model);},
+  ledger:{reserve:async value=>{input.messages[0].content='Changed during reserve';value.requestHash='forged';return{shouldExecute:true,committedMicrousd:value.reservedMicrousd};},record:async(...args)=>{charged=args;}},
+  adapter:{invokeStructured:async value=>{sent=value;return{output:{},provider:'OpenAI',providerModelId:original.model.providerModelId,providerRequestId:'inert-owned-request',usage:{reportedCostUsd:.001}};}},validateOutput:()=>{}});
+ assert.equal(sent.messages[0].content,original.messages[0].content);assert.equal(charged[1],1000);
+});
 test("creative estimates reserve worst catalog cache tier, bounded input and actual-image allowance", () => {
   const brief = request("brief:1"), screen = request("screen:1"), review = request("review:1");
   assert.equal(quote(brief.model.providerModelId).inputPerMillion, 0.4);
@@ -44,7 +51,7 @@ test("malformed paid text retains provider receipt and mismatched identity remai
   const { OpenRouterAdapter } = require("../.core-tests/models/openrouter.js");
   for (const mismatch of [false, true]) {
     const receipts = []; let calls = 0;
-    const adapter = new OpenRouterAdapter({ config: { apiKey: "mock-only", baseUrl: "https://openrouter.ai/api/v1", appUrl: "https://example.invalid", appName: "Mock" },
+    const adapter = new OpenRouterAdapter({ admitDispatch: async () => {}, config: { apiKey: "mock-only", baseUrl: "https://openrouter.ai/api/v1", appUrl: "https://example.invalid", appName: "Mock" },
       fetcher: async () => { calls++; return new Response(JSON.stringify({ id: "known-paid-response", model: mismatch ? "other/model" : "openai/gpt-5.6-luna", provider: "OpenAI", choices: [{ message: { content: mismatch ? "{}" : "{malformed" } }], usage: { cost: 0.002, prompt_tokens: 20, completion_tokens: 10 } }), { status: 200, headers: { "content-type": "application/json" } }); } });
     const ledger = { reserve: async () => ({ shouldExecute: true, committedMicrousd: 20000 }), record: async (...args) => receipts.push(args) };
     await assert.rejects(() => budget.callCreativeModel({ callKey: "brief:1", request: request("brief:1"), ledger, adapter, prices: async model => quote(model), validateOutput: () => {} }));

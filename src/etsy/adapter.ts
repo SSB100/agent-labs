@@ -1,4 +1,5 @@
 import { EtsyError, requireEtsy, record, positiveId, draftBody, sameScope, validatePackage, type EtsyConnection, type EtsyProductPackage, type EtsyProperty } from "./contracts";
+import { requireTransportAdmission, type TransportAdmission } from "../core/transport-admission";
 
 const API = "https://api.etsy.com/v3/application";
 /** Only bounded first-party HTTPS, no redirects, error bodies, automatic retries,
@@ -37,8 +38,10 @@ export class EtsyDraftAdapter {
   private readonly apiKey: string;
   private readonly fetcher: typeof fetch;
   private scope: EtsyConnection | null = null;
-  constructor(options: { authorize: () => Promise<EtsyConnection>; apiKey: string; fetcher?: typeof fetch }) {
+  private readonly admitDispatch?: TransportAdmission;
+  constructor(options: { authorize: () => Promise<EtsyConnection>; apiKey: string; fetcher?: typeof fetch; admitDispatch?: TransportAdmission }) {
     this.authorize = options.authorize; this.apiKey = options.apiKey; this.fetcher = options.fetcher ?? fetch;
+    this.admitDispatch = options.admitDispatch;
     requireEtsy(typeof this.apiKey === "string" && /^[^\s:]+:[^\s:]+$/.test(this.apiKey), "etsy_app_not_configured");
   }
   private async request(path: string, method = "GET", body?: URLSearchParams | FormData) {
@@ -51,6 +54,8 @@ export class EtsyDraftAdapter {
     requireEtsy(!shopPath || Number(shopPath[1]) === connection.shopId, "account_scope_mismatch");
     requireEtsy(connection.status === "connected" && Date.parse(connection.expiresAt) > Date.now() && typeof connection.accessToken === "string" && !/[\r\n]/.test(connection.accessToken), "account_access_denied");
     positiveId(connection.shopId);
+    try { await requireTransportAdmission(this.admitDispatch, { provider: "etsy", operation: method === "GET" ? "draft.read" : "draft.write", method, endpoint: `${API}${path}` }); }
+    catch { throw new EtsyError("account_access_denied"); }
     return etsyJson(this.fetcher, `${API}${path}`, { method, headers: { "x-api-key": this.apiKey, Authorization: `Bearer ${connection.accessToken}`, Accept: "application/json" }, body });
   }
   async shop() {

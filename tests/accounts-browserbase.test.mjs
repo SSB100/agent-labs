@@ -20,7 +20,7 @@ function fixture(changes = {}) {
   const browser = { contexts: () => [context], isConnected: () => connected,
     async close() { calls.push(['disconnect']); if (!changes.disconnectFails) connected = false; },
   };
-  const dependencies = { config: { ...config, ...changes.config }, now,
+  const dependencies = { config: { ...config, ...changes.config }, now, admitDispatch: changes.admitDispatch ?? (async () => {}),
     async connect(endpoint) { calls.push(['connect', endpoint]); return browser; },
     async fetcher(url, init) {
       const body = init.body ? JSON.parse(init.body) : undefined;
@@ -43,6 +43,11 @@ test('each activation, configuration, budget and entitlement gate prevents exter
     const fake = fixture({config:patch}); assert.equal(fake.transport, null); assert.equal(fake.calls.length,0);
     assert.equal(getAccountBrowserbaseStatus({...config,...patch}).available,false);
   }
+});
+test('registration session denial prevents creation despite existing entitlement and budget flags',async()=>{
+ const f=fixture({admitDispatch:async()=>{throw Error('private denied');}});
+ await assert.rejects(f.transport.open('etsy'));
+ assert.equal(f.calls.filter(call=>call[0]==='request').length,0);
 });
 
 test('safe Browserbase creation uses fixed non-recording/non-logging settings and no persistent context', async () => {

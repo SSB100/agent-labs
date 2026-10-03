@@ -1,6 +1,7 @@
 import type { JsonObject, JsonValue } from "../core/contracts";
 import type {
   ModelDefinition,
+  ModelDispatchAdmission,
   ModelProviderAdapter,
   ModelProviderResponse,
   ModelUsage,
@@ -44,6 +45,7 @@ type OpenRouterAdapterOptions = {
   config?: OpenRouterConfig;
   fetcher?: typeof fetch;
   timeoutMs?: number;
+  admitDispatch?: ModelDispatchAdmission;
 };
 
 type ProviderEnvelope = {
@@ -323,20 +325,29 @@ export class OpenRouterAdapter implements ModelProviderAdapter {
   private readonly config: OpenRouterConfig;
   private readonly fetcher: typeof fetch;
   private readonly timeoutMs: number;
+  private readonly admitDispatch?: ModelDispatchAdmission;
 
   constructor(options: OpenRouterAdapterOptions = {}) {
     this.config = options.config ?? getOpenRouterConfig();
     this.fetcher = options.fetcher ?? fetch;
     this.timeoutMs = options.timeoutMs ?? REQUEST_TIMEOUT_MS;
+    this.admitDispatch = options.admitDispatch;
   }
 
   private async post(body: JsonObject): Promise<ProviderEnvelope> {
+    // Own the exact wire bytes before awaiting authority. An injected test transport
+    // does not bypass admission, and admission cannot mutate the eventual request.
+    const wireBody = JSON.stringify(body);
+    const url = `${this.config.baseUrl}/chat/completions`;
+    if (!this.admitDispatch) throw new ModelProviderError("provider_rejected", "Operating policy admission is required before model dispatch.", false);
+    try { await this.admitDispatch({ url, method: "POST", body: wireBody }); }
+    catch { throw new ModelProviderError("provider_rejected", "Operating policy denied model dispatch; no provider request was sent.", false); }
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     const startedAt = Date.now();
 
     try {
-      const response = await this.fetcher(`${this.config.baseUrl}/chat/completions`, {
+      const response = await this.fetcher(url, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${this.config.apiKey}`,
@@ -344,7 +355,7 @@ export class OpenRouterAdapter implements ModelProviderAdapter {
           "HTTP-Referer": this.config.appUrl,
           "X-Title": this.config.appName,
         },
-        body: JSON.stringify(body),
+        body: wireBody,
         cache: "no-store",
         signal: controller.signal,
       });

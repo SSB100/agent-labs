@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { JsonObject } from "../core/contracts";
 import { OpenRouterAdapter } from "../models/openrouter";
-import { ModelProviderError, type ModelProviderAdapter, type ModelProviderResponse, type ProviderPriceLimit, type StructuredModelRequest, type WebSearchModelRequest } from "../models/types";
+import { ModelProviderError, type ModelDispatchAdmission, type ModelProviderAdapter, type ModelProviderResponse, type ProviderPriceLimit, type StructuredModelRequest, type WebSearchModelRequest } from "../models/types";
 
 export const PRODUCT_RESEARCH_BUDGET = {
   version: "discovery-estimate-1.0", maximumMicrousd: 1_000_000,
@@ -17,6 +17,7 @@ export type ResearchPriceQuote = {
 };
 export type ResearchCostReservation = { attemptKey: string; reservedMicrousd: number; requestHash: string; estimate: JsonObject };
 export interface ResearchBudgetLedger {
+  admissionFor?(reservation: ResearchCostReservation): ModelDispatchAdmission;
   reserve(reservation: ResearchCostReservation): Promise<{ shouldCall: boolean; totalReservedMicrousd: number }>;
   settle(attemptKey: string, reportedMicrousd: number | null, providerRequestId: string | null): Promise<void>;
 }
@@ -71,22 +72,23 @@ export function estimateResearchReservation(phase: "search" | "selector", reques
       reservedMicrousd, quote: { ...quote }, estimateOnly: true, providerInvoiceGuarantee: false } };
 }
 export class BudgetedResearchAdapter implements ModelProviderAdapter {
-  constructor(private readonly ledger: ResearchBudgetLedger, private readonly adapter = new OpenRouterAdapter(), private readonly prices = fetchResearchPriceQuote) {}
+  constructor(private readonly ledger: ResearchBudgetLedger, private readonly adapter?: Pick<OpenRouterAdapter, "invokeStructured" | "invokeWebSearch">, private readonly prices = fetchResearchPriceQuote) {}
   async invokeStructured(request: StructuredModelRequest): Promise<ModelProviderResponse> {
-    const bounded = { ...request, maxOutputTokens: PRODUCT_RESEARCH_BUDGET.selectorOutputTokens };
-    return this.invoke("selector", bounded, async limits => this.adapter.invokeStructured({ ...bounded, providerPriceLimit: limits }));
+    const bounded = structuredClone({ ...request, maxOutputTokens: PRODUCT_RESEARCH_BUDGET.selectorOutputTokens });
+    return this.invoke("selector", bounded, async (limits, adapter) => adapter.invokeStructured({ ...bounded, providerPriceLimit: limits }));
   }
   async invokeWebSearch(request: WebSearchModelRequest): Promise<ModelProviderResponse> {
-    return this.invoke("search", request, async limits => this.adapter.invokeWebSearch({ ...request, providerPriceLimit: limits }));
+    const owned = structuredClone(request);
+    return this.invoke("search", owned, async (limits, adapter) => adapter.invokeWebSearch({ ...owned, providerPriceLimit: limits }));
   }
   async qualifyToolUse(): Promise<never> { throw new ModelProviderError("provider_rejected", "The candidate research budget does not authorize model qualification.", false); }
-  private async invoke(phase: "search" | "selector", request: WebSearchModelRequest | StructuredModelRequest, call: (limits: ProviderPriceLimit) => Promise<ModelProviderResponse>): Promise<ModelProviderResponse> {
+  private async invoke(phase: "search" | "selector", request: WebSearchModelRequest | StructuredModelRequest, call: (limits: ProviderPriceLimit, adapter: Pick<OpenRouterAdapter, "invokeStructured" | "invokeWebSearch">) => Promise<ModelProviderResponse>): Promise<ModelProviderResponse> {
     let quote: ResearchPriceQuote, reservation: ResearchCostReservation, reserved: { shouldCall: boolean; totalReservedMicrousd: number };
-    try { quote = await this.prices(request.model.providerModelId); reservation = estimateResearchReservation(phase, request, quote); reserved = await this.ledger.reserve(reservation); }
+    try { quote = structuredClone(await this.prices(request.model.providerModelId)); reservation = estimateResearchReservation(phase, request, quote); reserved = await this.ledger.reserve(structuredClone(reservation)); }
     catch (error) { throw new ModelProviderError("provider_rejected", error instanceof Error ? error.message : "Research budget preflight failed.", false); }
     if (!reserved.shouldCall) throw new ModelProviderError("provider_rejected", "This provider attempt was already reserved. Its charge may be uncertain; automatic replay is blocked.", false);
     let result: ModelProviderResponse;
-    try { result = await call(quoteLimits(quote)); }
+    try { result = await call(quoteLimits(quote), this.adapter ?? new OpenRouterAdapter({ admitDispatch: this.ledger.admissionFor?.(reservation) })); }
     catch (error) { await this.ledger.settle(reservation.attemptKey, null, null).catch(() => undefined); throw error; }
     const reported = result.usage.reportedCostUsd === null ? null : Math.ceil(result.usage.reportedCostUsd * 1_000_000);
     try { await this.ledger.settle(reservation.attemptKey, reported, result.providerRequestId); }
