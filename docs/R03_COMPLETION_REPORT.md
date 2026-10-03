@@ -50,7 +50,7 @@ Fixtures include two owned Businesses with duplicate long names, 127 collection/
 
 ## Viewport, pixels and accessibility
 
-Actual hosted Chromium captures cover all retained route targets and accepted root views at 1280×720 and 1440×900, 390×844 and 320×800, plus 640×360 reflow equivalents. Desktop checks require one document viewport and no horizontal overflow; long contents remain reachable in labelled scroll areas and exact disclosure viewers. Mobile scrolling is permitted with readable text and primary 44px controls. Nondefault sections are captured at 1280×720 and 390×844.
+Actual hosted Chromium captures cover all retained route targets and accepted root views at 1280×720 and 1440×900, 390×844 and 320×800, plus 640×360 reflow equivalents. Desktop checks require one document viewport and no horizontal overflow; long contents remain reachable in labelled scroll areas and exact disclosure viewers. Mobile scrolling is permitted with readable text and 44px controls, links and disclosure targets. Nondefault sections are captured at 1280×720 and 390×844.
 
 A fresh disposable Chromium profile and local extension with only `tabs` permission applies real `chrome.tabs.setZoom(2)`. The gate verifies actual zoom and the resulting CSS viewport for retained/root/auth routes, separately from reflow-equivalent captures. Keyboard navigation and visible focus are tested; browser contexts use reduced motion. Secret pixels are masked, with no active credentials supplied.
 

@@ -74,3 +74,8 @@
 .consoleBusinessMetadata { flex:1 1 260px; }
 .consoleBusinessActions { display:flex; flex-wrap:wrap; gap:8px; flex:0 0 auto; }
 .consoleBusinessActions .coreButton { flex:none; min-width:110px; }
+
+@media(max-width:900px),(max-height:540px) {
+  .consoleRetainedBody a { display:inline-flex; align-items:center; min-height:44px; min-width:44px; }
+  .consoleRetainedBody summary { min-height:44px; }
+}

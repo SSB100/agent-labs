@@ -181,7 +181,7 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false}) {
         if(width>=1280)assert.ok(metrics.height<=height+1,`Document viewport overflow ${JSON.stringify(metrics)}`);
 
         if(width===390){
-          const targets=await page.locator('.consoleRetained button:not(:disabled),.consoleRetainedTabs a,.consoleRetained select,.consoleRetained input:not([type=checkbox]):not([type=radio]):not([type=hidden])').evaluateAll(nodes=>nodes.filter(node=>{const b=node.getBoundingClientRect();return b.width>0&&b.height>0&&(b.width<43.5||b.height<43.5);}).map(node=>({text:node.textContent?.slice(0,60),name:node.getAttribute('name'),w:node.getBoundingClientRect().width,h:node.getBoundingClientRect().height})));
+          const targets=await page.locator('.consoleRetained button:not(:disabled),.consoleRetained a,.consoleRetained summary,.consoleRetained select,.consoleRetained input:not([type=checkbox]):not([type=radio]):not([type=hidden])').evaluateAll(nodes=>nodes.filter(node=>{const b=node.getBoundingClientRect();return b.width>0&&b.height>0&&(b.width<43.5||b.height<43.5);}).map(node=>({text:node.textContent?.slice(0,60),name:node.getAttribute('name'),w:node.getBoundingClientRect().width,h:node.getBoundingClientRect().height})));
           assert.deepEqual(targets,[],name+' actual primary touch targets');
         }
         if(width===640)results.push({name:`${name} 200 percent desktop reflow equivalent`,status:'passed',viewport:'640x360 CSS pixels corresponds to 1280x720 at 200 percent zoom'});
@@ -194,6 +194,10 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false}) {
         await page.goto(origin+`/dashboard/${route}?${query}`);
         const nav=page.getByRole('navigation',{name:'Tool sections'}),active=nav.locator('[aria-current=page]');await nav.waitFor();await active.waitFor();
         assert.ok(await active.count(),'Requested section is missing');assert.equal(new URL(await active.getAttribute('href'),origin).searchParams.get('panel'),panel,'Unknown section silently fell back');
+        if(width===390){
+          const small=await page.locator('[data-retained-active=true] a,[data-retained-active=true] summary,[data-retained-active=true] button:not(:disabled)').evaluateAll(nodes=>nodes.filter(node=>{const b=node.getBoundingClientRect();return b.width>0&&b.height>0&&(b.width<43.5||b.height<43.5);}).map(node=>({text:node.textContent?.slice(0,80),width:node.getBoundingClientRect().width,height:node.getBoundingClientRect().height})));
+          assert.deepEqual(small,[],route+' '+panel+' mobile touch areas');
+        }
         if(route==='packs'&&panel==='qualification')await page.getByRole('heading',{name:'No qualification tools in the loaded catalog',exact:true}).waitFor();
         if(route==='settings'&&panel==='businesses'){
           const buttons=await page.locator('.consoleBusinessActions a').evaluateAll(nodes=>nodes.map(node=>node.getBoundingClientRect().width));assert.ok(buttons.length>0&&buttons.every(width=>width>=109),'Business row actions must stay readable');
