@@ -1,6 +1,7 @@
 import "../auth-entry.css";
 import { redirect } from "next/navigation";
 
+import { ownerReturnPath } from "@/core/owner-entry";
 import { createClient } from "@/lib/supabase/server";
 
 import { login } from "./actions";
@@ -26,14 +27,15 @@ function firstValue(value: string | string[] | undefined) {
 }
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
+  const query = await searchParams;
+  const returnPath = ownerReturnPath(firstValue(query.returnTo));
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
 
   if (data?.claims?.sub) {
-    redirect("/dashboard");
+    redirect(returnPath);
   }
 
-  const query = await searchParams;
   const message = messages[firstValue(query.message) ?? ""];
   const error = errors[firstValue(query.error) ?? ""];
 
@@ -67,6 +69,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
         ) : null}
 
         <form className="loginForm" action={login}>
+          <input type="hidden" name="returnTo" value={returnPath} />
           <label className="formField" htmlFor="email">
             <span>Email</span>
             <input

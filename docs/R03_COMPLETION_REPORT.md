@@ -2,11 +2,15 @@
 
 Draft PR: [SSB100/agent-labs#52](https://github.com/SSB100/agent-labs/pull/52). R03 only. This is a review candidate, not a release or deployed acceptance. R04 has not started. Both final matching-head CI jobs (`quality` and `r03-next`) must pass before the candidate is called review-ready; the PR checks and their preserved reports are authoritative.
 
+The PR description records the frozen final commit/tree, matching CI run, exact results and screenshot review after both jobs finish. Updating that review record does not advance the application head. A synthetic PR merge checkout qualifies this candidate only when its tree is identical to the final branch tree.
+
 ## Starting point and scope
 
 Before editing, remote main, PR50, PR51, open work and the working tree were inspected once. The clean branch `ui/r03-retained-console` started from current main `de35f8fb2d3e79cf165e60fe856490a186910487` (tree `7720a38f721bba92c0e3400ce764bf3838c1283c`), incorporating the accepted PR51 documentation closeout. PR50 application `49be7f61d99d1d89b052e55917cf021010f5826d` remains the accepted release baseline. No unpublished harness was presumed available; the separately documented isolation preparation was created and reviewed on this branch.
 
 Changed scope: retained page frames and navigation; console retained workspace/continuity/paging; scoped product/creative/Pack action feedback; bounded exact workflow/proof reads; existing creative approval linkage and ended-work predicate; supplemental regression fixtures; disposable real-Next harness and CI evidence uploads; route/plan/evidence documentation. No migrations, permission changes, credential configuration, autonomous controller or Quest/domain changes. The branch explicitly disables its Vercel git deployment.
+
+Recovery started from the existing PR, not a new implementation. Last supplied head `02cce78907cb51e3c7bc2ecdb1fb1047b27630a6`, remote branch/head and dirty source were checked before editing. Unpushed changes were preserved in an isolated checkout. A concurrent writer was observed and branch writes were held until activity stopped. Recovery then adopted all 677 matching source files at `1dd6d0df9928895790cb31a0310e6d8cc58249a5` (tree `2253b2c5bfbea3daff31b0f51af1f6484117499b`), preserving the completed streamed-readiness, Settings, catch-binding, secure-return and mobile target fixes. The additional recovery changes close private-entry return context and strengthen exact-section history assertions.
 
 ## Route-by-route R03 acceptance
 
@@ -14,8 +18,8 @@ All rows below are covered by the final isolated hosted gates. Their R03 compact
 
 | Existing page route | R03 status | Qualified scope / retained limitation |
 | --- | --- | --- |
-| `/` | Preserved; draft review | Real signed-out redirect; private records absent |
-| `/login` | Converted / regressed; draft review | Compact private entry, safe error copy, keyboard/reflow |
+| `/` | Preserved; draft review | Real signed-out redirect; private records absent; authenticated root returns to dashboard |
+| `/login` | Converted / regressed; draft review | Compact private entry, safe error copy, keyboard/reflow; exact local Business/run/section/record return through validation/reload and restored session; live password authentication remains separate |
 | `/auth/error` | Converted; draft review | Safe recovery and generic error text; desktop containment |
 | `/dashboard` | Preserved / regressed; draft review | Overview, Work, Library, Research, Decisions, Connections, Activity and Advanced; real RSC and modal history |
 | `/dashboard/accounts` | Adapted / converted; draft review | Ordinary entry returns to Connections; platform diagnostics and operational tabs remain distinct |
@@ -36,15 +40,17 @@ All rows below are covered by the final isolated hosted gates. Their R03 compact
 | `/dashboard/printful` | Converted; draft review | Configuration/calculator/synthetic catalog/connection/qualification; explicit invalid Business rejected; readiness remains blocked |
 | `/dashboard/etsy` | Converted; draft review | Listing preparation/drafts/publication; exact Business context and failed/uncertain receipts; activation gates remain separate |
 
-Additional boundaries: the workflow Suspense loading frame and actual server error boundary have distinct captures and recovery checks. All 34 retained nondefault sections are exercised through real Next Links and native Back. Browser panels remain saved metadata only; live streaming is unavailable and unqualified.
+Additional boundaries: the workflow Suspense loading frame and actual server error boundary have distinct captures and recovery checks. All 34 retained nondefault sections are exercised through real Next Links, native Back/Forward and reload, waiting for the exact requested streamed section. The Settings unavailable-directory warning is explicitly checked as a visible alert while Profile is active. Browser panels remain saved metadata only; live streaming is unavailable and unqualified.
 
 ## Actual Next qualification
 
-The runner builds and starts a disposable production Next application. Four reviewed substitutions replace Supabase transport/auth/realtime plumbing; production pages, owner readers, Link/router, layouts, RSC/Suspense, server actions, redirects and cache revalidation execute unchanged. See [isolation preparation](../tests/next-fixture/README.md). Component-only fixtures supplement this proof and do not replace it.
+The runner builds and starts a disposable production Next application. Four reviewed substitutions replace Supabase transport/auth/realtime plumbing; the actual application proxy, production pages, owner readers, Link/router, layouts, RSC/Suspense, server actions, redirects and cache revalidation execute unchanged. See [isolation preparation](../tests/next-fixture/README.md). Component-only fixtures supplement this proof and do not replace it.
 
 Real journeys cover History's 307 ended-work redirect; delayed streamed fallback/content; Link RSC responses; delayed exact record A→B with a late response and native Back/Forward; aborted RSC then a new destination; unsaved nonsecret edits through tabs/Back/reload and Business isolation; exact candidate success/reuse with duplicate submissions, real Next revalidation response markers and refreshed saved state before manual reload; uncertain action preserving draft while consent resets; synthetic terminal acknowledgment duplicate/conflict/uncertain outcomes; modal close interrupted by newer native navigation; Pack JSON validation without runtime reservation; independent old model/worker proofs; independent old workflow child payloads and different-parent rejection; secure return links; actual server failure and same-exact-record reload; invalid explicit Business 404; empty/unavailable reads.
 
 Only in-memory candidate save and synthetic terminal acknowledgment mutate inert fixture data. The real-Next gate verifies exactly these allowed effects and no route-read effects. Unknown RPCs/writes fail closed. Sanitized fixture environments contain inert loopback identifiers, no production credentials. Node and browser external networking is blocked. No production database/notices are read or changed, and no provider/model, credential submission, account signup, paid operation, publishing or fulfilment is exercised.
+
+Private entry records the actual request path in a server-forwarded header, overwriting any incoming hint. Both the login page and action validate local dashboard destinations; destination readers still enforce ownership. External, malformed, encoded and oversized return paths fall back to dashboard. The actual Next journey verifies an exact old workflow task return, a forged header, an empty invalid form and reload, then restores an inert owner session and opens the same requested record. Password sign-in remains denied by the fixture; no credential is supplied or persisted. This covers routing and validation, not live authentication.
 
 Fixtures include two owned Businesses with duplicate long names, 127 collection/research/library records per Business, 133 children on an old exact workflow, proof records beyond the loaded window, failures, uncertain receipts, empty and unavailable states. Secure real-Next coverage intentionally uses expired/unavailable IDs. Existing supplemental secure-form guard fixtures are regression-tested separately; active private/provider operation qualification is not claimed.
 
@@ -54,11 +60,13 @@ Actual hosted Chromium captures cover all retained route targets and accepted ro
 
 A fresh disposable Chromium profile and local extension with only `tabs` permission applies real `chrome.tabs.setZoom(2)`. The gate verifies actual zoom and the resulting CSS viewport for retained/root/auth routes, separately from reflow-equivalent captures. Keyboard navigation and visible focus are tested; browser contexts use reduced motion. Secret pixels are masked, with no active credentials supplied.
 
-Actual pixel inspection prompted corrections to oversized proof metrics/panels, clipped configured badges, awkward mobile tool navigation, premature loading-state screenshots, auth-recovery overflow, narrowly wrapping Business actions and a blank Pack qualification section. Final screenshots and the exact capture/check manifest are downloadable from the final `r03-next` job. The completion attachment binds PNG hashes and test evidence to the final commit; earlier failed snapshots are diagnostic only.
+Actual pixel inspection prompted corrections to oversized proof metrics/panels, clipped configured badges, awkward mobile tool navigation, premature loading-state screenshots, auth-recovery overflow, narrowly wrapping Business actions and a blank Pack qualification section. Final screenshots and the exact capture/check manifest are downloadable from the final `r03-next` job. The artifact names/digests and matching Git tree bind this evidence to the final candidate; earlier failed snapshots are diagnostic only. Review includes full-page mobile captures and their viewport/detail regions, desktop containment, real zoom, workflow loading/error recovery and the visible Settings warning.
 
 ## Verification and diagnostic ledger
 
-Local Node24 preliminary full tests: 2,037 tests, 1,977 passed, zero failed/cancelled, 60 skipped (local Chromium unavailable plus optional SQL-host coverage). These skips do not count as browser acceptance. Local lint/types and optimized normal production build pass; hosted Node22 matching-head `npm run check` is the required final full-suite/build gate. Hosted browser fixtures must execute there. The separate `r03-next` job builds/runs production Next and saves acceptance, isolation, boundary, RSC and pixel evidence even on failure. Read final exact counts, skips and checkout identity in the matching-head job logs; do not reuse an older count as final proof.
+Local recovery Node24 full tests: 2,040 tests, 1,980 passed, zero failed/cancelled, 60 skipped (58 local missing-browser cases plus two optional SQL-host cases). Local lint/types pass, as do the disposable production Next build and two HTTP redirect/streaming checks. These skips do not count as browser acceptance. Hosted Node22 matching-head `npm run check` is the required final full-suite/normal-build gate. Hosted browser fixtures must execute there. The separate `r03-next` job builds/runs production Next and saves acceptance, isolation, boundary, RSC and pixel evidence even on failure. Read final exact counts, skips and checkout identity in the matching-head job logs; do not reuse an older count as final proof.
+
+Recovery repeats local lint/types/full tests and HTTP redirect/streaming checks after its final changes. The definitive hosted counts and any optional SQL skips are recorded in the PR description once the final head passes; local missing-browser skips never substitute for the hosted browser or real-Next gates.
 
 Preserved failed diagnostics:
 

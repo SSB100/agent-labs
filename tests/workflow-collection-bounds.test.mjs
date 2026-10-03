@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { loadSource } from './helpers/guided-ui.mjs';
+import * as ownerEntry from '../.core-tests/core/owner-entry.js';
 const { loadWorkflowCollection } = loadSource('src/lib/core-ui/data.ts', {
   'next/navigation': { notFound() { throw new Error('missing'); }, redirect() { throw new Error('redirect'); } },
+  'next/headers': { headers() { throw new Error('Read-only collection fixture must not request entry recovery'); } },
+  '@/core/owner-entry': ownerEntry,
   '@/lib/supabase/server': { createClient() { throw new Error('not used'); } },
 });
 function fixture(count, failed = false) {

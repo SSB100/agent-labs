@@ -4,7 +4,9 @@ Run `node scripts/verify-r03-next.mjs` after installing the repository-pinned Ch
 
 This preparation was created on the R03 branch from the accepted PR51 main tree. No unpublished harness was presumed present or qualified. It is reviewed and tested separately from the existing supplemental component/browser fixtures.
 
-The runner copies production source into a disposable directory and performs a production Next webpack build/start. Four substitutions replace only Supabase transport and its auth/realtime plumbing: `server.ts`, `client.ts`, `proxy.ts` and `inert-transport.mjs`. The real pages, ownership readers, layouts, client components, Link/router, RSC/Suspense, server actions, redirects and revalidation execute unchanged. The normal repository build remains a separate required gate.
+The runner copies production source into a disposable directory and performs a production Next webpack build/start. Four substitutions replace only Supabase transport and its auth/realtime plumbing: `supabase/server.ts`, `supabase/client.ts`, `supabase/proxy.ts` and `inert-transport.mjs`. The actual application proxy, pages, ownership readers, layouts, client components, Link/router, RSC/Suspense, server actions, redirects and revalidation execute unchanged. The normal repository build remains a separate required gate.
+
+Private-entry recovery verifies the exact requested Business/run/section, overwrites a forged return-path header, preserves return context through an empty invalid form and reload, and returns a restored inert owner session to the exact route. The fixture denies password sign-in; no credentials are submitted and live authentication is not qualified by this journey.
 
 Only loopback URLs are allowed in the isolated Node processes. The environment is constructed from system runtime paths, inert loopback public identifiers and the fixture boundary address; production secrets are not copied. Browser contexts abort external HTTP(S) requests. Storage URLs are absent. Unknown RPCs, writes and unsupported query operations fail closed and are logged. No providers, production database, notices, uploads, publishing or fulfilment are used.
 

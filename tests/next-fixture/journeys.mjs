@@ -194,7 +194,7 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false}) {
       for(const [width,height]of [[1280,720],[390,844]]){
         await page.setViewportSize({width,height});const query=new URLSearchParams({business,panel});if(route==='accounts')query.set('diagnostics','platform');
         await page.goto(origin+`/dashboard/${route}?${query}`);
-        const nav=page.getByRole('navigation',{name:'Tool sections'}),active=nav.locator('[aria-current=page]');await nav.waitFor();await active.waitFor();
+        const nav=page.getByRole('navigation',{name:'Tool sections'}),active=nav.locator(`[aria-current=page][href*="panel=${panel}"]`);await nav.waitFor();await active.waitFor();await page.locator('[data-retained-active=true]').waitFor();
         assert.ok(await active.count(),'Requested section is missing');assert.equal(new URL(await active.getAttribute('href'),origin).searchParams.get('panel'),panel,'Unknown section silently fell back');
         if(width===390){
           const small=await page.locator('[data-retained-active=true] a,[data-retained-active=true] summary,[data-retained-active=true] button:not(:disabled)').evaluateAll(nodes=>nodes.filter(node=>{const b=node.getBoundingClientRect();return b.width>0&&b.height>0&&(b.width<43.5||b.height<43.5);}).map(node=>({text:node.textContent?.slice(0,80),width:node.getBoundingClientRect().width,height:node.getBoundingClientRect().height})));
@@ -208,7 +208,10 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false}) {
         const metrics=await page.evaluate(()=>({w:document.documentElement.scrollWidth,h:document.documentElement.scrollHeight}));assert.ok(metrics.w<=width+1);if(width>=1280)assert.ok(metrics.h<=height+1);
         // Click a distinct real Link and use native Back to return to this exact section.
         const other=nav.locator('a:not([aria-current=page])').first();const nextPanel=new URL(await other.getAttribute('href'),origin).searchParams.get('panel');
-        await other.click();await page.waitForURL(url=>url.searchParams.get('panel')===nextPanel);await page.goBack();await page.waitForURL(url=>url.searchParams.get('panel')===panel);
+        await other.click();await page.waitForURL(url=>url.searchParams.get('panel')===nextPanel);await nav.locator(`[aria-current=page][href*="panel=${nextPanel}"]`).waitFor();
+        await page.goBack();await page.waitForURL(url=>url.searchParams.get('panel')===panel);await active.waitFor();
+        await page.goForward();await page.waitForURL(url=>url.searchParams.get('panel')===nextPanel);await nav.locator(`[aria-current=page][href*="panel=${nextPanel}"]`).waitFor();
+        await page.goBack();await page.waitForURL(url=>url.searchParams.get('panel')===panel);await active.waitFor();await page.reload();await active.waitFor();
         await page.keyboard.press('Tab');const focus=await page.evaluate(()=>{const node=document.activeElement,style=getComputedStyle(node);return {tag:node.tagName,visible:node.matches(':focus-visible'),outline:parseFloat(style.outlineWidth)};});
         assert.notEqual(focus.tag,'BODY');assert.ok(focus.visible&&focus.outline>=2,'Visible keyboard focus');
       }
@@ -226,7 +229,13 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false}) {
         await page.setViewportSize({width:1280,height:720});await page.goto(origin+`/dashboard/${route}`);
         await page.screenshot({path:path.join(output,`${route}-${mode}-1280x720.png`),fullPage:true,mask:[page.locator('[data-private=true]')],maskColor:'#142b3b'});
         assert.equal(await page.getByText('Application error',{exact:false}).count(),0);
-        if(mode==='unavailable')assert.match(await page.locator('main').innerText(),/unavailable|could not|cannot be loaded|couldn.t be loaded|unknown/i,route);
+        if(mode==='unavailable'){
+          assert.match(await page.locator('main').innerText(),/unavailable|could not|cannot be loaded|couldn.t be loaded|unknown/i,route);
+          if(route==='settings'){
+            assert.equal(await page.getByRole('navigation',{name:'Tool sections'}).getByRole('link',{name:'Profile',exact:true}).getAttribute('aria-current'),'page');
+            await page.getByRole('alert').filter({hasText:'Business directory unavailable'}).waitFor({state:'visible'});
+          }
+        }
       }}finally{await context.clearCookies({name:'r03-mode'});}
     });
     await check('actual Chromium 200 percent browser zoom reflows all retained routes',async()=>{
@@ -266,7 +275,21 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false}) {
         const metrics=await entry.evaluate(()=>({w:document.documentElement.scrollWidth,h:document.documentElement.scrollHeight}));assert.ok(metrics.w<=width+1);if(width>=1280)assert.ok(metrics.h<=height+1);
         await entry.screenshot({path:path.join(output,`${name}-${width}x${height}.png`),fullPage:true});
       }
-      await entry.goto(origin+`/dashboard/products?business=${business}`);await entry.waitForURL(/\/login/);assert.equal(await entry.locator('[data-record-id]').count(),0);await signedOut.close();
+      const destination=`/dashboard/workflows/${id(1001)}?business=${business}&panel=tasks&task=${id(21000)}&recentPage=2`;
+      await signedOut.setExtraHTTPHeaders({'x-agent-labs-return-path':'/dashboard?business=untrusted-header'});
+      await entry.goto(origin+destination);await entry.waitForURL(/\/login/);assert.equal(await entry.locator('[data-record-id]').count(),0);
+      assert.equal(new URL(entry.url()).searchParams.get('returnTo'),destination,'Private entry must retain the actual request, not a supplied header');
+      assert.equal(await entry.locator('input[name=returnTo]').inputValue(),destination);
+      // Submit an empty invalid form only. No credential reaches the denied auth transport.
+      await entry.locator('form').evaluate(form=>{form.noValidate=true;form.requestSubmit();});
+      await entry.waitForURL(/error=invalid-fields/);assert.equal(new URL(entry.url()).searchParams.get('returnTo'),destination);
+      await entry.getByRole('alert').filter({hasText:'Enter a valid email and password.'}).waitFor();
+      await entry.reload();assert.equal(await entry.locator('input[name=returnTo]').inputValue(),destination);
+      const recovery=entry.url();await signedOut.addCookies([{name:'r03-session',value:'on',url:origin}]);
+      await entry.goto(recovery);await entry.waitForURL(url=>url.pathname+url.search===destination);
+      await entry.locator('[aria-current=page][href*="panel=tasks"]').waitFor();
+      await entry.getByRole('heading',{name:`Exact saved task · ${id(21000)}`,exact:true}).waitFor();
+      await signedOut.close();
     });
     assert.deepEqual(external,[],'Browser attempted external effects');
     assert.equal(boundary.effects.length,effectCount,'Route reads caused an additional mutable effect');

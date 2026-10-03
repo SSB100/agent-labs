@@ -1,5 +1,7 @@
 import { notFound, redirect } from "next/navigation";
+import { headers } from "next/headers";
 
+import { ownerLoginPath } from "@/core/owner-entry";
 import { createClient } from "@/lib/supabase/server";
 
 import type {
@@ -92,7 +94,9 @@ export async function requireOwnerUiContext(): Promise<OwnerUiContext> {
   const claims = claimsData?.claims;
   const userId = claims?.sub;
 
-  if (claimsError || !userId) redirect("/login?error=session-required");
+  if (claimsError || !userId) {
+    redirect(ownerLoginPath("session-required", (await headers()).get("x-agent-labs-return-path")));
+  }
 
   const [businessResult, profileResult, interventionCountResult] = await Promise.all([
     supabase

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadSource } from './helpers/guided-ui.mjs';
+import * as ownerEntry from '../.core-tests/core/owner-entry.js';
 
 async function contextFor(count, error = null) {
   const reads = [];
@@ -14,6 +15,8 @@ async function contextFor(count, error = null) {
   };
   const { requireOwnerUiContext } = loadSource('src/lib/core-ui/data.ts', {
     'next/navigation': { notFound: () => { throw Error('Unexpected record lookup'); }, redirect: () => { throw Error('Unexpected authentication redirect'); } },
+    'next/headers': { headers: () => { throw Error('Authenticated count fixture must not request entry recovery'); } },
+    '@/core/owner-entry': ownerEntry,
     '@/lib/supabase/server': { createClient: async () => client },
   });
   return { context: await requireOwnerUiContext(), reads };
