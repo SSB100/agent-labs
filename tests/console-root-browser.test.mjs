@@ -88,8 +88,8 @@ test("real root Browser toggle, saved record, history, context and research dism
         await page.goForward(); await page.waitForURL(origin + rootBrowserStart); await hydrated();
         await page.getByRole("link", { name: "Browser", exact: true }).click(); await hydrated();
         await page.getByText("Context", { exact: true }).click();
-        await page.getByLabel("Business", { exact: true }).selectOption(id(5));
-        await page.getByRole("button", { name: "Choose Business", exact: true }).click();
+        await page.locator(".consoleBrowserContext").getByLabel("Business", { exact: true }).selectOption(id(5));
+        await page.locator(".consoleBrowserContext").getByRole("button", { name: "Choose Business", exact: true }).click();
         await page.waitForURL(url => url.searchParams.get("business") === id(5)); await hydrated();
         assert.equal(new URL(page.url()).searchParams.has("browserRun"), false);
         await page.getByText("No workflow episode exists for this Quest.", { exact: true }).waitFor();
