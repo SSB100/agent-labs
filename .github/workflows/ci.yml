@@ -15,8 +15,8 @@ jobs:
     timeout-minutes: 30
     env:
       CI: "true"
-      NEXT_PUBLIC_SUPABASE_URL: https://tfdareuwrshjuevuiwvn.supabase.co
-      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci_placeholder
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:9
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: inert-ci-placeholder
       GUIDED_UI_BROWSER: "1"
     steps:
       - name: Check out repository
@@ -170,6 +170,9 @@ jobs:
         run: test "$PREVIEW_OUTCOME" = "success"
 
       - name: Run complete gate
+        env:
+          NODE_OPTIONS: --import=${{ github.workspace }}/tests/next-fixture/block-network.mjs
+          NEXT_TELEMETRY_DISABLED: "1"
         run: npm run check
 
       - name: Upload synthetic owner UI screenshots

@@ -30,6 +30,8 @@ Tasks R03–R19 are the sole remaining implementation order. Completed R02 root-
 
 **Class:** immediate UI and existing read projections. **Dependency:** the accepted R02 root-collection/read-only foundation; complete historical-data acceptance also depends on R06.
 
+**Review status:** R03 implementation is submitted in [draft PR52](https://github.com/SSB100/agent-labs/pull/52). [Route/transport completion report](R03_COMPLETION_REPORT.md) records the isolated acceptance scope and remaining limits. Both final matching-head CI jobs must pass before review-ready status. Release/deployed acceptance is pending; R04 is not started. The remaining queue stays R03–R19 until review closes R03.
+
 - Cover every remaining row in the [route checklist](CONSOLE_ROUTE_ACCEPTANCE.md), including routes reachable only through Advanced. Preserve the accepted shell geometry, compact rows, frequent actions, contained long content and exact record links.
 - Adapt legacy Workflows, Needs You and History routes into canonical scoped views without losing action outcomes, record identity or Back behavior. Keep technical workflow detail and its error boundary inside a consistent bounded workspace with all stage/task/worker/artifact/browser tabs accessible.
 - Finish Products research/candidate tools, Artifacts approvals/receipts, Printful and Etsy operational workspaces; do not compress operational product/listing work into the Connections overview.

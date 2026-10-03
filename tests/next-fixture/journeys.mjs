@@ -147,6 +147,16 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false}) {
       assert.equal(await page.locator('main form').count(),0,'Loading cannot expose an action');
       await page.locator(`[data-work-detail="${id(1001)}"]`).waitFor();await control({delayId:null,delayMs:0});
     });
+    await check('isolated secure entry returns to the same Business and exact request through real Next links',async()=>{
+      for(const [route,key,label] of [['secure','run','Back to Connections'],['registration','run','Back to account setup'],['password','account','Back to Accounts']]){
+        const requested=id(770000),query=new URLSearchParams({business,[key]:requested});
+        const target=origin+`/dashboard/accounts/${route}?${query}`;await page.goto(target);
+        const link=page.getByRole('link',{name:label,exact:true}).first();await link.waitFor();const url=new URL(await link.getAttribute('href'),origin);
+        assert.equal(url.searchParams.get('business'),business);assert.equal(url.searchParams.get('view'),'connections');if(key==='run')assert.equal(url.searchParams.get('connectionRun'),requested);
+        const before=boundary.effects.length;await link.click();await page.waitForURL(u=>u.pathname==='/dashboard'&&u.searchParams.get('view')==='connections');assert.equal(boundary.effects.length,before);
+        await page.goBack();await page.waitForURL(u=>u.pathname===`/dashboard/accounts/${route}`);await page.reload();await link.waitFor();assert.equal(await page.locator('input[type=password]').count(),0,'Expired/unavailable entry must expose no credential input');
+      }
+    });
     const effectCount=boundary.effects.length;
     await check('workflow server error boundary reloads the same exact owned record without a new effect',async()=>{
       await control({failTable:'workflow_runs'});await page.goto(origin+`/dashboard/workflows/${id(1001)}?business=${business}`);

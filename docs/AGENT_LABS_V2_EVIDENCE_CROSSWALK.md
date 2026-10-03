@@ -1,5 +1,7 @@
 # Agent Labs V2 reuse and evidence crosswalk
 
+R03 draft review: [PR52](https://github.com/SSB100/agent-labs/pull/52), [21-route completion and actual Next evidence](R03_COMPLETION_REPORT.md). This candidate does not replace the accepted PR50/PR51 release baseline or close R06/R08 historical/product obligations. Final matching-head gates are required; no deployed acceptance is claimed.
+
 R02 read-only root-collection closeout accepted at production main `49be7f61d99d1d89b052e55917cf021010f5826d`, tree `a0bb9cb1c1dfc8719d7a6bc052d370d05ee5c012`, 2026-10-02. Remaining work is R03–R19; software acceptance grants no provider or execution authority.
 
 - Passed exact merged-tree [CI run 37067114900](https://github.com/SSB100/agent-labs/actions/runs/37067114900), job `111037623009`, tested checkout `580dccf38041a9a21bede6210f9afb889a137697`: Research 50, older previews 188, full 2,201 passes, zero failures/cancellations, two unchanged optional SQL-host skips, optimized compile and 8/8 static generation. Its tree is identical to production main. Independent final source and 57 Research/6 navigation pixel binding passed

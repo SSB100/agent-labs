@@ -1,5 +1,7 @@
 # Whole application console acceptance checklist
 
+R03 draft review: [PR52](https://github.com/SSB100/agent-labs/pull/52), [21-route completion and actual Next evidence](R03_COMPLETION_REPORT.md). This candidate does not replace the accepted PR50/PR51 release baseline or close R06/R08 historical/product obligations. Final matching-head gates are required; no deployed acceptance is claimed.
+
 Current implementation baseline: `49be7f61d99d1d89b052e55917cf021010f5826d` (PR50 R02 read-only acceptance), 2026-10-02. Passed exact merged-tree CI and deployed live proof are recorded in the [crosswalk](AGENT_LABS_V2_EVIDENCE_CROSSWALK.md); the separate identical-tree main-push repeat remains in progress. This checklist is not a separate release plan. The sole remaining-work order is [R03–R19 in the canonical plan](AGENT_LABS_V2_IMPLEMENTATION_PLAN.md). Do not restart already accepted work.
 
 ## Shared acceptance contract
