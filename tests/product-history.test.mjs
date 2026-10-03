@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import ts from 'typescript';
+import { retainedFixture } from './helpers/guided-ui.mjs';
 
 const require = createRequire(import.meta.url);
 const history = require('../.core-tests/products/history.js');
@@ -34,6 +35,7 @@ function loadSource(path, overrides) {
 }
 function renderWorkspace(data, view = 'Candidates') {
   const { ProductsWorkspace } = loadSource('src/components/stage13/products-workspace.tsx', {
+    '@/components/console/console-retained-workspace': retainedFixture(),
     react: React,
     'next/navigation': { usePathname:()=>'/dashboard/products', useSearchParams:()=>new URLSearchParams({candidateView:view}), useRouter:()=>({push(){throw Error('SSR fixture cannot navigate')}}) },
     'react-dom': { useFormStatus: () => ({ pending: false }) },

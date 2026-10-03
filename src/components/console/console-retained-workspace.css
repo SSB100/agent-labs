@@ -39,3 +39,28 @@
 .consoleRetained .creativeRun > summary span { color: var(--console-muted); font-size: 12px; }
 .consoleRetained .creativeRun:not([open]) { margin-bottom: 4px; padding: 6px 10px; }
 .consoleRetained .productCandidateGrid { grid-template-columns: minmax(0,1fr); }
+
+.consoleRetainedError h1 { font-size:24px; line-height:1.2; }
+
+.consoleRetained { color-scheme:dark; }
+.consoleRetained :where(select,input:not([type=checkbox]):not([type=radio]),textarea) { padding:7px 9px; border:1px solid var(--console-border); border-radius:4px; background:var(--console-panel-raised); color:var(--console-text); font:inherit; }
+.consoleRetainedHeader form[method=get] { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:end; gap:8px; padding:8px 10px; margin:0; }
+.consoleRetainedHeader form[method=get] label { display:grid; gap:4px; }
+.consoleRetained :where(.operationsPanel,.guidedDisclosure) { padding:10px; margin:0 0 8px; border:1px solid var(--console-border); border-radius:5px; background:var(--console-panel); }
+.consoleRetained .summaryCard { min-height:76px; display:flex; flex-direction:column; justify-content:space-between; gap:5px; margin:0; }
+.consoleRetained .summaryValue { font-size:24px; letter-spacing:normal; }
+.consoleRetained :where(.panelHeading,.sectionTitleRow,.workspacePanelHeader) h2 { font-size:18px; line-height:1.25; letter-spacing:normal; }
+.consoleRetained .panelHeading { margin-bottom:6px; }
+.consoleRetained .connectionCardTop > .coreStatus { width:auto; height:auto; min-height:24px; padding:4px 8px; border-radius:4px; }
+.consoleRetained .connectionCardTop { gap:8px; flex-wrap:wrap; }
+.consoleRetained .connectionCard h3 { margin-top:10px; }
+.consoleRetained .workflowCard > summary { display:flex; align-items:center; flex-wrap:wrap; gap:4px 12px; min-height:40px; cursor:pointer; }
+.consoleRetained .workflowCard > summary strong { flex:1 1 45%; font-size:13px; }
+.consoleRetained .workflowCard > summary span { color:var(--console-muted); font-size:12px; }
+.consoleRetained .workflowCard:not([open]) { padding:6px 10px; margin-bottom:4px; }
+@media(max-width:900px),(max-height:540px) { .consoleRetained .workflowCard > summary { min-height:44px; } .consoleRetainedHeader form[method=get] { grid-template-columns:minmax(0,1fr); } }
+
+.consoleRetained .productCandidate > summary { display:flex; align-items:center; flex-wrap:wrap; gap:4px 12px; min-height:44px; cursor:pointer; }
+.consoleRetained .productCandidate > summary strong { flex:1 1 70%; font-size:13px; }
+.consoleRetained .productCandidate > summary span { color:var(--console-muted); font-size:12px; }
+.consoleRetained .productCandidate:not([open]) { padding:6px 10px; border-radius:5px; }

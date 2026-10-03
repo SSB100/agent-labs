@@ -56,6 +56,7 @@ const catalog = {
       "pack-activated": "Pack activated."
     },
     "error": {
+      "workflow-input-invalid": "Check the installed workflow required JSON input. No workflow was reserved.",
       "business-not-found": "Business not found.",
       "pack-catalog-could-not-be-loaded": "Pack catalog could not be loaded.",
       "web-research-qualification-could-not-start": "Web Research qualification could not start.",
@@ -78,4 +79,32 @@ export function retainedFeedbackHref(tool:RetainedTool,kind:"error"|"message",de
   if(scope.business)query.set("business",scope.business);
   if(scope.candidate)query.set("candidate",scope.candidate);
   return `/dashboard/${tool}?${query}`;
+}
+
+const workflowMessages: Record<string, string> = {
+  "browser-control-returned": "Control returned. Agent Labs is reconnecting automation.",
+  "browser-control-taken": "Takeover approved. The live browser is now interactive.",
+  "browser-duplicate-prevented": "The existing browser qualification remains authoritative.",
+  "browser-workflow-started": "Remote browser qualification started.",
+  "browser-planner-workflow-started": "Browser Planner qualification started.",
+  "browser-planner-duplicate-prevented": "The existing Browser Planner qualification remains authoritative.",
+  "review-approved": "Decision recorded. The durable workflow is resuming.",
+  "review-failed": "Failure decision recorded. The workflow is closing safely.",
+  "workflow-duplicate-prevented": "The existing workflow remains authoritative.",
+  "workflow-started": "Durable workflow started. Live activity will appear below.",
+};
+
+const workflowErrors: Record<string, string> = {
+  "browser-control-not-open": "That browser-control request is no longer open.",
+  "browser-control-resume-failed": "The browser workflow could not resume.",
+  "browser-launch-failed": "The remote browser workflow could not launch.",
+  "browser-planner-launch-failed": "The Browser Planner workflow could not launch.",
+  "invalid-browser-control": "The browser-control request was invalid.",
+  "invalid-review-decision": "The review decision was invalid.",
+  "review-not-open": "That review is no longer open.",
+  "review-resume-failed": "The workflow could not be resumed.",
+};
+export function retainedWorkflowFeedback(kind:"error"|"message",code:unknown){
+  const entries=kind==="error"?workflowErrors:workflowMessages;
+  return typeof code==="string" ? entries[code] ?? (kind==="error"?"The action outcome could not be confirmed. Inspect the saved record before retrying.":"Inspect the saved record to confirm the action outcome.") : undefined;
 }

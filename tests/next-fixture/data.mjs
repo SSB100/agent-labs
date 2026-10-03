@@ -19,14 +19,15 @@ export function fixtureData() {
   const definitionId = file => readFileSync(`src/workflows/${file}.ts`,'utf8').match(/WORKFLOW_DEFINITION_ID\s*=\s*\n?\s*"([^"]+)"/)[1];
   for(const [file,offset] of [['model-router-runtime',700000],['worker-pack-runtime',710000]]) {
     const def = definitionId(file); db.workflow_definitions.push({ id:def, workflow_key:file, version:'1.0.0', name:'Synthetic '+file, stage_definition:{stages:[]}, description:'Inert saved proof',status:'qualified' });
-    for(let n=0;n<51;n++) db.workflow_runs.push({id:id(offset+n),business_id:businesses[n%2].id,workflow_definition_id:def,status:n%2?'completed':'failed',current_stage_key:null,input:{proofMode:'live'},state:{},runtime_provider:'fixture',runtime_run_id:null,created_at:time,updated_at:time,started_at:time,completed_at:time});
+    for(let n=0;n<102;n++) db.workflow_runs.push({id:id(offset+n),business_id:businesses[n%2].id,workflow_definition_id:def,status:n%2?'completed':'failed',current_stage_key:null,input:{proofMode:'live'},state:{},runtime_provider:'fixture',runtime_run_id:null,created_at:time,updated_at:time,started_at:time,completed_at:time});
   }
-  db.model_definitions=[{id:id(720000),model_key:'fixture.model',display_name:'Inert saved model',provider_family:'fixture',provider_model_id:'fixture/inert',tier:'standard',status:'unqualified',context_window_tokens:1000,input_price_per_million_usd:1,output_price_per_million_usd:1}];db.model_routes=[];
+  db.model_definitions=[{id:id(720000),model_key:'fixture.model',display_name:'Inert saved model',provider_family:'fixture',provider_model_id:'fixture/inert',tier:'standard',status:'unqualified',context_window_tokens:1000,input_price_per_million_usd:1,output_price_per_million_usd:1}];db.model_routes=Array.from({length:51},(_,n)=>({id:id(721000+n),route_key:`fixture.route.${n}`,name:`Saved routing policy ${n}`,status:'experimental',primary_model_definition_id:id(720000),fallback_model_definition_id:null,maximum_attempts:1}));
   db.model_invocations.push({id:id(730000),business_id:businesses[0].id,workflow_run_id:id(700000),model_definition_id:id(720000),attempt:1,status:'failed',provider_model_id:'fixture/inert',provider_request_id:null,failure_category:'unknown',input_tokens:1,output_tokens:0,reported_cost_usd:null,estimated_cost_usd:.1,latency_ms:null});
   for(const table of ['browser_sessions','browser_session_events','browser_provider_definitions','browser_planner_definitions','browser_planner_evaluation_cases','packs','installed_packs','evaluation_suites','evaluation_cases','evaluation_runs','evaluation_results','worker_promotions','product_research_cost_reservations','product_research_cost_settlements','product_research_funding_approvals']) db[table] ??= [];
   const manifests=JSON.parse(readFileSync('packs/catalog.json','utf8'));
   db.packs=manifests.map((manifest,n)=>({id:id(780000+n),pack_key:manifest.packKey,version:manifest.version,status:'experimental',manifest}));
-  db.installed_packs=[{id:id(790000),business_id:businesses[0].id,root_pack_id:db.packs[0].id,status:'active',snapshot:{rootPackId:db.packs[0].id,releases:[db.packs[0]]}}];
+  const installed=db.packs.find(p=>p.manifest.workflows.length>0);
+  db.installed_packs=[{id:id(790000),business_id:businesses[0].id,root_pack_id:installed.id,status:'active',snapshot:{rootPackId:installed.id,releases:[installed]}}];
   const suite=id(800000);
   db.worker_evaluation_suites=[{id:suite,suite_key:'worker.generic-researcher.qualification',version:'1.0.0',name:'Saved researcher qualification '.repeat(5),status:'experimental',minimum_score:90,require_all_required:true}];
   db.worker_definitions ??= [];

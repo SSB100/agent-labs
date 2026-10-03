@@ -3,6 +3,7 @@ import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { chromium } from 'playwright-core';
 import { id } from './data.mjs';
+import { actualZoomBrowser } from './browser-zoom.mjs';
 
 export async function runNextJourneys({origin,boundary,output,httpOnly=false}) {
   const results=[];
@@ -80,7 +81,7 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false}) {
       await page.reload();await page.getByRole('heading',{name:saved.concept,exact:true}).waitFor();
       await page.goto(target);await page.locator('input[name=concept]').fill('New uncertain inert draft');await page.locator('input[name=audience]').fill('Synthetic weekend hikers');await page.locator('textarea[name=hypothesis]').fill('A separate valid synthetic hypothesis for an uncertain server outcome.');await page.locator('input[name=sourceDomains]').fill('example.invalid');await page.locator('input[name=originalDesign]').check();
       await control({actionMode:'uncertain'});await page.getByRole('button',{name:'Save candidate',exact:true}).click();await page.waitForURL(/error=candidate-outcome-unconfirmed/);
-      assert.equal(await page.locator('input[name=concept]').inputValue(),'New uncertain inert draft');
+      await page.waitForFunction(()=>document.querySelector('input[name=concept]')?.value==='New uncertain inert draft');assert.equal(await page.locator('input[name=concept]').inputValue(),'New uncertain inert draft');assert.equal(await page.locator('input[name=originalDesign]').isChecked(),false,'Consent must not be restored with the draft');
       await control({actionMode:'success'});await second.close();
     });
     await check('duplicate real server actions have one exact inert acknowledgment and revalidate saved state',async()=>{
@@ -92,7 +93,7 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false}) {
       assert.equal(boundary.effects.filter(e=>e.id===notice.id).length,1);
       assert.equal(boundary.state().db.owner_interventions.find(n=>n.id===notice.id).status,'resolved');
       await page.reload();await page.getByText('Stopped · reviewed',{exact:true}).waitFor();
-      const request=boundary.state().db.owner_interventions.find(n=>n.intervention_type==='creative_review'&&n.status==='open');
+      const request=boundary.state().db.owner_interventions.find(n=>n.intervention_type==='creative_review'&&n.status==='open'&&n.workflow_run_id!==id(1001));
       for(const [actionMode,outcome]of [['conflict','terminal-review-conflict'],['uncertain','terminal-review-failed']]){
         await control({actionMode});await page.goto(origin+`/dashboard?view=decisions&business=${business}&decision=${request.id}`);
         await page.getByRole('button',{name:'Mark reviewed',exact:true}).click();await page.waitForURL(new RegExp('error='+outcome));
@@ -111,6 +112,21 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false}) {
       await page.evaluate(()=>history.go(-2));await page.waitForURL(/dashboard\/settings/);await page.getByRole('heading',{name:'Owner profile',exact:true}).waitFor();
       await page.waitForTimeout(1900);assert.match(page.url(),/dashboard\/settings/);assert.equal(await page.getByRole('dialog').count(),0);await page.unroute(pattern);
     });
+    await check('real installed Pack validation preserves its Business and draft without a runtime reservation',async()=>{
+      const before=boundary.effects.length;await page.goto(origin+`/dashboard/packs?business=${business}&panel=installed`);
+      const input=page.locator('textarea[name=input]').first();await input.fill('{"inertIncompleteJson":');
+      await input.locator('xpath=ancestor::form').getByRole('button',{name:/^Run /}).click();await page.waitForURL(/error=workflow-input-invalid/);
+      assert.equal(new URL(page.url()).searchParams.get('business'),business);assert.equal(new URL(page.url()).searchParams.get('panel'),'installed');
+      await page.waitForFunction(()=>document.querySelector('textarea[name=input]')?.value==='{"inertIncompleteJson":');assert.equal(boundary.effects.length,before);
+    });
+    await check('old exact model and worker proof links bypass the bounded loaded window',async()=>{
+      for(const [route,offset]of [['model-router',700000],['worker-proof',710000]]){
+        await page.goto(origin+`/dashboard/${route}?business=${business}&run=${id(offset)}&panel=history`);
+        await page.locator('.workflowCard[open]').waitFor();assert.match(await page.locator('main').innerText(),new RegExp(id(offset)));
+        const calls=boundary.log.filter(c=>c.table==='workflow_runs'&&c.operations?.some(([op,key,value])=>op==='eq'&&key==='id'&&value===id(offset)));
+        assert.ok(calls.some(c=>c.operations.some(([op,max])=>op==='limit'&&max===2)),'Exact lookup must be independent and bounded');
+      }
+    });
     const effectCount=boundary.effects.length;
     await check('workflow server error boundary reloads the same exact owned record without a new effect',async()=>{
       await control({failTable:'workflow_runs'});await page.goto(origin+`/dashboard/workflows/${id(1001)}?business=${business}`);
@@ -126,7 +142,7 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false}) {
     const routes=[['overview','/dashboard'],['work','/dashboard?view=work'],['history','/dashboard/history'],['workflows-alias','/dashboard/workflows'],['needs-you','/dashboard/needs-you'],['library','/dashboard?view=library'],['research','/dashboard?view=research'],['activity','/dashboard?view=activity'],['connections','/dashboard?view=connections'],['products','/dashboard/products'],['artifacts','/dashboard/artifacts'],['packs','/dashboard/packs'],['model-router','/dashboard/model-router'],['worker-proof','/dashboard/worker-proof'],['evaluations','/dashboard/worker-evaluations'],['settings','/dashboard/settings'],['diagnostics','/dashboard/accounts?diagnostics=platform'],['printful','/dashboard/printful'],['etsy','/dashboard/etsy'],['workflow','/dashboard/workflows/'+id(1001)],['secure','/dashboard/accounts/secure?run='+id(770000)],['password','/dashboard/accounts/password?account='+id(770000)],['registration','/dashboard/accounts/registration?run='+id(770000)]];
     for(const [name,route]of routes)await check(`actual retained route ${name}`,async()=>{
       for(const [width,height]of [[1280,720],[1440,900],[390,844],[320,800],[640,360]]){
-        await page.setViewportSize({width,height});const url=new URL(route,origin);url.searchParams.set('business',business);await page.goto(url.href);await page.locator('body').waitFor();
+        await page.setViewportSize({width,height});const url=new URL(route,origin);url.searchParams.set('business',business);await page.goto(url.href);await page.locator('body').waitFor();if(name==='workflow')await page.locator(`[data-work-detail="${id(1001)}"]`).waitFor();
         await page.screenshot({path:path.join(output,`${name}-${width}x${height}.png`),fullPage:true,mask:[page.locator('[data-private=true]')]});
         assert.equal(await page.getByText('Application error',{exact:false}).count(),0);
         const metrics=await page.evaluate(()=>({width:document.documentElement.scrollWidth,height:document.documentElement.scrollHeight,innerWidth,innerHeight}));
@@ -136,6 +152,57 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false}) {
         if(width===640)results.push({name:`${name} 200 percent desktop reflow equivalent`,status:'passed',viewport:'640x360 CSS pixels corresponds to 1280x720 at 200 percent zoom'});
       }
     });
+    const toolSections=[['products',['recovery','candidates','new','capabilities']],['artifacts',['production','technical','gallery','scope']],['packs',['installed','qualification']],['model-router',['routes','models','launch']],['worker-proof',['launch']],['worker-evaluations',['suite','promotions']],['settings',['businesses','boundaries']],['accounts',['requests','etsy','printful']],['printful',['calculator','catalog','connection','qualification']],['etsy',['drafts','publication']],['workflows/'+id(1001),['stages','tasks','workers','outputs','products','browser','activity']]];
+    for(const [route,panels]of toolSections)for(const panel of panels)await check(`retained section ${route} ${panel} uses real Next navigation`,async()=>{
+      for(const [width,height]of [[1280,720],[390,844]]){
+        await page.setViewportSize({width,height});const query=new URLSearchParams({business,panel});if(route==='accounts')query.set('diagnostics','platform');
+        await page.goto(origin+`/dashboard/${route}?${query}`);
+        const nav=page.getByRole('navigation',{name:'Tool sections'}),active=nav.locator('[aria-current=page]');
+        assert.ok(await active.count(),'Requested section is missing');assert.equal(new URL(await active.getAttribute('href'),origin).searchParams.get('panel'),panel,'Unknown section silently fell back');
+        await page.screenshot({path:path.join(output,`section-${route.replaceAll('/','-')}-${panel}-${width}x${height}.png`),fullPage:true,mask:[page.locator('[data-private=true]')]});
+        const metrics=await page.evaluate(()=>({w:document.documentElement.scrollWidth,h:document.documentElement.scrollHeight}));assert.ok(metrics.w<=width+1);if(width>=1280)assert.ok(metrics.h<=height+1);
+        // Click a distinct real Link and use native Back to return to this exact section.
+        const other=nav.locator('a:not([aria-current=page])').first();const nextPanel=new URL(await other.getAttribute('href'),origin).searchParams.get('panel');
+        await other.click();await page.waitForURL(url=>url.searchParams.get('panel')===nextPanel);await page.goBack();await page.waitForURL(url=>url.searchParams.get('panel')===panel);
+        await page.keyboard.press('Tab');const focus=await page.evaluate(()=>{const node=document.activeElement,style=getComputedStyle(node);return {tag:node.tagName,visible:node.matches(':focus-visible'),outline:parseFloat(style.outlineWidth)};});
+        assert.notEqual(focus.tag,'BODY');assert.ok(focus.visible&&focus.outline>=2,'Visible keyboard focus');
+      }
+    });
+    await check('retained loaded-window paging keeps reading position through Back and reload',async()=>{
+      await page.setViewportSize({width:1280,height:720});await page.goto(origin+`/dashboard/products?business=${business}&panel=candidates`);
+      const body=page.locator('[data-retained-active=true]');await body.evaluate(node=>{node.scrollTop=180;node.dispatchEvent(new Event('scroll'));});const scroll=await body.evaluate(node=>node.scrollTop);assert.ok(scroll>0);
+      await page.getByRole('link',{name:'New candidate',exact:true}).click();await page.waitForURL(/panel=new/);await page.goBack();await page.waitForURL(/panel=candidates/);
+      assert.ok(Math.abs((await body.evaluate(node=>node.scrollTop))-scroll)<=2,'Reading position after Back');await page.reload();assert.ok(Math.abs((await body.evaluate(node=>node.scrollTop))-scroll)<=2,'Reading position after reload');
+    });
+    for(const mode of ['empty','unavailable'])await check(`actual retained ${mode} reads remain explicit and inert`,async()=>{
+      await context.addCookies([{name:'r03-mode',value:mode,url:origin}]);
+      try {for(const route of ['products','artifacts','packs','model-router','worker-proof','worker-evaluations','settings']){
+        await page.setViewportSize({width:1280,height:720});await page.goto(origin+`/dashboard/${route}`);
+        await page.screenshot({path:path.join(output,`${route}-${mode}-1280x720.png`),fullPage:true,mask:[page.locator('[data-private=true]')]});
+        assert.equal(await page.getByText('Application error',{exact:false}).count(),0);
+        if(mode==='unavailable')assert.match(await page.locator('main').innerText(),/unavailable|could not|cannot be loaded|couldn.t be loaded|unknown/i,route);
+      }}finally{await context.clearCookies({name:'r03-mode'});}
+    });
+    await check('actual Chromium 200 percent browser zoom reflows all retained routes',async()=>{
+      const zoom=await actualZoomBrowser();
+      try {
+        await zoom.context.route('**/*',route=>{const u=new URL(route.request().url());if(['http:','https:'].includes(u.protocol)&&u.origin!==origin){external.push(u.origin);return route.abort('blockedbyclient');}return route.continue();});
+        const zoomPage=await zoom.context.newPage();
+        for(const [name,route]of routes){
+          const url=new URL(route,origin);url.searchParams.set('business',business);await zoomPage.goto(url.href);
+          assert.equal(await zoom.set(zoomPage,2),2);await zoomPage.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+          const metrics=await zoomPage.evaluate(()=>({w:innerWidth,h:innerHeight,scrollWidth:document.documentElement.scrollWidth}));
+          await zoomPage.screenshot({path:path.join(output,`${name}-zoom200.png`),mask:[zoomPage.locator('[data-private=true]')]});
+          assert.ok(metrics.w>=630&&metrics.w<=650,`Actual browser zoom did not halve CSS viewport: ${JSON.stringify(metrics)}`);
+          assert.ok(metrics.scrollWidth<=metrics.w+1,`${name} actual 200 percent horizontal overflow: ${JSON.stringify(metrics)}`);
+          await zoomPage.keyboard.press('Tab');
+          const focus=await zoomPage.evaluate(()=>{const node=document.activeElement,style=getComputedStyle(node);return {tag:node.tagName,visible:node.matches(':focus-visible'),outline:parseFloat(style.outlineWidth)};});
+          assert.notEqual(focus.tag,'BODY',name+' keyboard focus');assert.ok(focus.visible&&focus.outline>=2,name+' visible keyboard focus');
+          results.push({name:`${name} actual browser zoom 200 percent`,status:'passed',metrics});
+          await zoom.set(zoomPage,1);
+        }
+      }finally{await zoom.close();}
+    });
     await check('signed-out root and private entry recovery remain readable and do not expose records',async()=>{
       const signedOut=await browser.newContext({reducedMotion:'reduce'});
       await signedOut.addCookies([{name:'r03-session',value:'off',url:origin}]);
@@ -143,6 +210,7 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false}) {
       for(const [name,route]of [['login','/login?error=session-required'],['auth-error','/auth/error?error=untrusted-private-message']])for(const [width,height]of [[1280,720],[1440,900],[390,844],[320,800],[640,360]]){
         await entry.setViewportSize({width,height});await entry.goto(origin+route);
         assert.equal(await entry.getByText('untrusted-private-message',{exact:false}).count(),0);
+        await entry.screenshot({path:path.join(output,`${name}-${width}x${height}.png`),fullPage:true});
         const metrics=await entry.evaluate(()=>({w:document.documentElement.scrollWidth,h:document.documentElement.scrollHeight}));assert.ok(metrics.w<=width+1);if(width>=1280)assert.ok(metrics.h<=height+1);
         await entry.screenshot({path:path.join(output,`${name}-${width}x${height}.png`),fullPage:true});
       }

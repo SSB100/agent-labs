@@ -155,7 +155,7 @@ export default async function WorkerProofPage({ searchParams }: WorkerProofPageP
       )
       .eq("workflow_definition_id", WORKER_PACK_RUNTIME_WORKFLOW_DEFINITION_ID)
       .in("business_id", businessIds)
-      .order("created_at", { ascending: false })
+      .order("created_at", { ascending: false }).order("id", { ascending: false })
       .limit(exactRunId ? 2 : 30);
     if (exactRunId) runRead = runRead.eq("id",exactRunId);
     const {data:runData,error:runError} = await runRead;
@@ -228,7 +228,7 @@ export default async function WorkerProofPage({ searchParams }: WorkerProofPageP
 
   return (<AppShell active="settings" toolDestination="worker-proof" context={context} navigationBusinessId={selectedBusinessId}><ConsoleRetainedWorkspace ownerId={context.userId} notice={<p className="coreNotice">Recent loaded records only. Earlier history and complete totals remain pending R06.</p>} header={<><header className="workspaceHeader">
           <div className="workspaceTitle">
-            <p>Stage 4</p>
+            <p>Worker execution</p>
             <h1>Worker Pack runtime</h1>
           </div>
           <Link className="ghostButton" href={`/dashboard?view=overview${selectedBusinessId ? `&business=${selectedBusinessId}` : ""}`}>
@@ -293,7 +293,7 @@ export default async function WorkerProofPage({ searchParams }: WorkerProofPageP
                 const contextKeys = worker ? Object.keys(worker.input).sort().join(", ") : "Pending";
 
                 return (
-                  <article className="workflowCard" key={run.id}>
+                  <details className="workflowCard" key={run.id} open={exactRunId===run.id}><summary><strong>Saved worker proof · {run.id}</strong><span>{humanize(run.status)} · {runEvents.length} loaded event(s)</span></summary><div>
                     <div className="workflowCardHeader">
                       <div>
                         <p className="workflowBusiness">
@@ -382,15 +382,15 @@ export default async function WorkerProofPage({ searchParams }: WorkerProofPageP
                       ) : (
                         <p>No events in this loaded window; earlier events may exist.</p>
                       )}
-                    </div>
-                  </article>
+                    </div><Link className="coreButton" href={`/dashboard/worker-proof?business=${run.business_id}&run=${run.id}&panel=history`}>Open exact worker proof</Link>
+                  </div></details>
                 );
               })} />
             </div>
           ) : (
             <div className="operationEmpty">
-              <strong>No Worker Pack proof has run yet.</strong>
-              <span>Start one above to create a Task Contract, Worker Run and receipt.</span>
+              <strong>No Worker Pack proofs in this loaded window.</strong>
+              <span>Earlier proofs may exist. Inspect saved records before starting a separate proof.</span>
             </div>
           )}
         </section></> },

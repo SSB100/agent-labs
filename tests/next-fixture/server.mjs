@@ -17,7 +17,7 @@ export async function startFixtureBoundary() {
     if(req.url==='/read'){
       const call={...input};log.push(call);
       if(input.table===control.failTable||input.mode==='unavailable')return send({data:null,count:null,error:{message:'Inert unavailable read'}});
-      let rows=structuredClone(state.db[input.table]??[]),columns='*',settings={},limit=null,range=null,single=false;
+      let rows=input.mode==='empty'&&!['businesses','profiles','workflow_definitions','worker_definitions'].includes(input.table)?[]:structuredClone(state.db[input.table]??[]),columns='*',settings={},limit=null,range=null,single=false;
       const operations=input.operations??[];
       if(control.delayId && !operations.some(([op,key])=>op==='select'&&key==='business_id') && operations.some(([op,key,val])=>key==='id'&&((op==='eq'&&val===control.delayId)||(op==='in'&&val.includes(control.delayId)))))await new Promise(r=>setTimeout(r,control.delayMs));
       // RLS analogue: rows from a third Business are never exposed, including exact lookups.

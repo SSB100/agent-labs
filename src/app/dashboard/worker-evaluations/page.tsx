@@ -258,7 +258,7 @@ export default async function WorkerEvaluationsPage({ searchParams }: Props) {
   const promotionStates = ["experimental", "qualified", "assisted", "autonomous"];
 
   return (<AppShell active="settings" toolDestination="worker-evaluations" context={context}><ConsoleRetainedWorkspace ownerId={context.userId} notice={<p className="coreNotice">Recent loaded records only. Earlier history and complete totals remain pending R06.</p>} header={<><header className="workspaceHeader">
-          <div className="workspaceTitle"><p>Stage 6</p><h1>Worker evaluations</h1></div>
+          <div className="workspaceTitle"><p>Saved qualification</p><h1>Worker evaluations</h1></div>
           <Link className="ghostButton" href="/dashboard">Back</Link>
         </header>
 {message ? <p className="notice success" role="status">{message}</p> : null}
@@ -313,7 +313,7 @@ export default async function WorkerEvaluationsPage({ searchParams }: Props) {
                   0,
                 );
                 return (
-                  <article className="workflowCard" key={run.id}>
+                  <details className="workflowCard" key={run.id}><summary><strong>Evaluation {run.id}</strong><span>{humanize(run.status)} · Score {run.score ?? "Unavailable"} · Loaded reported {loadError ? "Unavailable" : formatUsd(runCost)} · {caseResults.filter(r=>r.reported_cost_usd==null).length} unknown charge(s)</span></summary><div>
                     <div className="workflowCardHeader">
                       <div>
                         <p className="workflowBusiness">{humanize(run.source)}</p>
@@ -356,14 +356,14 @@ export default async function WorkerEvaluationsPage({ searchParams }: Props) {
                       <span>{run.failed_case_count} failed</span>
                       <span>{formatUsd(runCost)}</span>
                     </div>
-                  </article>
+                  </div></details>
                 );
               })} />
             </div>
           ) : (
             <div className="emptyState">
-              <h3>No evaluations yet</h3>
-              <p>Run the qualification suite to create the first durable competence record.</p>
+              <h3>No evaluations in this loaded window</h3>
+              <p>Earlier evaluations may exist. Check saved qualification before requesting a separate run.</p>
             </div>
           )}
         </section></> },

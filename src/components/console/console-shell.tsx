@@ -161,7 +161,7 @@ export function ConsoleShell({ active, children, commandBar, context, workflowRu
           ))}
         </nav>
 
-        {toolDestination ? <nav className="consoleTechnicalLinks" aria-label="Focused tools">{consoleToolNavigation.map(item => <Link className="consoleTechnicalLink" key={item.key} href={destination(item.href)} aria-current={item.key === toolDestination ? "page" : undefined}>{item.label}</Link>)}</nav> : null}
+        {toolDestination ? <nav className="consoleTechnicalLinks consoleFocusedTools" aria-label="Focused tools">{consoleToolNavigation.map(item => <Link className="consoleTechnicalLink" key={item.key} href={destination(item.href)} aria-current={item.key === toolDestination ? "page" : undefined}>{item.label}</Link>)}</nav> : null}
 
         <div className="consoleRailNote"><CoreIcon name="building" /><span>Private owner workspace</span></div>
         <OwnerMenu context={context} />

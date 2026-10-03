@@ -134,13 +134,13 @@ export default async function ModelRouterPage({ searchParams }: Props) {
       .select(
         "id, model_key, display_name, provider_family, provider_model_id, tier, status, context_window_tokens, input_price_per_million_usd, output_price_per_million_usd",
       )
-      .order("model_key"),
+      .order("model_key").limit(100),
     supabase
       .from("model_routes")
       .select(
         "id, route_key, name, status, primary_model_definition_id, fallback_model_definition_id, maximum_attempts",
       )
-      .order("route_key"),
+      .order("route_key").limit(100),
   ]);
 
   const businesses = ((businessResult.data ?? []) as Business[]).filter(b=>!selectedBusinessId || b.id===selectedBusinessId);
@@ -159,7 +159,7 @@ export default async function ModelRouterPage({ searchParams }: Props) {
       )
       .eq("workflow_definition_id", MODEL_ROUTER_RUNTIME_WORKFLOW_DEFINITION_ID)
       .in("business_id", businessIds)
-      .order("created_at", { ascending: false })
+      .order("created_at", { ascending: false }).order("id", { ascending: false })
       .limit(exactRunId ? 2 : 30);
     if (exactRunId) runRead = runRead.eq("id",exactRunId);
     const runResult = await runRead;
@@ -205,8 +205,8 @@ export default async function ModelRouterPage({ searchParams }: Props) {
   const message = messages[first(query.message) ?? ""];
   const error = errors[first(query.error) ?? ""];
 
-  return (<AppShell active="settings" toolDestination="model-router" context={context} navigationBusinessId={selectedBusinessId}><ConsoleRetainedWorkspace ownerId={context.userId} notice={<p className="coreNotice">Recent loaded records only. Earlier history and complete totals remain pending R06.</p>} header={<><header className="workspaceHeader">
-          <div className="workspaceTitle"><p>Stage 5</p><h1>Model Router</h1></div>
+  return (<AppShell active="settings" toolDestination="model-router" context={context} navigationBusinessId={selectedBusinessId}><ConsoleRetainedWorkspace ownerId={context.userId} notice={<p className="coreNotice">Loaded window: up to 100 models, 100 routes and 30 runs. Earlier history and complete totals remain pending R06.</p>} header={<><header className="workspaceHeader">
+          <div className="workspaceTitle"><p>Model routing</p><h1>Model Router</h1></div>
           <Link className="ghostButton" href={`/dashboard?view=overview${selectedBusinessId ? `&business=${selectedBusinessId}` : ""}`}>Back</Link>
         </header>
 {message ? <p className="notice success" role="status">{message}</p> : null}
@@ -219,7 +219,7 @@ export default async function ModelRouterPage({ searchParams }: Props) {
 {loadError ? <p className="notice error">Some Model Router records could not be loaded.</p> : null}</>} panels={[{ id: "history", label: "Proof receipts", content: <><section className="summaryGrid" aria-label="Model Router summary">
           {[
             ["Qualified routes", routes.filter((route) => route.status === "qualified").length],
-            ["Registered models", models.length],
+            ["Loaded models", models.length],
             ["Active in loaded proofs", activeCount],
             ["Fallback in loaded proofs", fallbackCount],
           ].map(([label, value]) => (
@@ -247,7 +247,7 @@ export default async function ModelRouterPage({ searchParams }: Props) {
                   0,
                 );
                 return (
-                  <article className="workflowCard" key={run.id}>
+                  <details className="workflowCard" key={run.id} open={exactRunId===run.id}><summary><strong>{humanize(String(run.input.proofMode ?? "saved"))} proof · {run.id}</strong><span>{humanize(run.status)} · {loadError ? "Receipts unavailable" : attempts.length ? <>Loaded reported {formatUsd(runCost)} · {attempts.filter(a=>a.reported_cost_usd==null || !a.provider_request_id).length} unknown charge(s)</> : "No receipts returned in this loaded window"}</span></summary><div>
                     <div className="workflowCardHeader">
                       <div>
                         <p className="workflowBusiness">{businessById.get(run.business_id)?.name ?? "Business"}</p>
@@ -273,8 +273,8 @@ export default async function ModelRouterPage({ searchParams }: Props) {
                     <div className="eventHistoryHeader">
                       <strong>Loaded reported {formatUsd(runCost)}</strong>
                       <small>{run.runtime_run_id ? `Runtime ${run.runtime_run_id.slice(0, 18)}…` : "Runtime pending"}</small>
-                    </div>
-                  </article>
+                    </div><Link className="coreButton" href={`/dashboard/model-router?business=${run.business_id}&run=${run.id}&panel=history`}>Open exact proof receipts</Link>
+                  </div></details>
                 );
               })} />
             </div>

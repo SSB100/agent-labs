@@ -175,9 +175,9 @@ export default async function AccountsPage({ searchParams }: AccountsPageProps) 
 
   return (
     <AppShell toolDestination="diagnostics" active="accounts" context={context} navigationBusinessId={selectedBusiness?.id}><ConsoleRetainedWorkspace ownerId={context.userId}  header={<><PageHeader
-        description="Business accounts, the access you approved, and the exact next setup step."
-        eyebrow="Connections"
-        title="Connections"
+        description="Inspect saved provider configuration and bounded operational evidence."
+        eyebrow="System tools"
+        title="Platform diagnostics"
       />
 {message ? <p className="coreNotice coreNotice-success" role="status">{message}</p> : null}
 {error ? <p className="coreNotice coreNotice-danger" role="alert">{error}</p> : null}

@@ -26,7 +26,7 @@ export function ConsoleRetainedWorkspace({ ownerId, header, panels, initialPanel
       const ids=form ? [...form.querySelectorAll<HTMLInputElement>('input[type=hidden]')].filter(input=>/^(candidateId|experimentId|creativeRunId|installationId|workflowRunId|qualificationRunId|runId|sourceId)$/.test(input.name)).map(input=>`${input.name}:${input.value}`).join(":") : "";
       return `${ids || `form:${[...node.querySelectorAll("form")].indexOf(form!)}`}:${field.name}`;
     };
-    try {
+    const restore = () => { try {
       const saved = JSON.parse(sessionStorage.getItem(key) ?? "null");
       if (saved?.version === 2) {
         node.scrollTop = saved.scroll ?? 0;
@@ -38,17 +38,22 @@ export function ConsoleRetainedWorkspace({ ownerId, header, panels, initialPanel
           }
         }
       }
-    } catch { /* Storage is optional; credential/consent fields are never retained. */ }
+    } catch { /* Storage is optional; credential/consent fields are never retained. */ } };
+    restore();
     const save = () => {
       const drafts: Record<string, string> = {};
       for (const field of fields()) if (field.value !== (field instanceof HTMLSelectElement ? [...field.options].find(option => option.defaultSelected)?.value ?? field.options[0]?.value : field.defaultValue) && field.value.length <= 50000) drafts[fieldKey(field)] = field.value;
       try { sessionStorage.setItem(key, JSON.stringify({ version: 2, scroll: node.scrollTop, drafts })); } catch { /* Optional tab-local continuity. */ }
     };
+    // React performs its action form reset independently of the redirected RSC commit.
+    // Restore nonsecret fields after the native reset; unchecked consent stays unchecked.
+    const afterReset = () => queueMicrotask(() => { if(node.isConnected && node.dataset.retainedActive === "true")restore(); });
+    node.addEventListener("reset", afterReset, true);
     node.addEventListener("scroll", save, { passive: true }); node.addEventListener("input", save); node.addEventListener("submit", save, true); window.addEventListener("pagehide", save);
     // Next actions may reset uncontrolled fields before the redirected RSC tree commits.
     // Input/submit listeners save before that reset; cleanup must not replace the draft
     // with reset values. Restore on every committed server panel tree, including errors.
-    return () => { node.removeEventListener("scroll", save); node.removeEventListener("input", save); node.removeEventListener("submit", save, true); window.removeEventListener("pagehide", save); };
+    return () => { node.removeEventListener("reset", afterReset, true); node.removeEventListener("scroll", save); node.removeEventListener("input", save); node.removeEventListener("submit", save, true); window.removeEventListener("pagehide", save); };
   }, [scope, secure, panels]);
   const href = (id: string) => { const params = new URLSearchParams(query); params.set("panel", id); params.delete("message"); params.delete("error"); params.delete("toolPage"); return `${pathname}?${params}`; };
   return <div className="consoleRetained" ref={root}>

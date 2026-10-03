@@ -1,3 +1,4 @@
+import "../../auth-entry.css";
 import Link from "next/link";
 
 export default function AuthErrorPage() {
