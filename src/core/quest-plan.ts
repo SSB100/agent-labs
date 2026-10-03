@@ -57,7 +57,7 @@ const hash = (value: unknown) => typeof value === "string" && /^[a-f0-9]{64}$/.t
 const text = (value: unknown, max = 240) => typeof value === "string" && value.trim().length > 0 && value.length <= max;
 const integer = (value: unknown, min: number, max: number) => Number.isSafeInteger(value) && Number(value) >= min && Number(value) <= max;
 const date = (value: unknown): number => typeof value === "string" && /^\d{4}-\d\d-\d\dT.+(?:Z|[+-]\d\d:\d\d)$/.test(value) && Number.isFinite(Date.parse(value)) ? Date.parse(value) : fail("invalid_time");
-export const questMoney = (value: unknown): bigint => typeof value === "string" && /^(0|[1-9][0-9]{0,15})$/.test(value) && BigInt(value) <= 9007199254740991n ? BigInt(value) : fail("invalid_money");
+export const questMoney = (value: unknown): bigint => typeof value === "string" && /^(0|[1-9][0-9]{0,15})$/.test(value) && BigInt(value) <= BigInt("9007199254740991") ? BigInt(value) : fail("invalid_money");
 const keys = (value: Record<string, unknown>, expected: string[]) => {
   if (Object.keys(value).some(key => !expected.includes(key)) || expected.some(key => !(key in value))) fail("invalid_keys");
 };
@@ -83,12 +83,12 @@ export function compileQuestPlan(input: unknown): QuestPlan {
   if (p.format !== "r07.1" || p.currency !== "USD" || p.authorityRootId !== p.businessId || !integer(p.goalRevision, 1, 999999999) || !integer(p.businessRevision, 1, 999999999)) fail("invalid_lineage");
   if (!integer(p.maximumRepairs, 0, 8) || !integer(p.maximumPivots, 0, 3) || !integer(p.maximumChildren, 2, 32) || !integer(p.maximumDispatches, 2, 64)) fail("invalid_bounds");
   const budget = questMoney(p.maximumMicrounits), expiry = date(p.expiresAt);
-  if (budget <= 0n || expiry > date(p.deadline)) fail("invalid_bounds");
+  if (budget <= BigInt(0) || expiry > date(p.deadline)) fail("invalid_bounds");
   if (p.finishCondition !== "all_required_outputs_verified" || JSON.stringify(p.stopConditions) !== JSON.stringify(["no_permitted_work", "deadline", "repair_exhausted", "owner_stopped"])) fail("invalid_stop_conditions");
   if (!Array.isArray(p.steps) || p.steps.length < 2 || p.steps.length > 16 || p.steps.length > Number(p.maximumChildren) || p.steps.length > Number(p.maximumDispatches)) fail("invalid_steps");
   const steps = p.steps as Record<string, unknown>[];
   const seen = new Map<string, QuestStep>();
-  let total = 0n;
+  let total = BigInt(0);
   for (const raw of steps) {
     if (!object(raw)) fail("invalid_step");
     const s = raw as Record<string, unknown>;
@@ -105,7 +105,7 @@ export function compileQuestPlan(input: unknown): QuestPlan {
     if (seen.size > 1 && !dependsOn.includes(steps[1].key as string)) fail("challenge_required");
     if ((s.kind === "challenge" || s.kind === "review") && (s.workerDefinitionId === p.plannerWorkerDefinitionId || dependsOn.some(d => seen.get(d)?.workerDefinitionId === s.workerDefinitionId))) fail("independent_check_required");
     const amount = questMoney(s.maximumMicrounits), end = date(s.expiresAt), start = date(s.notBefore);
-    if (amount <= 0n || end > expiry || start >= end) fail("child_scope_widened");
+    if (amount <= BigInt(0) || end > expiry || start >= end) fail("child_scope_widened");
     total += amount;
     if (s.measurement !== null) {
       if (!object(s.measurement)) fail("invalid_measurement");
