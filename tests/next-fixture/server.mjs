@@ -1,5 +1,6 @@
 import { createServer } from 'node:http';
 import { fixtureData, id, time } from './data.mjs';
+import { readQuestFixture, saveQuestFixture } from './quests.mjs';
 export async function startFixtureBoundary() {
   let state = fixtureData(), control = { delayId: null, delayMs: 0, failTable: null, actionMode: 'success' };
   const log = [], effects = [], denied = [];
@@ -46,6 +47,15 @@ export async function startFixtureBoundary() {
     }
     if(req.url==='/rpc'){
       const {name,args}=input;const business=args.p_business_id;
+      if(name==='r04_quest_read'){
+        log.push({rpc:name,business,goal:args.p_goal_id,limit:args.p_limit,offset:args.p_offset});
+        if(control.delayId===args.p_goal_id)await new Promise(resolve=>setTimeout(resolve,control.delayMs));
+        return send(readQuestFixture(state,args,input.mode));
+      }
+      if(name==='r04_quest_transition'){
+        const response=saveQuestFixture(state,args,effects,id,time,control.actionMode);
+        if(response)return send(response);
+      }
       if(name==='create_product_candidate'&&state.businesses.some(b=>b.id===business)){
         if(control.actionMode==='uncertain')return send({data:null,error:null});
         if(control.actionMode==='conflict')return send({data:null,error:{message:'inert private error must never appear'}});
