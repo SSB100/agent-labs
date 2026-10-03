@@ -77,7 +77,7 @@ export async function launchInstalledPack(form: FormData) {
     const workflow=root?.manifest.workflows.find(w=>w.key===workflowKey);
     if (!workflow) throw new Error("Installed workflow not found.");
     assertJsonSchemaValue(workflow.inputSchema,input,"Workflow input");
-  } catch(error) { return fail("Check the installed workflow required JSON input. No workflow was reserved."); }
+  } catch { return fail("Check the installed workflow required JSON input. No workflow was reserved."); }
   const runtimeCapability=`${randomUUID()}${randomUUID()}`, nonce=randomUUID();
   const idempotencyKey=text(form,"idempotencyKey");
   const reserved=await context.supabase.rpc("begin_installed_pack_run",{p_business_id:businessId,p_installation_id:installationId,p_workflow_key:workflowKey,p_input:input!,p_idempotency_key:idempotencyKey,p_launch_nonce:nonce,p_runtime_capability:runtimeCapability});

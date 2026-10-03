@@ -47,7 +47,7 @@
 .consoleRetainedHeader form[method=get] { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:end; gap:8px; padding:8px 10px; margin:0; }
 .consoleRetainedHeader form[method=get] label { display:grid; gap:4px; }
 .consoleRetained :where(.operationsPanel,.guidedDisclosure) { padding:10px; margin:0 0 8px; border:1px solid var(--console-border); border-radius:5px; background:var(--console-panel); }
-.consoleRetained .summaryCard { min-height:76px; display:flex; flex-direction:column; justify-content:space-between; gap:5px; margin:0; }
+.consoleRetained .summaryCard { min-height:76px; display:flex; flex-direction:column; justify-content:flex-start; gap:5px; margin:0; }
 .consoleRetained .summaryValue { font-size:24px; letter-spacing:normal; }
 .consoleRetained :where(.panelHeading,.sectionTitleRow,.workspacePanelHeader) h2 { font-size:18px; line-height:1.25; letter-spacing:normal; }
 .consoleRetained .panelHeading { margin-bottom:6px; }
@@ -64,3 +64,8 @@
 .consoleRetained .productCandidate > summary strong { flex:1 1 70%; font-size:13px; }
 .consoleRetained .productCandidate > summary span { color:var(--console-muted); font-size:12px; }
 .consoleRetained .productCandidate:not([open]) { padding:6px 10px; border-radius:5px; }
+
+.consoleRetained :where(select,input:not([type=checkbox]):not([type=radio]):not([type=hidden])) { min-height:36px; }
+@media(max-width:900px),(max-height:540px) { .consoleRetained :where(select,input:not([type=checkbox]):not([type=radio]):not([type=hidden])) { min-height:44px; } .consoleRetained .productCheckbox { min-height:44px; } }
+
+.consoleRetained .summaryCard p { margin:0; font-size:12px; line-height:1.35; }

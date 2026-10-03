@@ -293,7 +293,7 @@ export default async function WorkerProofPage({ searchParams }: WorkerProofPageP
                 const contextKeys = worker ? Object.keys(worker.input).sort().join(", ") : "Pending";
 
                 return (
-                  <details className="workflowCard" key={run.id} open={exactRunId===run.id}><summary><strong>Saved worker proof · {run.id}</strong><span>{humanize(run.status)} · {runEvents.length} loaded event(s)</span></summary><div>
+                  <details className="workflowCard" id={`worker-proof-${run.id}`} key={run.id} open={exactRunId===run.id}><summary><strong>Saved worker proof · {run.id}</strong><span>{humanize(run.status)} · {runEvents.length} loaded event(s)</span></summary><div>
                     <div className="workflowCardHeader">
                       <div>
                         <p className="workflowBusiness">

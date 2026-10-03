@@ -127,10 +127,31 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false}) {
         assert.ok(calls.some(c=>c.operations.some(([op,max])=>op==='limit'&&max===2)),'Exact lookup must be independent and bounded');
       }
     });
+    await check('old exact workflow child links bypass the loaded window and reject a different parent',async()=>{
+      for(const [kind,panel,table,record] of [['stage','stages','workflow_stage_runs',id(20000)],['task','tasks','task_contracts',id(21000)],['worker','workers','worker_runs',id(22000)]]){
+        await page.goto(origin+`/dashboard/workflows/${id(1001)}?business=${business}&panel=${panel}&${kind}=${record}`);
+        const payload=page.getByRole('heading',{name:`Exact saved ${kind} · ${record}`,exact:true});await payload.waitFor();
+        assert.match(await page.getByLabel(`Exact ${kind} content`,{exact:true}).innerText(),new RegExp(record));
+        const calls=boundary.log.filter(c=>c.table===table&&c.operations?.some(([op,key,value])=>op==='eq'&&key==='id'&&value===record));
+        assert.ok(calls.some(c=>c.operations.some(([op,key,value])=>op==='eq'&&key==='workflow_run_id'&&value===id(1001))&&c.operations.some(([op,max])=>op==='limit'&&max===2)),'Independent exact child query must retain its parent');
+        await page.reload();await payload.waitFor();
+        await page.goto(origin+`/dashboard/workflows/${id(1002)}?business=${business}&panel=${panel}&${kind}=${record}`);
+        await page.getByText(`This exact ${kind} is missing. No replacement record was selected.`,{exact:true}).waitFor();assert.equal(await page.getByLabel(`Exact ${kind} content`,{exact:true}).count(),0);
+      }
+    });
+    await check('actual streamed workflow loading stays compact and exposes no action',async()=>{
+      await page.setViewportSize({width:1280,height:720});await control({delayId:id(1001),delayMs:2400});
+      await page.goto(origin+`/dashboard/workflows/${id(1001)}?business=${business}`,{waitUntil:'commit'});
+      await page.getByRole('heading',{name:'Loading exact saved workflow',exact:true}).waitFor();
+      await page.screenshot({path:path.join(output,'workflow-loading-1280x720.png')});
+      assert.equal(await page.locator('main form').count(),0,'Loading cannot expose an action');
+      await page.locator(`[data-work-detail="${id(1001)}"]`).waitFor();await control({delayId:null,delayMs:0});
+    });
     const effectCount=boundary.effects.length;
     await check('workflow server error boundary reloads the same exact owned record without a new effect',async()=>{
       await control({failTable:'workflow_runs'});await page.goto(origin+`/dashboard/workflows/${id(1001)}?business=${business}`);
       await page.getByRole('heading',{name:'This work could not be loaded',exact:true}).waitFor();
+      for(const [width,height]of [[1280,720],[1440,900],[390,844],[320,800],[640,360]]){await page.setViewportSize({width,height});await page.screenshot({path:path.join(output,`workflow-error-${width}x${height}.png`)});const m=await page.evaluate(()=>({w:document.documentElement.scrollWidth,h:document.documentElement.scrollHeight}));assert.ok(m.w<=width+1);if(width>=1280)assert.ok(m.h<=height+1);}
       await control({failTable:null});await page.getByRole('button',{name:'Reload saved work',exact:true}).click();await page.locator(`[data-work-detail="${id(1001)}"]`).waitFor();
       assert.equal(boundary.effects.length,effectCount);
     });
@@ -143,12 +164,16 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false}) {
     for(const [name,route]of routes)await check(`actual retained route ${name}`,async()=>{
       for(const [width,height]of [[1280,720],[1440,900],[390,844],[320,800],[640,360]]){
         await page.setViewportSize({width,height});const url=new URL(route,origin);url.searchParams.set('business',business);await page.goto(url.href);await page.locator('body').waitFor();if(name==='workflow')await page.locator(`[data-work-detail="${id(1001)}"]`).waitFor();
-        await page.screenshot({path:path.join(output,`${name}-${width}x${height}.png`),fullPage:true,mask:[page.locator('[data-private=true]')]});
+        await page.screenshot({path:path.join(output,`${name}-${width}x${height}.png`),fullPage:true,mask:[page.locator('[data-private=true]')],maskColor:'#142b3b'});
         assert.equal(await page.getByText('Application error',{exact:false}).count(),0);
         const metrics=await page.evaluate(()=>({width:document.documentElement.scrollWidth,height:document.documentElement.scrollHeight,innerWidth,innerHeight}));
         assert.ok(metrics.width<=width+1,`Horizontal overflow ${JSON.stringify(metrics)}`);
         if(width>=1280)assert.ok(metrics.height<=height+1,`Document viewport overflow ${JSON.stringify(metrics)}`);
 
+        if(width===390){
+          const targets=await page.locator('.consoleRetained button:not(:disabled),.consoleRetainedTabs a,.consoleRetained select,.consoleRetained input:not([type=checkbox]):not([type=radio]):not([type=hidden])').evaluateAll(nodes=>nodes.filter(node=>{const b=node.getBoundingClientRect();return b.width>0&&b.height>0&&(b.width<43.5||b.height<43.5);}).map(node=>({text:node.textContent?.slice(0,60),name:node.getAttribute('name'),w:node.getBoundingClientRect().width,h:node.getBoundingClientRect().height})));
+          assert.deepEqual(targets,[],name+' actual primary touch targets');
+        }
         if(width===640)results.push({name:`${name} 200 percent desktop reflow equivalent`,status:'passed',viewport:'640x360 CSS pixels corresponds to 1280x720 at 200 percent zoom'});
       }
     });
@@ -157,9 +182,9 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false}) {
       for(const [width,height]of [[1280,720],[390,844]]){
         await page.setViewportSize({width,height});const query=new URLSearchParams({business,panel});if(route==='accounts')query.set('diagnostics','platform');
         await page.goto(origin+`/dashboard/${route}?${query}`);
-        const nav=page.getByRole('navigation',{name:'Tool sections'}),active=nav.locator('[aria-current=page]');
+        const nav=page.getByRole('navigation',{name:'Tool sections'}),active=nav.locator('[aria-current=page]');await nav.waitFor();await active.waitFor();
         assert.ok(await active.count(),'Requested section is missing');assert.equal(new URL(await active.getAttribute('href'),origin).searchParams.get('panel'),panel,'Unknown section silently fell back');
-        await page.screenshot({path:path.join(output,`section-${route.replaceAll('/','-')}-${panel}-${width}x${height}.png`),fullPage:true,mask:[page.locator('[data-private=true]')]});
+        await page.screenshot({path:path.join(output,`section-${route.replaceAll('/','-')}-${panel}-${width}x${height}.png`),fullPage:true,mask:[page.locator('[data-private=true]')],maskColor:'#142b3b'});
         const metrics=await page.evaluate(()=>({w:document.documentElement.scrollWidth,h:document.documentElement.scrollHeight}));assert.ok(metrics.w<=width+1);if(width>=1280)assert.ok(metrics.h<=height+1);
         // Click a distinct real Link and use native Back to return to this exact section.
         const other=nav.locator('a:not([aria-current=page])').first();const nextPanel=new URL(await other.getAttribute('href'),origin).searchParams.get('panel');
@@ -170,15 +195,16 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false}) {
     });
     await check('retained loaded-window paging keeps reading position through Back and reload',async()=>{
       await page.setViewportSize({width:1280,height:720});await page.goto(origin+`/dashboard/products?business=${business}&panel=candidates`);
+      const viewer=page.locator('.productCandidate').first();await viewer.locator(':scope > summary').click();
       const body=page.locator('[data-retained-active=true]');await body.evaluate(node=>{node.scrollTop=180;node.dispatchEvent(new Event('scroll'));});const scroll=await body.evaluate(node=>node.scrollTop);assert.ok(scroll>0);
       await page.getByRole('link',{name:'New candidate',exact:true}).click();await page.waitForURL(/panel=new/);await page.goBack();await page.waitForURL(/panel=candidates/);
-      assert.ok(Math.abs((await body.evaluate(node=>node.scrollTop))-scroll)<=2,'Reading position after Back');await page.reload();assert.ok(Math.abs((await body.evaluate(node=>node.scrollTop))-scroll)<=2,'Reading position after reload');
+      assert.ok(Math.abs((await body.evaluate(node=>node.scrollTop))-scroll)<=2,'Reading position after Back');await page.reload();assert.ok(Math.abs((await body.evaluate(node=>node.scrollTop))-scroll)<=2,'Reading position after reload');assert.equal(await viewer.evaluate(node=>node.open),true,'Exact disclosure survives reload');
     });
     for(const mode of ['empty','unavailable'])await check(`actual retained ${mode} reads remain explicit and inert`,async()=>{
       await context.addCookies([{name:'r03-mode',value:mode,url:origin}]);
       try {for(const route of ['products','artifacts','packs','model-router','worker-proof','worker-evaluations','settings']){
         await page.setViewportSize({width:1280,height:720});await page.goto(origin+`/dashboard/${route}`);
-        await page.screenshot({path:path.join(output,`${route}-${mode}-1280x720.png`),fullPage:true,mask:[page.locator('[data-private=true]')]});
+        await page.screenshot({path:path.join(output,`${route}-${mode}-1280x720.png`),fullPage:true,mask:[page.locator('[data-private=true]')],maskColor:'#142b3b'});
         assert.equal(await page.getByText('Application error',{exact:false}).count(),0);
         if(mode==='unavailable')assert.match(await page.locator('main').innerText(),/unavailable|could not|cannot be loaded|couldn.t be loaded|unknown/i,route);
       }}finally{await context.clearCookies({name:'r03-mode'});}
@@ -189,10 +215,10 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false}) {
         await zoom.context.route('**/*',route=>{const u=new URL(route.request().url());if(['http:','https:'].includes(u.protocol)&&u.origin!==origin){external.push(u.origin);return route.abort('blockedbyclient');}return route.continue();});
         const zoomPage=await zoom.context.newPage();
         for(const [name,route]of routes){
-          const url=new URL(route,origin);url.searchParams.set('business',business);await zoomPage.goto(url.href);
+          const url=new URL(route,origin);url.searchParams.set('business',business);await zoomPage.goto(url.href);if(name==='workflow')await zoomPage.locator(`[data-work-detail="${id(1001)}"]`).waitFor();
           assert.equal(await zoom.set(zoomPage,2),2);await zoomPage.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
           const metrics=await zoomPage.evaluate(()=>({w:innerWidth,h:innerHeight,scrollWidth:document.documentElement.scrollWidth}));
-          await zoomPage.screenshot({path:path.join(output,`${name}-zoom200.png`),mask:[zoomPage.locator('[data-private=true]')]});
+          await zoomPage.screenshot({path:path.join(output,`${name}-zoom200.png`),mask:[zoomPage.locator('[data-private=true]')],maskColor:'#142b3b'});
           assert.ok(metrics.w>=630&&metrics.w<=650,`Actual browser zoom did not halve CSS viewport: ${JSON.stringify(metrics)}`);
           assert.ok(metrics.scrollWidth<=metrics.w+1,`${name} actual 200 percent horizontal overflow: ${JSON.stringify(metrics)}`);
           await zoomPage.keyboard.press('Tab');
@@ -200,6 +226,12 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false}) {
           assert.notEqual(focus.tag,'BODY',name+' keyboard focus');assert.ok(focus.visible&&focus.outline>=2,name+' visible keyboard focus');
           results.push({name:`${name} actual browser zoom 200 percent`,status:'passed',metrics});
           await zoom.set(zoomPage,1);
+        }
+        await zoom.context.addCookies([{name:'r03-session',value:'off',url:origin}]);
+        for(const [name,route]of [['login','/login?error=session-required'],['auth-error','/auth/error']]){
+          await zoomPage.goto(origin+route);assert.equal(await zoom.set(zoomPage,2),2);await zoomPage.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+          const metrics=await zoomPage.evaluate(()=>({w:innerWidth,h:innerHeight,scrollWidth:document.documentElement.scrollWidth}));assert.ok(metrics.w>=630&&metrics.w<=650);assert.ok(metrics.scrollWidth<=metrics.w+1);
+          await zoomPage.screenshot({path:path.join(output,`${name}-zoom200.png`)});results.push({name:`${name} actual browser zoom 200 percent`,status:'passed',metrics});await zoom.set(zoomPage,1);
         }
       }finally{await zoom.close();}
     });

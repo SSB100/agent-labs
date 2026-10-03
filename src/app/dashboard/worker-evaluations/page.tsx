@@ -313,7 +313,7 @@ export default async function WorkerEvaluationsPage({ searchParams }: Props) {
                   0,
                 );
                 return (
-                  <details className="workflowCard" key={run.id}><summary><strong>Evaluation {run.id}</strong><span>{humanize(run.status)} · Score {run.score ?? "Unavailable"} · Loaded reported {loadError ? "Unavailable" : formatUsd(runCost)} · {caseResults.filter(r=>r.reported_cost_usd==null).length} unknown charge(s)</span></summary><div>
+                  <details className="workflowCard" id={`evaluation-${run.id}`} key={run.id}><summary><strong>Evaluation {run.id}</strong><span>{humanize(run.status)} · Score {run.score ?? "Unavailable"} · Loaded reported {loadError ? "Unavailable" : formatUsd(runCost)} · {caseResults.filter(r=>r.reported_cost_usd==null).length} unknown charge(s)</span></summary><div>
                     <div className="workflowCardHeader">
                       <div>
                         <p className="workflowBusiness">{humanize(run.source)}</p>

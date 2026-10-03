@@ -229,7 +229,7 @@ export default async function ModelRouterPage({ searchParams }: Props) {
             </article>
           ))}
           <article className="summaryCard">
-            <span className="summaryLabel">Loaded reported charges</span><p>{invocations.filter(i=>i.reported_cost_usd==null || !i.provider_request_id).length} unknown charge(s); estimates do not settle them.</p>
+            <span className="summaryLabel">Loaded reported charges</span><p>{invocations.filter(i=>i.reported_cost_usd==null || !i.provider_request_id).length} unknown charge(s) · estimates separate.</p>
             <strong style={{ fontSize: "1.3rem" }}>{loadError ? "Unavailable" : formatUsd(totalCost)}</strong>
           </article>
         </section>
@@ -247,7 +247,7 @@ export default async function ModelRouterPage({ searchParams }: Props) {
                   0,
                 );
                 return (
-                  <details className="workflowCard" key={run.id} open={exactRunId===run.id}><summary><strong>{humanize(String(run.input.proofMode ?? "saved"))} proof · {run.id}</strong><span>{humanize(run.status)} · {loadError ? "Receipts unavailable" : attempts.length ? <>Loaded reported {formatUsd(runCost)} · {attempts.filter(a=>a.reported_cost_usd==null || !a.provider_request_id).length} unknown charge(s)</> : "No receipts returned in this loaded window"}</span></summary><div>
+                  <details className="workflowCard" id={`model-proof-${run.id}`} key={run.id} open={exactRunId===run.id}><summary><strong>{humanize(String(run.input.proofMode ?? "saved"))} proof · {run.id}</strong><span>{humanize(run.status)} · {loadError ? "Receipts unavailable" : attempts.length ? <>Loaded reported {formatUsd(runCost)} · {attempts.filter(a=>a.reported_cost_usd==null || !a.provider_request_id).length} unknown charge(s)</> : "No receipts returned in this loaded window"}</span></summary><div>
                     <div className="workflowCardHeader">
                       <div>
                         <p className="workflowBusiness">{businessById.get(run.business_id)?.name ?? "Business"}</p>
