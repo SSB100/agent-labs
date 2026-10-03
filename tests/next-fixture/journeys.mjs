@@ -194,6 +194,10 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false}) {
         await page.goto(origin+`/dashboard/${route}?${query}`);
         const nav=page.getByRole('navigation',{name:'Tool sections'}),active=nav.locator('[aria-current=page]');await nav.waitFor();await active.waitFor();
         assert.ok(await active.count(),'Requested section is missing');assert.equal(new URL(await active.getAttribute('href'),origin).searchParams.get('panel'),panel,'Unknown section silently fell back');
+        if(route==='packs'&&panel==='qualification')await page.getByRole('heading',{name:'No qualification tools in the loaded catalog',exact:true}).waitFor();
+        if(route==='settings'&&panel==='businesses'){
+          const buttons=await page.locator('.consoleBusinessActions a').evaluateAll(nodes=>nodes.map(node=>node.getBoundingClientRect().width));assert.ok(buttons.length>0&&buttons.every(width=>width>=109),'Business row actions must stay readable');
+        }
         await page.screenshot({path:path.join(output,`section-${route.replaceAll('/','-')}-${panel}-${width}x${height}.png`),fullPage:true,mask:[page.locator('[data-private=true]')],maskColor:'#142b3b'});
         const metrics=await page.evaluate(()=>({w:document.documentElement.scrollWidth,h:document.documentElement.scrollHeight}));assert.ok(metrics.w<=width+1);if(width>=1280)assert.ok(metrics.h<=height+1);
         // Click a distinct real Link and use native Back to return to this exact section.

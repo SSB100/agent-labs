@@ -59,7 +59,7 @@ export default async function PacksPage({searchParams}:{searchParams:Promise<Rec
         </article>;
       })} /></div>
     </section></> },
-{ id: "qualification", label: "Qualification", content: <>{packs.some(p=>p.manifest.packKey === "workflow.web-research") ? <section className="dashboardSection">
+{ id: "qualification", label: "Qualification", content: <>{!packs.some(p=>p.manifest.packKey === "workflow.web-research" || (p.manifest.packKey === "workflow.etsy-product-discovery" && p.manifest.version === "1.0.0" && p.status === "experimental")) ? <section><h2>No qualification tools in the loaded catalog</h2><p>Existing qualifications remain tied to exact Pack versions. This loaded catalog does not contain the supported Web Research or Etsy simulation qualification tools; no missing release or successful qualification is inferred.</p></section> : null}{packs.some(p=>p.manifest.packKey === "workflow.web-research") ? <section className="dashboardSection">
       <div className="sectionTitleRow"><div><p className="coreEyebrow">Live qualification</p><h2>Web Research</h2></div></div>
       <p>Verify public source collection and a linked Evidence Pack using the configured model route.</p>
       <div className="packCardActions">{scopedBusinesses.map(b=><form action={qualifyWebResearch} key={b.id}>

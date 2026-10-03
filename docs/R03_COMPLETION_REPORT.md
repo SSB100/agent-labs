@@ -54,7 +54,7 @@ Actual hosted Chromium captures cover all retained route targets and accepted ro
 
 A fresh disposable Chromium profile and local extension with only `tabs` permission applies real `chrome.tabs.setZoom(2)`. The gate verifies actual zoom and the resulting CSS viewport for retained/root/auth routes, separately from reflow-equivalent captures. Keyboard navigation and visible focus are tested; browser contexts use reduced motion. Secret pixels are masked, with no active credentials supplied.
 
-Actual pixel inspection prompted corrections to oversized proof metrics/panels, clipped configured badges, awkward mobile tool navigation, premature loading-state screenshots and auth-recovery overflow. Final screenshots and the exact capture/check manifest are downloadable from the final `r03-next` job. The completion attachment binds PNG hashes and test evidence to the final commit; earlier failed snapshots are diagnostic only.
+Actual pixel inspection prompted corrections to oversized proof metrics/panels, clipped configured badges, awkward mobile tool navigation, premature loading-state screenshots, auth-recovery overflow, narrowly wrapping Business actions and a blank Pack qualification section. Final screenshots and the exact capture/check manifest are downloadable from the final `r03-next` job. The completion attachment binds PNG hashes and test evidence to the final commit; earlier failed snapshots are diagnostic only.
 
 ## Verification and diagnostic ledger
 
