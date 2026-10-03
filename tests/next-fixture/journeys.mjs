@@ -4,8 +4,9 @@ import path from 'node:path';
 import { chromium } from 'playwright-core';
 import { id } from './data.mjs';
 import { actualZoomBrowser } from './browser-zoom.mjs';
+import { runQuestJourneys } from './quest-journeys.mjs';
 
-export async function runNextJourneys({origin,boundary,output,httpOnly=false}) {
+export async function runNextJourneys({origin,boundary,output,httpOnly=false,questsOnly=false}) {
   const results=[];
   const report=()=>writeFile(path.join(output,'acceptance.json'),JSON.stringify({results,browser:httpOnly?'unrun':'actual Chromium against production Next'},null,2));
   const check=async(name,fn)=>{try{await fn();results.push({name,status:'passed'});console.log('PASS:',name);}catch(error){results.push({name,status:'failed',error:String(error.stack)});console.error('FAIL:',name,String(error.stack));await report();}finally{await fetch(boundary.origin+'/control',{method:'POST',body:JSON.stringify({delayId:null,delayMs:0,failTable:null,actionMode:'success'})});}};
@@ -29,13 +30,23 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false}) {
     await fetch(boundary.origin+'/control',{method:'POST',body:JSON.stringify({delayId:null,delayMs:0})});
   });
   if(httpOnly){await report();assert.ok(results.every(result=>result.status==='passed'),'HTTP streaming checks failed; see acceptance.json');return;}
-  const browser=await chromium.launch({headless:true,args:['--no-sandbox']});
+  const browser=await chromium.launch({headless:true,executablePath:process.env.GUIDED_UI_CHROMIUM_PATH,args:['--no-sandbox']});
   try {
     const context=await browser.newContext({viewport:{width:1280,height:720},reducedMotion:'reduce'});
     const page=await context.newPage(), requests=[], actions=[], external=[];
     await context.route('**/*',route=>{const u=new URL(route.request().url());if(['http:','https:'].includes(u.protocol)&&u.origin!==origin){external.push(u.origin);return route.abort('blockedbyclient');}return route.continue();});
     page.on('response',r=>{if(r.headers()['content-type']?.includes('text/x-component'))requests.push({url:r.url(),status:r.status()});if(r.request().method()==='POST'&&r.request().headers()['next-action'])actions.push({url:r.url(),status:r.status(),revalidated:r.headers()['x-action-revalidated']??null,redirect:r.headers()['x-action-redirect']??null});});
     const business=id(1);
+    await runQuestJourneys({page,context,origin,boundary,output,check,requests,actions,zoomOnly:questsOnly});
+    if(questsOnly){
+      assert.deepEqual(external,[],'Quest browser attempted external effects');
+      assert.deepEqual(boundary.denied,[],'Quest boundary denied an unexpected operation');
+      await writeFile(path.join(output,'action-responses.json'),JSON.stringify(actions,null,2));
+      await writeFile(path.join(output,'rsc-responses.json'),JSON.stringify(requests,null,2));
+      assert.ok(results.every(result=>result.status==='passed'),'Quest actual Next checks failed; see acceptance.json');
+      await context.close();return;
+    }
+    await page.setViewportSize({width:1280,height:720});
     await check('production Next Link navigation emits RSC responses',async()=>{
       await page.goto(origin+`/dashboard/settings?business=${business}`);await page.getByRole('link',{name:'Businesses',exact:true}).click();await page.waitForURL(/panel=businesses/);await page.getByRole('heading',{name:'Owned Businesses'}).waitFor();assert.ok(requests.length>0,'No genuine RSC Link response observed');
     });
@@ -179,7 +190,7 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false}) {
         const response=await page.goto(origin+`/dashboard/${route}?business=${id(999999)}`);assert.equal(response.status(),404,route);assert.equal(await page.locator('form[action]').count(),0);
       }
     });
-    const routes=[['overview','/dashboard'],['work','/dashboard?view=work'],['history','/dashboard/history'],['workflows-alias','/dashboard/workflows'],['needs-you','/dashboard/needs-you'],['library','/dashboard?view=library'],['research','/dashboard?view=research'],['activity','/dashboard?view=activity'],['connections','/dashboard?view=connections'],['products','/dashboard/products'],['artifacts','/dashboard/artifacts'],['packs','/dashboard/packs'],['model-router','/dashboard/model-router'],['worker-proof','/dashboard/worker-proof'],['evaluations','/dashboard/worker-evaluations'],['settings','/dashboard/settings'],['diagnostics','/dashboard/accounts?diagnostics=platform'],['printful','/dashboard/printful'],['etsy','/dashboard/etsy'],['workflow','/dashboard/workflows/'+id(1001)],['secure','/dashboard/accounts/secure?run='+id(770000)],['password','/dashboard/accounts/password?account='+id(770000)],['registration','/dashboard/accounts/registration?run='+id(770000)]];
+    const routes=[['quests','/dashboard/quests?quest='+id(820000)],['overview','/dashboard'],['work','/dashboard?view=work'],['history','/dashboard/history'],['workflows-alias','/dashboard/workflows'],['needs-you','/dashboard/needs-you'],['library','/dashboard?view=library'],['research','/dashboard?view=research'],['activity','/dashboard?view=activity'],['connections','/dashboard?view=connections'],['products','/dashboard/products'],['artifacts','/dashboard/artifacts'],['packs','/dashboard/packs'],['model-router','/dashboard/model-router'],['worker-proof','/dashboard/worker-proof'],['evaluations','/dashboard/worker-evaluations'],['settings','/dashboard/settings'],['diagnostics','/dashboard/accounts?diagnostics=platform'],['printful','/dashboard/printful'],['etsy','/dashboard/etsy'],['workflow','/dashboard/workflows/'+id(1001)],['secure','/dashboard/accounts/secure?run='+id(770000)],['password','/dashboard/accounts/password?account='+id(770000)],['registration','/dashboard/accounts/registration?run='+id(770000)]];
     for(const [name,route]of routes)await check(`actual retained route ${name}`,async()=>{
       for(const [width,height]of [[1280,720],[1440,900],[390,844],[320,800],[640,360]]){
         await page.setViewportSize({width,height});const url=new URL(route,origin);url.searchParams.set('business',business);await page.goto(url.href);await page.locator('body').waitFor();if(name==='workflow')await page.locator(`[data-work-detail="${id(1001)}"]`).waitFor();

@@ -394,3 +394,7 @@ footer {
 .questWorkspace summary { cursor: pointer; font-weight: 600; min-height: 44px; padding-block: 10px; }
 .questWorkspace label:has(input[type=checkbox]) { min-height: 44px; grid-template-columns: auto 1fr; align-items: center; }
 .questWorkspace fieldset { min-width: 0; }
+.consoleMain .questWorkspace .coreButton { min-height: 44px; font-size: 16px; }
+@media (max-width: 900px) {
+  .questWorkspace a { display: inline-flex; align-items: center; min-height: 44px; min-width: 44px; max-width: 100%; padding-block: 8px; }
+}
