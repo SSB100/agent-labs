@@ -7,6 +7,7 @@ Canonical scope: R08 in `AGENT_LABS_V2_IMPLEMENTATION_PLAN.md`. Baseline is rele
 - Resolve the authenticated Business and explicit/current/most-recent R04 Quest before reading a Quest workspace. Missing, ambiguous, conflicting and unavailable identities never select another record.
 - Overview resolves an active episode independently of every recent-history page, or the most recent episode when none is active, then loads that exact run. Explicit selection never falls back. With no Quest it projects no Quest work. The existing console core, timeline, worker receipts, saved outputs, motion and browser-metadata fallback remain in the single-screen layout.
 - The native URL carries Business, Quest, episode, Step, Agent and source-artifact provenance. Changing a parent clears incompatible descendant context. Exact selection is independent of paging and search. Quest/Business selection remains distinct from execution authority and preference.
+- Audit and catalog pages offer an explicit All Business records scope, retaining unlinked Business-level records rather than forcing them into the current Quest.
 - Canonical navigation: Overview; Events (`view=work`, with old Work URLs retained); Library; Research; Products with linked Listings; existing-pack Knowledge; searchable Decisions; Needs owner (`view=decisions`, preserving historical notice URLs); Connections; underlying Audit events; Tools.
 - Business-level account setup/history stays Business-scoped; the Quest is retained as return provenance but is not sent as an unsupported account-data filter.
 

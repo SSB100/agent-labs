@@ -82,7 +82,13 @@ export async function rootBrowserDocument(route) {
     if (fixture.overview) {
       const island = renderToString(renderContent(React, { ConsoleMotionBoundary: fixture.boundary.type, ConsoleOverview: fixture.overview.type,
         ConsoleResearchSheet: fixture.sheet?.type, QuestKickoff: fixture.sheet?.props.children.type }, fixture.state));
-      const shell = React.cloneElement(fixture.tree, {}, React.createElement("div", { id: "root-browser-content", style: { display: "contents" } }));
+      const replaceBoundary = tree => {
+        if (!React.isValidElement(tree)) return tree;
+        if (tree.type === fixture.boundary.type) return React.createElement("div", { id: "root-browser-content", style: { display: "contents" } });
+        if (fixture.sheet && tree.type === fixture.sheet.type) return null;
+        return tree.props.children ? React.cloneElement(tree, {}, React.Children.map(tree.props.children, replaceBoundary)) : tree;
+      };
+      const shell = replaceBoundary(fixture.tree);
       markup = renderToString(shell).replace('<div id="root-browser-content" style="display:contents"></div>', `<div id="root-browser-content" style="display:contents">${island}</div>`);
     }
     return fixtureDocument(markup, { products: true }).replace("</head>", '<link rel="icon" href="data:,"></head>').replace("</body>", `<script>window.__rootBrowserState=${JSON.stringify(fixture.state).replace(/</g, "\\u003c")};</script><script>${await browserBundle()}</script></body>`);

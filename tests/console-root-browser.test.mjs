@@ -22,7 +22,9 @@ test("real root Browser uses the owner-scoped metadata reader and sanitizes the 
   }
   const html = await rootBrowserDocument(rootBrowserMode);
   assert.doesNotMatch(html, /PRIVATE_SYNTHETIC_|private-fixture|<iframe|<video|<object|<embed|api\.steel\.dev|get_browser_session_live_view/);
-  assert.match(html, /hydrateRoot/);
+  assert.match(html, /hydrateRoot/); assert.match(html, /r08OverviewWorkspace/);
+  const noEpisode = await rootBrowserDocument(contract.consoleBrowserHref("browser", id(5)));
+  assert.match(noEpisode, /No workflow episode exists for this Quest/); assert.doesNotMatch(noEpisode, /Recorded session state: live/);
 });
 
 test("Browser root keeps query context through research and refuses foreign, malformed or unavailable selections", async () => {
@@ -90,7 +92,7 @@ test("real root Browser toggle, saved record, history, context and research dism
         await page.getByRole("button", { name: "Choose Business", exact: true }).click();
         await page.waitForURL(url => url.searchParams.get("business") === id(5)); await hydrated();
         assert.equal(new URL(page.url()).searchParams.has("browserRun"), false);
-        await page.getByText("No browser sessions recorded", { exact: true }).waitFor();
+        await page.getByText("No workflow episode exists for this Quest.", { exact: true }).waitFor();
         const returnTo = await page.evaluate(() => window.__rootBrowserState.command.returnTo);
         assert.equal(new URL(returnTo, origin).searchParams.get("centre"), "browser");
         assert.equal(new URL(returnTo, origin).searchParams.get("business"), id(5));
@@ -103,7 +105,7 @@ test("real root Browser toggle, saved record, history, context and research dism
         assert.equal(await dialog.locator('input[name="confirmResearch"]:checked').count(), 0);
         await page.screenshot({ path: path.join(directory, `console-browser-root-research-${width}.png`), fullPage: true });
         await page.keyboard.press("Escape"); await page.waitForURL(origin + returnTo); await hydrated();
-        await page.getByText("No browser sessions recorded", { exact: true }).waitFor();
+        await page.getByText("No workflow episode exists for this Quest.", { exact: true }).waitFor();
         await page.reload(); await hydrated();
         assert.equal(new URL(page.url()).searchParams.get("business"), id(5));
         assert.equal(new URL(page.url()).searchParams.get("centre"), "browser"); await inert();

@@ -41,7 +41,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   let workspace: WorkspaceIntent = { state: null, businessId: typeof query.business === "string" ? query.business : null, unavailable: !!context.businessesUnavailable, context };
   if (query.quest || ["overview", "products-catalog", "knowledge", "decision-log"].includes(view)) {
     const { resolveWorkspace } = await import("@/lib/core-ui/workspace-context");
-    try { workspace = await resolveWorkspace(context, query, ["overview", "products-catalog", "knowledge", "decision-log"].includes(view)); } catch { notFound(); }
+    const scopeQuery = ["products-catalog", "knowledge", "decision-log"].includes(view) && query.business === undefined ? { ...query, business: context.businesses[0]?.id } : query;
+    try { workspace = await resolveWorkspace(context, scopeQuery, view === "overview"); } catch { notFound(); }
   }
   context = workspace.context;
   if (["overview"].includes(view)) { const { ConsoleWorkspaceOverview } = await import("@/components/console/console-workspace-overview"); return <ConsoleWorkspaceOverview scope={workspace} query={query}/>; }

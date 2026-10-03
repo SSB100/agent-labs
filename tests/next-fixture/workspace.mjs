@@ -8,6 +8,7 @@ export function workspaceSeed(state,id,time){
   for(const w of state.db.workflow_runs.filter(w=>w.business_id===business.id))w.goal_id=goal;
   const last=state.db.workflow_runs.filter(w=>w.business_id===business.id).at(-1);if(last)last.goal_id=other;
   const legacy=state.db.product_experiments.find(e=>e.business_id===business.id);if(legacy){const w=state.db.workflow_runs.find(w=>w.id===legacy.workflow_run_id);if(w){w.goal_id=null;links.set(w.id,[goal]);}}
+  records.decisions.push({id:`admission:business-only-${b}`,kind:'admission_decision',businessId:business.id,goalId:null,workflowRunId:null,recordId:`business-only-${b}`,title:'Unlinked Business admission',status:'blocked',reason:'No exact Quest association is recorded',actor:'admission controller',at:time});
   for(let n=0;n<127;n++){
    const packageId=id(880000+b*1000+n),listingId=id(885000+b*1000+n);
    const product={id:packageId,businessId:business.id,goalId:goal,workflowRunId:run.id,kind:'product_package',title:`Saved package ${n} with exact original image lineage`,at:time,schemaVersion:'1.0',readiness:'unqualified',productIdentity:`inert:${b}:${n}`,listingCount:1,listings:[{id:listingId,listingId:9000+n,status:'verified'}],blockers:['Provider-neutral Product identity not qualified','Exact selling-variant linkage not qualified','Account-specific fees not qualified','Supported fulfilment not qualified']};

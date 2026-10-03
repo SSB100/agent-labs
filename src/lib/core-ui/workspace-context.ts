@@ -21,8 +21,14 @@ export async function resolveWorkspace(context: OwnerUiContext, search: Workspac
   if ([businessId, questId, episode, step, agent, sourceArtifact].some(id => id !== undefined && !consoleValidId(id)) || questId && !businessId || (step || agent) && !episode || episode && !questId && !current || browserEpisode && workspaceValue(search, "episode") && browserEpisode !== workspaceValue(search, "episode")) throw new Error("Invalid workspace context");
   const selectedRun = workspaceValue(search, "selected") ?? workspaceValue(search, "run");
   if (workspaceValue(search, "view") === "work" && episode && selectedRun && episode !== selectedRun) throw new Error("Conflicting selected episode");
-  if (!businessId || (!questId && !current)) return { state: null, businessId: businessId ?? null, unavailable: !!context.businessesUnavailable, context };
+  if (!businessId) return { state: null, businessId: null, unavailable: !!context.businessesUnavailable, context };
   if (context.businessesUnavailable) return { state: null, businessId, unavailable: true, context };
+  if (!questId && !current) {
+    const count = await context.supabase.from("owner_interventions").select("id", { count: "exact", head: true }).eq("business_id", businessId).eq("status", "open");
+    const unavailableCount = !!count.error || !Number.isSafeInteger(count.count) || count.count! < 0;
+    const params = new URLSearchParams(context.readSearch); params.set("business", businessId);
+    return { state: null, businessId, unavailable: false, context: { ...context, scopeBusinessId: businessId, readSearch: `?${params}`, needsYouCount: unavailableCount ? 0 : count.count!, needsYouUnavailable: unavailableCount } };
+  }
   const offsetText = workspaceValue(search, "questPage") ?? "1";
   if (!/^[1-9]\d{0,3}$/.test(offsetText)) throw new Error("Invalid Quest page");
   const { data, error } = await context.supabase.rpc("r04_quest_read", { p_business_id: businessId, p_goal_id: questId ?? null, p_limit: 20, p_offset: (Number(offsetText) - 1) * 20 });

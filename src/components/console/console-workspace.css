@@ -6,3 +6,6 @@
 
 .r08OverviewWorkspace { padding:0; border:0; gap:6px; background:transparent; }.r08OverviewContent { flex:1; min-height:0; }.r08OverviewContent > div { height:100%; }.r08QuestSummary { border:1px solid var(--console-border); padding:6px 9px; border-radius:5px; min-height:0; flex:0 0 auto; }.r08QuestSummary summary { cursor:pointer; overflow-wrap:anywhere; }.r08QuestSummaryScroll { max-height:170px; overflow:auto; }.r08Next { margin:0!important; font-size:12px; }.r08OverviewWorkspace .r08Scope { padding:2px; }.r08OverviewWorkspace .r08Scope details[open] { max-height:120px; overflow:auto; }
 @media(max-width:760px) { .r08OverviewContent,.r08OverviewContent>div { height:auto; }.r08QuestSummaryScroll { max-height:none; overflow:visible; } }
+
+.r08Card > a { display:inline-flex; min-height:24px; align-items:center; margin:4px 12px 4px 0; }
+@media(max-width:760px) { .r08Card > a { min-height:44px; } }

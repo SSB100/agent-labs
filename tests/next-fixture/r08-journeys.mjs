@@ -47,6 +47,8 @@ export async function runWorkspaceJourneys({page,origin,boundary,output,check,re
  });
  await check('R08 searchable automated decisions and controller-only owner exception stay distinct',async()=>{
   await goto('decision-log',{selected:'admission:1',q:'does not match',page:'6'});await page.getByLabel('Exact selected record',{exact:true}).waitFor();assert.match(await page.locator('.r08Workspace').innerText(),/Blocked original dispatch/);assert.match(await page.locator('.r08Pager').innerText(),/of 0/);
+  await page.getByRole('link',{name:'All Business records',exact:true}).click();await page.waitForURL(u=>!u.searchParams.has('quest'));assert.match(await page.locator('.r08Workspace').innerText(),/Business records without a selected Quest/);
+  await page.locator('input[name=q]').fill('Unlinked Business admission');await page.getByRole('button',{name:'Search',exact:true}).click();await page.getByRole('link',{name:'Unlinked Business admission',exact:true}).waitFor();await page.goBack();await page.goBack();await page.waitForURL(u=>u.searchParams.get('quest')===quest);
   await page.getByRole('link',{name:'Needs owner queue',exact:true}).click();await page.waitForURL(u=>u.searchParams.get('view')==='decisions');await page.locator(`[data-controller-exception="${quest}"]`).waitFor();assert.match(await page.locator(`[data-controller-exception="${quest}"]`).innerText(),/New account scope requires confirmation/);
   assert.equal(new URL(page.url()).searchParams.get('quest'),quest);
  });

@@ -23,7 +23,7 @@ test('populated hosted fixture retains mixed types and two Businesses across act
   const typed = fixture.tables.owner_interventions[126], html = await decisionDocument(decisionRoute(typed), { fixture });
   assert.match(html, />Approve and complete demo<\/button>/); assert.match(html, /deniedTypedAction/);
   const selected = fixture.tables.owner_interventions[1];
-  for (const route of [`/dashboard?view=work&business=${businessId}&run=${selected.workflow_run_id}`]) assert.ok((await decisionDocument(route, { fixture })).includes('consoleMain'));
+  for (const route of [`/dashboard?view=work&business=${businessId}&run=${selected.workflow_run_id}`, `/dashboard?view=overview&business=${businessId}`]) assert.ok((await decisionDocument(route, { fixture })).includes('consoleMain'));
   assert.equal(fixture.rpcCalls.length, 0); assert.equal(fixture.hookCalls.length, 0);
 });
 

@@ -231,7 +231,7 @@ export async function renderDashboard({ unavailable = false, empty = false, view
     "@/accounts/server":{loadAccountWorkspace:async()=>accounts},"./console-command":command,"@/components/guided/quest-kickoff":quest,"@/products/discovery-v2-data":{loadDiscoveryGoalData:async()=>({available:true})},
     "@/lib/core-ui/console-data":{...consoleData,loadConsoleObservationTime:async()=>observedAt,loadConsoleResearchQuote:async()=>({one:370395,two:530914,verifiedAt:fixtureTime})},
     "@/lib/core-ui/console-collections":{consoleObject:v=>!!v&&typeof v==='object'&&!Array.isArray(v)},"./console-shell":consoleShell,"./console-overview":overview,
-    "./console-motion":motionUi,"@/lib/core-ui/console-motion":motion,"@/lib/core-ui/data":{EMPTY_COLLECTION:workflowCollection({runs:[],definitions:[],stages:[],events:[],interventions:[],tasks:[],workerRuns:[],workerDefinitions:[],artifacts:[],errors:[]}),loadWorkflowCollection:async()=>collection,loadCurrentQuestEpisode:async()=>({id:collection.runs[0]?.id??null,available:!unavailable})},
+    "./console-motion":motionUi,"@/lib/core-ui/console-motion":motion,"@/lib/core-ui/data":{EMPTY_COLLECTION:workflowCollection({runs:[],definitions:[],stages:[],events:[],interventions:[],tasks:[],workerRuns:[],workerDefinitions:[],artifacts:[],errors:[]}),loadWorkflowCollection:async()=>collection,loadCurrentQuestEpisode:async(_ctx,businessId,explicit)=>({id:collection.runs.find(r=>r.business_id===businessId&&(!explicit||r.id===explicit))?.id??null,available:!unavailable})},
     "@/lib/core-ui/run-outcome-data":{loadRunCostData:async()=>costData},"@/browser/console-server":browserWire.server,"./console-workspace.css":{},
   });
   const { default: Page } = loadSource("src/app/dashboard/page.tsx", {
@@ -465,7 +465,7 @@ export const fixtureRenderers = {
 export function fixtureDocument(markup, { creative = false, products = false } = {}) {
   // Match RootLayout's cascade exactly; creative imports Products' button styles.
   const styles = ["src/app/globals.css", "src/app/stage1.css", "src/app/stage3.css", "src/app/stage7.css", "src/app/stage7-mobile.css", "src/app/stage8.css", "src/components/guided/work-context.css", "src/components/guided/creative-library.css", "src/components/guided/run-outcome.css",
-    "src/components/console/console-shell.css", "src/components/console/console-overview.css", "src/components/console/console-browser-centre.css", "src/components/console/console-command.css", "src/components/console/console-motion.css", "src/components/console/console-panes.css", "src/components/console/console-compact-decisions.css", "src/components/console/console-collection-panes.css", "src/components/console/console-library-pane.css",
+    "src/components/console/console-shell.css", "src/components/console/console-workspace.css", "src/components/console/console-overview.css", "src/components/console/console-browser-centre.css", "src/components/console/console-command.css", "src/components/console/console-motion.css", "src/components/console/console-panes.css", "src/components/console/console-compact-decisions.css", "src/components/console/console-collection-panes.css", "src/components/console/console-library-pane.css",
     "src/app/dashboard/accounts/accounts.css", "src/app/dashboard/products/products.css",
     ...(creative || products ? ["src/app/dashboard/products/products.css"] : []),
     ...(creative ? ["src/app/dashboard/artifacts/artifacts.css"] : []), ...(products ? ["src/components/guided/quest-kickoff.css"] : []),
