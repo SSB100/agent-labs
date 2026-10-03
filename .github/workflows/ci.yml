@@ -272,6 +272,51 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      - name: Preserve R04 Quest viewport evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r04-quest-ui-${{ github.sha }}
+          path: test-results/r04-quest/
+          if-no-files-found: warn
+          retention-days: 14
+
+  r04-sql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: r04_test
+          POSTGRES_DB: r04_test
+          POSTGRES_PASSWORD: r04-isolated-fixture
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U r04_test -d r04_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Install pinned isolated PostgreSQL runtime
+        run: npm install --prefix "$RUNNER_TEMP/r04-sql-host" --no-audit --no-fund --ignore-scripts @electric-sql/pglite@0.5.8 pg@8.16.3
+      - name: Replay migrations and exercise owner isolation and revision contracts
+        env:
+          R04_SQL_TEST_HOST: ${{ runner.temp }}/r04-sql-host
+        run: node --test tests/r04-quest-sql.test.mjs
+      - name: Verify independent-session PostgreSQL races
+        env:
+          R04_SQL_TEST_HOST: ${{ runner.temp }}/r04-sql-host
+          R04_PG_TEST: "1"
+          R04_PG_PORT: "5432"
+          R04_PG_PASSWORD: r04-isolated-fixture
+        run: node --test tests/r04-quest-concurrency.test.mjs
+
   r03-next:
     runs-on: ubuntu-latest
     timeout-minutes: 30

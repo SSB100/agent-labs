@@ -32,6 +32,7 @@ export function loadSource(file, dependencies = {}) {
   let sequence = 0;
   const crypto = { ...require("node:crypto"), randomUUID: () => `00000000-0000-4000-8000-${String(++sequence).padStart(12, "0")}` };
   runInNewContext(`(function(require,module,exports){${code}\n})`, { Date: FixtureDate, crypto, Buffer, URL, URLSearchParams, structuredClone, process: { env: { AGENTLABS_GUIDED_UI: "guided", NODE_ENV: "test" } } })(name => {
+    if (name === "../../core/quest-intake" && file === "src/lib/core-ui/quest-draft.ts") return loadSource("src/core/quest-intake.ts");
     if (name === "@/lib/core-ui/console-retained-feedback") return loadSource("src/lib/core-ui/console-retained-feedback.ts");
     if (name === "react/jsx-runtime") return require(name);
     if (name === "react") return React;

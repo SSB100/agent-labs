@@ -120,7 +120,8 @@ export function rootCollectionFixture({ tables = fixtureTables(), readOptions = 
       assert.ok(target, `Forbidden dependency ${name} in ${file}`);
       target = [target, `${target}.ts`, `${target}.tsx`].find(candidate => existsSync(candidate) && /\.tsx?$/.test(candidate));
       assert.ok(target, `Unresolved safe fixture source ${name} in ${file}`);
-      assert.ok(/^src\/(lib\/core-ui|components\/(console|guided|stage7)|browser\/console-view|app\/dashboard\/console-populated-dashboard)/.test(target), `Non-read-only fixture dependency ${target}`);
+      target = target.replaceAll('\\', '/');
+      assert.ok(target === 'src/core/quest-intake.ts' || /^src\/(lib\/core-ui|components\/(console|guided|stage7)|browser\/console-view|app\/dashboard\/console-populated-dashboard)/.test(target), `Non-read-only fixture dependency ${target}`);
       return load(target);
     }, fixtureModule, exports);
     const tracked = ['loadConsoleWorkPage', 'loadConsoleActivityPage', 'loadConsoleWorkDetail', 'loadRunCostData'];

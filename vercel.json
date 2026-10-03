@@ -6,7 +6,8 @@
   ],
   "git": {
     "deploymentEnabled": {
-      "ui/r03-retained-console": false
+      "ui/r03-retained-console": false,
+      "feat/r04-business-quest": false
     }
   }
 }
