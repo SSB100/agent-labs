@@ -50,7 +50,8 @@ export async function runWorkspaceJourneys({page,origin,boundary,output,check,re
   await page.getByRole('link',{name:'All Business records',exact:true}).click();await page.waitForURL(u=>!u.searchParams.has('quest'));assert.match(await page.locator('.r08Workspace').innerText(),/Business records without a selected Quest/);
   await page.locator('input[name=q]').fill('Unlinked Business admission');await page.getByRole('button',{name:'Search',exact:true}).click();
   await page.waitForURL(u=>u.searchParams.get('q')==='Unlinked Business admission');await page.getByRole('link',{name:'Unlinked Business admission',exact:true}).waitFor();await page.locator('.r08Pager').filter({hasText:'of 1 ·'}).waitFor();
-  await page.goBack();await page.waitForURL(u=>!u.searchParams.has('quest')&&!u.searchParams.has('q'));await page.locator('.r08Pager').filter({hasText:'of 128 ·'}).waitFor();
+  const businessDecisionTotal=boundary.state().workspace.records.decisions.filter(record=>record.businessId===business).length;
+  await page.goBack();await page.waitForURL(u=>!u.searchParams.has('quest')&&!u.searchParams.has('q'));await page.locator('.r08Pager').filter({hasText:`of ${businessDecisionTotal} ·`}).waitFor();
   await page.goBack();await page.waitForURL(u=>u.searchParams.get('quest')===quest&&u.searchParams.get('q')==='does not match');await page.getByLabel('Exact selected record',{exact:true}).waitFor();
   await page.getByRole('link',{name:'Needs owner queue',exact:true}).click();await page.waitForURL(u=>u.searchParams.get('view')==='decisions');await page.locator(`[data-controller-exception="${quest}"]`).waitFor();assert.match(await page.locator(`[data-controller-exception="${quest}"]`).innerText(),/New account scope requires confirmation/);
   assert.equal(new URL(page.url()).searchParams.get('quest'),quest);
