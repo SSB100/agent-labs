@@ -16,7 +16,8 @@ type Installation = {id:string;business_id:string;root_pack_id:string;status:str
 export default async function PacksPage({searchParams}:{searchParams:Promise<Record<string,string|undefined>>}) {
   const context=await requireOwnerUiContext();
   const params=await searchParams;
-  if(params.business && !context.businesses.some(b=>b.id===params.business)) notFound();
+  if(params.business && (typeof params.business!=="string" || !/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(params.business) || (!context.businessesUnavailable && !context.businesses.some(b=>b.id===params.business)))) notFound();
+  if(context.businessesUnavailable) return <AppShell toolDestination="packs" active="packs" context={context}><PageHeader eyebrow="System" title="Packs" description="Business pack records are unavailable."/><p role="alert">Business records are unavailable. No alternate Business was selected; installation and execution are unavailable.</p></AppShell>;
   const selected=context.businesses.find(b=>b.id===params.business) ?? (context.businessesUnavailable ? undefined : context.businesses[0]);
   const scopedBusinesses=selected ? [selected] : [];
   const [catalog,installed,qualificationCatalog]=await Promise.all([

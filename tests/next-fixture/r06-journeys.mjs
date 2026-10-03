@@ -66,6 +66,7 @@ export async function runHistoryJourneys({page,context,origin,boundary,output,ch
       ['/dashboard/etsy','drafts','etsy_runs','etsy','Draft runs','R06 Business 1 draft 0'],
       ['/dashboard/etsy','drafts','etsy_packages','etsyPackage','Package candidates',null],
       ['/dashboard/etsy','listing','listing_runs','listing','Listing runs',null],
+      ['/dashboard/etsy','listing','listing_sources','listingSource','Listing candidates',null],
       ['/dashboard/etsy','listing','listing_qualifications','listingQualification','Qualification runs',null],
       ['/dashboard/etsy','publication','publication_runs','publication','Publication runs','R06 Business 1 publication 0'],
       ['/dashboard/etsy','publication','publication_drafts','publicationDraft','Verified draft candidates','R06 Business 1 verified draft 0'],
@@ -76,15 +77,15 @@ export async function runHistoryJourneys({page,context,origin,boundary,output,ch
       const exact=historyId(dataset);
       await goto(route(pathname,{panel,[`${key}Id`]:exact}));await total(label,127);
       if(selectedTitle)await page.getByRole('heading',{name:selectedTitle,exact:true}).waitFor();
-      const first=rpc(dataset);assert.equal(first.returned,25);assert.equal(first.selection,'found');assert.ok(!first.ids.includes(exact));
+      const first=rpc(dataset);assert.equal(first.returned,25);assert.equal(first.selection,'found');assert.equal(first.selectedId,exact);assert.ok(!first.ids.includes(exact));
       assert.equal(first.ids[0],historyId(dataset,0,126),'Equal timestamp newest-ID order');
       const before=requests.length;
       await clickNext(label,key);await total(label,127);
       assert.equal(new URL(page.url()).searchParams.get(`${key}Id`),exact);
       if(selectedTitle)await page.getByRole('heading',{name:selectedTitle,exact:true}).waitFor();
-      const next=rpc(dataset,25);assert.equal(next.returned,25);assert.equal(new Set([...first.ids,...next.ids]).size,50);
+      const next=rpc(dataset,25);assert.equal(next.returned,25);assert.equal(next.selectedId,exact);assert.equal(new Set([...first.ids,...next.ids]).size,50);
       await page.goBack();await page.waitForURL(url=>!url.searchParams.has(`${key}Page`));await total(label,127);
-      await page.goForward();await page.waitForURL(url=>url.searchParams.get(`${key}Page`)==='2');await page.reload();await total(label,127);
+      await page.goForward();await page.waitForURL(url=>url.searchParams.get(`${key}Page`)==='2');await page.reload();await total(label,127);assert.equal(rpc(dataset,25).selectedId,exact);
       assert.ok(requests.length>before,'Historical page navigation uses real RSC');
       await goto(route(pathname,{panel,business:second,[`${key}Id`]:exact}));await total(label,127);
       assert.equal(rpc(dataset,0,second).selection,'missing','Same-owner foreign Business selection never substitutes');
@@ -123,7 +124,8 @@ export async function runHistoryJourneys({page,context,origin,boundary,output,ch
       assert.match(await candidate.locator('summary').first().innerText(),/Latest.*REJECT/);
       await page.goBack();await page.waitForURL(url=>!url.searchParams.has('decisionPage'));await page.goForward();await page.waitForURL(url=>url.searchParams.get('decisionPage')==='2');await page.reload();
       assert.match(await candidate.locator('summary').first().innerText(),/Latest.*REJECT/);
-      await goto(route('/dashboard/artifacts'));await total('Production evidence candidates',126);
+      await goto(route('/dashboard/artifacts',{panel:'production'}));await total('Production evidence candidates',126);
+      assert.equal(new URL(page.url()).searchParams.get('panel'),'production');
       assert.ok(!rpc('production_candidates').ids.includes(exact),'Latest REJECT cannot be eligible because of older TEST');
       await goto('/dashboard/products?panel=candidates');await total('Candidates',254);
       assert.equal(rpc('product_candidates',0,null).total,254,'Owner-wide candidate count is independent of directory page');
@@ -142,18 +144,19 @@ export async function runHistoryJourneys({page,context,origin,boundary,output,ch
       await goto(route(`/dashboard/workflows/${id(1002)}`,{panel,[kind]:exact}));await page.getByText(`This exact ${kind} is missing. No replacement record was selected.`,{exact:true}).waitFor();
     });
     await check('R06 available empty, unavailable and short-page reads never collapse to a false zero',async()=>{
-      for(const mode of ['empty','unavailable']){
-        await context.addCookies([{name:'r03-mode',value:mode,url:origin}]);
+      for(const mode of ['empty','unavailable','history-unavailable']){
+        if(mode!=='history-unavailable')await context.addCookies([{name:'r03-mode',value:mode,url:origin}]);
+        else await control({failDataset:'printful_runs'});
         try{
           await goto(route('/dashboard/printful',{panel:'configuration'}));
-          if(mode==='empty'){await total('Configuration runs',0);await total('Product sources',0);assert.match(await page.locator('main').innerText(),/No product configuration attempts are recorded/);}
-          else assert.match(await page.locator('main').innerText(),/could not be checked|unavailable/i);
-          if(mode==='unavailable')assert.equal(await page.getByText('No product configuration attempts are recorded for this Business.',{exact:true}).count(),0);
-        }finally{await context.clearCookies({name:'r03-mode'});}
+          if(mode==='empty'){await total('Configuration runs',0);await total('Product sources',0);assert.match(await page.locator('main').innerText(),/No configuration attempts are shown on this server page/);}
+          else {assert.match(await page.locator('main').innerText(),/could not be checked|unavailable/i);if(mode==='history-unavailable')await page.getByRole('alert').filter({hasText:'Product records could not be checked'}).waitFor();}
+          if(mode!=='empty'){assert.equal(await pager('Configuration runs').getByText(/0 total/).count(),0);assert.equal(await page.getByText('No configuration attempts are shown on this server page. Check the independent count and other pages.',{exact:true}).count(),0);}
+        }finally{await context.clearCookies({name:'r03-mode'});await control({failDataset:null});}
       }
       await control({shortDataset:'printful_runs'});await goto(route('/dashboard/printful',{panel:'configuration'}));
       await page.getByRole('alert').filter({hasText:'Product records could not be checked'}).waitFor();
-      assert.equal(await page.getByText('No product configuration attempts are recorded for this Business.',{exact:true}).count(),0);
+      assert.equal(await page.getByText('No configuration attempts are shown on this server page. Check the independent count and other pages.',{exact:true}).count(),0);
       await control({shortDataset:null});await goto(route('/dashboard/printful',{panel:'configuration'}));await total('Configuration runs',127);
       await page.screenshot({path:path.join(output,'r06-bounded-history-1280x720.png')});
     });

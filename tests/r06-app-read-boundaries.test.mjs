@@ -114,3 +114,16 @@ test('Listing authenticates exact off-page source with real evidence reader and 
   assert.equal(reads.filter(row=>row.table==='artifacts'&&row.id===p.id).length,1);assert.equal(rpc.filter(call=>call.name==='etsy_owner_transition').length,1);assert.equal(quotes.length,1);
  }
 });
+
+
+test('creative directory outages return an inert unavailable workspace before scoped or related reads',async()=>{
+ const forbidden=()=>{throw Error('No downstream read or provider call is authorized during directory outage');};
+ const api=load('src/creative/data.ts',{
+  '../lib/core-ui/console-collections':{consoleScopedIds:forbidden,consoleScope:forbidden},
+  '../products/data':{loadProductWorkspace:forbidden},'./production-approval':{currentProductionCandidate:forbidden},'./cost-display':{mergeCreativeCosts:forbidden},
+ });
+ const result=await api.loadCreativeWorkspace({businessesUnavailable:true,ownerDirectoryPaged:true,businesses:[],supabase:{from:forbidden,rpc:forbidden,storage:{from:forbidden}}});
+ assert.deepEqual(plain(result.errors),['Business records unavailable']);assert.equal(result.costsAvailable,false);
+ for(const key of ['approvals','runs','assets','reviews','costs','retainedSources'])assert.deepEqual(plain(result[key]),[]);
+ assert.equal(result.approvalsPage,undefined);assert.equal(result.assetsPage,undefined);
+});

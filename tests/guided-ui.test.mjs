@@ -168,7 +168,7 @@ test("unknown and stopped creative reviews cannot expose synthetic completion co
 
 test("creative fixture keeps evidence gate, explicit terms and bounded image controls", async () => {
   const markup = await renderCreative();
-  for (const text of ["No current evidence-backed TEST candidates are eligible", "Every image keeps its source and verdict", "No generation until you start the saved approval", "No validated images", "name=\"confirmTerms\"", "name=\"confirmDataUse\"", "name=\"maximumGenerations\"", "Save specific approval"]) assert.ok(markup.includes(text), text);
+  for (const text of ["No candidate in this server page passed the current evidence checks", "Other candidate pages may remain", "Technical approvals below do not waive this gate", "Every image keeps its source and verdict", "No generation until you start the saved approval", "No validated images", "name=\"confirmTerms\"", "name=\"confirmDataUse\"", "name=\"maximumGenerations\"", "Save specific approval"]) assert.ok(markup.includes(text), text);
   assert.doesNotMatch(markup, /name="confirmProductionScope"/);
 });
 

@@ -37,13 +37,23 @@ jobs:
       - name: Install pinned Chromium for owner UI verification
         run: npx playwright-core install --with-deps chromium
 
-      # The complete gate below executes the same UI tests once and produces their artifacts.
-      # Do not repeat early component/browser suites before the full exact-tree gate.
+      # Fail before browser startup when a strict hydration fixture cannot bundle.
+      # Compile core fixtures once; the complete gate below reuses that output.
+      - name: Preflight isolated browser fixture bundles
+        env:
+          NODE_OPTIONS: --import=${{ github.workspace }}/tests/next-fixture/block-network.mjs
+          GUIDED_UI_BROWSER: "0"
+        run: |
+          npm run pretest
+          node --test --test-name-pattern='bundles.*production|browser document bundles' tests/console-collection-browser.test.mjs tests/console-library-browser.test.mjs tests/console-research-browser.test.mjs tests/console-decisions-browser.test.mjs
+
+      # Same complete check components, without recompiling the core fixtures.
+      # Full browser suites execute once and produce their acceptance artifacts.
       - name: Run complete gate
         env:
           NODE_OPTIONS: --import=${{ github.workspace }}/tests/next-fixture/block-network.mjs
           NEXT_TELEMETRY_DISABLED: "1"
-        run: npm run check
+        run: npm run lint && npm run typecheck && node --test tests/*.test.mjs && npx next build
 
       - name: Upload synthetic owner UI screenshots
         if: always()

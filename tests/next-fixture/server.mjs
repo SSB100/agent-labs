@@ -3,6 +3,7 @@ import { fixtureData, id, time } from './data.mjs';
 import { readQuestFixture, saveQuestFixture } from './quests.mjs';
 import { admissionFixture, saveAdmissionFixture } from './admission.mjs';
 import { readHistoryFixture } from './history.mjs';
+import { filterFixtureOr } from './query-predicates.mjs';
 export async function startFixtureBoundary() {
   let state = fixtureData(), control = { delayId: null, delayMs: 0, failTable: null, actionMode: 'success' };
   const log = [], effects = [], denied = [];
@@ -32,7 +33,7 @@ export async function startFixtureBoundary() {
         else if(op==='in')rows=rows.filter(r=>val.includes(valueAt(r,key)));
         else if(op==='is')rows=rows.filter(r=>(valueAt(r,key)??null)===val);
         else if(op==='not')rows=rows.filter(r=>key==='completed_at'?r.completed_at!=null:val==='is'?valueAt(r,key)!=null:valueAt(r,key)!==operations.find(x=>x[0]===op)?.[3]);
-        else if(op==='or'){if(key!=='status.in.(completed,failed,cancelled),completed_at.not.is.null')throw Error('Unreviewed OR predicate');rows=rows.filter(r=>['completed','failed','cancelled'].includes(r.status)||r.completed_at!=null);}
+        else if(op==='or')rows=filterFixtureOr(rows,input.table,key,operations);
         else if(op==='ilike'){const needle=val.slice(1,-1).replace(/\\([\\%_])/g,'$1').toLowerCase();rows=rows.filter(r=>String(key==='definition.name'?state.db.workflow_definitions.find(d=>d.id===r.workflow_definition_id)?.name:valueAt(r,key)).toLowerCase().includes(needle));}
         else if(op==='order')orders.push([key,val?.ascending]);
         else if(op==='limit')limit=key;

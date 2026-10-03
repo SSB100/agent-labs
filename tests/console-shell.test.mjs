@@ -1,3 +1,4 @@
+import { historyPager } from "./helpers/history-fixtures.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -20,6 +21,7 @@ function fixture() {
   const liveCalls = [];
   const dependencies = {
     "react/jsx-runtime": require("react/jsx-runtime"),
+    "./history-pager": historyPager,
     "next/link": ({ children, ...props }) => React.createElement("a", props, children),
     "@/components/stage7/icons": { CoreIcon: ({ name }) => React.createElement("svg", { "aria-hidden": true, "data-icon": name }) },
     "@/components/stage7/live-refresh": { LiveRefresh: props => {

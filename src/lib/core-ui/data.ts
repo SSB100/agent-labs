@@ -124,9 +124,9 @@ export async function requireOwnerUiContext(): Promise<OwnerUiContext> {
   ]);
 
   const businesses = [...rows<BusinessRecord>(businessResult.data)];
-  if (selectedBusinessResult?.error) throw new Error("Selected Business is temporarily unavailable");
-  if (explicitBusiness && !selectedBusinessResult?.data) notFound();
-  const selectedBusiness = row<BusinessRecord>(selectedBusinessResult?.data);
+  // A transport outage is unavailable, not missing and never permission to select a substitute.
+  if (explicitBusiness && !selectedBusinessResult?.error && !selectedBusinessResult?.data) notFound();
+  const selectedBusiness = selectedBusinessResult?.error ? null : row<BusinessRecord>(selectedBusinessResult?.data);
   if (selectedBusiness && !businesses.some(b => b.id === selectedBusiness.id)) businesses.push(selectedBusiness);
   const email = typeof claims.email === "string" ? claims.email : "Owner";
   const profile = row<{ display_name?: unknown }>(profileResult.data);
@@ -145,7 +145,7 @@ export async function requireOwnerUiContext(): Promise<OwnerUiContext> {
     businesses,
     needsYouCount: decisionCountVerified ? decisionCount : 0,
     needsYouUnavailable: !decisionCountVerified,
-    businessesUnavailable: Boolean(businessResult.error),
+    businessesUnavailable: Boolean(businessResult.error || selectedBusinessResult?.error),
     businessDirectory: historyPage(directoryQuery, businessResult), ownerDirectoryPaged: true,
     readSearch: requestUrl.search, readPath: requestUrl.pathname,
   };

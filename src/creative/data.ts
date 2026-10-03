@@ -23,6 +23,7 @@ export type CreativeWorkspaceData = { approvalsPage?:import("../lib/core-ui/hist
 const retainedSourcePath = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\/version-[12](\.png|\.original\.webp)$/;
 export async function loadCreativeWorkspace(context: OwnerUiContext): Promise<CreativeWorkspaceData> {
   const empty: CreativeWorkspaceData = { approvals: [], runs: [], assets: [], reviews: [], costs: [], costsAvailable: true, retainedSources: [], errors: [] };
+  if (context.businessesUnavailable) return { ...empty, costsAvailable: false, errors: ["Business records unavailable"] };
   const businessIds= await consoleScopedIds(context,context.scopeBusinessId ?? null); if(businessIds?.length===0)return empty;
   const [approvalPage,assetPage]=await Promise.all([
     safeTablePage<CreativeApprovalRecord>(context,"creative_approvals","id,business_id,candidate_id,purpose,snapshot,quote,maximum_microusd,approved_at,expires_at","approval",{businessId:context.scopeBusinessId,time:"approved_at"}),
