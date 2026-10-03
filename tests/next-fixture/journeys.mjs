@@ -25,9 +25,9 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false}) {
   const browser=await chromium.launch({headless:true,args:['--no-sandbox']});
   try {
     const context=await browser.newContext({viewport:{width:1280,height:720},reducedMotion:'reduce'});
-    const page=await context.newPage(), requests=[], external=[];
+    const page=await context.newPage(), requests=[], actions=[], external=[];
     await context.route('**/*',route=>{const u=new URL(route.request().url());if(['http:','https:'].includes(u.protocol)&&u.origin!==origin){external.push(u.origin);return route.abort('blockedbyclient');}return route.continue();});
-    page.on('response',r=>{if(r.headers()['content-type']?.includes('text/x-component'))requests.push({url:r.url(),status:r.status()});});
+    page.on('response',r=>{if(r.headers()['content-type']?.includes('text/x-component'))requests.push({url:r.url(),status:r.status()});if(r.request().method()==='POST'&&r.request().headers()['next-action'])actions.push({url:r.url(),status:r.status(),revalidated:r.headers()['x-action-revalidated']??null,redirect:r.headers()['x-action-redirect']??null});});
     const business=id(1);
     await check('production Next Link navigation emits RSC responses',async()=>{
       await page.goto(origin+`/dashboard/settings?business=${business}`);await page.getByRole('link',{name:'Businesses',exact:true}).click();await page.waitForURL(/panel=businesses/);await page.getByRole('heading',{name:'Owned Businesses'}).waitFor();assert.ok(requests.length>0,'No genuine RSC Link response observed');
@@ -78,6 +78,7 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false}) {
       assert.equal(boundary.effects.filter(e=>e.kind==='in-memory-candidate').length,1);
       const saved=boundary.state().db.product_candidates.find(c=>c.concept==='New inert candidate from real Next action');
       assert.equal(new URL(page.url()).searchParams.get('candidate'),saved.id);assert.equal(new URL(page.url()).searchParams.get('business'),business);
+      await page.getByRole('heading',{name:saved.concept,exact:true}).waitFor();assert.ok(actions.some(action=>new URL(action.url).pathname==='/dashboard/products'&&Number(action.revalidated)>0),'Real Next action must report cache revalidation before manual reload');
       await page.reload();await page.getByRole('heading',{name:saved.concept,exact:true}).waitFor();
       await page.goto(target);await page.locator('input[name=concept]').fill('New uncertain inert draft');await page.locator('input[name=audience]').fill('Synthetic weekend hikers');await page.locator('textarea[name=hypothesis]').fill('A separate valid synthetic hypothesis for an uncertain server outcome.');await page.locator('input[name=sourceDomains]').fill('example.invalid');await page.locator('input[name=originalDesign]').check();
       await control({actionMode:'uncertain'});await page.getByRole('button',{name:'Save candidate',exact:true}).click();await page.waitForURL(/error=candidate-outcome-unconfirmed/);
@@ -92,6 +93,7 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false}) {
       await Promise.all([page.waitForURL(/message=terminal-review/),second.waitForURL(/message=terminal-review/)]);
       assert.equal(boundary.effects.filter(e=>e.id===notice.id).length,1);
       assert.equal(boundary.state().db.owner_interventions.find(n=>n.id===notice.id).status,'resolved');
+      await page.getByText('Stopped · reviewed',{exact:true}).waitFor();assert.ok(actions.some(action=>new URL(action.url).pathname==='/dashboard'&&Number(action.revalidated)>0),'Real Next acknowledgment must commit refreshed saved state before manual reload');
       await page.reload();await page.getByText('Stopped · reviewed',{exact:true}).waitFor();
       const request=boundary.state().db.owner_interventions.find(n=>n.intervention_type==='creative_review'&&n.status==='open'&&n.workflow_run_id!==id(1001));
       for(const [actionMode,outcome]of [['conflict','terminal-review-conflict'],['uncertain','terminal-review-failed']]){
@@ -268,6 +270,7 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false}) {
     });
     assert.deepEqual(external,[],'Browser attempted external effects');
     assert.equal(boundary.effects.length,effectCount,'Route reads caused an additional mutable effect');
+    await writeFile(path.join(output,'action-responses.json'),JSON.stringify(actions,null,2));
     await writeFile(path.join(output,'rsc-responses.json'),JSON.stringify(requests,null,2));assert.ok(results.every(result=>result.status==='passed'), 'Actual Next checks failed; see acceptance.json');await context.close();
   }finally{await browser.close();await report();}
 }
