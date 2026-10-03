@@ -34,6 +34,10 @@ export function loadSource(file, dependencies = {}) {
   runInNewContext(`(function(require,module,exports){${code}\n})`, { Date: FixtureDate, crypto, Buffer, URL, URLSearchParams, structuredClone, process: { env: { AGENTLABS_GUIDED_UI: "guided", NODE_ENV: "test" } } })(name => {
     if (name === "../../core/quest-intake" && file === "src/lib/core-ui/quest-draft.ts") return loadSource("src/core/quest-intake.ts");
     if (name === "@/lib/core-ui/console-retained-feedback") return loadSource("src/lib/core-ui/console-retained-feedback.ts");
+    if (["@/lib/core-ui/owner-business", "../lib/core-ui/owner-business", "./owner-business"].includes(name)) return loadSource("src/lib/core-ui/owner-business.ts");
+    if (["../lib/core-ui/history-read", "@/lib/core-ui/history-read"].includes(name)) return loadSource("src/lib/core-ui/history-read.ts");
+    if (["./history-query", "../lib/core-ui/history-query", "@/lib/core-ui/history-query"].includes(name)) return loadSource("src/lib/core-ui/history-query.ts");
+    if (["@/components/console/history-pager", "./history-pager"].includes(name)) return { HistoryPager: ({page, label}) => page ? React.createElement("p", null, `${label}: ${page.total ?? 'unavailable'} total · page ${page.page}`) : null };
     if (name === "react/jsx-runtime") return require(name);
     if (name === "react") return React;
     if (name === "react-dom") return require(name);

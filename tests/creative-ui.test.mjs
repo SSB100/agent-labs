@@ -19,7 +19,7 @@ test('Creative actions are owner-scoped and approval does not launch a provider 
   assert.match(actions, /close_expired_creative_run/);
 });
 test('Production approval UI keeps the evidence gate and separately confirmed scope', () => {
-  for (const text of ['No current evidence-backed TEST candidates are eligible', 'name="decisionId"', 'name="rightsStatement"', 'name="confirmProductionScope"', 'name="confirmPolicyScreen"', 'Save candidate creative approval']) assert.ok(page.includes(text), text);
+  for (const text of ['No candidate in this server page passed the current evidence checks', 'Other candidate pages may remain', 'Technical approvals below do not waive this gate', 'name="decisionId"', 'name="rightsStatement"', 'name="confirmProductionScope"', 'name="confirmPolicyScreen"', 'Save candidate creative approval']) assert.ok(page.includes(text), text);
   const approve = actions.split('export async function approveProductionCreativeCandidate')[1].split('export async function closeExpiredCreativeRun')[0];
   for (const text of ['requireOwnerUiContext', 'currentProductionCandidate', 'productionCreativeApproval', 'candidate.business_id', 'selected.id !== decisions[0]?.id', 'approve_creative_candidate']) assert.ok(approve.includes(text), text);
   assert.doesNotMatch(approve, /await start\(|create_product_candidate|record_product_assessment|service.role/);
@@ -35,7 +35,7 @@ test('Artifacts loads reservations and receipts without dropping expired runs or
   assert.match(page, /Missing receipts do not prove zero spend or permit another attempt/);
   assert.match(page, /CREATIVE_COST_COMMITMENT_EXPLANATION/);
   assert.match(readFileSync("src/creative/cost-display.ts", "utf8"), /larger of each reservation or saved amount, not both/);
-  assert.match(data, /costsAvailable: !runs\.error && !reservations\.error && !costs\.error/);
+  assert.match(data, /costsAvailable: runsComplete && relatedComplete/);
   assert.match(page, /!data\.costsAvailable \? "Unavailable"/);
   assert.match(page, /The cost ledger could not be fully loaded/);
 });

@@ -1,3 +1,4 @@
+import { historyQuery, historyPage, type HistoryPage } from "./history-query";
 import { notFound, redirect } from "next/navigation";
 import { headers } from "next/headers";
 
@@ -57,6 +58,12 @@ export type OwnerUiContext = {
   needsYouCount: number;
   needsYouUnavailable?: boolean;
   businessesUnavailable?: boolean;
+  /** Paged directory is never the authority boundary for owner-wide collections. */
+  businessDirectory?: HistoryPage;
+  ownerDirectoryPaged?: boolean;
+  readSearch?: string;
+  readPath?: string;
+  scopeBusinessId?: string;
 };
 
 export type WorkflowCollection = {
@@ -98,20 +105,29 @@ export async function requireOwnerUiContext(): Promise<OwnerUiContext> {
     redirect(ownerLoginPath("session-required", (await headers()).get("x-agent-labs-return-path")));
   }
 
-  const [businessResult, profileResult, interventionCountResult] = await Promise.all([
-    supabase
-      .from("businesses")
-      .select("id, name, created_at, updated_at")
-      .eq("owner_user_id", userId)
-      .order("created_at", { ascending: false }),
+  const path = (await headers()).get("x-agent-labs-return-path") ?? "/dashboard";
+  const requestUrl = new URL(path, "https://owner.invalid");
+  const directoryQuery = historyQuery(requestUrl.search, "business");
+  const explicitBusiness = requestUrl.searchParams.get("business");
+  if(requestUrl.searchParams.getAll("business").length>1)notFound();
+  if (explicitBusiness && !/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(explicitBusiness)) notFound();
+  let directory = supabase.from("businesses").select("id,name,created_at,updated_at", { count: "exact" }).eq("owner_user_id", userId);
+  if (directoryQuery.query) directory = directory.ilike("name", `%${directoryQuery.query.replace(/[\\%_]/g, "\\$&")}%`);
+  const [businessResult, profileResult, interventionCountResult, selectedBusinessResult] = await Promise.all([
+    directory.order("created_at", { ascending: false }).order("id", { ascending: false }).range(directoryQuery.offset, directoryQuery.offset + directoryQuery.pageSize - 1),
     supabase.from("profiles").select("display_name").eq("id", userId).maybeSingle(),
     supabase
       .from("owner_interventions")
       .select("id", { count: "exact", head: true })
       .eq("status", "open"),
+    explicitBusiness ? supabase.from("businesses").select("id,name,created_at,updated_at").eq("owner_user_id", userId).eq("id", explicitBusiness).maybeSingle() : null,
   ]);
 
-  const businesses = rows<BusinessRecord>(businessResult.data);
+  const businesses = [...rows<BusinessRecord>(businessResult.data)];
+  if (selectedBusinessResult?.error) throw new Error("Selected Business is temporarily unavailable");
+  if (explicitBusiness && !selectedBusinessResult?.data) notFound();
+  const selectedBusiness = row<BusinessRecord>(selectedBusinessResult?.data);
+  if (selectedBusiness && !businesses.some(b => b.id === selectedBusiness.id)) businesses.push(selectedBusiness);
   const email = typeof claims.email === "string" ? claims.email : "Owner";
   const profile = row<{ display_name?: unknown }>(profileResult.data);
   const profileName = profile?.display_name;
@@ -130,6 +146,8 @@ export async function requireOwnerUiContext(): Promise<OwnerUiContext> {
     needsYouCount: decisionCountVerified ? decisionCount : 0,
     needsYouUnavailable: !decisionCountVerified,
     businessesUnavailable: Boolean(businessResult.error),
+    businessDirectory: historyPage(directoryQuery, businessResult), ownerDirectoryPaged: true,
+    readSearch: requestUrl.search, readPath: requestUrl.pathname,
   };
 }
 
@@ -137,23 +155,32 @@ export async function loadWorkflowCollection(
   context: OwnerUiContext,
   options: { limit?: number; statuses?: string[] } = {},
 ): Promise<WorkflowCollection> {
-  const businessIds = context.businesses.map((business) => business.id);
-  if (!businessIds.length) return { ...EMPTY_COLLECTION, errors: context.businessesUnavailable ? ["Business records could not be loaded"] : [] };
+  const businessIds = context.scopeBusinessId ? [context.scopeBusinessId] : context.ownerDirectoryPaged ? null : context.businesses.map((business) => business.id);
+  if (businessIds?.length===0) return { ...EMPTY_COLLECTION, errors: context.businessesUnavailable ? ["Business records could not be loaded"] : [] };
 
   const runLimit = Math.max(1, Math.min(200, options.limit ?? 60));
-  const baseRunQuery = context.supabase
+  let baseRunQuery = context.supabase
     .from("workflow_runs")
     .select(WORKFLOW_RUN_SELECT, { count: "exact" })
-    .in("business_id", businessIds)
-    .order("created_at", { ascending: false })
+    .order("created_at", { ascending: false }).order("id",{ascending:false})
     .limit(runLimit);
+  if(businessIds!==null)baseRunQuery=baseRunQuery.in("business_id",businessIds);
   const runResult = options.statuses?.length
     ? await baseRunQuery.in("status", options.statuses)
     : await baseRunQuery;
   const runs = rows<WorkflowRunRecord>(runResult.data);
+  // A newer terminal history page cannot hide the current open workflow.
+  let activeUnavailable=false;
+  if(context.ownerDirectoryPaged && !options.statuses?.length){
+    let activeQuery=context.supabase.from("workflow_runs").select(WORKFLOW_RUN_SELECT,{count:"exact"}).in("status",["queued","running","waiting","review","needs_owner"]).is("completed_at",null).order("updated_at",{ascending:false}).order("id",{ascending:false}).limit(1);
+    if(businessIds!==null)activeQuery=activeQuery.in("business_id",businessIds);
+    const active=await activeQuery;activeUnavailable=!!active.error || !Number.isSafeInteger(active.count);
+    const current=rows<WorkflowRunRecord>(active.data)[0];if(current && !runs.some(r=>r.id===current.id))runs.unshift(current);
+  }
   const runCount = typeof runResult.count === "number" ? runResult.count : null;
   const truncated = runCount === null || runCount > runs.length;
   const errors = runResult.error ? [errorMessage(runResult.error)] : [];
+  if(activeUnavailable)errors.push("Current open workflow read is unavailable");
   const runIds = runs.map((run) => run.id);
   const definitionIds = [...new Set(runs.map((run) => run.workflow_definition_id))];
 
@@ -170,40 +197,40 @@ export async function loadWorkflowCollection(
   ] = await Promise.all([
     context.supabase
       .from("workflow_definitions")
-      .select(WORKFLOW_DEFINITION_SELECT)
-      .in("id", definitionIds),
+      .select(WORKFLOW_DEFINITION_SELECT,{count:"exact"})
+      .in("id", definitionIds).limit(201),
     context.supabase
       .from("workflow_stage_runs")
-      .select(STAGE_SELECT)
+      .select(STAGE_SELECT,{count:"exact"})
       .in("workflow_run_id", runIds)
       .order("sequence", { ascending: true })
-      .order("attempt", { ascending: true }),
+      .order("attempt", { ascending: true }).order("id").limit(301),
     context.supabase
       .from("events")
-      .select(EVENT_SELECT)
+      .select(EVENT_SELECT,{count:"exact"})
       .in("workflow_run_id", runIds)
       .order("occurred_at", { ascending: false })
       .limit(300),
     context.supabase
       .from("owner_interventions")
-      .select(INTERVENTION_SELECT)
+      .select(INTERVENTION_SELECT,{count:"exact"})
       .in("workflow_run_id", runIds)
-      .order("requested_at", { ascending: false }),
+      .order("requested_at", { ascending: false }).order("id",{ascending:false}).limit(301),
     context.supabase
       .from("task_contracts")
-      .select(TASK_SELECT)
+      .select(TASK_SELECT,{count:"exact"})
       .in("workflow_run_id", runIds)
-      .order("created_at", { ascending: false }),
+      .order("created_at", { ascending: false }).order("id",{ascending:false}).limit(301),
     context.supabase
       .from("worker_runs")
-      .select(WORKER_RUN_SELECT)
+      .select(WORKER_RUN_SELECT,{count:"exact"})
       .in("workflow_run_id", runIds)
-      .order("created_at", { ascending: false }),
+      .order("created_at", { ascending: false }).order("id",{ascending:false}).limit(301),
     context.supabase
       .from("artifacts")
-      .select(ARTIFACT_SELECT)
+      .select(ARTIFACT_SELECT,{count:"exact"})
       .in("workflow_run_id", runIds)
-      .order("created_at", { ascending: false }),
+      .order("created_at", { ascending: false }).order("id",{ascending:false}).limit(301),
   ]);
 
   for (const result of [
@@ -216,6 +243,7 @@ export async function loadWorkflowCollection(
     artifactResult,
   ]) {
     if (result.error) errors.push(errorMessage(result.error));
+    else if(result.count!==rows(result.data).length)errors.push("Related workflow records are partial or unavailable");
   }
 
   const tasks = rows<TaskContractRecord>(taskResult.data);
@@ -232,7 +260,7 @@ export async function loadWorkflowCollection(
     const workerDefinitionResult = await context.supabase
       .from("worker_definitions")
       .select("id, worker_key, version, name, role, status")
-      .in("id", workerDefinitionIds);
+      .in("id", workerDefinitionIds).limit(401);
     workerDefinitions = rows<WorkerDefinitionRecord>(workerDefinitionResult.data);
     if (workerDefinitionResult.error) errors.push(errorMessage(workerDefinitionResult.error));
   }
@@ -283,41 +311,41 @@ export async function loadWorkflowDetail(
       .maybeSingle(),
     context.supabase
       .from("workflow_definitions")
-      .select(WORKFLOW_DEFINITION_SELECT)
+      .select(WORKFLOW_DEFINITION_SELECT,{count:"exact"})
       .eq("id", run.workflow_definition_id)
       .maybeSingle(),
     context.supabase
       .from("workflow_stage_runs")
-      .select(STAGE_SELECT)
+      .select(STAGE_SELECT,{count:"exact"})
       .eq("workflow_run_id", run.id)
       .order("sequence", { ascending: true })
-      .order("attempt", { ascending: true }),
+      .order("attempt", { ascending: true }).order("id").limit(301),
     context.supabase
       .from("events")
-      .select(EVENT_SELECT)
+      .select(EVENT_SELECT,{count:"exact"})
       .eq("workflow_run_id", run.id)
       .order("occurred_at", { ascending: false })
       .limit(100),
     context.supabase
       .from("owner_interventions")
-      .select(INTERVENTION_SELECT)
+      .select(INTERVENTION_SELECT,{count:"exact"})
       .eq("workflow_run_id", run.id)
-      .order("requested_at", { ascending: false }),
+      .order("requested_at", { ascending: false }).order("id",{ascending:false}).limit(301),
     context.supabase
       .from("task_contracts")
-      .select(TASK_SELECT)
+      .select(TASK_SELECT,{count:"exact"})
       .eq("workflow_run_id", run.id)
-      .order("created_at", { ascending: false }),
+      .order("created_at", { ascending: false }).order("id",{ascending:false}).limit(301),
     context.supabase
       .from("worker_runs")
-      .select(WORKER_RUN_SELECT)
+      .select(WORKER_RUN_SELECT,{count:"exact"})
       .eq("workflow_run_id", run.id)
-      .order("created_at", { ascending: false }),
+      .order("created_at", { ascending: false }).order("id",{ascending:false}).limit(301),
     context.supabase
       .from("artifacts")
-      .select(ARTIFACT_SELECT)
+      .select(ARTIFACT_SELECT,{count:"exact"})
       .eq("workflow_run_id", run.id)
-      .order("created_at", { ascending: false }),
+      .order("created_at", { ascending: false }).order("id",{ascending:false}).limit(301),
   ]);
 
   const errors = [businessResult, definitionResult, stageResult, eventResult, interventionResult, taskResult, workerRunResult, artifactResult].filter(result => result.error).map(result => errorMessage(result.error));
@@ -335,7 +363,7 @@ export async function loadWorkflowDetail(
     const workerDefinitionResult = await context.supabase
       .from("worker_definitions")
       .select("id, worker_key, version, name, role, status")
-      .in("id", workerDefinitionIds);
+      .in("id", workerDefinitionIds).limit(401);
     workerDefinitions = rows<WorkerDefinitionRecord>(workerDefinitionResult.data);
     if (workerDefinitionResult.error) errors.push(errorMessage(workerDefinitionResult.error));
   }

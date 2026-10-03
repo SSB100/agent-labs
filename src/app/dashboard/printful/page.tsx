@@ -1,3 +1,4 @@
+import { HistoryPager } from "@/components/console/history-pager";
 import { notFound } from "next/navigation";
 import { ConsoleRetainedWorkspace } from "@/components/console/console-retained-workspace";
 import Link from "next/link";
@@ -29,10 +30,10 @@ export default async function PrintfulPage({ searchParams }: { searchParams: Pro
   const accountHref = `/dashboard/accounts${business ? `?business=${business.id}` : ""}#business-accounts`;
 
   return <AppShell toolDestination="printful" active="accounts" context={context} navigationBusinessId={business?.id}>
-    <ConsoleRetainedWorkspace ownerId={context.userId} notice={<p className="coreNotice">Recent sources and configuration runs only (up to 50). Earlier history remains pending R06.</p>} header={<>{context.businessesUnavailable ? <p role="alert">Business records are unavailable. No alternate Business was selected.</p> : null}<PageHeader eyebrow="Stage 15 · Printful foundation" title="Printful workspace"
+    <ConsoleRetainedWorkspace ownerId={context.userId} notice={<p className="coreNotice">Configuration history and source candidates have independent server pages and counts; current authority remains unchanged.</p>} header={<>{context.businessesUnavailable ? <p role="alert">Business records are unavailable. No alternate Business was selected.</p> : null}<PageHeader eyebrow="Stage 15 · Printful foundation" title="Printful workspace"
       description="Inspect the production contract and model unit economics with explicitly synthetic examples. Live qualification remains open."
       actions={<Link className="coreButton" href={`/dashboard/accounts${business ? `?business=${business.id}` : ""}`}>Back to Accounts</Link>} />
-<ProductActionFeedback message={query.productMessage} /></>} panels={[{ id: "configuration", label: "Configuration", content: <>{productWorkspace && <ProductConfigurationWorkspace data={productWorkspace} />}</> },
+<ProductActionFeedback message={query.productMessage} /></>} panels={[{ id: "configuration", label: "Configuration", content: <><HistoryPager page={productWorkspace?.runsPage} name="printful" label="Configuration runs"/><HistoryPager page={productWorkspace?.sourcesPage} name="printfulSource" label="Product sources"/>{productWorkspace && <ProductConfigurationWorkspace data={productWorkspace} />}</> },
 { id: "calculator", label: "Unit economics", content: <><PricingCalculator /></> },
 { id: "catalog", label: "Synthetic catalog", content: <><CatalogConfigurationPreview fixture={fixture} /></> },
 { id: "connection", label: "Connection & gates", content: <><section className="printfulIntro" aria-labelledby="printful-foundation-title">

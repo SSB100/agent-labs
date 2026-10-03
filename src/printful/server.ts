@@ -1,4 +1,7 @@
 import "server-only";
+import { verifyOwnerBusiness } from "../lib/core-ui/owner-business";
+import { readHistory, historyRows } from "../lib/core-ui/history-read";
+import type { HistoryPage } from "../lib/core-ui/history-query";
 import { existingEffectReadAdmission } from "../core/existing-effect-read";
 import { requireExistingEffectReadEligibility } from "../lib/existing-effect-read-runtime";
 import type { TransportAdmission } from "../core/transport-admission";
@@ -16,13 +19,14 @@ export type ProductSourceChoice = { id: string; name: string; sourceHash: string
   placement: string; designWidthIn: number; designHeightIn: number; retailPrice: string; currency: string; assetSha256: string; expiresAt: string };
 export type ProductRunView = { id: string; name: string; status: string; reason: string | null; stopRequested: boolean;
   dispatchSent: boolean; receiptRecorded: boolean; syncProductId: number | null; syncVariantId: number | null };
-export type PrintfulProductWorkspace = { businessId: string; configured: boolean; unavailable: boolean; executionAvailable: false;
+export type PrintfulProductWorkspace = { runsPage?: HistoryPage; sourcesPage?: HistoryPage; businessId: string; configured: boolean; unavailable: boolean; executionAvailable: false;
   reasons: string[]; sources: ProductSourceChoice[]; runs: ProductRunView[] };
 function productOwner(context: OwnerUiContext, businessId: string) {
   productAssert(PRODUCT_UUID.test(businessId) && context.businesses.some(business => business.id === businessId), "product_owner_required");
 }
 export function printfulProductConfigured() { return (process.env.PRINTFUL_PRODUCT_SERVER_KEY?.length ?? 0) >= 32; }
 export async function productRpc(context: OwnerUiContext, businessId: string, operation: string, payload: Record<string, unknown> = {}) {
+  if(businessId && !(await verifyOwnerBusiness(context,businessId)))throw new PrintfulProductError("product_owner_required");
   productOwner(context, businessId);
   const keyless = operation === "workspace" || operation === "cancel";
   productAssert(keyless || printfulProductConfigured(), "product_server_unavailable");
@@ -40,14 +44,16 @@ export function authenticateProductSource(raw: unknown, businessId: string, hist
   return { source, sourceHash: data.sourceHash as string };
 }
 export async function loadPrintfulProductWorkspace(context: OwnerUiContext, businessId: string, interventionId?: string | null): Promise<PrintfulProductWorkspace> {
+  if(businessId && !(await verifyOwnerBusiness(context,businessId)))throw new PrintfulProductError("product_owner_required");
   productOwner(context, businessId);
   const empty: PrintfulProductWorkspace = { businessId, configured: printfulProductConfigured(), unavailable: false, executionAvailable: false,
     reasons: [...PRODUCT_PRODUCER_READINESS.reasons], sources: [], runs: [] };
   try {
     productAssert(!interventionId || PRODUCT_UUID.test(interventionId), "product_intervention_invalid");
-    const raw = await productRpc(context, businessId, "workspace", interventionId ? { interventionId } : {});
+    const [runs, sources] = await Promise.all([readHistory<ProductRunView>(context,businessId,"printful_runs","printful",{interventionId}), readHistory<ProductSourceChoice>(context,businessId,"printful_sources","printfulSource")]);
+    const raw = { runs: historyRows(runs), sources: historyRows(sources) };
     productAssert(Array.isArray(raw.sources) && Array.isArray(raw.runs) && raw.sources.length <= 100 && raw.runs.length <= 100, "product_workspace_invalid");
-    return { ...empty, sources: raw.sources.map(value => {
+    return { ...empty, runsPage:runs.page, sourcesPage:sources.page, sources: raw.sources.map(value => {
       const row = productRecord(value);
       productAssert(typeof row.id === "string" && PRODUCT_UUID.test(row.id) && typeof row.sourceHash === "string" && PRODUCT_HASH.test(row.sourceHash) && typeof row.name === "string" && row.name.length > 0 && row.name.length <= 200 &&
         [row.storeId, row.catalogProductId, row.catalogVariantId].every(value => Number.isSafeInteger(value) && Number(value) > 0) &&
@@ -88,6 +94,7 @@ export async function resolvePrintfulProductWriteAuthority(context: OwnerUiConte
   throw new PrintfulProductError("product_write_authority_unavailable");
 }
 export async function beginPrintfulProduct(context: OwnerUiContext, businessId: string, sourceId: string, sourceHash: string, configurationConsent: boolean) {
+  if(businessId && !(await verifyOwnerBusiness(context,businessId)))throw new PrintfulProductError("product_owner_required");
   productOwner(context, businessId);
   productAssert(PRODUCT_UUID.test(sourceId) && PRODUCT_HASH.test(sourceHash) && configurationConsent === true, "product_review_required");
   const { source, sourceHash: currentHash } = authenticateProductSource(await productRpc(context, businessId, "source", { sourceId }), businessId);
@@ -137,6 +144,7 @@ export function printfulProductRepository(context: OwnerUiContext, businessId: s
   };
 }
 export async function runPrintfulProduct(context: OwnerUiContext, businessId: string, runId: string, reconcileOnly = false) {
+  if(businessId && !(await verifyOwnerBusiness(context,businessId)))throw new PrintfulProductError("product_owner_required");
   const repository = printfulProductRepository(context, businessId, runId), state = await repository.acquire(); let entered = false;
   try {
     if (state.receiptRecorded || (state.stopRequested && !state.dispatch)) return state;

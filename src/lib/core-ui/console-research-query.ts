@@ -12,7 +12,7 @@ export type ConsoleResearchQuery = {
 };
 export { consoleSearchPattern as consoleResearchSearchPattern };
 const optionKeys = ["businessId", "selectedId", "rootId", "page", "pageSize", "query", "searchField", "sort", "attemptPage", "attemptSort"];
-const searchKeys = ["view", "type", "business", "selected", "experiment", "root", "page", "pageSize", "q", "searchField", "sort", "attemptPage", "attemptSort", "sheet"];
+const searchKeys = ["view", "type", "business", "selected", "experiment", "root", "page", "pageSize", "q", "searchField", "sort", "attemptPage", "attemptSort", "sheet", "businessPage", "businessQuery", "accountOpenPage"];
 function pageNumber(value: number): boolean { return Number.isSafeInteger(value) && value >= 1 && Number.isSafeInteger(value * CONSOLE_COLLECTION_PAGE_SIZE); }
 
 /** Raw saved-record navigation, never latest-state or fully verified Quest filtering. */

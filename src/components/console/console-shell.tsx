@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { HistoryPager } from "./history-pager";
 import type { ReactNode } from "react";
 
 import type { CoreSection } from "@/components/stage7/app-shell";
@@ -103,10 +104,11 @@ function WorkspaceContext({ context, selectedBusinessId, aggregate = false }: { 
     ? "Business records unavailable"
     : aggregate ? "All owned Businesses"
     : selected ? selected.name
+    : context.ownerDirectoryPaged ? context.businessDirectory?.total == null ? "Business count unavailable" : context.businessDirectory.total > 0 ? `All ${context.businessDirectory.total} businesses` : "No business yet"
     : context.businesses.length === 1
       ? context.businesses[0].name
       : context.businesses.length > 1
-        ? `All ${context.businesses.length} businesses`
+        ? `All ${context.businessDirectory?.total ?? context.businesses.length} businesses`
         : "No business yet";
   return (
     <div className="consoleWorkspaceContext" role={context.businessesUnavailable ? "status" : undefined}>
@@ -164,7 +166,7 @@ export function ConsoleShell({ active, children, commandBar, context, workflowRu
         {toolDestination ? <nav className="consoleTechnicalLinks consoleFocusedTools" aria-label="Focused tools">{consoleToolNavigation.map(item => <Link className="consoleTechnicalLink" key={item.key} href={destination(item.href)} aria-current={item.key === toolDestination ? "page" : undefined}>{item.label}</Link>)}</nav> : null}
 
         <div className="consoleRailNote"><CoreIcon name="building" /><span>Private owner workspace</span></div>
-        <OwnerMenu context={context} />
+        <HistoryPager page={context.businessDirectory} name="business" label="Directory" /><OwnerMenu context={context} />
       </aside>
 
       <header className="consoleTopBar consoleFrame">

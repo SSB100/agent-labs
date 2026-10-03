@@ -51,13 +51,14 @@ test('actual Work root exact selection stays independent of page, status, search
 
 test('actual detail caps every child metadata window and fetches only the selected old artifact payload', async () => {
   const fixture = rootCollectionFixture(), page = await fixture.render(selectedArtifactRoute), detail = page.detailData;
-  for (const key of ['stages','tasks','workers','interventions','artifacts']) { assert.equal(detail.completeness[key].loaded,100); assert.equal(detail.completeness[key].total,133); assert.equal(detail.completeness[key].hasMore,true); assert.equal(detail.completeness[key].complete,false); }
+  for (const key of ['stages','tasks','workers','interventions','artifacts']) { assert.equal(detail.completeness[key].loaded,25); assert.equal(detail.completeness[key].total,133); assert.equal(detail.completeness[key].hasMore,true); assert.equal(detail.completeness[key].complete,false); }
   assert.equal(detail.artifacts.some(row=>row.id===exactArtifactId),false); assert.equal(detail.artifactSelection.status,'found'); assert.deepEqual(plain(detail.artifactSelection.item.content), artifactContent);
   assert.equal(createHash('sha256').update(JSON.stringify(detail.artifactSelection.item.content,null,2)).digest('hex'),artifactHash);
   const payloadReads = table(fixture,'artifacts').filter(read=>read.columns.split(',').includes('content'));
   assert.equal(payloadReads.length,1); assert.equal(payloadReads[0].limit,2); assert.ok(exact(payloadReads[0],exactArtifactId));
   assert.ok(payloadReads[0].filters.some(([,key,value])=>key==='workflow_run_id'&&value===oldRunId)); assert.ok(payloadReads[0].filters.some(([,key,value])=>key==='business_id'&&value.includes(businessId)));
-  const metadata = table(fixture,'artifacts').find(read=>!read.columns.split(',').includes('content')); assert.equal(metadata.limit,101); assert.equal(metadata.returned,101);
+  const metadata = table(fixture,'artifacts').find(read=>!read.columns.split(',').includes('content')); assert.deepEqual(metadata.range,[0,25]); assert.equal(metadata.returned,26);
+  assert.equal(detail.pages.artifact.total,133); assert.equal(detail.pages.artifact.hasNext,true);
   assert.ok(detail.artifacts.every(row=>!Object.hasOwn(row,'content'))); assert.match(page.markup,/Incomplete history/); assert.match(page.markup,/cannot establish the latest record/);
   assert.doesNotMatch(page.markup,/PRIVATE_ARTIFACT_PAYLOAD_|PRIVATE_STAGE_PAYLOAD|PRIVATE_TASK_PAYLOAD|PRIVATE_WORKER_PAYLOAD|PRIVATE_NOTICE_PAYLOAD/);
   assert.equal(table(fixture,'model_invocations')[0].limit,1001); assert.deepEqual(fixture.denied,[]);

@@ -49,12 +49,12 @@ export async function ConsoleLibraryDashboard({ context, query }: { context: Own
   const commandContext = { ...context, businesses: commandBusinesses };
   const researchSheet = query.sheet === "research";
   const [accountRequests, catalog, observedAt] = await Promise.all([
-    context.businessesUnavailable ? { records: [], unavailable: true } : loadAccountSetupInterventions(context),
+    context.businessesUnavailable ? { records: [], unavailable: true, page: undefined, globalCount:undefined } : loadAccountSetupInterventions(context),
     researchSheet && !context.businessesUnavailable ? loadDiscoveryGoalData(commandContext, []) : null,
     loadConsoleObservationTime(),
   ]);
   const quote = researchSheet && !context.businessesUnavailable ? await loadConsoleResearchQuote(commandContext, catalog?.available === true) : null;
-  const displayContext = { ...context, needsYouCount: context.needsYouCount + accountRequests.records.length, needsYouUnavailable: context.needsYouUnavailable || context.businessesUnavailable || accountRequests.unavailable };
+  const displayContext = { ...context, needsYouCount: context.needsYouCount + (accountRequests.globalCount ?? accountRequests.page?.total ?? accountRequests.records.length), needsYouUnavailable: context.needsYouUnavailable || context.businessesUnavailable || accountRequests.unavailable };
   return <ConsoleShell active="library" context={displayContext} globalDecisionCount aggregateContext={!q.businessId} navigationBusinessId={navigationBusinessId}
     commandBar={<ConsoleCommandBar ownerId={context.userId} businessId={commandBusinessId} businessSelectionAvailable={context.businesses.length > 0} returnTo={returnTo} unavailable={context.businessesUnavailable}/> }>
     <ConsoleLibraryPane ownerId={context.userId} businesses={context.businesses} searchParams={params} data={data} now={observedAt}/>

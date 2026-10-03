@@ -1,3 +1,4 @@
+import { ownerBusiness, historyRead, historyPager } from './helpers/history-fixtures.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
@@ -7,13 +8,13 @@ import { packageFixture } from './etsy-fixtures.mjs';
 const require=createRequire(import.meta.url),ts=require('typescript'),React=require('react');
 const {renderToStaticMarkup}=require('react-dom/server');
 function load(path,deps,globals={}){const source=ts.transpileModule(readFileSync(path,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true}}).outputText;
-  const fixtureModule={exports:{}};runInNewContext(`(function(require,module,exports){${source}\n})`,globals)(name=>{assert.ok(name in deps,`Unexpected dependency: ${name}`);return deps[name];},fixtureModule,fixtureModule.exports);return fixtureModule.exports;}
+  const fixtureModule={exports:{}};runInNewContext(`(function(require,module,exports){${source}\n})`,globals)(name=>{if(name.endsWith('/owner-business'))return ownerBusiness;if(name==='../lib/core-ui/history-read')return historyRead;if(name==='@/components/console/history-pager')return historyPager;assert.ok(name in deps,`Unexpected dependency: ${name}`);return deps[name];},fixtureModule,fixtureModule.exports);return fixtureModule.exports;}
 const noop=async()=>{};
 const {EtsyWorkspace}=load('src/app/dashboard/etsy/workspace.tsx',{'@/etsy/contracts':require('../.core-tests/etsy/contracts.js'),'react/jsx-runtime':require('react/jsx-runtime'),'next/link':({children,href})=>React.createElement('a',{href},children),'./actions':{connectEtsy:noop,disconnectEtsy:noop,createEtsyDraft:noop,reconcileEtsyDraft:noop,stopEtsyDraft:noop}});
 const base={businessId:'fixture-business',businessName:'Fixture Business',configured:false,unavailable:false,connection:null,packages:[],runs:[]};
 const render=data=>renderToStaticMarkup(React.createElement(EtsyWorkspace,{data}));
 test('unconfigured UI explains upstream blockers and cannot connect or create',()=>{
-  const html=render(base);assert.match(html,/No qualified Product Package available/);assert.match(html,/raw artwork is not a product mockup/);assert.match(html,/Synthetic examples and technical image tests do not satisfy/);assert.match(html,/disabled="">Connect Etsy securely/);assert.doesNotMatch(html,/>Create draft</);
+  const html=render(base);assert.match(html,/No verified Product Package is shown on this page/);assert.match(html,/raw artwork is not a product mockup/);assert.match(html,/Synthetic examples and technical image tests do not satisfy/);assert.match(html,/disabled="">Connect Etsy securely/);assert.doesNotMatch(html,/>Create draft</);
 });
 test('draft preparation does not imply supplier mapping, confirmed settings or automatic fulfilment',()=>{
  const {package:p}=packageFixture();
@@ -53,9 +54,9 @@ test('disconnect, resume and stop retain the selected Business on success and fa
 const chrome='/usr/bin/google-chrome';
 test('declined OAuth retains its authorized Business and rejects a mismatched state before provider access',async()=>{
   const calls=[];
-  const {GET}=load('src/app/api/etsy/callback/route.ts',{'next/headers':{cookies:async()=>({get:()=>({value:'fixture-cookie'}),delete:()=>{}})},'next/server':{NextResponse:{redirect:url=>({url:String(url),headers:new Headers()})}},'@/lib/core-ui/data':{requireOwnerUiContext:async()=>({userId:'fixture-owner'})},'@/etsy/server':{etsyConfig:()=>({vaultKey:'fixture-key'}),ownerBusiness:()=>{},etsyRpc:async()=>{calls.push('rpc');throw new Error('Unexpected provider path');}},'@/etsy/vault':{unseal:()=>({ownerId:'fixture-owner',businessId:'second-business',state:'fixture-state'})},'@/etsy/oauth':{},'@/etsy/contracts':require('../.core-tests/etsy/contracts.js'),'node:crypto':require('node:crypto')},{URL});
+  const {GET}=load('src/app/api/etsy/callback/route.ts',{'next/headers':{cookies:async()=>({get:()=>({value:'fixture-cookie'}),delete:()=>{}})},'next/server':{NextResponse:{redirect:url=>({url:String(url),headers:new Headers()})}},'@/lib/core-ui/data':{requireOwnerUiContext:async()=>({userId:'fixture-owner',businesses:[{id:'16000002-1111-4111-8111-111111111111'}]})},'@/etsy/server':{etsyConfig:()=>({vaultKey:'fixture-key'}),ownerBusiness:()=>{},etsyRpc:async()=>{calls.push('rpc');throw new Error('Unexpected provider path');}},'@/etsy/vault':{unseal:()=>({ownerId:'fixture-owner',businessId:'16000002-1111-4111-8111-111111111111',state:'fixture-state'})},'@/etsy/oauth':{},'@/etsy/contracts':require('../.core-tests/etsy/contracts.js'),'node:crypto':require('node:crypto')},{URL});
   const declined=await GET({url:'https://example.com/api/etsy/callback?state=fixture-state&error=access_denied'});
-  assert.equal(new URL(declined.url).searchParams.get('business'),'second-business');assert.equal(new URL(declined.url).searchParams.get('message'),'connection-unavailable');assert.equal(calls.length,0);
+  assert.equal(new URL(declined.url).searchParams.get('business'),'16000002-1111-4111-8111-111111111111');assert.equal(new URL(declined.url).searchParams.get('message'),'connection-unavailable');assert.equal(calls.length,0);
   const invalid=await GET({url:'https://example.com/api/etsy/callback?state=wrong&code=fixture-code'});
   assert.equal(new URL(invalid.url).searchParams.has('business'),false);assert.equal(calls.length,0);
 });
@@ -81,7 +82,7 @@ test('browser renders owner controls and enforces both native consent fields at 
     const page=await browser.newPage();
     await page.setContent(`<style>${readFileSync('src/app/dashboard/etsy/etsy.css','utf8')}</style>${render(base)}`);
     assert.equal(await page.getByRole('button',{name:'Connect Etsy securely'}).isDisabled(),true);
-    assert.equal(await page.getByRole('heading',{name:'No qualified Product Package available'}).isVisible(),true);
+    assert.equal(await page.getByRole('heading',{name:'No verified Product Package is shown on this page'}).isVisible(),true);
     const {package:p}=packageFixture();
     await page.setContent(`<style>${readFileSync('src/app/dashboard/etsy/etsy.css','utf8')}</style>${render({...base,configured:true,connection:{shopName:'Fixture shop',status:'connected',currency:'NZD'},packages:[p]})}`);
     const form=page.locator('form').filter({has:page.getByRole('button',{name:'Create draft',exact:true})});
@@ -91,4 +92,10 @@ test('browser renders owner controls and enforces both native consent fields at 
     for(const width of [1280,390]){await page.setViewportSize({width,height:900});assert.equal(await page.getByRole('button',{name:'Create draft',exact:true}).isVisible(),true);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);}
     assert.equal(await page.getByRole('button',{name:'Publish',exact:true}).count(),0);
   }finally{await browser.close();}
+});
+
+test('out-of-range draft and package pages describe only this page while retaining independent totals', () => {
+ const page={page:7,pageSize:25,total:127,hasNext:false,available:true},html=render({...base,runsPage:page,packagesPage:page});
+ assert.match(html,/No verified Product Package is shown on this page/);assert.match(html,/No draft runs are shown on this server page/);
+ assert.doesNotMatch(html,/No qualified Product Package available|No draft runs are recorded for this Business/);
 });

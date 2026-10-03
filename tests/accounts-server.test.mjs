@@ -1,3 +1,4 @@
+import { ownerBusiness, historyRead, accountHistoryResponse, historyResponse } from './helpers/history-fixtures.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
@@ -7,7 +8,9 @@ const require = createRequire(import.meta.url), ts = require('typescript');
 function load(path, dependencies, globals = {}) {
   const code = ts.transpileModule(readFileSync(path, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
   const m = { exports: {} };
-  runInNewContext(`(function(require,module,exports){${code}\n})`, globals)(name => {
+  runInNewContext(`(function(require,module,exports){${code}\n})`, { URLSearchParams, ...globals })(name => {
+    if (name.endsWith('/owner-business')) return ownerBusiness;
+    if (name === '../lib/core-ui/history-read') return historyRead;
     assert.ok(name in dependencies, `Unexpected dependency ${name}`); return dependencies[name];
   }, m, m.exports); return m.exports;
 }
@@ -20,12 +23,14 @@ function run(overrides = {}) {
   return { businessId, id: runId, connectionId, provider: 'printful', mode: 'connect', status: 'owner_handoff', revision: 3, disclosure, disclosureHash: C.accountDigest(disclosure), approvalExpiresAt: '2026-10-02T12:00:00Z', createdAt: '2026-10-01T12:00:00Z', receipt: null, ...overrides };
 }
 function harness(options = {}) {
-  const calls = [], providerCalls = [], logs = [];
+  const calls = [], providerCalls = [], logs = [], ownershipReads = [];
   const current = options.run ?? run();
-  const context = { businesses: [{ id: businessId }], supabase: { rpc: async (name, args) => {
+  const context = { userId: '96060000-0000-4000-8000-000000000090', businesses: options.businesses ?? [{ id: businessId }], supabase: { from(table) {
+    assert.equal(table, 'businesses'); const filters = []; const q = { select(columns) { assert.equal(columns, 'id,name,created_at,updated_at'); return q; }, eq(key, value) { filters.push([key,value]); return q; }, async maybeSingle() { ownershipReads.push(filters); return options.ownerResult ?? { data: null }; } }; return q;
+  }, rpc: async (name, args) => {
     calls.push({ name, args });
-    if (options.rpc) return options.rpc(name, args);
-    return { data: args.p_operation === 'workspace' ? { profile, accounts: options.accounts ?? [], runs: [current], healthEvents: [] } : { run: current } };
+    if (options.rpc) { const response = await options.rpc(name, args); return name === 'r06_read' && response?.data && !('items' in response.data) ? accountHistoryResponse(args, response.data) : response; }
+    return name === 'r06_read' ? accountHistoryResponse(args, { profile, accounts: options.accounts ?? [], runs: [current], healthEvents: [] }) : { data: { run: current } };
   } } };
   const deps = {
     'server-only': {}, 'node:crypto': require('node:crypto'), './contracts': C,
@@ -45,7 +50,7 @@ function harness(options = {}) {
     './vault': { unsealAccountSecret: (envelope, binding) => { providerCalls.push(['unseal', envelope, binding]); return options.handoff; }, sealAccountSecret: (secret, binding, key) => { providerCalls.push(['seal', secret, binding, key]); return 'account-v1.synthetic-encrypted-envelope'; } },
   };
   const env = options.env ?? { ACCOUNTS_SERVER_KEY: 's'.repeat(32), ACCOUNTS_VAULT_KEY: '1'.repeat(64) };
-  return { context, calls, providerCalls, logs, ...load('src/accounts/server.ts', deps, { URL, process: { env }, console: { log: (...args) => logs.push(args), error: (...args) => logs.push(args), warn: (...args) => logs.push(args) } }) };
+  return { context, calls, providerCalls, logs, ownershipReads, ...load('src/accounts/server.ts', deps, { URL, process: { env }, console: { log: (...args) => logs.push(args), error: (...args) => logs.push(args), warn: (...args) => logs.push(args) } }) };
 }
 
 test('workspace read requires owned UUID before any RPC and uses no mutation authority', async () => {
@@ -54,8 +59,8 @@ test('workspace read requires owned UUID before any RPC and uses no mutation aut
   assert.equal(h.calls.length, 0);
   const result = await h.loadAccountWorkspace(h.context, businessId);
   assert.equal(result.unavailable, false); assert.equal(result.profile.revision, revision);
-  assert.equal(h.calls[0].name, 'account_owner_transition');
-  assert.equal(h.calls[0].args.p_server_key, ''); assert.equal(h.calls[0].args.p_business_id, businessId);
+  assert.deepEqual(h.calls.map(c => c.args.p_dataset), ['account_state', 'account_runs', 'account_health']);
+  assert.ok(h.calls.every(c => c.name === 'r06_read' && !('p_server_key' in c.args))); assert.equal(h.calls[0].args.p_business_id, businessId);
 });
 
 test('database outage or malformed/foreign durable data is unavailable, never an authoritative empty registry', async () => {
@@ -76,20 +81,20 @@ test('account setup, vault and unrelated provider flags are independent fail-clo
 test('profile save binds exact expected revision and filters no malicious fields into persistence', async () => {
   const h = harness(), data = Object.fromEntries(Object.entries(profile).filter(([key]) => key !== 'revision'));
   await h.saveAccountProfile(h.context, businessId, data, revision);
-  assert.deepEqual(h.calls.map(c => c.args.p_operation), ['workspace', 'save_profile']); assert.deepEqual(plain(h.calls[1].args.p_payload), { profile: data, expectedRevision: revision });
+  assert.deepEqual(h.calls.map(c => c.args.p_dataset ?? c.args.p_operation), ['account_state', 'account_runs', 'account_health', 'save_profile']); assert.deepEqual(plain(h.calls.find(c => c.args.p_payload).args.p_payload), { profile: data, expectedRevision: revision });
   for (const [p, r] of [[{ ...data, password: 'secret' }, revision], [data, 'stale-but-malformed']]) await assert.rejects(h.saveAccountProfile(h.context, businessId, p, r));
   assert.equal(h.calls.filter(c => c.args.p_operation === 'save_profile').length, 1);
 });
 
 test('prepare binds current authoritative profile revision, exact disclosure and finite expiry', async () => {
   const h = harness(); await h.prepareAccountSetup(h.context, businessId, 'etsy', 'create', runId);
-  const payload = h.calls[1].args.p_payload;
-  assert.deepEqual(h.calls.map(c => c.args.p_operation), ['workspace', 'prepare']);
+  const payload = h.calls.find(c => c.args.p_payload).args.p_payload;
+  assert.deepEqual(h.calls.map(c => c.args.p_dataset ?? c.args.p_operation), ['account_state', 'account_runs', 'account_health', 'prepare']);
   assert.equal(payload.idempotencyKey, runId); assert.equal(payload.profileRevision, revision); assert.equal(payload.approvalTtlSeconds, 1800);
   assert.equal(payload.disclosure.disclosedData.email, profile.email); assert.deepEqual(plain(payload.disclosure.profileFields), ['email', 'givenName']);
   const failed = harness({ rpc: async () => ({ error: { message: 'unavailable' } }) });
   await assert.rejects(failed.prepareAccountSetup(failed.context, businessId, 'etsy', 'create', runId), /account_profile_required/);
-  assert.deepEqual(failed.calls.map(c => c.args.p_operation), ['workspace']);
+  assert.deepEqual(failed.calls.map(c => c.args.p_dataset ?? c.args.p_operation), ['account_state', 'account_runs', 'account_health']);
 });
 
 test('approval forwards exact review bindings; malformed and stale approvals never invent fresh authority', async () => {
@@ -100,7 +105,7 @@ test('approval forwards exact review bindings; malformed and stale approvals nev
   assert.equal(h.calls.length, 1);
   const stale = harness({ rpc: async () => ({ error: { message: 'stale profile/approval with private data' } }) });
   await assert.rejects(stale.approveAccountSetup(stale.context, businessId, input), error => error.code === 'account_state_unavailable' && !error.message.includes('private'));
-  assert.deepEqual(stale.calls.map(c => c.args.p_operation), ['approve']);
+  assert.deepEqual(stale.calls.map(c => c.args.p_dataset ?? c.args.p_operation), ['approve']);
 });
 
 test('Printful token goes to independent verification and encrypted vault only, never durable plaintext or logs', async () => {
@@ -141,27 +146,27 @@ test('Etsy changed identity or failed readback never persists a false verified r
 
 test('Etsy revocation uses a single atomic owner transition with exact current revision and separate server authority', async () => {
   const h = harness(); await h.revokeAccount(h.context, businessId, 'etsy', revision);
-  assert.deepEqual(h.calls.map(c => c.args.p_operation), ['workspace', 'revoke']);
-  assert.deepEqual(plain(h.calls[1].args.p_payload), { provider: 'etsy', expectedConnectionRevision: revision, etsyServerKey: 'etsy-test-server-authority' });
+  assert.deepEqual(h.calls.map(c => c.args.p_dataset ?? c.args.p_operation), ['account_state', 'account_runs', 'account_health', 'revoke']);
+  assert.deepEqual(plain(h.calls.find(c => c.args.p_payload).args.p_payload), { provider: 'etsy', expectedConnectionRevision: revision, etsyServerKey: 'etsy-test-server-authority' });
   assert.deepEqual(h.providerCalls, []);
-  await assert.rejects(h.revokeAccount(h.context, foreignId, 'etsy', revision), /account_owner_required/); assert.equal(h.calls.length, 2);
-  const stale = harness({ rpc: async (_name, { p_operation }) => p_operation === 'workspace' ? { data: { profile, accounts: [], runs: [], healthEvents: [] } } : { error: { message: 'stale-etsy-revision-private-body' } } });
+  await assert.rejects(h.revokeAccount(h.context, foreignId, 'etsy', revision), /account_owner_required/); assert.equal(h.calls.length, 4);
+  const stale = harness({ rpc: async (name) => name === 'r06_read' ? { data: { profile, accounts: [], runs: [], healthEvents: [] } } : { error: { message: 'stale-etsy-revision-private-body' } } });
   await assert.rejects(stale.revokeAccount(stale.context, businessId, 'etsy', foreignId), /account_state_unavailable/);
-  assert.deepEqual(stale.calls.map(c => c.args.p_operation), ['workspace', 'revoke']); assert.deepEqual(stale.providerCalls, []);
+  assert.deepEqual(stale.calls.map(c => c.args.p_dataset ?? c.args.p_operation), ['account_state', 'account_runs', 'account_health', 'revoke']); assert.deepEqual(stale.providerCalls, []);
   const printful = harness(); await printful.revokeAccount(printful.context, businessId, 'printful', revision);
-  assert.equal('etsyServerKey' in printful.calls[1].args.p_payload, false);
+  assert.equal('etsyServerKey' in printful.calls.find(c => c.args.p_payload).args.p_payload, false);
 });
 
 const passwordInput = { provider: 'printful', connectionId, expectedConnectionRevision: revision, expectedPasswordRevision: null, username: ' owner@example.test ', password: 'unique-owner-password', confirmPassword: 'unique-owner-password' };
 const connected = { id: connectionId, provider: 'printful', status: 'connected', revision, passwordStored: false, passwordRevision: null };
 test('optional owner password storage encrypts distinct provider namespace and never contacts provider or persists plaintext', async () => {
   const h = harness({ accounts: [connected] }); await h.saveOwnerAccountPassword(h.context, businessId, passwordInput);
-  assert.deepEqual(h.calls.map(c => c.args.p_operation), ['workspace', 'save_password']);
+  assert.deepEqual(h.calls.map(c => c.args.p_dataset ?? c.args.p_operation), ['account_state', 'account_runs', 'account_health', 'save_password']);
   assert.deepEqual(h.providerCalls.map(c => c[0]), ['seal']);
   const sealed = h.providerCalls[0];
   assert.equal(sealed[1].password, passwordInput.password); assert.equal(sealed[1].username, passwordInput.username.trim());
   assert.equal(sealed[1].providerVerified, false); assert.equal(sealed[2].provider, 'printful_password'); assert.equal(sealed[2].connectionId, connectionId);
-  const payload = h.calls[1].args.p_payload;
+  const payload = h.calls.find(c => c.args.p_payload).args.p_payload;
   assert.equal(payload.expectedConnectionRevision, revision); assert.equal(payload.expectedPasswordRevision, null); assert.equal(payload.passwordRevision, sealed[2].revision);
   assert.match(payload.envelope, /^account-v1\./); assert.doesNotMatch(JSON.stringify(h.calls), /unique-owner-password|owner@example/); assert.deepEqual(h.logs, []);
 });
@@ -183,7 +188,7 @@ test('registration admission requires approved creation and separate browser act
   }
   const h = harness({ run: run({ status: 'approved', mode: 'create' }), browserAvailable: false });
   const current = await h.prepareApprovedAccountRegistration(h.context, businessId, runId); assert.equal(current.status, 'approved');
-  assert.deepEqual(h.calls.map(c => c.args.p_operation), ['resume']); assert.deepEqual(h.providerCalls, []);
+  assert.deepEqual(h.calls.map(c => c.args.p_dataset ?? c.args.p_operation), ['resume']); assert.deepEqual(h.providerCalls, []);
 });
 
 test('approved registration uses one durable reservation and encrypts the secure handoff before recording only safe receipt', async () => {
@@ -197,7 +202,7 @@ test('approved registration uses one durable reservation and encrypts the secure
   });
   const result = await h.prepareApprovedAccountRegistration(h.context, businessId, runId);
   assert.equal(result.status, 'owner_handoff');
-  assert.deepEqual(h.calls.map(c => c.args.p_operation), ['resume', 'registration_prepare', 'browser_handoff_save', 'owner_handoff']);
+  assert.deepEqual(h.calls.map(c => c.args.p_dataset ?? c.args.p_operation), ['resume', 'registration_prepare', 'browser_handoff_save', 'owner_handoff']);
   const input = h.providerCalls.find(c => c[0] === 'prepareAccountRegistration')[1];
   assert.equal(input.disclosureHash, approved.disclosureHash); assert.equal(input.profileRevision, revision); assert.equal(input.browserConsent, true); assert.equal(input.termsApproved, true);
   const seal = h.providerCalls.find(c => c[0] === 'seal'); assert.equal(seal[2].provider, 'browserbase_handoff'); assert.equal(seal[2].revision, preparationId);
@@ -218,7 +223,7 @@ test('raw browser viewer is exposed only to an owned fresh create handoff and au
   const rpc = async (_name, { p_operation }) => ({ data: p_operation === 'resume' ? { run: eligible } : { envelope: 'encrypted-viewer', handoffId: revision } });
   const h = harness({ handoff, rpc });
   assert.deepEqual(plain(await h.loadOwnerRegistrationHandoff(h.context, businessId, runId)), { provider: 'printful', viewerUrl: handoff.viewerUrl, expiresAt });
-  assert.deepEqual(h.calls.map(c => c.args.p_operation), ['resume', 'browser_handoff_get']);
+  assert.deepEqual(h.calls.map(c => c.args.p_dataset ?? c.args.p_operation), ['resume', 'browser_handoff_get']);
   assert.equal(h.providerCalls[0][2].provider, 'browserbase_handoff'); assert.doesNotMatch(JSON.stringify(h.calls), /owner-only-view/);
   for (const change of [{ businessId: foreignId }, { runId: foreignId }, { preparationId: revision }, { handoffId: foreignId }, { sessionId: 'invalid' }, { viewerUrl: 'https://www.browserbase.com.evil.test/view' }, { viewerUrl: 'http://www.browserbase.com/view' }, { viewerUrl: 'https://user:secret@www.browserbase.com/view' }, { expiresAt: new Date(Date.now() - 1).toISOString() }, { expiresAt: new Date(Date.now() + 180_000).toISOString() }]) {
     const invalid = harness({ handoff: { ...handoff, ...change }, rpc }); await assert.rejects(invalid.loadOwnerRegistrationHandoff(invalid.context, businessId, runId), /account_handoff_(?:invalid|expired)/);
@@ -230,7 +235,7 @@ test('account Needs You summary uses owned workspaces, preserves uncertainty, an
   for (const status of ['pending_approval', 'approved', 'preparation_started', 'owner_handoff']) {
     const h = harness({ run: run({ status }) }), summary = await h.loadAccountSetupInterventions(h.context);
     assert.equal(summary.unavailable, false); assert.equal(summary.records.length, 1); assert.equal(summary.records[0].businessId, businessId);
-    assert.ok(h.calls.every(c => c.args.p_business_id === businessId && c.args.p_operation === 'workspace'));
+    assert.ok(h.calls.every(c => c.name === 'r06_read' && c.args.p_business_id === null && c.args.p_dataset === 'account_unresolved'));
     assert.doesNotMatch(JSON.stringify(summary), /credential|accessToken|viewerUrl|owner@example/);
   }
   for (const status of ['verified', 'cancelled', 'expired', 'invalidated']) {
@@ -287,7 +292,7 @@ test('password removal binds owner, exact account and saved-password revision wi
   const input = { provider: 'printful', connectionId, expectedPasswordRevision: revision };
   const h = harness({ env: { ACCOUNTS_SERVER_KEY: 's'.repeat(32) } });
   await h.deleteOwnerAccountPassword(h.context, businessId, input);
-  assert.deepEqual(h.calls.map(c => c.args.p_operation), ['delete_password']); assert.deepEqual(plain(h.calls[0].args.p_payload), input);
+  assert.deepEqual(h.calls.map(c => c.args.p_dataset ?? c.args.p_operation), ['delete_password']); assert.deepEqual(plain(h.calls[0].args.p_payload), input);
   assert.deepEqual(h.providerCalls, []);
   await assert.rejects(h.deleteOwnerAccountPassword(h.context, foreignId, input), /account_owner_required/);
   for (const change of [{ connectionId: 'bad' }, { expectedPasswordRevision: 'bad' }, { expectedPasswordRevision: null }, { provider: 'other' }]) await assert.rejects(h.deleteOwnerAccountPassword(h.context, businessId, { ...input, ...change }));
@@ -306,17 +311,36 @@ test('registration viewer never decrypts or exposes a session outside the approv
   for (const override of [{ status: 'pending_approval' }, { status: 'approved' }, { status: 'preparation_started' }, { status: 'verified' }, { status: 'cancelled' }, { status: 'expired' }, { mode: 'connect' }, { preparationId: null }]) {
     const h = harness({ run: run({ mode: 'create', status: 'owner_handoff', preparationId: foreignId, ...override }) });
     await assert.rejects(h.loadOwnerRegistrationHandoff(h.context, businessId, runId), /account_handoff_unavailable/);
-    assert.deepEqual(h.calls.map(c => c.args.p_operation), ['resume']); assert.deepEqual(h.providerCalls, []);
+    assert.deepEqual(h.calls.map(c => c.args.p_dataset ?? c.args.p_operation), ['resume']); assert.deepEqual(h.providerCalls, []);
   }
 });
 
 
-test('a full private account history window cannot claim a complete empty decision queue', async () => {
+test('unresolved account pages use independent totals rather than a capped historical window', async () => {
   for (const count of [49, 50]) {
-    const h = harness({ rpc: async () => ({ data: { profile, accounts: [], runs: Array.from({ length: count }, (_, index) => run({ id: `20000000-1111-4111-8111-${String(index).padStart(12, '0')}`, status: 'verified' })), healthEvents: [] } }) });
+    const rows = Array.from({ length: count }, (_, index) => run({ id: `20000000-1111-4111-8111-${String(index).padStart(12, '0')}`, status: 'pending_approval' }));
+    const h = harness({ rpc: async (_name, args) => historyResponse(args, rows) });
     const summary = await h.loadAccountSetupInterventions(h.context);
-    assert.equal(summary.records.length, 0);
-    assert.equal(summary.unavailable, count === 50);
-    assert.deepEqual(h.providerCalls, []);
+    assert.equal(summary.records.length, 25); assert.equal(summary.globalCount, count);
+    assert.equal(summary.page.hasNext, true); assert.equal(summary.unavailable, false); assert.deepEqual(h.providerCalls, []);
+  }
+  const h = harness({ rpc: async (_name, args) => historyResponse(args, [], { overrides: { ownerTotal: null } }) });
+  assert.equal((await h.loadAccountSetupInterventions(h.context)).unavailable, true);
+});
+
+
+test('off-directory owned account read and exact approval use independent ownership; foreign and outage stop before provider or RPC', async () => {
+  const h = harness({ businesses: [], ownerResult: { data: { id: businessId, name: 'Owned beyond directory page' } } });
+  assert.equal((await h.loadAccountWorkspace(h.context, businessId)).unavailable, false);
+  const input = { runId, revision: 3, disclosureHash: 'a'.repeat(64), acceptTerms: true, browserConsent: true };
+  await h.approveAccountSetup(h.context, businessId, input);
+  assert.deepEqual(h.ownershipReads, [[['id',businessId],['owner_user_id',h.context.userId]]]);
+  assert.deepEqual(h.calls.map(c => c.args.p_dataset ?? c.args.p_operation), ['account_state','account_runs','account_health','approve']);
+  assert.deepEqual(plain(h.calls.at(-1).args.p_payload), input); assert.deepEqual(h.providerCalls, []);
+  for (const ownerResult of [{ data: null }, { data: null, error: { message: 'private transport outage' } }]) {
+    const denied = harness({ businesses: [], ownerResult });
+    await assert.rejects(denied.loadAccountWorkspace(denied.context,businessId), /account_owner_required/);
+    await assert.rejects(denied.approveAccountSetup(denied.context,businessId,input), /account_owner_required/);
+    assert.deepEqual(denied.calls, []); assert.deepEqual(denied.providerCalls, []); assert.equal(denied.context.businesses.length, 0);
   }
 });

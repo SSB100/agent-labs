@@ -1,4 +1,5 @@
 "use server";
+import { verifyOwnerBusiness } from "@/lib/core-ui/owner-business";
 
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
@@ -25,7 +26,7 @@ function feedback(context:Awaited<ReturnType<typeof requireOwnerUiContext>>,form
 
 export async function createProductCandidate(form: FormData) {
   const context = await requireOwnerUiContext(), businessId = text(form, "businessId");
-  const owned=UUID.test(businessId) && context.businesses.some(business=>business.id===businessId);
+  const owned=UUID.test(businessId) && (await verifyOwnerBusiness(context,businessId));
   const finishCandidate = (code:string,success=false,candidateId?:string):never => {
     if(success){revalidatePath("/dashboard/products");revalidatePath("/dashboard");}
     redirect(`/dashboard/products?panel=${success ? "candidates" : "new"}${owned ? `&business=${businessId}` : ""}${candidateId ? `&candidate=${candidateId}` : ""}&${success ? "message" : "error"}=${code}`);
@@ -46,7 +47,7 @@ export async function startProductResearch(form: FormData) {
   const candidate = await context.supabase.from("product_candidates").select("business_id").eq("id", candidateId).maybeSingle();
   if (candidate.error || !candidate.data) return fail("Candidate not found.");
   const businessId = candidate.data.business_id as string;
-  if (!context.businesses.some(b => b.id === businessId)) return fail("Candidate not found.");
+  if (!(await verifyOwnerBusiness(context,businessId))) return fail("Candidate not found.");
   owned(businessId,candidateId);
   const runtimeCapability = `${randomUUID()}${randomUUID()}`, nonce = randomUUID();
   const result = await context.supabase.rpc("begin_product_discovery", { p_candidate_id: candidateId, p_launch_nonce: nonce, p_runtime_capability: runtimeCapability });
@@ -71,7 +72,7 @@ export async function recordProductAssessment(form: FormData) {
   const {fail,finish,owned,uuid}=feedback(context,form), experimentId=uuid("experimentId");
   const experiment = await context.supabase.from("product_experiments").select("evidence_pack,status,business_id,candidate_id").eq("id", experimentId).maybeSingle();
   if (experiment.error || !experiment.data?.evidence_pack || experiment.data.status !== "completed") return fail("A completed research experiment is required.");
-  if(!context.businesses.some(b=>b.id===experiment.data?.business_id))return fail("A completed research experiment is required.");
+  if(!(await verifyOwnerBusiness(context,experiment.data?.business_id)))return fail("A completed research experiment is required.");
   owned(experiment.data.business_id,experiment.data.candidate_id);
   const dimensions: DimensionAssessment[] = DIMENSIONS.map(dimension => {
     const rawScore = text(form, `score.${dimension}`);
@@ -89,7 +90,7 @@ export async function reconsiderProductCandidate(form: FormData) {
   const context = await requireOwnerUiContext();
   const {fail,finish,owned,uuid}=feedback(context,form);
   const record=await context.supabase.from("product_candidates").select("business_id").eq("id",uuid("candidateId")).maybeSingle();
-  if(record.error||!record.data||!context.businesses.some(b=>b.id===record.data?.business_id))return fail("Invalid product reference.");
+  if(record.error||!record.data||!(await verifyOwnerBusiness(context,record.data?.business_id)))return fail("Invalid product reference.");
   owned(record.data.business_id,uuid("candidateId"));
   const result = await context.supabase.rpc("reconsider_product_candidate", { p_candidate_id: uuid("candidateId"), p_basis_artifact_id: uuid("basisArtifactId") });
   if (result.error) return fail(result.error.message);
@@ -100,7 +101,7 @@ export async function reconcileProductDiscovery(form: FormData) {
   const context = await requireOwnerUiContext();
   const {fail,finish,owned,uuid}=feedback(context,form);
   const record=await context.supabase.from("product_experiments").select("business_id,candidate_id").eq("id",uuid("experimentId")).maybeSingle();
-  if(record.error||!record.data||!context.businesses.some(b=>b.id===record.data?.business_id))return fail("Invalid product reference.");
+  if(record.error||!record.data||!(await verifyOwnerBusiness(context,record.data?.business_id)))return fail("Invalid product reference.");
   owned(record.data.business_id,record.data.candidate_id);
   const result = await context.supabase.rpc("finalize_product_discovery", { p_experiment_id: uuid("experimentId") });
   if (result.error) return fail(result.error.message);

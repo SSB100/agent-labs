@@ -40,7 +40,7 @@ export function printfulFailureMessage(code: string) {
 
 export function connectionState(data: AccountWorkspace, provider: AccountProvider) {
   const account = data.accounts.find(item => item.provider === provider);
-  const run = data.runs.filter(item => item.provider === provider).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
+  const run = (data.currentRuns ?? data.runs).filter(item => item.provider === provider).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
   if (data.unavailable) return { label: "Unavailable", account, run };
   const now = Date.parse(data.observedAt);
   const credentialExpired = account?.expiresAt != null && (!Number.isFinite(Date.parse(account.expiresAt)) || Date.parse(account.expiresAt) <= now);

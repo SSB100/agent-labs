@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import { fixtureData, id, time } from './data.mjs';
 import { readQuestFixture, saveQuestFixture } from './quests.mjs';
 import { admissionFixture, saveAdmissionFixture } from './admission.mjs';
+import { readHistoryFixture } from './history.mjs';
 export async function startFixtureBoundary() {
   let state = fixtureData(), control = { delayId: null, delayMs: 0, failTable: null, actionMode: 'success' };
   const log = [], effects = [], denied = [];
@@ -11,7 +12,7 @@ export async function startFixtureBoundary() {
     let body='';for await(const chunk of req)body+=chunk;
     const input=body?JSON.parse(body):{};
     const send = data => { res.setHeader('content-type','application/json');res.end(JSON.stringify(data)); };
-    if(req.url==='/control'){control={...control,...input};return send({ok:true});}
+    if(req.url==='/control'){if(typeof input.history==='boolean'&&input.history!==state.history.enabled)state=fixtureData({history:input.history});control={...control,...input};return send({ok:true});}
     if(req.url==='/snapshot')return send({log,effects,denied,control});
     if(req.url==='/reset'){state=fixtureData();log.length=effects.length=denied.length=0;control={delayId:null,delayMs:0,failTable:null,actionMode:'success'};return send({ok:true});}
     if(req.url==='/claims')return send(input.session==='off'?{data:null,error:null}:{data:{claims:{sub:state.owner,email:'inert-owner@example.invalid'}},error:null});
@@ -48,6 +49,13 @@ export async function startFixtureBoundary() {
     }
     if(req.url==='/rpc'){
       const {name,args}=input;const business=args.p_business_id;
+      if(name==='r06_read'){
+        const call={rpc:name,business,dataset:args.p_dataset,query:args.p_query};log.push(call);
+        const response=readHistoryFixture(state,args,control.failDataset===args.p_dataset?'unavailable':input.mode);
+        if(control.shortDataset===args.p_dataset&&response.data?.items?.length)response.data.items.pop();
+        call.returned=response.data?.items?.length;call.total=response.data?.total;call.ids=response.data?.items?.map(r=>r.id??r.candidate?.id);call.selection=response.data?.selection?.status;call.selectedId=response.data?.selection?.item?.id??response.data?.selection?.item?.candidate?.id;
+        return send(response);
+      }
       if(name==='r05_admission_read')return send(admissionFixture(state,args,id,input.mode));
       if(name==='r05_policy_owner')return send(saveAdmissionFixture(state,args,id,effects,control.actionMode));
       if(name==='r04_quest_read'){

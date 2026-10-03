@@ -128,3 +128,40 @@ for(const suffix of ['type=unexpected','type=records&type=designs','page=0','pag
 test('unavailable owner Business metadata is honestly unavailable without Library reads or quote loading',async()=>{
   const f=rootLibraryFixture({businessesUnavailable:true}),page=await f.render(selectedRecordRoute);assert.equal(page.data.page.total,null);assert.equal(page.data.selection.status,'unavailable');assert.equal(f.reads.length,0);assert.equal(f.signs.length,0);assert.equal(f.ancillaryCalls.length,0);assert.match(page.markup,/Business records are unavailable/);assert.match(page.markup,/disabled="">Unavailable/);assert.doesNotMatch(page.markup,/Create workspace/);assert.deepEqual(f.denied,[]);
 });
+
+// The bounded Business directory is a display cache, not the ownership set.
+test('aggregate Library exact design verifies an owned Business outside the directory and retains full historical detail', async () => {
+  const f = rootLibraryFixture({ ownedBusinesses: [{ id: secondBusinessId, name: 'Visible directory Business' }], readOptions: {
+    businessRows: [{ id: businessId, owner_user_id: id(10), name: 'Owned outside directory', created_at: '2024-01-01T00:00:00Z', updated_at: '2024-01-01T00:00:00Z' }],
+  } });
+  f.context.ownerDirectoryPaged = true;
+  assert.deepEqual(f.context.businesses.map(row => row.id), [secondBusinessId]);
+  const route = `/dashboard?view=library&type=designs&selected=${oldAssetId}&q=unmatched&page=3`, page = await f.render(route);
+  assert.equal(page.data.query.businessId, null); assert.equal(page.data.page.items.length, 0);
+  assert.equal(page.data.selection.status, 'found'); assert.equal(page.data.selection.item.id, oldAssetId);
+  assert.equal(page.data.selection.item.runDetail.selection.status, 'found'); assert.equal(page.data.selection.item.runDetail.selection.item.id, oldCreativeRunId);
+  assert.equal(page.data.selection.item.runDetail.approval.status, 'found'); assert.equal(page.data.selection.item.runDetail.costs.status, 'ready');
+  assert.equal(page.data.selection.item.artifact.item.id, oldImageArtifactId); assert.equal(page.data.selection.item.provenance.verification, 'byte_identity');
+  assert.equal(page.tree.props.commandBar.props.businessId, businessId); assert.equal(page.tree.props.navigationBusinessId, businessId); assert.equal(page.tree.props.aggregateContext, true);
+  const ownership = table(f, 'businesses'); assert.equal(ownership.length, 1); assert.equal(ownership[0].single, true);
+  assert.deepEqual(plain(ownership[0].filters), [['eq', 'id', businessId], ['eq', 'owner_user_id', f.context.userId]]);
+  assert.equal(ownership[0].columns, 'id,name,created_at,updated_at'); assert.equal(ownership[0].limit, undefined); assert.equal(ownership[0].range, undefined);
+  assert.equal(f.context.businesses.find(row => row.id === businessId).name, 'Owned outside directory');
+  assert.ok(f.reads.find(read => read.range).filters.every(([, key]) => key !== 'business_id'));
+  const returnTo = new URL(page.tree.props.commandBar.props.returnTo, 'https://fixture'); assert.equal(returnTo.searchParams.has('business'), false); assert.equal(returnTo.searchParams.get('page'), '3');
+  await f.render(route); assert.equal(table(f, 'businesses').length, 1, 'Verified exact Business is cached only after the real read succeeds');
+  assert.equal(f.ancillaryCalls.length, 0); assert.deepEqual(f.denied, []);
+});
+
+for (const mode of ['foreign', 'unavailable', 'missing']) test(`off-directory Library exact run ${mode} fails ownership before saved payload reads`, async () => {
+  const f = rootLibraryFixture({ ownedBusinesses: [{ id: secondBusinessId, name: 'Visible directory Business' }], readOptions: {
+    businessRows: mode === 'missing' ? [] : [{ id: businessId, owner_user_id: mode === 'foreign' ? id(999) : id(10), name: 'PRIVATE_FOREIGN_BUSINESS', created_at: '2024-01-01T00:00:00Z', updated_at: '2024-01-01T00:00:00Z' }],
+    ...(mode === 'unavailable' ? { failTable: 'businesses' } : {}),
+  } });
+  f.context.ownerDirectoryPaged = true;
+  const api = f.load('src/lib/core-ui/console-library-data.ts');
+  await assert.rejects(api.loadConsoleLibraryRunDetail(f.context, oldCreativeRunId, { businessId }), error => /Business selection is not available/.test(error.message) && !/PRIVATE_/.test(error.message));
+  assert.deepEqual(f.reads.map(read => read.table), ['businesses']); assert.equal(f.reads[0].single, true);
+  assert.deepEqual(plain(f.reads[0].filters), [['eq', 'id', businessId], ['eq', 'owner_user_id', f.context.userId]]);
+  assert.deepEqual(f.context.businesses.map(row => row.id), [secondBusinessId]); assert.equal(f.signs.length, 0); assert.equal(f.ancillaryCalls.length, 0); assert.deepEqual(f.denied, []);
+});

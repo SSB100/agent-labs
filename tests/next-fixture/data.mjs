@@ -4,8 +4,9 @@ import { seed as researchSeed } from '../helpers/console-research-data-fixtures.
 import { fixtureTables as decisionTables, businesses, owner, id, time } from '../helpers/console-decisions.mjs';
 import { readFileSync } from 'node:fs';
 import { questFixture } from './quests.mjs';
+import { historyFixture } from './history.mjs';
 export { owner, id, time };
-export function fixtureData() {
+export function fixtureData({ history = false } = {}) {
   const db = decisionTables({ count: 3 });
   const add = seed => { for (const [table, rows] of Object.entries(seed)) { db[table] ??= []; db[table].push(...rows); } };
   for (let b = 0; b < 2; b++) { add(librarySeed(127, businesses[b].id, 400000 + b * 10000)); add(researchSeed(127, businesses[b].id, 500000 + b * 10000)); }
@@ -36,5 +37,7 @@ export function fixtureData() {
   db.worker_evaluation_cases=[{id:id(800001),suite_id:suite,case_key:'fixture.uncertain',name:'Saved unknown provider response',category:'uncertainty',execution_mode:'live',model_target:'fixture.model',required:true,weight:1}];
   db.worker_evaluations=Array.from({length:21},(_,n)=>({id:id(801000+n),suite_id:suite,status:n%2?'failed':'passed',score:n%2?0:100,passed_case_count:n%2?0:1,failed_case_count:n%2?1:0,required_case_count:1,required_failure_count:n%2?1:0,source:'fixture',subject_fingerprint:'a'.repeat(64),started_at:time,completed_at:time,created_at:time}));
   db.worker_evaluation_case_results=db.worker_evaluations.map((run,n)=>({id:id(802000+n),evaluation_id:run.id,case_id:id(800001),status:run.status,score_awarded:run.score,model_definition_id:id(720000),provider:'fixture',provider_model_id:'fixture/inert',input_tokens:1,output_tokens:0,reported_cost_usd:n%2?null:.01,estimated_cost_usd:.1,latency_ms:null,failure:{reason:'Synthetic unknown receipt'}}));
-  return { db, businesses, owner, quests:questFixture(businesses,id,time) };
+  const ownedBusinesses = history ? [...businesses, ...Array.from({length:125},(_,n)=>({id:id(910000+n),name:`R06 directory Business ${n}`,created_at:time,updated_at:time}))] : businesses;
+  db.businesses=ownedBusinesses.map(b=>({...b,owner_user_id:owner}));
+  return { db, businesses:ownedBusinesses, owner, quests:questFixture(businesses,id,time), history:historyFixture(db,businesses,history) };
 }

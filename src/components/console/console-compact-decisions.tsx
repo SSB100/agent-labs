@@ -1,3 +1,4 @@
+import { HistoryPager } from "./history-pager";
 import Link from "next/link";
 import { stageLabel, type BusinessRecord, type OwnerInterventionRecord } from "@/lib/core-ui/workflows";
 import type { ConsoleDecisionPage, ConsoleDecisionDetail } from "@/lib/core-ui/console-decisions-data";
@@ -18,7 +19,7 @@ export type ConsoleCompactDecisionsProps = {
   /** Pass only server-mapped outcome codes, never untrusted query copy or optimistic success. */
   outcome?: { interventionId: string; tone: "error" | "status"; text: string } | null;
   notice?: { tone: "error" | "status"; text: string } | null;
-  connectionRequests?: { count: number | null; unavailable: boolean; records?: { businessId: string; runId: string; provider: string }[] };
+  connectionRequests?: { page?:import("@/lib/core-ui/history-query").HistoryPage; count: number | null; unavailable: boolean; records?: { businessId: string; runId: string; provider: string }[] };
 };
 function RequestedTime({ value }: { value: string }) {
   const parsed = Date.parse(value);
@@ -81,7 +82,7 @@ export function ConsoleCompactDecisions({ data, businesses, businessId, actions,
     <ConsoleDecisionFilters key={`${query.businessId ?? "all"}:${query.status}`} query={query}><input type="hidden" name="view" value="decisions"/>{businesses.length > 1 ? <label>Business<select name="business" defaultValue={chosenBusiness ?? ""}><option value="">All owned Businesses</option>{businesses.map(row => <option key={row.id} value={row.id}>{duplicateBusinessNames.has(row.name.trim().toLowerCase()) ? `[${row.id.slice(-6)}] ${row.name}` : row.name}</option>)}</select></label> : chosenBusiness ? <input type="hidden" name="business" value={chosenBusiness}/> : null}<label>Status<select name="status" defaultValue={query.status}><option value="open">Open notices</option><option value="all">All saved notices</option><option value="resolved">Resolved notices</option><option value="declined">Declined notices</option><option value="cancelled">Cancelled notices</option></select></label><button type="submit" className="compactDecisionButton">Apply</button>{connectionRequests ? <Link className="compactDecisionLink" href={`/dashboard?view=connections${chosenBusiness ? `&business=${encodeURIComponent(chosenBusiness)}` : ""}`}>Connection requests {connectionRequests.unavailable || connectionRequests.count === null ? "· unavailable" : `· ${connectionRequests.count}`}</Link> : null}</ConsoleDecisionFilters>
     {notice ? <p className={notice.tone === "error" ? "compactDecisionWarning" : "compactDecisionNotice"} role={notice.tone === "error" ? "alert" : "status"}>{notice.text}</p> : null}
     {connectionRequests?.unavailable ? <p className="compactDecisionWarning" role="alert">Connection requests could not be checked. Existing approvals or secure owner steps may still need attention.</p> : null}
-    {connectionRequests?.records?.length ? <details className="compactConnectionRequests"><summary>Saved connection requests · {connectionRequests.records.length}</summary><div>{connectionRequests.records.map(request => <Link className="compactDecisionLink" key={request.runId} href={`/dashboard?view=connections&business=${encodeURIComponent(request.businessId)}&connectionRun=${encodeURIComponent(request.runId)}&provider=${encodeURIComponent(request.provider)}`}>{request.provider} · {request.runId.slice(-6)} · Review saved setup request</Link>)}</div></details> : null}
+    {connectionRequests?.page || connectionRequests?.records?.length ? <details className="compactConnectionRequests"><summary>Saved connection requests · {connectionRequests.count ?? "Unknown"}</summary><HistoryPager page={connectionRequests.page} name="accountOpen" label="Open account requests"/><div>{(connectionRequests.records??[]).map(request => <Link className="compactDecisionLink" key={request.runId} href={`/dashboard?view=connections&business=${encodeURIComponent(request.businessId)}&connectionRun=${encodeURIComponent(request.runId)}&provider=${encodeURIComponent(request.provider)}`}>{request.provider} · {request.runId.slice(-6)} · Review saved setup request</Link>)}</div></details> : null}
     {data.errors.length ? <p className="compactDecisionWarning" role="alert">{data.errors.join(" ")}</p> : null}
     <div className="compactDecisionSplit" data-has-selection={selection.status === "found" ? "true" : "false"}>
       <div className="compactDecisionQueue"><div key={`${query.businessId ?? "all"}:${query.status}:${query.page}`} className="compactDecisionRows" role="region" aria-label="Saved decision queue" tabIndex={0}>

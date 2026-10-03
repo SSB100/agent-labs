@@ -1,4 +1,5 @@
 "use server";
+import { verifyOwnerBusiness } from "@/lib/core-ui/owner-business";
 
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
@@ -15,7 +16,8 @@ function done(message: string, businessId: string): never {
 }
 export async function connectEtsy(form: FormData) {
   const context = await requireOwnerUiContext(), businessId = field(form, "businessId");
-  ownerBusiness(context, businessId);
+  if(!(await verifyOwnerBusiness(context,businessId)))throw new Error("Business unavailable");
+    ownerBusiness(context, businessId);
   if (field(form, "accountConsent") !== "on") done("connection-consent-required", businessId);
   let url: string;
   try {

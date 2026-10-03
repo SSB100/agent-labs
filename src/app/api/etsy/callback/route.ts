@@ -1,3 +1,4 @@
+import { verifyOwnerBusiness } from "@/lib/core-ui/owner-business";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { requireOwnerUiContext } from "@/lib/core-ui/data";
@@ -18,6 +19,7 @@ export async function GET(request: Request) {
     requireEtsy(cookie, "oauth_not_completed");
     const browser = unseal<{ businessId: string; ownerId: string; state: string; browserNonce: string }>(cookie, "oauth-cookie", config.vaultKey);
     requireEtsy(browser.ownerId === context.userId && query.get("state") === browser.state, "oauth_state_mismatch");
+    if(!(await verifyOwnerBusiness(context,browser.businessId)))throw new Error("Business unavailable");
     ownerBusiness(context, browser.businessId);
     destination.searchParams.set("business", browser.businessId);
     requireEtsy(!query.has("error") && (query.get("code")?.length ?? 0) >= 8 && (query.get("code")?.length ?? 0) <= 4096, "oauth_not_completed");

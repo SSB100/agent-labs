@@ -1,4 +1,6 @@
 import "server-only";
+import { verifyOwnerBusiness } from "../lib/core-ui/owner-business";
+import { readHistory, readState, historyRows } from "../lib/core-ui/history-read";
 import { randomUUID } from "node:crypto";
 import type { OwnerUiContext } from "../lib/core-ui/data";
 import { etsyConfig, resolveEtsyConnection } from "../etsy/server";
@@ -17,6 +19,7 @@ export function accountOwner(context: OwnerUiContext, businessId: string) {
   accountAssert(ACCOUNT_UUID.test(businessId) && context.businesses.some(b => b.id === businessId), "account_owner_required");
 }
 export async function accountRpc(context: OwnerUiContext, businessId: string, operation: string, payload: Record<string, unknown> = {}) {
+  if(businessId && !(await verifyOwnerBusiness(context,businessId)))throw new AccountError("account_owner_required");
   accountOwner(context, businessId);
   if (operation !== "workspace") accountAssert(accountsConfigured(), "account_setup_unavailable");
   const result = await context.supabase.rpc("account_owner_transition", { p_business_id: businessId, p_operation: operation,
@@ -39,20 +42,26 @@ function setupRun(value: unknown, businessId: string): AccountSetupRun {
   return row as unknown as AccountSetupRun;
 }
 export async function loadAccountWorkspace(context: OwnerUiContext, businessId: string): Promise<AccountWorkspace> {
+  if(businessId && !(await verifyOwnerBusiness(context,businessId)))throw new AccountError("account_owner_required");
   accountOwner(context, businessId);
   const browser = getAccountBrowserbaseStatus();
   const empty: AccountWorkspace = { businessId, configured: accountsConfigured(), vaultConfigured: accountVaultConfigured(), unavailable: false, observedAt: new Date().toISOString(),
     registrationAvailable: accountVaultConfigured() && browser.available, registrationReason: browser.reasonCode,
     profile: null, accounts: [], runs: [], healthEvents: [] };
   try {
-    const result = await accountRpc(context, businessId, "workspace");
-    accountAssert(Array.isArray(result.accounts) && Array.isArray(result.runs) && Array.isArray(result.healthEvents), "account_workspace_invalid");
-    return { ...empty, profile: result.profile ? profileRecord(result.profile) : null,
+    const query = new URLSearchParams(context.readSearch);
+    const [state, runs, health] = await Promise.all([readState(context, businessId, "account_state"),
+      readHistory<AccountSetupRun>(context, businessId, "account_runs", "account", { selectedId: query.get("connectionRun") ?? query.get("run") }),
+      readHistory<AccountWorkspace["healthEvents"][number]>(context, businessId, "account_health", "accountHealth")]);
+    const result = { ...state, accounts: state.accounts, profile: state.profile, runs: historyRows(runs), healthEvents: health.items };
+    accountAssert(Array.isArray(state.currentRuns) && state.currentRuns.length<=2 && typeof state.observedAt==="string" && Number.isFinite(Date.parse(state.observedAt)) && Array.isArray(result.accounts) && result.accounts.length<=2 && Array.isArray(result.runs) && Array.isArray(result.healthEvents), "account_workspace_invalid");
+    return { ...empty, runsPage: runs.page, healthPage: health.page, observedAt: String(state.observedAt), currentRuns: Array.isArray(state.currentRuns) ? state.currentRuns.map(r => setupRun(r, businessId)) : [], profile: result.profile ? profileRecord(result.profile) : null,
       accounts: result.accounts as AccountWorkspace["accounts"], runs: result.runs.map(r => setupRun(r, businessId)),
       healthEvents: result.healthEvents as AccountWorkspace["healthEvents"] };
   } catch { return { ...empty, unavailable: true }; }
 }
 export async function saveAccountProfile(context: OwnerUiContext, businessId: string, profile: unknown, expectedRevision: string | null) {
+  if(businessId && !(await verifyOwnerBusiness(context,businessId)))throw new AccountError("account_owner_required");
   accountAssert(expectedRevision === null || ACCOUNT_UUID.test(expectedRevision), "account_profile_invalid");
   const prior = await loadAccountWorkspace(context, businessId);
   accountAssert(!prior.unavailable, "account_state_unavailable");
@@ -60,6 +69,7 @@ export async function saveAccountProfile(context: OwnerUiContext, businessId: st
   return { ...result, browserReleaseVerified: await releaseRegistrationRuns(context, businessId, prior.runs) };
 }
 export async function prepareAccountSetup(context: OwnerUiContext, businessId: string, providerValue: unknown, modeValue: unknown, idempotencyKey: string) {
+  if(businessId && !(await verifyOwnerBusiness(context,businessId)))throw new AccountError("account_owner_required");
   const provider = accountProvider(providerValue), mode = accountMode(modeValue);
   accountAssert(ACCOUNT_UUID.test(idempotencyKey), "account_request_invalid");
   const workspace = await loadAccountWorkspace(context, businessId);
@@ -70,14 +80,17 @@ export async function prepareAccountSetup(context: OwnerUiContext, businessId: s
   return setupRun(result.run, businessId);
 }
 export async function resumeAccountSetup(context: OwnerUiContext, businessId: string, runId: string) {
+  if(businessId && !(await verifyOwnerBusiness(context,businessId)))throw new AccountError("account_owner_required");
   accountAssert(ACCOUNT_UUID.test(runId), "account_request_invalid");
   return setupRun((await accountRpc(context, businessId, "resume", { runId })).run, businessId);
 }
 export async function approveAccountSetup(context: OwnerUiContext, businessId: string, input: { runId: string; revision: number; disclosureHash: string; acceptTerms: boolean; browserConsent: boolean }) {
+  if(businessId && !(await verifyOwnerBusiness(context,businessId)))throw new AccountError("account_owner_required");
   accountAssert(ACCOUNT_UUID.test(input.runId) && Number.isSafeInteger(input.revision) && input.revision >= 0 && /^[a-f0-9]{64}$/.test(input.disclosureHash), "account_review_required");
   return setupRun((await accountRpc(context, businessId, "approve", input)).run, businessId);
 }
 export async function handoffAccountConnection(context: OwnerUiContext, businessId: string, runId: string) {
+  if(businessId && !(await verifyOwnerBusiness(context,businessId)))throw new AccountError("account_owner_required");
   const run = await resumeAccountSetup(context, businessId, runId);
   if (run.status === "owner_handoff") return run;
   accountAssert(run.mode === "connect" && run.status === "approved", "account_approval_required");
@@ -88,6 +101,7 @@ function browserSecretContext(businessId: string, runId: string, preparationId: 
   return { businessId, provider: "browserbase_handoff", connectionId: runId, revision: preparationId };
 }
 export async function prepareApprovedAccountRegistration(context: OwnerUiContext, businessId: string, runId: string) {
+  if(businessId && !(await verifyOwnerBusiness(context,businessId)))throw new AccountError("account_owner_required");
   const approved = await resumeAccountSetup(context, businessId, runId);
   accountAssert(approved.mode === "create" && approved.status === "approved", "account_approval_required");
   // No paid/session request or profile transmission before explicit activation.
@@ -137,6 +151,7 @@ function openBrowserHandoff(value: Record<string, unknown>, businessId: string, 
 }
 /** Owner-only UI boundary. Never import into workers, planner or workflow state. */
 export async function loadOwnerRegistrationHandoff(context: OwnerUiContext, businessId: string, runId: string) {
+  if(businessId && !(await verifyOwnerBusiness(context,businessId)))throw new AccountError("account_owner_required");
   const run = await resumeAccountSetup(context, businessId, runId);
   accountAssert(run.status === "owner_handoff" && run.mode === "create" && typeof run.preparationId === "string", "account_handoff_unavailable");
   const stored = await accountRpc(context, businessId, "browser_handoff_get", { runId, preparationId: run.preparationId });
@@ -145,6 +160,7 @@ export async function loadOwnerRegistrationHandoff(context: OwnerUiContext, busi
   return { provider: run.provider, viewerUrl: handoff.viewerUrl, expiresAt: handoff.expiresAt };
 }
 export async function releaseAccountRegistration(context: OwnerUiContext, businessId: string, runId: string) {
+  if(businessId && !(await verifyOwnerBusiness(context,businessId)))throw new AccountError("account_owner_required");
   const run = await resumeAccountSetup(context, businessId, runId);
   if (!run.preparationId) return { remoteReleaseVerified: true };
   const stored = await accountRpc(context, businessId, "browser_handoff_release", { runId, preparationId: run.preparationId });
@@ -154,6 +170,7 @@ export async function releaseAccountRegistration(context: OwnerUiContext, busine
   catch { return { remoteReleaseVerified: false }; }
 }
 async function releaseRegistrationRuns(context: OwnerUiContext, businessId: string, runs: AccountSetupRun[]) {
+  if(businessId && !(await verifyOwnerBusiness(context,businessId)))throw new AccountError("account_owner_required");
   let verified = true;
   for (const run of runs.filter(r => r.mode === "create" && r.preparationId && ["preparation_started", "owner_handoff"].includes(r.status))) {
     try { if (!(await releaseAccountRegistration(context, businessId, run.id)).remoteReleaseVerified) verified = false; }
@@ -161,21 +178,22 @@ async function releaseRegistrationRuns(context: OwnerUiContext, businessId: stri
   }
   return verified;
 }
-export async function loadAccountSetupInterventions(context: OwnerUiContext) {
-  const workspaces = await Promise.all(context.businesses.map(b => loadAccountWorkspace(context, b.id)));
-  // The existing private workspace RPC returns only the latest 50 setup runs.
-  // A full window cannot establish that older owner requests do not exist.
-  return { unavailable: workspaces.some(w => w.unavailable || w.runs.length >= 50), records: workspaces.flatMap(w => w.runs
-    .filter(r => ["pending_approval", "approved", "preparation_started", "owner_handoff"].includes(r.status))
-    .map(r => ({ businessId: w.businessId, runId: r.id, provider: r.provider, status: r.status }))) };
+export async function loadAccountSetupInterventions(context: OwnerUiContext, businessId?: string | null) {
+  if(businessId && !(await verifyOwnerBusiness(context,businessId)))throw new AccountError("account_owner_required");
+  try {
+    const read = await readHistory<AccountSetupRun & {businessId:string}>(context, businessId ?? context.scopeBusinessId ?? null, "account_unresolved", "accountOpen");
+    return { unavailable: read.ownerTotal===undefined, globalCount:read.ownerTotal, page: read.page, records: read.items.map(r => ({ businessId: r.businessId, runId: r.id, provider: r.provider, status: r.status })) };
+  } catch { return { unavailable: true, globalCount:undefined, page: undefined, records: [] }; }
 }
 export async function stopAccountSetup(context: OwnerUiContext, businessId: string, runId: string, revision: number) {
+  if(businessId && !(await verifyOwnerBusiness(context,businessId)))throw new AccountError("account_owner_required");
   await accountRpc(context, businessId, "cancel", { runId, revision });
   return releaseAccountRegistration(context, businessId, runId);
 }
 export async function connectPrintfulAccount(context: OwnerUiContext, businessId: string, input: {
   runId: string; credential: string; storeId: number; storeKind: "manual_api" | "ecommerce_linked"; expiresAt: string;
 }) {
+  if(businessId && !(await verifyOwnerBusiness(context,businessId)))throw new AccountError("account_owner_required");
   accountAssert(accountVaultConfigured(), "account_secure_setup_unavailable");
   let run = await resumeAccountSetup(context, businessId, input.runId);
   accountAssert(run.provider === "printful" && (run.status === "owner_handoff" || (run.mode === "connect" && run.status === "approved")), "account_approval_required");
@@ -194,6 +212,7 @@ export async function connectPrintfulAccount(context: OwnerUiContext, businessId
   return { ...result, browserReleaseVerified: await releaseRegistrationRuns(context, businessId, [run]) };
 }
 export async function verifyEtsyAccount(context: OwnerUiContext, businessId: string, runId: string) {
+  if(businessId && !(await verifyOwnerBusiness(context,businessId)))throw new AccountError("account_owner_required");
   let run = await resumeAccountSetup(context, businessId, runId);
   accountAssert(run.provider === "etsy" && (run.status === "owner_handoff" || (run.mode === "connect" && run.status === "approved")), "account_approval_required");
   if (run.status === "approved") run = await handoffAccountConnection(context, businessId, run.id);
@@ -211,6 +230,7 @@ export async function verifyEtsyAccount(context: OwnerUiContext, businessId: str
   return { ...result, browserReleaseVerified: await releaseRegistrationRuns(context, businessId, [run]) };
 }
 export async function revokeAccount(context: OwnerUiContext, businessId: string, providerValue: unknown, expectedConnectionRevision: string) {
+  if(businessId && !(await verifyOwnerBusiness(context,businessId)))throw new AccountError("account_owner_required");
   const provider = accountProvider(providerValue);
   accountAssert(ACCOUNT_UUID.test(expectedConnectionRevision), "account_revision_required");
   const prior = await loadAccountWorkspace(context, businessId);
@@ -225,6 +245,7 @@ export async function saveOwnerAccountPassword(context: OwnerUiContext, business
   provider: unknown; connectionId: string; expectedConnectionRevision: string; expectedPasswordRevision: string | null;
   username: string; password: string; confirmPassword: string;
 }) {
+  if(businessId && !(await verifyOwnerBusiness(context,businessId)))throw new AccountError("account_owner_required");
   accountOwner(context, businessId); accountAssert(accountVaultConfigured(), "account_secure_setup_unavailable");
   const provider = accountProvider(input.provider);
   accountAssert(ACCOUNT_UUID.test(input.connectionId) && ACCOUNT_UUID.test(input.expectedConnectionRevision) &&
@@ -246,6 +267,7 @@ export async function saveOwnerAccountPassword(context: OwnerUiContext, business
 export async function deleteOwnerAccountPassword(context: OwnerUiContext, businessId: string, input: {
   provider: unknown; connectionId: string; expectedPasswordRevision: string;
 }) {
+  if(businessId && !(await verifyOwnerBusiness(context,businessId)))throw new AccountError("account_owner_required");
   accountOwner(context, businessId);
   const provider = accountProvider(input.provider);
   accountAssert(ACCOUNT_UUID.test(input.connectionId) && ACCOUNT_UUID.test(input.expectedPasswordRevision), "account_revision_required");

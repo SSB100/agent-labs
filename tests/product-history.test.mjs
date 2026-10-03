@@ -1,3 +1,4 @@
+import { historyRead, historyResponse } from './helpers/history-fixtures.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
@@ -30,7 +31,7 @@ const root = () => ({ ...experiment(20, null), discovery_version: 'pod-discovery
 function loadSource(path, overrides) {
   const output = ts.transpileModule(readFileSync(path, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true, target: ts.ScriptTarget.ES2022 } }).outputText;
   const loadedModule = { exports: {} };
-  new Function('require', 'module', 'exports', output)(name => Object.hasOwn(overrides, name) ? overrides[name] : require(name), loadedModule, loadedModule.exports);
+  new Function('require', 'module', 'exports', output)(name => name === '../lib/core-ui/history-read' ? historyRead : Object.hasOwn(overrides, name) ? overrides[name] : require(name), loadedModule, loadedModule.exports);
   return loadedModule.exports;
 }
 function renderWorkspace(data, view = 'Candidates') {
@@ -106,19 +107,18 @@ test('root-only workflow shows discovery history and linked evidence rather than
   assert.match(renderWorkspace(data, 'Evidence'), /Versioned evidence remains linked/);
 });
 
-test('workflow loader preserves root-only results and never sends null candidate IDs to PostgREST', async () => {
+test('workflow loader preserves root-only results and never sends null candidate IDs to the read API', async () => {
   const calls = [];
-  const { loadProductWorkspace } = loadSource('src/products/data.ts', { './history': history });
-  const supabase = { from(table) {
-    const query = {
-      select() { return query; }, in(column, values) { calls.push({ table, column, values }); return query; },
-      eq() { return query; }, order() { return query; }, limit() { return query; },
-      then(resolve) { return Promise.resolve({ data: table === 'product_experiments' ? [root()] : [], error: null }).then(resolve); },
-    };
-    return query;
-  } };
+  const { loadProductWorkspace } = loadSource('src/products/data.ts', { '../lib/core-ui/history-read': historyRead });
+  const supabase = { async rpc(name, args) {
+    calls.push({ name, args });
+    assert.equal(name, 'r06_read');
+    return historyResponse(args, args.p_dataset === 'product_experiments' ? [root()] : []);
+  }, from() { throw new Error('Root-only history must not fall back to broad PostgREST candidate queries'); } };
   const data = await loadProductWorkspace({ supabase, businesses: [{ id: id(10) }] }, id(90));
-  assert.deepEqual(data.experiments, [root()]); assert.deepEqual(data.errors, []);
-  assert.equal(calls.some(call => call.values.includes(null)), false);
-  assert.equal(calls.some(call => call.table === 'product_candidates' && call.column === 'id'), false);
+  assert.deepEqual(JSON.parse(JSON.stringify(data.experiments)), [root()]); assert.deepEqual(data.errors, []);
+  assert.deepEqual(calls.map(call => call.args.p_dataset), ['product_candidates','product_experiments']);
+  assert.ok(calls.every(call => call.args.p_query.workflowRunId === id(90)));
+  assert.ok(calls.every(call => !Object.hasOwn(call.args.p_query, 'candidateId')));
+  assert.equal(data.candidates.length, 0); assert.equal(data.decisions.length, 0);
 });

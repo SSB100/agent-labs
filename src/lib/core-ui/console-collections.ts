@@ -1,4 +1,5 @@
 import "server-only";
+import { verifyOwnerBusiness } from "./owner-business";
 import type { OwnerUiContext } from "./data";
 import type { WorkflowRunRecord, WorkflowDefinitionRecord, WorkflowEventRecord } from "./workflows";
 import { consoleCollectionQuery, consoleSearchPattern, CONSOLE_COLLECTION_UUID, type ConsoleCollectionOptions, type ConsoleCollectionQuery, type ConsoleCollectionPage, type ConsoleCollectionSelection } from "./console-collections-query";
@@ -37,12 +38,13 @@ export function consoleExecutionShapeGuard(row: { status: unknown; started_at: u
 }
 export const consoleDistinct = (values: string[]) => [...new Set(values)];
 export function consoleGuard<T>(guard: (row: T) => boolean, row: T): boolean { try { return consoleObject(row) && guard(row); } catch { return false; } }
-export function consoleScopedIds(context: OwnerUiContext, businessId: string | null): string[] {
+export async function consoleScopedIds(context: OwnerUiContext, businessId: string | null): Promise<string[] | null> {
+  businessId ??= context.scopeBusinessId ?? null;
   if (context.businessesUnavailable) throw new Error("Business records are unavailable.");
   const ids = consoleDistinct(context.businesses.map(business => business.id));
   if (!ids.every(consoleValidId)) throw new Error("Business records could not be verified.");
-  if (businessId && !ids.includes(businessId)) throw new Error("Business selection is not available.");
-  return businessId ? [businessId] : ids;
+  if (businessId && !(await verifyOwnerBusiness(context,businessId))) throw new Error("Business selection is not available.");
+  return businessId ? [businessId] : context.ownerDirectoryPaged ? null : ids;
 }
 export async function consoleRead(query: PromiseLike<ConsoleReadResult>): Promise<ConsoleReadResult> { try { return await query; } catch { return { data: null, count: null, error: true }; } }
 export function consoleEmptyPage<T>(q: ConsoleCollectionQuery, errors: string[] = []): ConsoleCollectionPage<T> {
@@ -58,16 +60,18 @@ function pageResult<T extends { id: string }>(result: ConsoleReadResult, q: Cons
     hasPrevious: q.page > 1, hasNext: validRows && raw.length > q.pageSize ? true : complete ? q.offset + items.length < count! : null, complete,
     errors: complete ? [] : [`${label} page completeness could not be verified.`] };
 }
-export function consoleScopeGuard<T extends { id: string; business_id: string }>(ids: string[]) { return (row: T) => consoleValidId(row.id) && ids.includes(row.business_id); }
+/** Null means the authenticated owner's RLS scope, never a service client. */
+export function consoleScopeGuard<T extends { id: string; business_id: string }>(ids: string[] | null) { return (row: T) => consoleValidId(row.id) && consoleValidId(row.business_id) && (ids === null || ids.includes(row.business_id)); }
+export function consoleScope<T>(query: T, ids: string[] | null): T { return ids === null ? query : (query as { in(column: string, values: string[]): T }).in("business_id", ids); }
 export function consoleRunGuard(run: ConsoleWorkRunMetadata): boolean {
   return consoleValidId(run.id) && consoleValidId(run.business_id) && consoleValidId(run.workflow_definition_id) && consoleExecutionShapeGuard(run);
 }
 function orderPage(query: Query, q: ConsoleCollectionQuery, column: string): Query { return query.order(column, { ascending: q.sort === "oldest" }).order("id", { ascending: q.sort === "oldest" }).range(q.offset, q.offset + q.pageSize); }
-export async function consoleExactSelection<T extends { id: string; business_id: string }>(context: OwnerUiContext, table: string, columns: string, selectedId: string | null, ids: string[], guard: (row: T) => boolean, workflowRunId?: string): Promise<ConsoleCollectionSelection<T>> {
+export async function consoleExactSelection<T extends { id: string; business_id: string }>(context: OwnerUiContext, table: string, columns: string, selectedId: string | null, ids: string[] | null, guard: (row: T) => boolean, workflowRunId?: string): Promise<ConsoleCollectionSelection<T>> {
   if (!selectedId) return { status: "none", item: null };
   if (!consoleValidId(selectedId)) throw new Error("Invalid collection identity.");
-  if (!ids.length) return { status: "missing", item: null };
-  let query = context.supabase.from(table).select(columns, { count: "exact" }).in("business_id", ids).eq("id", selectedId);
+  if (ids?.length === 0) return { status: "missing", item: null };
+  let query = consoleScope(context.supabase.from(table).select(columns, { count: "exact" }), ids).eq("id", selectedId);
   if (workflowRunId) query = query.eq("workflow_run_id", workflowRunId);
   const result = await consoleRead(query.limit(2));
   if (result.error || !Array.isArray(result.data) || !consoleValidCount(result.count) || result.count !== result.data.length || result.data.length > 1) return { status: "unavailable", item: null };
@@ -86,9 +90,9 @@ function selectedRows<T extends { id: string }>(page: ConsoleCollectionPage<T>, 
 export type ConsoleWorkPage = { page: ConsoleCollectionPage<ConsoleWorkRunMetadata>; selection: ConsoleCollectionSelection<ConsoleWorkRunMetadata>; definitions: ConsoleWorkflowDefinitionMetadata[]; errors: string[] };
 /** Name search executes before paging; selected identity is independent of search/status/page. */
 export async function loadConsoleWorkPage(context: OwnerUiContext, options: ConsoleCollectionOptions = {}): Promise<ConsoleWorkPage> {
-  const q = consoleCollectionQuery("work", options), ids = consoleScopedIds(context, q.businessId);
-  if (!ids.length) return { page: consoleEmptyPage(q), selection: { status: q.selectedId ? "missing" : "none", item: null }, definitions: [], errors: [] };
-  let query = context.supabase.from("workflow_runs").select(`${CONSOLE_RUN_METADATA_SELECT}${q.query ? ",definition:workflow_definitions!inner(name)" : ""}`, { count: "exact" }).in("business_id", ids);
+  const q = consoleCollectionQuery("work", options), ids = await consoleScopedIds(context, q.businessId);
+  if (ids?.length === 0) return { page: consoleEmptyPage(q), selection: { status: q.selectedId ? "missing" : "none", item: null }, definitions: [], errors: [] };
+  let query = consoleScope(context.supabase.from("workflow_runs").select(`${CONSOLE_RUN_METADATA_SELECT}${q.query ? ",definition:workflow_definitions!inner(name)" : ""}`, { count: "exact" }), ids);
   if (q.status === "active") query = query.in("status", ACTIVE).is("completed_at", null);
   else if (q.status === "ended") query = query.or("status.in.(completed,failed,cancelled),completed_at.not.is.null");
   else if (q.status === "stopped") query = query.in("status", ACTIVE).not("completed_at", "is", null);
@@ -107,8 +111,8 @@ export async function loadConsoleWorkPage(context: OwnerUiContext, options: Cons
 export type ConsoleActivityPage = { page: ConsoleCollectionPage<ConsoleActivityEventMetadata>; selection: ConsoleCollectionSelection<WorkflowEventRecord>; workflowFilter: ConsoleWorkRunMetadata | null; runs: ConsoleWorkRunMetadata[]; errors: string[] };
 /** Raw saved events, not work episodes. The run filter is independently owner/Business verified. */
 export async function loadConsoleActivityPage(context: OwnerUiContext, options: ConsoleCollectionOptions = {}): Promise<ConsoleActivityPage> {
-  const q = consoleCollectionQuery("activity", options), ids = consoleScopedIds(context, q.businessId);
-  if (!ids.length) return { page: consoleEmptyPage(q), selection: { status: q.selectedId ? "missing" : "none", item: null }, workflowFilter: null, runs: [], errors: [] };
+  const q = consoleCollectionQuery("activity", options), ids = await consoleScopedIds(context, q.businessId);
+  if (ids?.length === 0) return { page: consoleEmptyPage(q), selection: { status: q.selectedId ? "missing" : "none", item: null }, workflowFilter: null, runs: [], errors: [] };
   let workflowFilter: ConsoleWorkRunMetadata | null = null;
   if (q.workflowRunId) {
     const filter = await consoleExactSelection<ConsoleWorkRunMetadata>(context, "workflow_runs", CONSOLE_RUN_METADATA_SELECT, q.workflowRunId, ids, consoleRunGuard);
@@ -119,14 +123,14 @@ export async function loadConsoleActivityPage(context: OwnerUiContext, options: 
     workflowFilter = filter.item;
   }
   const businessIds = workflowFilter ? [workflowFilter.business_id] : ids;
-  let query = context.supabase.from("events").select(EVENT_METADATA, { count: "exact" }).in("business_id", businessIds);
+  let query = consoleScope(context.supabase.from("events").select(EVENT_METADATA, { count: "exact" }), businessIds);
   if (q.workflowRunId) query = query.eq("workflow_run_id", q.workflowRunId);
   if (q.query) query = query.ilike("event_type", consoleSearchPattern(q.query));
   const guard = (event: ConsoleActivityEventMetadata) => consoleScopeGuard<ConsoleActivityEventMetadata>(businessIds)(event) && (event.workflow_run_id === null || consoleValidId(event.workflow_run_id)) && typeof event.event_type === "string" && Number.isFinite(Date.parse(event.occurred_at)) && (!q.workflowRunId || event.workflow_run_id === q.workflowRunId);
   const [result, selected] = await Promise.all([consoleRead(orderPage(query, q, "occurred_at")), consoleExactSelection<WorkflowEventRecord>(context, "events", EVENT, q.selectedId, businessIds, guard, q.workflowRunId ?? undefined)]);
   const page = pageResult<ConsoleActivityEventMetadata>(result, q, event => guard(event) && (!q.query || event.event_type.toLowerCase().includes(q.query.toLowerCase())), "Activity events"), events = selectedRows(page, selected), errors = [...page.errors];
   const runIds = consoleDistinct(events.flatMap(event => event.workflow_run_id ? [event.workflow_run_id] : []));
-  const runs = workflowFilter ? [workflowFilter] : runIds.length ? await consoleRelation<ConsoleWorkRunMetadata>(context.supabase.from("workflow_runs").select(CONSOLE_RUN_METADATA_SELECT, { count: "exact" }).in("business_id", businessIds).in("id", runIds), runIds.length,
+  const runs = workflowFilter ? [workflowFilter] : runIds.length ? await consoleRelation<ConsoleWorkRunMetadata>(consoleScope(context.supabase.from("workflow_runs").select(CONSOLE_RUN_METADATA_SELECT, { count: "exact" }), businessIds).in("id", runIds), runIds.length,
     run => consoleRunGuard(run) && events.some(event => event.workflow_run_id === run.id && event.business_id === run.business_id), "Activity workflow context", errors) : [];
   if (events.some(event => event.workflow_run_id && !runs.some(run => event.workflow_run_id === run.id && event.business_id === run.business_id))) errors.push("Some events have unavailable workflow context.");
   if (selected.status === "unavailable") errors.push("Selected event is outside this verified run/Business or unavailable.");

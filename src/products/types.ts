@@ -24,12 +24,12 @@ export type CandidateAssessment = {
   evidenceIds: string[]; assessmentOrigin: "deterministic_provisional" | "owner_assessment";
   review: { status: "contract_checked"; liveQualified: false; creativeProductionAllowed: false; publicationAllowed: false };
 };
-export type ProductCandidate = {
+export type ProductCandidate = { current_decision_id?:string|null; current_decision_ambiguous?:boolean;
   id: string; business_id: string; fingerprint: string; concept: string; audience: string; hypothesis: string;
   product_type: "original_pod_tshirt"; original_design: boolean; rights_status: "confirmed" | "unclear";
   source_domains: string[]; created_at: string;
 };
-export type ProductExperiment = {
+export type ProductExperiment = { has_successor?:boolean; has_competing_completed_v2?:boolean;
   id: string; business_id: string; candidate_id: string; workflow_run_id: string | null;
   fingerprint: string; hypothesis: string; variables: Record<string, unknown>; audience: string;
   creative: null; price: null; channel: "research_only"; status: "reserved" | "researching" | "completed" | "failed";
@@ -46,7 +46,7 @@ export type ProductExperimentRecord = Omit<ProductExperiment, "candidate_id" | "
   discovery_version?: string; parent_discovery_id?: string | null;
 };
 export type ProductDecisionRecord = Omit<ProductDecision, "assessment"> & { assessment: unknown };
-export type ProductWorkspaceData = {
+export type ProductWorkspaceData = { candidatePage?: import("../lib/core-ui/history-query").HistoryPage; experimentPage?: import("../lib/core-ui/history-query").HistoryPage; decisionPage?: import("../lib/core-ui/history-query").HistoryPage;
   candidates: ProductCandidate[]; experiments: ProductExperimentRecord[]; decisions: ProductDecisionRecord[]; errors: string[];
 };
 export const DEFAULT_MEASUREMENT_PLAN: MeasurementPlan = {

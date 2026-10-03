@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import type { OwnerUiContext } from "./data";
 import type { ConsoleCollectionPage, ConsoleCollectionSelection } from "./console-collections-query";
 import { consoleResearchQuery, consoleResearchSearchPattern, type ConsoleResearchKind, type ConsoleResearchOptions, type ConsoleResearchQuery } from "./console-research-query";
-import { CONSOLE_RUN_METADATA_SELECT, CONSOLE_DEFINITION_METADATA_SELECT, consoleDistinct, consoleExactSelection, consoleGuard, consoleObject, consoleRead, consoleRelation, consoleRunGuard, consoleScopedIds, consoleValidCount, consoleValidId, consoleValidStatus, consoleValidTimestamp, consoleNullableTimestamp, type ConsoleReadResult, type ConsoleWorkRunMetadata, type ConsoleWorkflowDefinitionMetadata } from "./console-collections";
+import { CONSOLE_RUN_METADATA_SELECT, CONSOLE_DEFINITION_METADATA_SELECT, consoleDistinct, consoleExactSelection, consoleGuard, consoleObject, consoleRead, consoleRelation, consoleRunGuard, consoleScopedIds, consoleScope, consoleValidCount, consoleValidId, consoleValidStatus, consoleValidTimestamp, consoleNullableTimestamp, type ConsoleReadResult, type ConsoleWorkRunMetadata, type ConsoleWorkflowDefinitionMetadata } from "./console-collections";
 
 const V2 = "pod-discovery-2.0";
 export const CONSOLE_RESEARCH_PRIOR_ROOT_PATH = "variables->ownerKickoff->followUpBasis->>rootId";
@@ -141,11 +141,11 @@ function expectedWorkflow(intent: Record<string, unknown> | null): string | null
   return limits.maximumNewCollections === 0 ? "product.discovery-v2.analysis" : limits.maximumNewCollections === 1 ? "product.discovery-v2.one" : limits.maximumNewCollections === 2 ? "product.discovery-v2.two" : null;
 }
 
-type HistoricalReader = (id: string, ids: string[]) => Promise<ConsoleCollectionSelection<ConsoleResearchHistorical>>;
+type HistoricalReader = (id: string, ids: string[] | null) => Promise<ConsoleCollectionSelection<ConsoleResearchHistorical>>;
 function historicalReader(context: OwnerUiContext): HistoricalReader {
   const cache = new Map<string, Promise<ConsoleCollectionSelection<ConsoleResearchHistorical>>>();
   return (id, ids) => {
-    const key = `${ids.join(",")}:${id}`;
+    const key = `${ids?.join(",") ?? "owner"}:${id}`;
     if (!cache.has(key)) cache.set(key, (async () => {
       const exact = await consoleExactSelection<ExactRecord>(context, "product_experiments", CONSOLE_RESEARCH_DETAIL_SELECT, id, ids,
         row => metadataGuard(row) && Object.hasOwn(row, "intent") && Object.hasOwn(row, "follow_up_basis"));
@@ -226,17 +226,17 @@ async function loadAttempts(context: OwnerUiContext, root: ConsoleResearchHistor
 }
 
 async function loadPage(context: OwnerUiContext, kind: ConsoleResearchKind, options: ConsoleResearchOptions): Promise<ConsoleResearchPage> {
-  const q = consoleResearchQuery(kind, options), ids = consoleScopedIds(context, q.businessId), read = historicalReader(context);
+  const q = consoleResearchQuery(kind, options), ids = await consoleScopedIds(context, q.businessId), read = historicalReader(context);
   const countLabel = kind === "roots" ? "Raw persisted root records" : "Raw persisted research records";
-  if (!ids.length) return { query: q, countLabel, page: emptyPage(q), selection: { status: q.selectedId ? "missing" : "none", item: null }, root: { status: q.rootId ? "missing" : "none", item: null }, attempts: null, limits: CONSOLE_RESEARCH_LIMITS, errors: [] };
-  let query = context.supabase.from("product_experiments").select(CONSOLE_RESEARCH_METADATA_SELECT, { count: "exact" }).in("business_id", ids);
+  if (ids?.length === 0) return { query: q, countLabel, page: emptyPage(q), selection: { status: q.selectedId ? "missing" : "none", item: null }, root: { status: q.rootId ? "missing" : "none", item: null }, attempts: null, limits: CONSOLE_RESEARCH_LIMITS, errors: [] };
+  let query = consoleScope(context.supabase.from("product_experiments").select(CONSOLE_RESEARCH_METADATA_SELECT, { count: "exact" }), ids);
   if (kind === "roots") query = query.eq("discovery_version", V2).is("candidate_id", null).is("parent_discovery_id", null).is(CONSOLE_RESEARCH_PRIOR_ROOT_PATH, null);
   if (q.query) query = query.ilike(q.searchField === "objective" ? CONSOLE_RESEARCH_OBJECTIVE_PATH : "hypothesis", consoleResearchSearchPattern(q.query));
   const [result, exact] = await Promise.all([
     consoleRead(query.order("created_at", { ascending: q.sort === "oldest" }).order("id", { ascending: q.sort === "oldest" }).range(q.offset, q.offset + q.pageSize)),
     q.selectedId ? read(q.selectedId, ids) : none<ConsoleResearchHistorical>(),
   ]);
-  const page = pageResult(result, q, row => metadataOnly(row) && ids.includes(row.business_id) && (kind !== "roots" || rootPredicate(row))
+  const page = pageResult(result, q, row => metadataOnly(row) && (ids === null || ids.includes(row.business_id)) && (kind !== "roots" || rootPredicate(row))
     && (!q.query || typeof row[q.searchField] === "string" && row[q.searchField]!.toLowerCase().includes(q.query.toLowerCase())));
   let selection = await selectedDetail(exact, read), root: ConsoleCollectionSelection<ConsoleResearchHistorical> = none();
   const errors = [...page.errors];

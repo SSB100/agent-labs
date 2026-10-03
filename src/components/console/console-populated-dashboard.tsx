@@ -54,7 +54,7 @@ export async function ConsolePopulatedDashboard({ context, query, view }: { cont
       page: consoleEmptyPage<WorkflowEventRecord>(q, [unavailable]), selection: { status: q.selectedId ? "unavailable" : "none", item: null }, workflowFilter: null, runs: [], errors: [unavailable],
     } as ConsoleActivityPage : loadConsoleActivityPage(context, options) : null,
     view === "work" && q.selectedId && !context.businessesUnavailable ? loadConsoleWorkDetail(context, q.selectedId, { businessId: q.businessId ?? undefined, artifactId: q.artifactId ?? undefined }) : null,
-    context.businessesUnavailable ? { records: [], unavailable: true } : loadAccountSetupInterventions(context),
+    context.businessesUnavailable ? { records: [], unavailable: true, page: undefined, globalCount:undefined } : loadAccountSetupInterventions(context),
   ]);
   // Browsing an aggregate page must not silently narrow its filter to the selected record.
   const selected = work?.selection.status === "found" ? work.selection.item : activity?.selection.status === "found" ? activity.selection.item : null;
@@ -74,7 +74,7 @@ export async function ConsolePopulatedDashboard({ context, query, view }: { cont
   }, { businessIds: context.businesses.map(business => business.id), observedAt,
     unavailable: context.businessesUnavailable || (detail ? !detail.complete : work ? !work.page.complete : !activity?.page.complete) });
   const motionScope = detail?.run ? `run:${detail.run.id}` : `${view}:${q.businessId ?? "owned"}:page:${q.page}`;
-  const displayContext = { ...context, needsYouCount: context.needsYouCount + accountRequests.records.length, needsYouUnavailable: context.needsYouUnavailable || context.businessesUnavailable || accountRequests.unavailable };
+  const displayContext = { ...context, needsYouCount: context.needsYouCount + (accountRequests.globalCount ?? accountRequests.page?.total ?? accountRequests.records.length), needsYouUnavailable: context.needsYouUnavailable || context.businessesUnavailable || accountRequests.unavailable };
   return <ConsoleShell active={view} context={displayContext} globalDecisionCount aggregateContext={!q.businessId} navigationBusinessId={q.businessId ?? selected?.business_id ?? verifiedFilterBusinessId ?? undefined} workflowRunId={detail?.run?.id}
     commandBar={<ConsoleCommandBar ownerId={context.userId} businessId={commandBusinessId} businessSelectionAvailable={context.businesses.length > 0} returnTo={returnTo} unavailable={context.businessesUnavailable}/> }>
     <ConsoleMotionBoundary ownerId={context.userId} scopeKey={motionScope} snapshot={motionSnapshot}>

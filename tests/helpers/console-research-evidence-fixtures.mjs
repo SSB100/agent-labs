@@ -12,7 +12,8 @@ function load(path, dependencies = {}) {
   }, loaded, loaded.exports); return loaded.exports;
 }
 const collectionQuery = load('src/lib/core-ui/console-collections-query.ts');
-const collections = load('src/lib/core-ui/console-collections.ts', { 'server-only': {}, './console-collections-query': collectionQuery });
+const ownerBusiness = load('src/lib/core-ui/owner-business.ts');
+const collections = load('src/lib/core-ui/console-collections.ts', { 'server-only': {}, './console-collections-query': collectionQuery, './owner-business': ownerBusiness });
 function adapter(instrument = {}) {
   return load('src/lib/core-ui/console-research-evidence.ts', { 'server-only': {}, 'node:crypto': crypto, 'node:util': util, './console-collections': collections,
     '../../products/discovery-v2-history': { ...verifier, discoveryV2HistoryEvidencePreflight(input) { const value = verifier.discoveryV2HistoryEvidencePreflight(input); instrument.preflight?.(value); return value; } } });
@@ -107,20 +108,25 @@ function transport(db, options = {}) {
   });
   const api = adapter({ preflight: result => events.push({ type: 'preflight', result }) });
   const client = { rpc: deny('rpc'), schema: deny('schema'), auth: new Proxy({}, { get: (_, key) => deny(`auth.${String(key)}`) }), storage: new Proxy({}, { get: (_, key) => deny(`storage.${String(key)}`) }), from(table) {
-    assert.ok(Object.hasOwn(db, table), `Unapproved table ${table}`); const call = { table, filters: [] }; calls.push(call);
+    assert.ok(table === 'businesses' || Object.hasOwn(db, table), `Unapproved table ${table}`); const call = { table, filters: [] }; calls.push(call);
     const q = {
-      select(columns, settings) { assert.equal(settings?.count, 'exact'); assert.ok(!columns.includes('*')); call.columns = columns; return q; },
+      select(columns, settings) { if (table === 'businesses') { assert.equal(columns, 'id,name,created_at,updated_at'); assert.equal(settings, undefined); } else assert.equal(settings?.count, 'exact'); assert.ok(!columns.includes('*')); call.columns = columns; return q; },
+      maybeSingle() { assert.equal(table, 'businesses'); call.single = true; return q; },
       in(key, value) { call.filters.push(['in', key, value]); return q; }, eq(key, value) { call.filters.push(['eq', key, value]); return q; }, limit(n) { assert.equal(n, 2); call.limit = n; return q; },
       order: deny('order'), range: deny('range'), insert: deny('insert'), update: deny('update'), delete: deny('delete'), upsert: deny('upsert'),
       then(resolve, reject) {
-        assert.equal(call.limit, 2); events.push({ type: 'read', call });
+        if (table === 'businesses') {
+          assert.equal(call.single, true); assert.equal(call.limit, undefined); assert.equal(call.filters.length, 2);
+          assert.ok(call.filters.some(([op, key, value]) => op === 'eq' && key === 'id' && typeof value === 'string'));
+          assert.ok(call.filters.some(([op, key, value]) => op === 'eq' && key === 'owner_user_id' && value === id(9)));
+        } else assert.equal(call.limit, 2); events.push({ type: 'read', call });
         if (options.throwWhen?.(call)) return Promise.reject(Error('offline')).then(resolve, reject);
-        let rows = copy(db[table]);
+        let rows = copy(table === 'businesses' ? options.businessRows ?? [id(1), id(2)].map(idValue => ({ id: idValue, owner_user_id: id(9), name: 'Independently verified Business', created_at: stamp, updated_at: stamp })) : db[table]);
         for (const [op, key, value] of call.filters) if (!options.ignore?.(call, key)) rows = rows.filter(row => op === 'in' ? value.includes(valueAt(row, key)) : valueAt(row, key) === value);
-        const count = rows.length; rows = rows.slice(0, 2).map(row => Object.fromEntries(call.columns.split(',').flatMap(field => {
+        const count = rows.length; rows = (call.single ? rows : rows.slice(0, 2)).map(row => Object.fromEntries(call.columns.split(',').flatMap(field => {
           const [alias, path] = field.includes(':') ? field.split(':') : [field, field]; return path.includes('->') || Object.hasOwn(row, path) ? [[alias, valueAt(row, path)]] : [];
         })));
-        let result = { data: rows, count, error: null }; if (options.change) result = options.change(call, result);
+        let result = { data: call.single ? rows.length === 1 ? rows[0] : null : rows, count: call.single ? null : count, error: call.single && rows.length > 1 ? true : null }; if (options.change) result = options.change(call, result);
         call.result = copy(result); return response(call, result).then(resolve, reject);
       },
     }; return q;
