@@ -65,7 +65,7 @@ export async function runWorkspaceJourneys({page,origin,boundary,output,check,re
  for(const [name,url]of scenes)await check(`${name} populated desktop/mobile/zoom-equivalent layout`,async()=>{
   for(const [width,height]of [[1280,720],[1440,900],[390,844],[320,800],[640,360]]){
    await page.setViewportSize({width,height});await page.goto(origin+url);await page.locator('h1').waitFor();assert.equal(await page.getByText('Application error',{exact:false}).count(),0);
-   if(name==='r08-knowledge')assert.match(await page.locator('.r08Workspace').innerText(),/Existing packs only/);
+   if(name==='r08-knowledge'){const content=await page.locator('.r08Workspace').innerText();assert.match(content,/Existing packs only/);assert.match(content,/2026-10-02T04:10:20/);assert.doesNotMatch(content,/read is unavailable or incomplete|Count unavailable/);}
    const metrics=await page.evaluate(()=>({w:document.documentElement.scrollWidth,h:document.documentElement.scrollHeight}));assert.ok(metrics.w<=width+1,`${name} horizontal ${JSON.stringify(metrics)}`);if(width>=1280)assert.ok(metrics.h<=height+1,`${name} vertical ${JSON.stringify(metrics)}`);
    await page.screenshot({path:path.join(output,`${name}-${width}x${height}.png`),fullPage:true});
   }

@@ -18,7 +18,7 @@ export function workspaceSeed(state,id,time){
   }
  }
  for(const i of state.db.owner_interventions){const w=state.db.workflow_runs.find(w=>w.id===i.workflow_run_id&&w.business_id===i.business_id);records.decisions.push({id:`notice:${i.id}`,kind:'owner_notice',businessId:i.business_id,goalId:w?.goal_id??null,workflowRunId:i.workflow_run_id,recordId:i.id,title:i.title,status:i.status,reason:i.description,actor:'owner request',at:i.requested_at,resolution:i.resolution});}
- for(const i of state.db.installed_packs)i.created_at??=time;
+ for(const i of state.db.installed_packs)i.activated_at??=time;
  return {links,records};
 }
 export function workspaceView(state,table){

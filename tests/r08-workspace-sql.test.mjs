@@ -27,6 +27,11 @@ test('R08 additive pure reads preserve authority and qualify exact Quest, privac
    }
    await db.exec(sql);
   }
+  // Qualify production Knowledge projections against the replayed schema, not a permissive transport fixture.
+  const ownerRecords=readFileSync('src/components/console/console-owner-records.tsx','utf8');
+  const installationProjections=[...ownerRecords.matchAll(/from\("installed_packs"\)\.select\("([^"]+)"/g)].map(match=>match[1]);
+  assert.equal(installationProjections.length,2);
+  for(const projection of installationProjections){assert.match(projection,/activated_at/);assert.doesNotMatch(projection,/created_at/);assert.match(projection,/^[a-z_,]+$/);await db.query(`select ${projection} from public.installed_packs order by activated_at desc,id desc limit 0`);}
   const after=new Map((await db.query(functions)).rows.map(x=>[x.id,x]));for(const row of oldFunctions)assert.deepEqual(after.get(row.id),row);
   const rels=new Map((await db.query(tables)).rows.map(x=>[x.id,x]));for(const row of oldTables)assert.deepEqual(rels.get(row.id),row);
   for(const name of ['workflow_runs','product_experiments','artifacts','creative_runs','creative_assets','owner_interventions','events']){
