@@ -264,6 +264,45 @@ jobs:
           R06_POSTGRES_URL: postgresql://r06_test:r06-isolated-fixture@127.0.0.1:5432/r06_test
         run: node --test tests/r06-bounded-read-sql.test.mjs
 
+  r07-sql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: r07_test
+          POSTGRES_DB: r07_test
+          POSTGRES_PASSWORD: r07-isolated-fixture
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U r07_test -d r07_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Install pinned isolated SQL runtime and compiler dependencies
+        run: |
+          npm install --prefix "$RUNNER_TEMP/r07-sql-host" --no-audit --no-fund --ignore-scripts @electric-sql/pglite@0.5.8 pg@8.16.3
+          npm install --no-audit --no-fund
+          npm run pretest
+      - name: Verify SQL rollback, authority, finite lineage and fresh-process recovery
+        env:
+          R07_SQL_TEST_HOST: ${{ runner.temp }}/r07-sql-host
+        run: node --test tests/r07-quest-controller-sql.test.mjs tests/r07-quest-process.test.mjs
+      - name: Verify actual PostgreSQL controller races
+        env:
+          R07_SQL_TEST_HOST: ${{ runner.temp }}/r07-sql-host
+          R07_PG_TEST: "1"
+          R07_PG_PORT: "5432"
+          R07_PG_PASSWORD: r07-isolated-fixture
+        run: node --test tests/r07-quest-concurrency.test.mjs
+
   r03-next:
     runs-on: ubuntu-latest
     timeout-minutes: 30

@@ -9,7 +9,8 @@
       "ui/r03-retained-console": false,
       "feat/r04-business-quest": false,
       "feat/r05-operating-envelope": false,
-      "feat/r06-bounded-reads": false
+      "feat/r06-bounded-reads": false,
+      "feat/r07-quest-controller": false
     }
   }
 }
