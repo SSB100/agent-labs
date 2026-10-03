@@ -11,6 +11,7 @@ export type ConsoleBrowserSummary = {
   updatedAt: string | null;
 };
 export type ConsoleBrowserWorkspace = {
+  workspaceSearch?: string;
   status: "ready" | "unavailable" | "invalid_selection";
   businesses: { id: string; name: string }[];
   selectedBusinessId: string | null;

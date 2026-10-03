@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { loadSource } from './helpers/guided-ui.mjs';
 import * as ownerEntry from '../.core-tests/core/owner-entry.js';
-const { loadWorkflowCollection } = loadSource('src/lib/core-ui/data.ts', {
+const { loadWorkflowCollection, loadCurrentQuestEpisode } = loadSource('src/lib/core-ui/data.ts', {
   'next/navigation': { notFound() { throw new Error('missing'); }, redirect() { throw new Error('redirect'); } },
   'next/headers': { headers() { throw new Error('Read-only collection fixture must not request entry recovery'); } },
   '@/core/owner-entry': ownerEntry,
@@ -38,4 +38,12 @@ test('unknown or failed run counts cannot establish completeness', async () => {
   const result = await loadWorkflowCollection(fixture(null, true).context);
   assert.ok(result.errors.length); assert.equal(result.truncated, true);
   assert.equal((await loadWorkflowCollection(fixture(1).context)).truncated, false);
+});
+
+
+test('R08 resolves an old active episode independently of 127 newer completed rows and exact selection never substitutes',async()=>{
+ const business='00000000-0000-4000-8000-000000000001',active='00000000-0000-4000-8000-000000000002',missing='00000000-0000-4000-8000-000000000003',calls=[];
+ const context={supabase:{from(table){const call={table,filters:[],orders:[]};calls.push(call);const q={select(columns){call.columns=columns;return q;},eq(k,v){call.filters.push(['eq',k,v]);return q;},in(k,v){call.filters.push(['in',k,v]);return q;},is(k,v){call.filters.push(['is',k,v]);return q;},order(k,v){call.orders.push([k,v]);return q;},limit(n){call.limit=n;return q;},maybeSingle(){return Promise.resolve({data:call.filters.some(f=>f[1]==='id'&&f[2]===missing)?null:{id:active,business_id:business},error:null});}};return q;}}};
+ assert.deepEqual(JSON.parse(JSON.stringify(await loadCurrentQuestEpisode(context,business))),{id:active,available:true});assert.equal(calls.length,1);assert.equal(calls[0].limit,1);assert.ok(calls[0].filters.some(f=>f[0]==='is'&&f[1]==='completed_at'));assert.equal(calls[0].columns,'id,business_id');
+ assert.deepEqual(JSON.parse(JSON.stringify(await loadCurrentQuestEpisode(context,business,missing))),{id:null,available:false});assert.equal(calls.length,2,'No latest-run fallback after an explicit missing episode');
 });

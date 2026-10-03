@@ -14,6 +14,7 @@ export function loadBrowserSource(file, dependencies = {}) {
   } }).outputText;
   const compiledModule = { exports: {} };
   runInNewContext(`(function(require,module,exports){${code}\n})`, { URL, URLSearchParams, Response, Request, Date, structuredClone, AbortController })(name => {
+    if (name === "@/lib/core-ui/workspace-navigation") return loadBrowserSource("src/lib/core-ui/workspace-navigation.ts");
     if (name === "react") return React;
     if (name === "react/jsx-runtime") return require(name);
     if (name === "next/link") return FixtureLink;

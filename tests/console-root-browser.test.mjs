@@ -34,10 +34,7 @@ test("Browser root keeps query context through research and refuses foreign, mal
   const unavailable = await rootBrowserPage(rootBrowserMode, { unavailable: true });
   assert.equal(unavailable.state.overview.browserData.status, "unavailable");
   assert.doesNotMatch(unavailable.markup, /Inspect saved workflow record/);
-  const foreign = await rootBrowserPage(contract.consoleBrowserHref("browser", id(5), run.id));
-  assert.equal(foreign.state.overview.browserData.status, "invalid_selection");
-  assert.equal(foreign.state.overview.browserData.selectedSession, null);
-  assert.doesNotMatch(foreign.markup, /Inspect saved workflow record|Recorded session state:.*live/);
+  await assert.rejects(() => rootBrowserPage(contract.consoleBrowserHref("browser", id(5), run.id)), /Fixture record was not found/);
   await assert.rejects(() => rootBrowserPage("/dashboard?view=overview&centre=browser&browserRun=malformed"), /Fixture record was not found/);
   await assert.rejects(() => rootBrowserPage(`/dashboard?view=overview&centre=browser&business=${id(999)}`), /Fixture record was not found/);
 });

@@ -2,6 +2,8 @@
 export const WORKSPACE_KEYS = ["quest", "episode", "step", "agent", "sourceArtifact"] as const;
 export function carryWorkspace(href: string, source: URLSearchParams | string | undefined): string {
   const url = new URL(href, "https://owner.invalid"), params = source instanceof URLSearchParams ? source : new URLSearchParams(source);
+  const targetRun = url.searchParams.get("selected") ?? url.searchParams.get("run");
+  if (url.searchParams.get("view") === "work" && params.has("quest") && targetRun && !url.searchParams.has("episode")) url.searchParams.set("episode", targetRun);
   const changed = (key: string) => url.searchParams.has(key) && url.searchParams.get(key) !== params.get(key);
   const businessChanged = changed("business"), questChanged = businessChanged || changed("quest"), episodeChanged = questChanged || changed("episode");
   if (!url.searchParams.has("business") && params.get("business")) url.searchParams.set("business", params.get("business")!);

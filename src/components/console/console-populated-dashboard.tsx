@@ -76,8 +76,8 @@ export async function ConsolePopulatedDashboard({ context, query, view }: { cont
   }, { businessIds: context.businesses.map(business => business.id), observedAt,
     unavailable: context.businessesUnavailable || (detail ? !detail.complete : work ? !work.page.complete : !activity?.page.complete) });
   const motionScope = detail?.run ? `run:${detail.run.id}` : `${view}:${q.businessId ?? "owned"}:page:${q.page}`;
-  const displayContext = { ...context, needsYouCount: context.needsYouCount + (accountRequests.globalCount ?? accountRequests.page?.total ?? accountRequests.records.length), needsYouUnavailable: context.needsYouUnavailable || context.businessesUnavailable || accountRequests.unavailable };
-  return <ConsoleShell active={view} context={displayContext} globalDecisionCount aggregateContext={!q.businessId} navigationBusinessId={q.businessId ?? selected?.business_id ?? verifiedFilterBusinessId ?? undefined} workflowRunId={detail?.run?.id}
+  const displayContext = { ...context, needsYouCount: context.needsYouCount + (context.workspaceQuest ? accountRequests.page?.total ?? 0 : accountRequests.globalCount ?? accountRequests.page?.total ?? accountRequests.records.length), needsYouUnavailable: context.needsYouUnavailable || context.businessesUnavailable || accountRequests.unavailable };
+  return <ConsoleShell active={view} context={displayContext} globalDecisionCount={!context.workspaceQuest} aggregateContext={!q.businessId} navigationBusinessId={q.businessId ?? selected?.business_id ?? verifiedFilterBusinessId ?? undefined} workflowRunId={detail?.run?.id}
     commandBar={<ConsoleCommandBar ownerId={context.userId} businessId={commandBusinessId} businessSelectionAvailable={context.businesses.length > 0} returnTo={returnTo} unavailable={context.businessesUnavailable}/> }>
     <ConsoleMotionBoundary ownerId={context.userId} scopeKey={motionScope} snapshot={motionSnapshot}>
     {work ? <ConsoleWorkCollectionPane ownerId={context.userId} businesses={context.businesses} searchParams={params} data={work}

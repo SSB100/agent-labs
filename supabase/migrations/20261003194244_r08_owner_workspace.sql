@@ -75,7 +75,7 @@ begin
  jsonb_build_object('id','policy_revoked:'||r.policy_id,'kind','owner_policy_decision','businessId',r.business_id,'recordId',r.policy_id,'title','Operating policy revoked','status','revoked','reason','New admissions under this policy are revoked; prior effects and liability remain','actor','owner','at',r.created_at,'policyId',r.policy_id)
  from private.r05_revocations r join private.r05_policies p on p.id=r.policy_id and p.business_id=r.business_id
  union all
- select 'controller:||e.id,e.business_id,e.goal_id,e.created_at,e.operation||' '||coalesce(e.payload->>'reason',''),
+ select 'controller:'||e.id,e.business_id,e.goal_id,e.created_at,e.operation||' '||coalesce(e.payload->>'reason',''),
  jsonb_build_object('id','controller:'||e.id,'kind','controller_decision','businessId',e.business_id,'workflowRunId',e.attempt_id,'recordId',e.id::text,'title',e.operation,'status',e.payload->>'state','reason',e.payload->>'reason','actor','Quest controller','at',e.created_at,'planId',e.plan_id,'result',e.payload)
  from private.r07_events e where e.operation in ('evaluate','exception','cancel','plan')
  $src$;
@@ -104,6 +104,8 @@ begin
  filtered:=scoped||' and ($3='''' or position(lower($3) in lower(s.label||'' ''||coalesce(s.item->>''reason'','''')))>0)';
  execute 'select count(*)'||filtered into total using p_business_id,p_goal_id,needle;
  execute 'select coalesce(jsonb_agg(x.item order by x.at desc,x.id desc),''[]''::jsonb) from (select s.item,s.at,s.id'||filtered||' order by s.at desc,s.id desc limit $4 offset $5) x' into items using p_business_id,p_goal_id,needle,n,off;
+ -- Pages carry metadata; wide decision evidence and linked-provider details are exact-selection only.
+ select coalesce(jsonb_agg(value-array['assessment','resolution','result','listings','supplier'] order by ordinal),'[]'::jsonb) into items from jsonb_array_elements(items) with ordinality x(value,ordinal);
  if selected is not null then execute 'select s.item'||scoped||' and s.id=$3' into detail using p_business_id,p_goal_id,selected; end if;
  result:=jsonb_build_object('businessId',p_business_id,'goalId',p_goal_id,'dataset',p_dataset,'items',items,'total',total,'limit',n,'offset',off,'selection',jsonb_build_object('status',case when selected is null then 'none' when detail is null then 'missing' else 'found' end,'item',detail));
  if octet_length(result::text)>262144 then raise exception 'r08_read_too_large'; end if;

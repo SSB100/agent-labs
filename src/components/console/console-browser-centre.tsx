@@ -1,3 +1,4 @@
+import { carryWorkspace } from "@/lib/core-ui/workspace-navigation";
 import Link from "next/link";
 import { useId, type ReactNode } from "react";
 import { CONSOLE_BROWSER_UNAVAILABLE, consoleBrowserHref, consoleBrowserStatus, consoleBrowserUpdatedAt, consoleBrowserWorkflowHref, type ConsoleBrowserWorkspace, type ConsoleCentreMode } from "@/browser/console-view";
@@ -6,8 +7,8 @@ import "./console-browser-centre.css";
 /** Render in the existing core top line, replacing its Owner control label. */
 export function ConsoleCentreTabs({ mode, data }: { mode: ConsoleCentreMode; data: ConsoleBrowserWorkspace }) {
   return <nav className="consoleCentreTabs" aria-label="Centre view">
-    <Link href={consoleBrowserHref("overview", data.selectedBusinessId, data.selectedRunId)} aria-current={mode === "overview" ? "page" : undefined}>Overview</Link>
-    <Link href={consoleBrowserHref("browser", data.selectedBusinessId, data.selectedRunId)} aria-current={mode === "browser" ? "page" : undefined}>Browser</Link>
+    <Link href={carryWorkspace(consoleBrowserHref("overview", data.selectedBusinessId, data.selectedRunId), data.workspaceSearch)} aria-current={mode === "overview" ? "page" : undefined}>Overview</Link>
+    <Link href={carryWorkspace(consoleBrowserHref("browser", data.selectedBusinessId, data.selectedRunId), data.workspaceSearch)} aria-current={mode === "browser" ? "page" : undefined}>Browser</Link>
   </nav>;
 }
 
@@ -26,7 +27,7 @@ function BrowserContext({ data }: { data: ConsoleBrowserWorkspace }) {
         </select><button type="submit" disabled={!data.businesses.length}>Choose Business</button>
       </form> : null}
       {data.status === "ready" && business ? <form action="/dashboard" method="get">
-        <input type="hidden" name="view" value="overview"/><input type="hidden" name="centre" value="browser"/><input type="hidden" name="business" value={business.id}/>
+        <input type="hidden" name="view" value="overview"/><input type="hidden" name="centre" value="browser"/><input type="hidden" name="business" value={business.id}/>{new URLSearchParams(data.workspaceSearch).get("quest") ? <input type="hidden" name="quest" value={new URLSearchParams(data.workspaceSearch).get("quest")!}/> : null}
         <label htmlFor={`${id}-run`}>Browser run</label>
         <select id={`${id}-run`} name="browserRun" defaultValue={data.selectedRunId ?? ""} required disabled={!data.sessions.length}>
           <option value="" disabled>Choose a browser run</option>
@@ -42,7 +43,8 @@ function BrowserContext({ data }: { data: ConsoleBrowserWorkspace }) {
 
 function BrowserContent({ data }: { data: ConsoleBrowserWorkspace }) {
   const selected = data.status === "ready" ? data.selectedSession : null;
-  const recordHref = selected ? consoleBrowserWorkflowHref(selected) : null;
+  const record = selected ? consoleBrowserWorkflowHref(selected) : null;
+  const recordHref = record ? carryWorkspace(record, data.workspaceSearch) : null;
   const updatedAt = consoleBrowserUpdatedAt(selected?.updatedAt);
   let title = "Saved browser session", description = "";
   if (data.status !== "ready") {

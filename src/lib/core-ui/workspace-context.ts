@@ -14,11 +14,13 @@ export function workspaceValue(search: WorkspaceSearch, key: string): string | u
 /** Context is provenance, never permission. Every explicit identity is verified independently. */
 export async function resolveWorkspace(context: OwnerUiContext, search: WorkspaceSearch, current = false): Promise<WorkspaceIntent> {
   const businessId = workspaceValue(search, "business") ?? (current ? context.businesses[0]?.id : undefined);
-  const questId = workspaceValue(search, "quest");
+  const questId = workspaceValue(search, "quest") || undefined;
   const sourceArtifact = workspaceValue(search, "artifact") ?? workspaceValue(search, "sourceArtifact");
   const browserEpisode = current ? workspaceValue(search, "browserRun") : undefined;
   const episode = workspaceValue(search, "episode") ?? browserEpisode, step = workspaceValue(search, "step"), agent = workspaceValue(search, "agent");
   if ([businessId, questId, episode, step, agent, sourceArtifact].some(id => id !== undefined && !consoleValidId(id)) || questId && !businessId || (step || agent) && !episode || episode && !questId && !current || browserEpisode && workspaceValue(search, "episode") && browserEpisode !== workspaceValue(search, "episode")) throw new Error("Invalid workspace context");
+  const selectedRun = workspaceValue(search, "selected") ?? workspaceValue(search, "run");
+  if (workspaceValue(search, "view") === "work" && episode && selectedRun && episode !== selectedRun) throw new Error("Conflicting selected episode");
   if (!businessId || (!questId && !current)) return { state: null, businessId: businessId ?? null, unavailable: !!context.businessesUnavailable, context };
   if (context.businessesUnavailable) return { state: null, businessId, unavailable: true, context };
   const offsetText = workspaceValue(search, "questPage") ?? "1";
@@ -62,6 +64,11 @@ export async function resolveWorkspace(context: OwnerUiContext, search: Workspac
     const artifact = await lookup.maybeSingle();
     if (artifact.error || !artifact.data) throw new Error("Artifact outside Quest or episode");
     params.set("sourceArtifact", sourceArtifact); scoped.readSearch = `?${params}`;
+  }
+  if (state.selected) {
+    const count = await scoped.supabase.from("owner_interventions").select("id", { count: "exact", head: true }).eq("business_id", businessId).eq("status", "open");
+    scoped.needsYouUnavailable = !!count.error || !Number.isSafeInteger(count.count) || count.count! < 0;
+    scoped.needsYouCount = scoped.needsYouUnavailable ? 0 : count.count!;
   }
   return { state, businessId, unavailable: false, context: scoped };
 }

@@ -52,12 +52,12 @@ export async function ConsoleResearchDashboard({ context, query }: { context: Ow
   const researchSheet = query.sheet === "research";
   const catalog = researchSheet && !context.businessesUnavailable ? await loadDiscoveryGoalData(commandContext, []) : null;
   const quote = researchSheet && !context.businessesUnavailable ? await loadConsoleResearchQuote(commandContext, catalog?.available === true) : null;
-  const displayContext = { ...context, needsYouCount: context.needsYouCount + (accountRequests.globalCount ?? accountRequests.page?.total ?? accountRequests.records.length), needsYouUnavailable: context.needsYouUnavailable || context.businessesUnavailable || accountRequests.unavailable };
+  const displayContext = { ...context, needsYouCount: context.needsYouCount + (context.workspaceQuest ? accountRequests.page?.total ?? 0 : accountRequests.globalCount ?? accountRequests.page?.total ?? accountRequests.records.length), needsYouUnavailable: context.needsYouUnavailable || context.businessesUnavailable || accountRequests.unavailable };
   const evidenceContent = exact ? <Suspense key={`${returnTo}:${observedAt}:${JSON.stringify([exact.business_id, exact.id, exact.workflow_run_id, exact.discovery_version, exact.candidate_id, exact.parent_discovery_id, exact.status, exact.completed_at, exact.source_artifact_id, exact.basis_artifact_id, exact.policy_hash, exact.authority_root_id, exact.prior_root_id])}`}
     fallback={<section className="consoleResearchNotice" role="status" aria-busy="true" data-research-evidence-loading={exact.id}><strong>Loading exact saved evidence</strong><p>Record {exact.id} · Business {exact.business_id}. Historical evidence is not ready; no recommendation or completion has been established.</p></section>}>
     <ConsoleResearchExactEvidence context={context} record={exact} observedAt={new Date(observedAt).toISOString()} scopeHref={returnTo}/>
   </Suspense> : undefined;
-  return <ConsoleShell active="research" context={displayContext} globalDecisionCount aggregateContext={!q.businessId} navigationBusinessId={commandBusinessId}
+  return <ConsoleShell active="research" context={displayContext} globalDecisionCount={!context.workspaceQuest} aggregateContext={!q.businessId} navigationBusinessId={commandBusinessId}
     commandBar={<ConsoleCommandBar ownerId={context.userId} businessId={commandBusinessId} businessSelectionAvailable={context.businesses.length > 0} returnTo={returnTo} unavailable={context.businessesUnavailable}/> }>
     <ConsoleResearchPane data={data} evidence={null} evidenceContent={evidenceContent} ownerId={context.userId} businesses={context.businesses} searchParams={params}
       researchHref={consoleResearchHref(params, { sheet: "research" })} scopeHref={returnTo} viewport={<ConsoleCollectionViewport ownerId={context.userId} scopeHref={returnTo}/>}/>

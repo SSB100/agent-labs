@@ -30,7 +30,7 @@ function renderFixture(React, components, route, fixture) {
 
 let bundlePromise;
 async function browserBundle() {
-  const productionInputs = new Set([
+  const productionInputs = new Set(["src/lib/core-ui/workspace-navigation.ts",
     "src/components/console/console-browser-centre.tsx", "src/components/console/console-browser-centre.css",
     "src/browser/console-view.ts",
     "src/components/console/console-overview.tsx", "src/components/console/console-overview.css",
@@ -83,7 +83,7 @@ async function browserBundle() {
         }`,
       }));
       builder.onResolve({ filter: /^@\// }, args => {
-        const aliases = { "@/browser/console-view": "src/browser/console-view.ts", "@/lib/core-ui/workflows": "src/lib/core-ui/workflows.ts", "@/components/stage7/icons": "src/components/stage7/icons.tsx" };
+        const aliases = { "@/lib/core-ui/workspace-navigation":"src/lib/core-ui/workspace-navigation.ts", "@/browser/console-view": "src/browser/console-view.ts", "@/lib/core-ui/workflows": "src/lib/core-ui/workflows.ts", "@/components/stage7/icons": "src/components/stage7/icons.tsx" };
         assert.ok(Object.hasOwn(aliases, args.path), `Unexpected app import ${args.path}`);
         return { path: path.join(root, aliases[args.path]) };
       });

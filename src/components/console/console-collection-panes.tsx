@@ -72,11 +72,11 @@ export function ConsoleCollectionToolbar({ kind, businesses, searchParams }: Pic
     {hidden.map(([name, value], index) => <input type="hidden" name={name} value={value} key={`${name}-${index}`}/>)}
     <input type="hidden" name="pageSize" value={DISPLAY_LIMIT}/>
     <label className="consoleCollectionSearch"><span>{searchLabel}</span><input type="search" name="q" defaultValue={current.get("q") ?? ""} maxLength={120} placeholder={searchLabel} autoComplete="off"/></label>
-    <label className="consoleCollectionBusinessFilter"><span>Business</span><select name="business" defaultValue={business}>
+    {current.has("quest") ? <><input type="hidden" name="business" value={business ?? ""}/><Link href={`/dashboard?view=overview&business=${business}&quest=${current.get("quest")}`}>Change Business or Quest</Link></> : <label className="consoleCollectionBusinessFilter"><span>Business</span><select name="business" defaultValue={business}>
       <option value="">All authorized Businesses</option>
       {business && !businesses.some(item => item.id === business) ? <option value={business}>Unavailable Business · {identity(business)}</option> : null}
       {businesses.map(item => <option value={item.id} key={item.id}>[{item.id.slice(-6)}] {item.name}</option>)}
-    </select></label>
+    </select></label>}
     {settings.statuses.length > 1 ? <label><span>Status</span><select name="status" defaultValue={status}>{settings.statuses.map(item => <option key={item} value={item}>{item === "all" ? "All states" : item === "active" ? "All active states" : readable(item)}</option>)}</select></label> : <input type="hidden" name="status" value="all"/>}
     <label><span>Sort by</span><select name="sort" defaultValue={sort}>
       <option value="newest">{orderLabel}: newest first</option><option value="oldest">{orderLabel}: oldest first</option>

@@ -41,6 +41,7 @@ export type ConsoleOverviewContext = Pick<OwnerUiContext,
   "displayName" | "businesses" | "needsYouCount" | "needsYouUnavailable" | "businessesUnavailable">;
 export type ConsoleOverviewProps = {
   workspaceSearch?: string;
+  currentRunId?: string;
   context: ConsoleOverviewContext;
   collection: WorkflowCollection;
   costs?: ConsoleCosts;
@@ -65,7 +66,7 @@ function RecordedTime({ value }: { value: string | null | undefined }) {
 }
 
 /** Activity is established by the exact run, task, stage and worker receipts. */
-export function deriveConsoleOverview(context: ConsoleOverviewContext, collection: WorkflowCollection, researchHref = "/dashboard?view=overview&sheet=research") {
+export function deriveConsoleOverview(context: ConsoleOverviewContext, collection: WorkflowCollection, researchHref = "/dashboard?view=overview&sheet=research", currentRunId?: string) {
   const unavailable = collection.errors.length > 0 || context.businessesUnavailable === true || collection.truncated === true;
   const runs = newestFirst(collection.runs);
   const runById = new Map(runs.map(run => [run.id, run]));
@@ -98,7 +99,7 @@ export function deriveConsoleOverview(context: ConsoleOverviewContext, collectio
         : activeRuns[0]
           ? { href: runLink(activeRuns[0].id), label: "Open current work", detail: definitions.get(activeRuns[0].workflow_definition_id)?.name ?? "Review the current workflow", kind: "work" }
           : { href: researchHref, label: "Plan a research goal", detail: "Set a goal, scope and allowance before starting", kind: "research" };
-  const currentRun = decisionRun ?? activeRuns[0] ?? runs[0];
+  const currentRun = (currentRunId ? runById.get(currentRunId) : undefined) ?? decisionRun ?? activeRuns[0] ?? runs[0];
   const decisionCount = context.needsYouUnavailable ? null : context.needsYouCount;
   return { unavailable, runs, runById, definitions, receipts, activeWorkers, activeRuns, decisions, decisionCount, currentRun, next };
 }
@@ -184,11 +185,11 @@ function ConnectionPanel({ connections, businessId }: { connections: ConsoleConn
   </Panel>;
 }
 
-export function ConsoleOverview({ context, collection, costs = { status: "not_loaded" }, connections = { status: "not_loaded" }, outputPreviews = [], researchHref, navigationBusinessId, centreMode = "overview", browserData, workspaceSearch }: ConsoleOverviewProps) {
+export function ConsoleOverview({ context, collection, costs = { status: "not_loaded" }, connections = { status: "not_loaded" }, outputPreviews = [], researchHref, navigationBusinessId, centreMode = "overview", browserData, workspaceSearch, currentRunId }: ConsoleOverviewProps) {
   const rootLink = (view: RootView) => carryWorkspace(`/dashboard?view=${view}${navigationBusinessId ? `&business=${encodeURIComponent(navigationBusinessId)}` : ""}`, workspaceSearch);
   const runLink = (id: string) => workspaceSearch ? carryWorkspace(`/dashboard?view=work&business=${navigationBusinessId ?? ""}&selected=${id}&episode=${id}`, workspaceSearch) : `/dashboard?view=work&run=${encodeURIComponent(id)}`;
   const scopedResearchHref = researchHref ?? `/dashboard?view=overview${navigationBusinessId ? `&business=${encodeURIComponent(navigationBusinessId)}` : ""}&sheet=research`;
-  const data = deriveConsoleOverview(context, collection, scopedResearchHref);
+  const data = deriveConsoleOverview(context, collection, scopedResearchHref, currentRunId);
   const { unavailable, activeWorkers, receipts, decisions, decisionCount, currentRun } = data;
   const next = { ...data.next, href: navigationBusinessId && !/[?&](?:business|run)=/.test(data.next.href) ? `${data.next.href}&business=${encodeURIComponent(navigationBusinessId)}` : data.next.href };
   if (workspaceSearch) next.href = carryWorkspace(next.href, workspaceSearch);

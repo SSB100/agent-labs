@@ -1,5 +1,7 @@
 /** Independent inert projection transport. Real RLS/SQL is qualified separately. */
 export function workspaceSeed(state,id,time){
+ for(const p of state.db.packs)p.name??=p.manifest.name;
+ const installation=state.db.installed_packs[0];if(installation){installation.snapshot.releases[0].manifest.knowledge=[{key:"fixture.source",version:"1.0.0",name:"Inert research guidance",source:"https://example.invalid/inert-source",verifiedAt:"2025-01-01T00:00:00Z",freshnessDays:30,content:{scope:"Synthetic read-only source snapshot"}}];}
  const links=new Map(), records={products:[],listings:[],decisions:[]};
  for(const [b,business]of state.businesses.slice(0,2).entries()){
   const goal=id(820000+b*1000),other=id(820001+b*1000),run=state.db.workflow_runs.find(w=>w.business_id===business.id&&w.id===id(1001))??state.db.workflow_runs.find(w=>w.business_id===business.id);

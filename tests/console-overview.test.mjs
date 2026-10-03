@@ -6,7 +6,7 @@ import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import ts from "typescript";
-import { browserPresentation } from "./helpers/guided-ui.mjs";
+import { browserPresentation, loadSource } from "./helpers/guided-ui.mjs";
 
 const require = createRequire(import.meta.url);
 const source = readFileSync("src/components/console/console-overview.tsx", "utf8");
@@ -24,6 +24,7 @@ function compile(source, dependencies) {
 }
 const workflows = compile(readFileSync("src/lib/core-ui/workflows.ts", "utf8"), {});
 const component = compile(source, {
+  "@/lib/core-ui/workspace-navigation": loadSource("src/lib/core-ui/workspace-navigation.ts"),
   react: React,
   "react/jsx-runtime": require("react/jsx-runtime"),
   "next/link": ({ children, ...props }) => React.createElement("a", props, children),

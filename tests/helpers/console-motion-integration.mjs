@@ -77,7 +77,7 @@ async function browserBundle() {
       builder.onResolve({ filter: /^next\/link$/ }, () => ({ path: "link", namespace: "motion-boundary" }));
       builder.onLoad({ filter: /.*/, namespace: "motion-boundary" }, () => ({ loader: "js", resolveDir: root, contents: 'import React from "react"; export default function Link({children,...props}) { return React.createElement("a",props,children); }' }));
       builder.onResolve({ filter: /^@\// }, args => {
-        const files = { "@/lib/core-ui/console-motion-dom": "src/lib/core-ui/console-motion-dom.ts", "@/lib/core-ui/workflows": "src/lib/core-ui/workflows.ts", "@/components/stage7/icons": "src/components/stage7/icons.tsx", "@/browser/console-view": "src/browser/console-view.ts" };
+        const files = { "@/lib/core-ui/workspace-navigation":"src/lib/core-ui/workspace-navigation.ts", "@/lib/core-ui/console-motion-dom": "src/lib/core-ui/console-motion-dom.ts", "@/lib/core-ui/workflows": "src/lib/core-ui/workflows.ts", "@/components/stage7/icons": "src/components/stage7/icons.tsx", "@/browser/console-view": "src/browser/console-view.ts" };
         assert.ok(files[args.path], `Unexpected application import: ${args.path}`);
         return { path: path.join(root, files[args.path]) };
       });

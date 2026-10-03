@@ -93,8 +93,8 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false,que
       await page.route(matcher,route=>route.abort('aborted'));
       await page.getByRole('link',{name:'Businesses',exact:true}).click();
       await page.unroute(matcher);
-      await page.getByRole('link',{name:'Work',exact:true}).click();
-      await page.waitForURL(/view=work/);await page.getByRole('heading',{name:'Work',exact:true}).waitFor();
+      await page.getByRole('link',{name:'Events',exact:true}).click();
+      await page.waitForURL(/view=work/);await page.getByRole('heading',{name:'Events',exact:true}).waitFor();
     });
     await check('unsaved nonsecret tool draft survives real tabs, Back and reload',async()=>{
       await page.goto(origin+`/dashboard/products?business=${business}&panel=new`);
@@ -145,7 +145,7 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false,que
     });
     await check('new browser history navigation interrupts a pending modal dismissal',async()=>{
       await page.goto(origin+`/dashboard/settings?business=${business}`);
-      await page.getByRole('link',{name:'Work',exact:true}).click();await page.waitForURL(/view=work/);
+      await page.getByRole('link',{name:'Events',exact:true}).click();await page.waitForURL(/view=work/);
       await page.locator('#console-command-input').fill('Inert research draft');await page.getByRole('button',{name:'Review goal',exact:false}).click();await page.getByRole('dialog').waitFor();
       const pattern='**/dashboard?*';
       await page.route(pattern,async route=>{const u=new URL(route.request().url());if(u.searchParams.get('view')==='work' && !u.searchParams.has('sheet') && u.searchParams.has('_rsc'))await new Promise(resolve=>setTimeout(resolve,1800));return route.continue().catch(()=>{});});

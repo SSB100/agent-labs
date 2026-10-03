@@ -228,10 +228,10 @@ export async function renderDashboard({ unavailable = false, empty = false, view
     return {context:scoped,businessId:selectedBusiness?.id??null,unavailable:businessesUnavailable,state:selectedBusiness?{businessId:selectedBusiness.id,business:{revision:1},selected,selection:selected?'current':'none',quests:selected?[selected]:[],total:selected?1:0,limit:20,offset:0}:null};
   }};
   const workspaceOverview = loadSource("src/components/console/console-workspace-overview.tsx", {
-    "./console-command":command,"@/components/guided/quest-kickoff":quest,"@/products/discovery-v2-data":{loadDiscoveryGoalData:async()=>({available:true})},
+    "@/accounts/server":{loadAccountWorkspace:async()=>accounts},"./console-command":command,"@/components/guided/quest-kickoff":quest,"@/products/discovery-v2-data":{loadDiscoveryGoalData:async()=>({available:true})},
     "@/lib/core-ui/console-data":{...consoleData,loadConsoleObservationTime:async()=>observedAt,loadConsoleResearchQuote:async()=>({one:370395,two:530914,verifiedAt:fixtureTime})},
     "@/lib/core-ui/console-collections":{consoleObject:v=>!!v&&typeof v==='object'&&!Array.isArray(v)},"./console-shell":consoleShell,"./console-overview":overview,
-    "./console-motion":motionUi,"@/lib/core-ui/console-motion":motion,"@/lib/core-ui/data":{EMPTY_COLLECTION:workflowCollection({runs:[],definitions:[],stages:[],events:[],interventions:[],tasks:[],workerRuns:[],workerDefinitions:[],artifacts:[],errors:[]}),loadWorkflowCollection:async()=>collection},
+    "./console-motion":motionUi,"@/lib/core-ui/console-motion":motion,"@/lib/core-ui/data":{EMPTY_COLLECTION:workflowCollection({runs:[],definitions:[],stages:[],events:[],interventions:[],tasks:[],workerRuns:[],workerDefinitions:[],artifacts:[],errors:[]}),loadWorkflowCollection:async()=>collection,loadCurrentQuestEpisode:async()=>({id:collection.runs[0]?.id??null,available:!unavailable})},
     "@/lib/core-ui/run-outcome-data":{loadRunCostData:async()=>costData},"@/browser/console-server":browserWire.server,"./console-workspace.css":{},
   });
   const { default: Page } = loadSource("src/app/dashboard/page.tsx", {

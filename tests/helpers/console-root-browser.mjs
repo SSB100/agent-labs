@@ -63,7 +63,7 @@ async function browserBundle() {
           : args.path === "next/navigation" ? 'export const useRouter = () => window.__rootBrowserRouter;'
             : 'export async function startGeographicDiscovery() { sessionStorage.setItem("root-browser-paid-call", "forbidden"); throw new Error("Paid actions are forbidden in this fixture"); }' }));
       builder.onResolve({ filter: /^@\// }, args => {
-        const files = { "@/lib/core-ui/console-motion-dom": "src/lib/core-ui/console-motion-dom.ts", "@/lib/core-ui/workflows": "src/lib/core-ui/workflows.ts", "@/components/stage7/icons": "src/components/stage7/icons.tsx", "@/browser/console-view": "src/browser/console-view.ts", "@/lib/core-ui/quest-draft": "src/lib/core-ui/quest-draft.ts" };
+        const files = { "@/lib/core-ui/workspace-navigation":"src/lib/core-ui/workspace-navigation.ts", "@/lib/core-ui/console-motion-dom": "src/lib/core-ui/console-motion-dom.ts", "@/lib/core-ui/workflows": "src/lib/core-ui/workflows.ts", "@/components/stage7/icons": "src/components/stage7/icons.tsx", "@/browser/console-view": "src/browser/console-view.ts", "@/lib/core-ui/quest-draft": "src/lib/core-ui/quest-draft.ts" };
         assert.ok(files[args.path], `Unexpected root Browser import: ${args.path}`); return { path: path.join(root, files[args.path]) };
       });
     } }] }).then(result => {

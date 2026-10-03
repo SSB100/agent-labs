@@ -6,7 +6,7 @@ export async function readHistory<T>(context: OwnerUiContext, businessId: string
   const q = historyQuery(context.readSearch, key), params = new URLSearchParams(context.readSearch);
   const selectedId = options.selectedId ?? q.selectedId;
   const payload = { limit: q.pageSize, offset: q.offset, query: q.query, status: q.status, ...(selectedId ? { selectedId } : {}),
-    ...(options.candidateId?{candidateId:options.candidateId}:{}), ...(options.workflowRunId?{workflowRunId:options.workflowRunId}:{}), ...(options.interventionId ? { interventionId: options.interventionId } : {}), ...(params.get("quest") ? { goalId: params.get("quest") } : {}) };
+    ...(options.candidateId?{candidateId:options.candidateId}:{}), ...(options.workflowRunId?{workflowRunId:options.workflowRunId}:{}), ...(options.interventionId ? { interventionId: options.interventionId } : {}), ...(!dataset.startsWith("account_") && params.get("quest") ? { goalId: params.get("quest") } : {}) };
   const { data, error } = await context.supabase.rpc("r06_read", { p_business_id: businessId, p_dataset: dataset, p_query: payload });
   if (error || !object(data) || typeof data.observedAt!=="string" || !Number.isFinite(Date.parse(data.observedAt)) || !Array.isArray(data.items) || data.items.some(row=>!object(row)||typeof row.id!=="string") || new Set(data.items.map(row=>row.id)).size!==data.items.length || data.items.length > q.pageSize || !Number.isSafeInteger(data.total) || Number(data.total) < 0 ||
     data.limit !== q.pageSize || data.offset !== q.offset || data.items.length !== Math.min(q.pageSize, Math.max(0, Number(data.total) - q.offset)) || !object(data.selection) ||

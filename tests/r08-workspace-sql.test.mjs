@@ -62,6 +62,25 @@ test('R08 additive pure reads preserve authority and qualify exact Quest, privac
   await db.query('update public.owner_interventions set workflow_run_id=null,action_intent_id=$1 where id=$2',[action,notice]);
   await db.exec('set role authenticated');assert.equal((await db.query('select quest_id from public.r08_owner_interventions where id=$1',[notice])).rows[0].quest_id,other);assert.equal((await read('decisions',{selectedId:`notice:${notice}`})).selection.status,'missing');
   await db.exec('reset role');
+  // Private draft lineage uses exact artifact identity, status and private-row owner, never title matching.
+  const connection=randomUUID(),revision=randomUUID(),draft=randomUUID(),otherDraft=randomUUID(),otherOwner=randomUUID();
+  await db.query("insert into auth.users(id,email) values($1,'r08-other@example.invalid')",[otherOwner]);
+  await db.query("insert into private.etsy_connections(id,business_id,owner_id,shop_id,shop_name,currency,revision,status) values($1,$2,$3,1234,'Inert read-only shop','USD',$4,'revoked')",[connection,a.businessId,R07_OWNER,revision]);
+  for(const [draftId,owner,suffix] of [[draft,R07_OWNER,'a'],[otherDraft,otherOwner,'b']]) await db.query("insert into private.etsy_draft_runs(id,business_id,owner_id,connection_id,connection_revision,package_artifact_id,package_hash,package,identity,shop_id,product_identity,state,action_intent_id,approval_expires_at) values($1,$2,$3,$4,$5,$6,repeat('a',64),'{\"title\":\"Exact inert draft\"}', 'al-'||repeat($7,40),1234,$7,'{\"status\":\"verified\",\"listingId\":42}',$8,clock_timestamp()+interval '1 hour')",[draftId,a.businessId,owner,connection,revision,packageIds[0],suffix,action]);
+  await db.exec('set role authenticated');
+  const product=(await read('products',{selectedId:packageIds[0]})).selection.item;assert.equal(product.listingCount,1);assert.deepEqual(product.listings.map(x=>x.id),[draft]);
+  const listing=(await read('listings',{selectedId:draft})).selection.item;assert.equal(listing.packageArtifactId,packageIds[0]);assert.equal(listing.status,'verified');assert.match(listing.draftReadback,/verified draft/);assert.equal(listing.publicSellingReady,false);assert.equal(listing.supplier,null);assert.equal((await read('listings',{selectedId:otherDraft})).selection.status,'missing');assert.ok(!(await read('products')).items.some(x=>Object.hasOwn(x,'listings')),'Only exact detail receives nested provider evidence');
+  await db.exec('reset role');
+  // Legacy Research can bind a null-goal workflow. Contradictory links fail closed everywhere.
+  const legacyRun=randomUUID();await db.query("insert into public.workflow_runs(id,business_id,workflow_definition_id,idempotency_key,status) values($1,$2,$3,'r08-legacy','completed')",[legacyRun,a.businessId,'95050000-0000-4000-8000-000000000012']);
+  for(const [index,goal,rev]of [[0,a.goalId,2],[1,other,1]]){
+   const candidate=randomUUID(),experiment=randomUUID();
+   await db.query("insert into public.product_candidates(id,business_id,fingerprint,concept,audience,hypothesis,original_design,rights_status,source_domains) values($1,$2,repeat($3,64),'Inert original concept','Inert audience','Inert hypothesis, not demand evidence',true,'confirmed',array['example.invalid'])",[candidate,a.businessId,index?'b':'a']);
+   await db.query("insert into public.product_experiments(id,business_id,candidate_id,workflow_run_id,fingerprint,hypothesis,variables,audience,status,measurement_plan) values($1,$2,$3,$4,repeat($5,64),'Inert legacy hypothesis','{}','Inert audience','reserved',private.stage13_plan())",[experiment,a.businessId,candidate,legacyRun,index?'b':'a']);
+   await db.query("insert into private.r04_research_links(experiment_id,business_id,goal_id,goal_revision,workflow_run_id,evidence,evidence_hash,actor_id) values($1,$2,$3,$4,$5,'{}',repeat('a',64),$6)",[experiment,a.businessId,goal,rev,legacyRun,R07_OWNER]);
+   await db.exec('set role authenticated');assert.equal((await db.query('select public.r08_workflow_quest($1,$2) q',[a.businessId,legacyRun])).rows[0].q,index?null:a.goalId);await db.exec('reset role');
+  }
+  await db.exec('set role authenticated');assert.equal((await db.query('select count(*)::int n from public.r08_product_experiments where workflow_run_id=$1 and quest_id is not null',[legacyRun])).rows[0].n,0);await db.exec('reset role');
   const before=(await db.query("select count(*)::int n from public.events")).rows[0].n;
   await db.exec('begin read only; set local role authenticated');await read('products');await read('decisions');await db.exec('rollback');assert.equal((await db.query("select count(*)::int n from public.events")).rows[0].n,before);
   await db.exec('set role anon');await assert.rejects(read('products'),/permission denied/);await db.exec('reset role');
