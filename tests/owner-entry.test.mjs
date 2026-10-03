@@ -39,3 +39,27 @@ test('invalid login fields retain the exact return without touching authenticati
     return true;
   });
 });
+
+test('session cookie refresh preserves the trusted return header and cache controls', async () => {
+  const requestHeaders = new Headers({ cookie: 'inert-original=on', 'x-agent-labs-return-path': '/dashboard?view=work' });
+  const writes = [], request = { headers: new Headers(requestHeaders), cookies: {
+    getAll: () => [{ name: 'inert-original', value: 'on' }],
+    set(name, value) { request.headers.set('cookie', `inert-original=on; ${name}=${value}`); },
+  } };
+  const { updateSupabaseSession } = loadSource('src/lib/supabase/proxy.ts', {
+    '@supabase/ssr': { createServerClient(_url, _key, { cookies }) { return { auth: {
+      async getClaims() {
+        assert.equal(cookies.getAll().length, 1);
+        cookies.setAll([{ name: 'inert-refresh', value: 'on', options: { httpOnly: true } }], { 'cache-control': 'private, no-store' });
+      },
+    } }; } },
+    'next/server': { NextResponse: { next: options => ({ requestHeaders: new Headers(options.request.headers), headers: new Headers(), cookies: { set: (...args) => writes.push(args) } }) } },
+    './env': { isSupabaseConfigured: () => true, getSupabasePublicConfig: () => ({ url: 'http://127.0.0.1:9', publishableKey: 'inert' }) },
+  });
+  const response = await updateSupabaseSession(request, requestHeaders);
+  assert.equal(response.requestHeaders.get('x-agent-labs-return-path'), '/dashboard?view=work');
+  assert.match(response.requestHeaders.get('cookie'), /inert-refresh=on/);
+  assert.equal(response.headers.get('cache-control'), 'private, no-store');
+  assert.equal(writes.length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(writes[0])), ['inert-refresh', 'on', { httpOnly: true }]);
+});

@@ -13,6 +13,13 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false}) {
     const response=await fetch(origin+`/dashboard/history?business=${id(1)}`,{redirect:'manual'});
     assert.equal(response.status,307);assert.match(response.headers.get('location'),/view=work/);assert.match(response.headers.get('location'),/status=ended/);
   });
+  await check('real private entry overwrites forged return headers and keeps the actual requested route',async()=>{
+    const destination=`/dashboard/products?business=${id(1)}&panel=new&recentPage=2`;
+    const response=await fetch(origin+destination,{redirect:'manual',headers:{cookie:'r03-session=off','x-agent-labs-return-path':'/dashboard?business=forged'}});
+    assert.equal(response.status,307);const location=new URL(response.headers.get('location'),origin);
+    assert.equal(location.pathname,'/login');assert.equal(location.searchParams.get('error'),'session-required');
+    assert.equal(location.searchParams.get('returnTo'),destination);
+  });
   await check('real Next Suspense streams the detail fallback before delayed saved content',async()=>{
     await fetch(boundary.origin+'/control',{method:'POST',body:JSON.stringify({delayId:id(1001),delayMs:1200})});
     const response=await fetch(origin+`/dashboard/workflows/${id(1001)}?business=${id(1)}`);

@@ -10,7 +10,7 @@ const isMissingFile = (error) => error?.code === "ENOENT";
 test("Workflow SDK is configured for Next.js without intercepting internal routes", async () => {
   const packageJson = JSON.parse(await readProjectFile("package.json"));
   const nextConfig = await readProjectFile("next.config.ts");
-  const proxy = await readProjectFile("proxy.ts");
+  const proxy = await readProjectFile("src/proxy.ts");
   const tsconfig = JSON.parse(await readProjectFile("tsconfig.json"));
   const vercelConfig = JSON.parse(await readProjectFile("vercel.json"));
 

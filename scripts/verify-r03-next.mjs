@@ -25,7 +25,7 @@ function start(args, name) {
 }
 const completion = child => new Promise((resolve, reject) => { child.once('error', reject); child.once('exit', code => code === 0 ? resolve() : reject(Error(`Next command failed (${code}); see preserved logs`))); });
 try {
-  for (const name of ['src','public','proxy.ts','next.config.ts','tsconfig.json','package.json','package-lock.json','next-env.d.ts']) {
+  for (const name of ['src','public','next.config.ts','tsconfig.json','package.json','package-lock.json','next-env.d.ts']) {
     try { await cp(path.join(root,name),path.join(fixture,name),{recursive:true}); } catch (error) { if(error.code !== 'ENOENT') throw error; }
   }
   await symlink(path.join(root,'node_modules'),path.join(fixture,'node_modules'),'dir');
