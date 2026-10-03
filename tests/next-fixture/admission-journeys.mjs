@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
+import {writeFile} from 'node:fs/promises';
+import sharp from 'sharp';
 import {id} from './data.mjs';
 import {actualZoomBrowser} from './browser-zoom.mjs';
 export async function runAdmissionJourneys({page,context,origin,boundary,output,check,actions}){
@@ -36,7 +38,7 @@ export async function runAdmissionJourneys({page,context,origin,boundary,output,
  await check('R05 actual browser 200 percent zoom keeps pause and policy controls reachable',async()=>{
   const zoom=await actualZoomBrowser();try{
    await zoom.context.route('**/*',r=>new URL(r.request().url()).origin===origin?r.continue():r.abort('blockedbyclient'));
-   const p=await zoom.context.newPage();await p.goto(origin+base);assert.equal(await zoom.set(p,2),2);await p.getByText(/^Propose financial authority/).click();const field=p.getByRole('textbox',{name:'Authorization expires (UTC)',exact:true});await field.scrollIntoViewIfNeeded();await field.focus();assert.equal(await field.evaluate(n=>document.activeElement===n),true);assert.ok(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));await p.screenshot({path:path.join(output,'controls-form-zoom200.png')});
+   const p=await zoom.context.newPage();await p.goto(origin+base);assert.equal(await zoom.set(p,2),2);await p.getByText(/^Propose financial authority/).click();const field=p.getByRole('textbox',{name:'Authorization expires (UTC)',exact:true});await field.scrollIntoViewIfNeeded();await field.focus();assert.equal(await field.evaluate(n=>document.activeElement===n),true);assert.ok(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));await p.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));const visible=await field.evaluate(n=>{const r=n.getBoundingClientRect();return {x:r.x,y:r.y,w:r.width,h:r.height,iw:innerWidth,ih:innerHeight,hit:document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)===n};});assert.ok(visible.hit&&visible.y>=0&&visible.y+visible.h<=visible.ih,JSON.stringify(visible));const cdp=await zoom.context.newCDPSession(p);try{const capture=await cdp.send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});const pixels=Buffer.from(capture.data,'base64');await writeFile(path.join(output,'controls-form-zoom200.png'),pixels);assert.ok((await sharp(pixels).stats()).channels.some(c=>c.stdev>5),'Actual zoom form capture must contain rendered content');}finally{await cdp.detach();}
    await p.evaluate(()=>{window.scrollTo(0,0);document.querySelector('main').scrollTop=0;return new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));});await p.screenshot({path:path.join(output,'controls-zoom200.png')});
   }finally{await zoom.close();}
  });
