@@ -317,6 +317,42 @@ jobs:
           R04_PG_PASSWORD: r04-isolated-fixture
         run: node --test tests/r04-quest-concurrency.test.mjs
 
+  r05-sql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: r05_test
+          POSTGRES_DB: r05_test
+          POSTGRES_PASSWORD: r05-isolated-fixture
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U r05_test -d r05_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Install pinned isolated PostgreSQL runtime
+        run: npm install --prefix "$RUNNER_TEMP/r04-sql-host" --no-audit --no-fund --ignore-scripts @electric-sql/pglite@0.5.8 pg@8.16.3
+      - name: Verify admission migration rollback and adversarial financial controls
+        env:
+          R04_SQL_TEST_HOST: ${{ runner.temp }}/r04-sql-host
+        run: node --test tests/r05-operating-envelope-sql.test.mjs
+      - name: Verify independent-session admission and liability races
+        env:
+          R04_SQL_TEST_HOST: ${{ runner.temp }}/r04-sql-host
+          R05_PG_TEST: "1"
+          R05_PG_PORT: "5432"
+          R05_PG_PASSWORD: r05-isolated-fixture
+        run: node --test tests/r05-operating-envelope-concurrency.test.mjs
+
   r03-next:
     runs-on: ubuntu-latest
     timeout-minutes: 30

@@ -1,4 +1,5 @@
 import { decimalMinor, supportedCurrency } from "./contracts";
+import { requireTransportAdmission, type TransportAdmission } from "../core/transport-admission";
 import { proposePrintfulProductOperation } from "./operations";
 import { PrintfulProductError as ProductError, productHash, productIdentity, validateProductSource, type ProductConfigurationSource, type ProductScope } from "./production";
 
@@ -126,6 +127,8 @@ export type ProductTransportEvidence = ProductScope & {
   endpoint: string; observedAt: string; responseHash: string; liveQualified: false;
 };
 export type ProductAdapterOptions = {
+  admitDispatch?: TransportAdmission;
+  admitReconciliation?: TransportAdmission;
   scope: ProductScope; authorize?: ProductWriteAuthorization; mode: "fixture" | "provider_response";
   fetcher?: typeof fetch; timeoutMs?: number; now?: () => number;
 };
@@ -209,6 +212,12 @@ export class PrintfulProductAdapter {
         const init: RequestInit = {method, redirect: "error", cache: "no-store", signal: controller.signal,
           headers: {Authorization: `Bearer ${connection.credential}`, "X-PF-Store-Id": String(this.scope.storeId), Accept: "application/json",
             ...(method === "POST" ? {"Content-Type": "application/json"} : {})}, ...(body ? {body: JSON.stringify(body)} : {})};
+        await requireTransportAdmission(method === "GET" && this.options.admitReconciliation ? this.options.admitReconciliation : this.options.admitDispatch, { provider: "printful", operation: method === "POST" ? "product.configure" : "product.read", method, endpoint: url });
+        if (method === "GET" && this.options.admitReconciliation) {
+          const current = await this.authorize();
+          need(current.credential === connection.credential, "product_write_access_revoked");
+        }
+        need(!controller.signal.aborted, "product_provider_timeout");
         dispatched = true;
         const response = await (this.options.fetcher ?? fetch)(url, init);
         need(!controller.signal.aborted, "product_provider_timeout");

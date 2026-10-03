@@ -1,4 +1,5 @@
 import { inspectPrintfulStore, printfulReadAuthorization, type PrintfulStoreBinding } from "../printful/account";
+import { requireTransportAdmission, type TransportAdmission } from "../core/transport-admission";
 import type { PrintfulReadAuthorization } from "../printful/adapter";
 import { printfulHash } from "../printful/contracts";
 import { unsealAccountSecret } from "./vault";
@@ -58,7 +59,7 @@ export type PrintfulConnectionVerificationReceipt = {
   accessibleStoresAtVerification: 1; tokenAccessLevel: "not_reported"; providerExpiryVerified: false;
   responseHash: string; externalMutation: false; productExecutionAuthorized: false; liveQualified: false;
 };
-export type PrintfulVerificationOptions = {fetcher?: typeof fetch; now?: () => number; timeoutMs?: number};
+export type PrintfulVerificationOptions = {fetcher?: typeof fetch; now?: () => number; timeoutMs?: number; admitDispatch?: TransportAdmission};
 async function boundedJson(response: Response, signal: AbortSignal): Promise<unknown> {
   const contentLength = response.headers.get("content-length");
   requireConnection(contentLength === null || (/^\d+$/.test(contentLength) && Number(contentLength) <= RESPONSE_LIMIT_BYTES), "invalid_provider_response");
@@ -92,6 +93,8 @@ async function providerRead(path: string, credential: string, storeId: number, o
   try {
     return await Promise.race([deadline, (async () => {
       const url = `${ORIGIN}${path}`;
+      await requireTransportAdmission(options.admitDispatch, { provider: "printful", operation: "account.read", method: "GET", endpoint: url });
+      requireConnection(!controller.signal.aborted, "provider_timeout");
       const response = await (options.fetcher ?? fetch)(url, {method: "GET", redirect: "error", cache: "no-store", signal: controller.signal,
         headers: {Authorization: `Bearer ${credential}`, Accept: "application/json"}});
       requireConnection(!response.redirected && (response.url === "" || response.url === url), "invalid_provider_response");

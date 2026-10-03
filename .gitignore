@@ -12,6 +12,7 @@ coverage/
 test-results/
 .core-tests/
 .worker-tests/
+/work/
 *.tsbuildinfo
 
 # Local environment files

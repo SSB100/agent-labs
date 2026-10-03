@@ -9,7 +9,7 @@ const plain=x=>JSON.parse(JSON.stringify(x));
 function harness(options={}){
   const f=productFixture(),calls=[],providerCalls=[],downloads=[];
   const context={businesses:[{id:f.source.businessId}],supabase:{rpc:async(name,args)=>{calls.push({name,args});if(options.rpc)return options.rpc(name,args,f);return{data:args.p_operation==='workspace'?{sources:[],runs:[]}:{}};},storage:{from:bucket=>({download:async path=>{downloads.push({bucket,path});return{data:new Blob([f.bytes])};}})}}};
-  const deps={'server-only':{},'node:crypto':require('node:crypto'),'../creative/types':require('../.core-tests/creative/types.js'),'./production':P,'./contracts':require('../.core-tests/printful/contracts.js'),
+  const deps={'server-only':{},'../core/existing-effect-read':require('../.core-tests/core/existing-effect-read.js'),'../lib/existing-effect-read-runtime':{requireExistingEffectReadEligibility:async()=>{throw new Error('existing_effect_read_not_authorized');}},'node:crypto':require('node:crypto'),'../creative/types':require('../.core-tests/creative/types.js'),'./production':P,'./contracts':require('../.core-tests/printful/contracts.js'),
     './product-adapter':{PrintfulProductAdapter:class{constructor(){providerCalls.push('adapter');}}},'./product-engine':{executePrintfulProduct:async()=>{providerCalls.push('engine');return f.state;}}};
   const code=ts.transpileModule(readFileSync('src/printful/server.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,m={exports:{}};
   runInNewContext(`(function(require,module,exports){${code}\n})`,{process:{env:options.env??{PRINTFUL_PRODUCT_SERVER_KEY:'s'.repeat(32)}},Date,Uint8Array})(name=>{assert.ok(name in deps,name);return deps[name];},m,m.exports);

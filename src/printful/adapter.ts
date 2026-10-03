@@ -1,3 +1,4 @@
+import { requireTransportAdmission, type TransportAdmission } from "../core/transport-admission";
 import { parseCatalogProduct, parseCatalogVariant, parseVariantPrices, printfulReadRequest, assertPrintful,
   type CatalogProductId, type CatalogVariantId, type PrintfulCatalogVariant, type SupportedCurrency, type PrintfulProvenance } from "./contracts";
 
@@ -33,7 +34,7 @@ async function boundedJson(response: Response) {
   catch { throw new PrintfulReadError("invalid_response", "Printful returned malformed JSON; its body is not logged."); }
 }
 /** Only documented GET descriptors. Writes, orders, file upload and redirects are absent. */
-type CatalogAdapterOptions = {authorize: PrintfulReadAuthorization; fetcher?: typeof fetch; mode: "fixture" | "provider_response"; freshnessMs: number};
+type CatalogAdapterOptions = {authorize: PrintfulReadAuthorization; admitDispatch?: TransportAdmission; fetcher?: typeof fetch; mode: "fixture" | "provider_response"; freshnessMs: number};
 export class PrintfulCatalogAdapter {
   private readonly options: CatalogAdapterOptions;
   constructor(options: CatalogAdapterOptions) {
@@ -54,6 +55,7 @@ export class PrintfulCatalogAdapter {
     }
     const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), 10_000);
     try {
+      await requireTransportAdmission(this.options.admitDispatch, { provider: "printful", operation: "catalog.read", method: "GET", endpoint: request.url });
       const response = await (this.options.fetcher ?? fetch)(request.url, {method: "GET", redirect: "error", signal: controller.signal,
         headers: {Authorization: `Bearer ${connection.credential}`, "X-PF-Store-Id": String(connection.storeId), Accept: "application/json"}});
       if (response.status !== 200) {

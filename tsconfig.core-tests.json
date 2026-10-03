@@ -24,6 +24,7 @@
     "src/core/**/*.ts",
     "src/evaluations/**/*.ts",
     "src/lib/core-ui/workflows.ts",
+    "src/lib/existing-effect-read-runtime.ts",
     "src/models/**/*.ts",
     "src/packs/**/*.ts",
     "src/research/**/*.ts",

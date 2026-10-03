@@ -123,7 +123,7 @@ test('current quote uses injected pricing only and owns each returned price befo
 });
 test('full fake OpenRouter wire flow pins providers, no fallbacks, 6000 output tokens and new durable artifact ID', async () => {
   const h = harness(), wires = [];
-  h.options.adapter = new OpenRouterAdapter({ config: { apiKey: 'fake-offline-fixture', baseUrl: 'https://openrouter.ai/api/v1', appUrl: 'https://example.test', appName: 'Offline test' },
+  h.options.adapter = new OpenRouterAdapter({ admitDispatch: async () => {}, config: { apiKey: 'fake-offline-fixture', baseUrl: 'https://openrouter.ai/api/v1', appUrl: 'https://example.test', appName: 'Offline test' },
     fetcher: async (_url, init) => {
       const wire = JSON.parse(init.body); wires.push(wire); const specialist = wire.model === B.LISTING_MODELS.specialist;
       return new Response(JSON.stringify({ id: `wire-${specialist ? 'specialist' : 'reviewer'}`, model: wire.model, provider: specialist ? 'OpenAI' : 'Anthropic',
@@ -197,7 +197,7 @@ test('malformed output settles its known charge, stays unvalidated and never lea
 });
 test('malformed wire JSON preserves adapter error accounting and never performs automatic repair', async () => {
   const h = harness(); let count = 0;
-  h.options.adapter = new OpenRouterAdapter({ config: { apiKey: 'fake-offline-fixture', baseUrl: 'https://openrouter.ai/api/v1', appUrl: 'https://example.test', appName: 'Offline test' },
+  h.options.adapter = new OpenRouterAdapter({ admitDispatch: async () => {}, config: { apiKey: 'fake-offline-fixture', baseUrl: 'https://openrouter.ai/api/v1', appUrl: 'https://example.test', appName: 'Offline test' },
     fetcher: async () => { count++; return new Response(JSON.stringify({ id: 'malformed-wire-request', model: B.LISTING_MODELS.specialist, provider: 'OpenAI',
       choices: [{ finish_reason: 'stop', message: { content: '{"raw-private-text":' } }], usage: { cost: .0042 } }), { status: 200 }); } });
   assert.equal((await h.run()).reason, 'listing_provider_failed'); assert.equal(count, 1); assert.equal(h.issued.length, 0);

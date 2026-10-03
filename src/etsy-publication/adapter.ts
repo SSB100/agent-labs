@@ -1,4 +1,5 @@
 import { etsyJson, formBody } from "../etsy/adapter";
+import { requireTransportAdmission, type TransportAdmission } from "../core/transport-admission";
 import { EtsyError, positiveId, record, requireEtsy, sameScope, type EtsyConnection, type EtsyScope } from "../etsy/contracts";
 
 const API = "https://api.etsy.com/v3/application";
@@ -17,8 +18,12 @@ export class EtsyPublicationAdapter {
   private readonly revision: string;
   private readonly listingId: number;
   private activated = false;
-  constructor(options: { authorize: () => Promise<EtsyConnection>; apiKey: string; scope: EtsyScope; connectionRevision: string; listingId: number; fetcher?: typeof fetch }) {
+  private readonly admitDispatch?: TransportAdmission;
+  private readonly admitReconciliation?: TransportAdmission;
+  constructor(options: { authorize: () => Promise<EtsyConnection>; apiKey: string; scope: EtsyScope; connectionRevision: string; listingId: number; fetcher?: typeof fetch; admitDispatch?: TransportAdmission; admitReconciliation?: TransportAdmission }) {
     this.authorize = options.authorize; this.apiKey = options.apiKey; this.fetcher = options.fetcher ?? fetch;
+    this.admitDispatch = options.admitDispatch;
+    this.admitReconciliation = options.admitReconciliation;
     this.scope = { ...options.scope }; this.revision = options.connectionRevision; this.listingId = positiveId(options.listingId);
     requireEtsy(typeof this.apiKey === "string" && /^[^\s:]+:[^\s:]+$/.test(this.apiKey), "etsy_app_not_configured");
   }
@@ -28,6 +33,12 @@ export class EtsyPublicationAdapter {
     requireEtsy(connection.status === "connected" && connection.revision === this.revision && Date.parse(connection.expiresAt) > Date.now() && typeof connection.accessToken === "string" && connection.accessToken.length > 0 && !/[\r\n]/.test(connection.accessToken), "account_access_revoked");
     if (activate) { requireEtsy(!this.activated, "publication_already_dispatched"); this.activated = true; }
     const transport: typeof fetch = async (input, init) => {
+      try { await requireTransportAdmission(!activate && this.admitReconciliation ? this.admitReconciliation : this.admitDispatch, { provider: "etsy", operation: activate ? "listing.activate" : "listing.read", method: activate ? "PATCH" : "GET", endpoint: `${API}${path}` }); }
+      catch { throw new EtsyError("account_access_denied"); }
+      if (!activate && this.admitReconciliation) {
+        const current = await this.authorize(); sameScope(this.scope, current);
+        requireEtsy(current.status === "connected" && current.revision === this.revision && Date.parse(current.expiresAt) > Date.now() && current.accessToken === connection.accessToken, "account_access_revoked");
+      }
       const response = await this.fetcher(input, init);
       // Only explicit client/auth/not-found/validation rejection is classified.
       // Timeouts, rate limits, 5xx and malformed responses remain uncertain.

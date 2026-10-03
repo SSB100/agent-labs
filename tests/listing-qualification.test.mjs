@@ -150,7 +150,7 @@ test('five-call complete quote bounds two specialist and three reviewer calls un
 });
 test('full five-call fake OpenRouter wire test reaches only the injected finish sink, never real qualification', async () => {
   const h = harness(), wires = []; let call = 0;
-  h.options.adapter = new OpenRouterAdapter({ config: { apiKey: 'offline-not-a-real-key', baseUrl: 'https://openrouter.ai/api/v1', appUrl: 'https://example.test', appName: 'Offline qualification test' },
+  h.options.adapter = new OpenRouterAdapter({ admitDispatch: async () => {}, config: { apiKey: 'offline-not-a-real-key', baseUrl: 'https://openrouter.ai/api/v1', appUrl: 'https://example.test', appName: 'Offline qualification test' },
     fetcher: async (_url, init) => {
       const key = Q.LISTING_QUALIFICATION_CASE_KEYS[call++], wire = JSON.parse(init.body); wires.push(wire);
       return new Response(JSON.stringify({ id: `wire-${key}`, model: wire.model, provider: key.startsWith('specialist') ? 'OpenAI' : 'Anthropic',

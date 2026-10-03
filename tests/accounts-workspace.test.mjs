@@ -20,7 +20,7 @@ const noop = async () => {};
 const actionNames = ['saveBusinessAccountProfile', 'requestAccountSetup', 'approveReviewedAccountSetup', 'cancelAccountSetup', 'resumeVerifiedAccountSetup', 'disconnectBusinessAccount', 'submitOwnerPrintfulCredential', 'storeOwnerWebsitePassword', 'removeOwnerWebsitePassword', 'startApprovedAccountRegistration', 'finishOwnerRegistrationSession'];
 const actionStubs = Object.fromEntries(actionNames.map(name => [name, noop]));
 const feedbackContract = load('src/accounts/connection-feedback.ts', {});
-const printfulContract = load('src/accounts/printful.ts', { '../printful/account': {}, '../printful/contracts': {}, './vault': {} });
+const printfulContract = load('src/accounts/printful.ts', { '../core/transport-admission':require('../.core-tests/core/transport-admission.js'), '../printful/account': {}, '../printful/contracts': {}, './vault': {} });
 const feedbackUi = load('src/app/dashboard/accounts/connection-feedback.tsx', { 'react': React, 'react/jsx-runtime': require('react/jsx-runtime'), 'next/navigation': { unstable_rethrow() {} } });
 const viewDependencies = {
   '@/components/console/console-retained-workspace': retainedFixture(),

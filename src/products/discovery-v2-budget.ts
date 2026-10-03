@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { JsonObject } from "../core/contracts";
 import { fetchCreativeModelQuote, type CreativeModelQuote } from "../creative/budget";
 import { OpenRouterAdapter } from "../models/openrouter";
-import { ModelProviderError, type ModelProviderResponse, type StructuredModelRequest, type WebSearchModelRequest } from "../models/types";
+import { ModelProviderError, type ModelDispatchAdmission, type ModelProviderResponse, type StructuredModelRequest, type WebSearchModelRequest } from "../models/types";
 import { validateResearchRequest } from "../research/sources";
 import { JsonSchemaValidationError } from "../workers/schema-validator";
 
@@ -24,6 +24,7 @@ export const DISCOVERY_V2_BUDGET = {
 export type DiscoveryV2BudgetScope = { intentId: string; maximumCollections: 0 | 1 | 2; maximumMicrousd: number; policyHash: string };
 export type DiscoveryV2Reservation = { attemptKey: DiscoveryV2Call; reservedMicrousd: number; requestHash: string; estimate: JsonObject };
 export interface DiscoveryV2Ledger {
+  admissionFor?(reservation: DiscoveryV2Reservation): ModelDispatchAdmission;
   reserve(value: DiscoveryV2Reservation): Promise<{ shouldCall: boolean; totalReservedMicrousd: number }>;
   settle(attemptKey: DiscoveryV2Call, reportedMicrousd: number | null, providerRequestId: string | null): Promise<void>;
 }
@@ -126,12 +127,13 @@ export async function callDiscoveryV2(options: { scope: DiscoveryV2BudgetScope; 
   // cannot change the model, prompt, source domains or authority covered by the hash.
   const scope = structuredClone(options.scope), key = options.key, originalRequest = structuredClone(options.request);
   const ledger = options.ledger, prices = options.prices ?? fetchDiscoveryV2ModelQuote;
-  const provider = options.provider ?? new OpenRouterAdapter();
+  const suppliedProvider = options.provider;
   const quote = structuredClone(await prices(discoveryV2Model(key)));
   const boundedRequest = { ...originalRequest, requireReturnedModel: true, providerOnly: [key === "review:1" ? "anthropic" : "openai"] };
   const reservation = reserveDiscoveryV2(scope, key, boundedRequest, quote);
   const reserved = await ledger.reserve(reservation);
   if (!reserved.shouldCall) throw fail("Discovery attempt already reserved; no automatic replay or retry is permitted.");
+  const provider = suppliedProvider ?? new OpenRouterAdapter({ admitDispatch: ledger.admissionFor?.(reservation) });
   const limits = { prompt: quote.inputPerMillion, completion: quote.outputPerMillion, request: 0 as const };
   let response: ModelProviderResponse;
   try {

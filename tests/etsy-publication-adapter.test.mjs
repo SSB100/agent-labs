@@ -24,7 +24,7 @@ function wire(f,override){
     else throw new Error(`Unexpected synthetic request ${path}`);
     return new Response(JSON.stringify(body),{status:200,headers:{'content-type':'application/json'}});
   };
-  const adapter=new EtsyPublicationAdapter({authorize:async()=>structuredClone(f.connection),apiKey:'synthetic-key:synthetic-secret',scope:f.state,connectionRevision:f.state.connectionRevision,listingId:500,fetcher});
+  const adapter=new EtsyPublicationAdapter({ admitDispatch: async () => {},authorize:async()=>structuredClone(f.connection),apiKey:'synthetic-key:synthetic-secret',scope:f.state,connectionRevision:f.state.connectionRevision,listingId:500,fetcher});
   return{adapter,calls};
 }
 test('complete engine wire performs exactly one bounded PATCH with state only and fresh independent GETs',async()=>{

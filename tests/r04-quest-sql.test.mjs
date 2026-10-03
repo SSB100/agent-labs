@@ -37,13 +37,17 @@ test('R04 full migration replay and real owner/immutability/version/lineage cont
  const tables=(await db.query("select c.relname,c.relrowsecurity,has_table_privilege('authenticated',c.oid,'SELECT,INSERT,UPDATE,DELETE') access from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='private' and c.relkind='r' and c.relname like 'r04_%'")).rows;
  assert.equal(tables.length,9);for(const t of tables){assert.equal(t.relrowsecurity,true);assert.equal(t.access,false);}
  const failures=[];
- const suites=readdirSync(path.join(root,'supabase/tests')).filter(f=>f.endsWith('.sql')&&f!=='r04_research_lineage.sql').sort();
+ const suites=readdirSync(path.join(root,'supabase/tests')).filter(f=>f.endsWith('.sql')&&!['r04_research_lineage.sql','r05_existing_effect_readback.sql'].includes(f)).sort();
  for(const file of suites) {
   try {
    let source=sql(path.join(root,'supabase/tests',file));
    if(file==='stage13_v2_shared_goal_budget.sql') {
     assert.equal([...source.matchAll(/rollback;\s*$/g)].length,1,'Lineage fixture must run before the exact final rollback');
     source=source.replace(/rollback;\s*$/,()=>sql(path.join(root,'supabase/tests/r04_research_lineage.sql'))+'\nrollback;');
+   }
+   if(['stage15_product_configuration.sql','stage18_etsy_publication.sql'].includes(file)) {
+    assert.equal([...source.matchAll(/rollback;\s*$/g)].length,1);
+    source=source.replace(/rollback;\s*$/,()=>sql(path.join(root,'supabase/tests/r05_existing_effect_readback.sql'))+'\nrollback;');
    }
    if(file==='stage17_listing.sql') {
     // This older test seeds one administrative synthetic Printful receipt directly.

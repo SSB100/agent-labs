@@ -161,9 +161,11 @@ do $$ declare rid uuid:=pg_temp.seed_qualification(6); b uuid:='17000000-1111-41
  perform public.listing_qualification_transition(rid,b,cap,'reserve',pg_temp.qualification_reserve(rid,'specialist_injection'));
  payload:=pg_temp.qualification_settle(rid,'specialist_injection',2000,false);
  payload:=jsonb_set(jsonb_set(payload,'{providerRequestId}',to_jsonb(duplicate_id)),'{receipt,providerRequestId}',to_jsonb(duplicate_id));
- perform public.listing_qualification_transition(rid,b,cap,'settle',payload);
- assert private.stage17_qualification_costs(rid)->'knownMicrousd'='3000';
- assert (select status='failed' from private.listing_qualification_runs where id=rid);
+ -- R05 globally binds a provider receipt to one exact call. The rejected second
+ -- claim retains its pending reservation; it cannot borrow the first receipt.
+ perform pg_temp.expect_error(format('select public.listing_qualification_transition(%L,%L,%L,''settle'',%L::jsonb)',rid,b,cap,payload),'r05_receipt_already_used');
+ assert private.stage17_qualification_costs(rid)->'knownMicrousd'='1000';
+ assert private.stage17_qualification_costs(rid)->'pendingCount'='1';
 end $$;
 do $$ declare rid uuid:=pg_temp.seed_qualification(7,clock_timestamp()-interval '1 second'); b uuid:='17000000-1111-4111-8111-000000000002'; cap text:=repeat('qualification-local-cap-',3); payload jsonb; result jsonb; begin
  perform pg_temp.expect_error(format('select public.listing_qualification_transition(%L,%L,%L,''load'')',rid,b,cap),'listing_qualification_capability_expired');

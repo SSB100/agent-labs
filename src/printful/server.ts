@@ -1,4 +1,7 @@
 import "server-only";
+import { existingEffectReadAdmission } from "../core/existing-effect-read";
+import { requireExistingEffectReadEligibility } from "../lib/existing-effect-read-runtime";
+import type { TransportAdmission } from "../core/transport-admission";
 import { randomBytes, randomUUID } from "node:crypto";
 import type { OwnerInterventionRecord } from "../lib/core-ui/workflows";
 import type { OwnerUiContext } from "../lib/core-ui/data";
@@ -141,7 +144,21 @@ export async function runPrintfulProduct(context: OwnerUiContext, businessId: st
     // Remains intentionally unavailable until the separate activation workflow
     // exists. Neither arbitrary form input nor catalog.read can reach POST.
     await resolvePrintfulProductWriteAuthority(context, state);
-    const provider = new PrintfulProductAdapter({ scope: state, mode: "provider_response", authorize: expected => resolvePrintfulProductWriteAuthority(context, expected) });
+    const saved = structuredClone(state);
+    const admitReconciliation: TransportAdmission | undefined = saved.dispatch ? async request => {
+      const original = await repository.guard("reconcile");
+      productAssert(original.sourceHash === saved.sourceHash && original.approvalHash === saved.approvalHash &&
+        original.source.connectionRevision === saved.connectionRevision, "product_binding_changed");
+      const root = "https://api.printful.com";
+      // The engine saves a numeric ID only after a GET verifies the immutable
+      // external identity. It then rechecks that identity before reading it.
+      const endpoints = [`${root}/stores/${saved.storeId}`,`${root}/files/${original.source.printfulFileId}`,`${root}/store/products/@${saved.identity}`];
+      if (state.syncProductId !== null) endpoints.push(`${root}/store/products/${state.syncProductId}`);
+      await existingEffectReadAdmission({businessId:saved.businessId,runId:saved.id,requestHash:saved.requestHash,
+        sentAt:saved.dispatch!.sentAt,connectionId:saved.connectionId,connectionRevision:saved.connectionRevision,provider:"printful",endpoints},
+        requireExistingEffectReadEligibility)(request);
+    } : undefined;
+    const provider = new PrintfulProductAdapter({ scope: state, mode: "provider_response", authorize: expected => resolvePrintfulProductWriteAuthority(context, expected), admitReconciliation });
     entered = true;
     return await executePrintfulProduct({ ...repository, acquire: async () => state }, provider);
   } finally { if (!entered) await repository.release(); }

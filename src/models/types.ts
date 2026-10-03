@@ -1,5 +1,10 @@
 import type { JsonObject, JsonValue } from "../core/contracts";
 
+/** Trusted runtime callback at the final transport boundary. Never model/user supplied. */
+export type ModelDispatchAdmission = (request: {
+  url: string; method: "POST"; body: string;
+}) => Promise<void>;
+
 export const MODEL_CAPABILITIES = [
   "structured_output",
   "tool_use",

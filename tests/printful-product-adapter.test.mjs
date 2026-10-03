@@ -42,8 +42,12 @@ function product(s=source()) {return {code:200,result:{sync_product:summary(s),s
   product:{product_id:71,variant_id:4018},files:[file()],availability_status:'active'}]}};}
 const store = () => ({code:200,result:{id:123,type:'native',name:'Private store'}});
 const fileBody = () => ({code:200,result:file()});
-function adapter(fetcher, extra={}) {return new A.PrintfulProductAdapter({scope,authorize:async()=>connection(),mode:'fixture',fetcher,now:()=>now,...extra});}
+function adapter(fetcher, extra={}) {return new A.PrintfulProductAdapter({ admitDispatch: async () => {},scope,authorize:async()=>connection(),mode:'fixture',fetcher,now:()=>now,...extra});}
 const code = expected => error => error instanceof A.PrintfulProductError && error.code===expected && !error.message.includes(secret);
+test('product transport requires operating admission even with legacy fixture authorization',async()=>{
+  let calls=0;const a=adapter(async()=>{calls++;throw Error('must not call');},{admitDispatch:undefined});
+  await assert.rejects(a.store());assert.equal(calls,0);
+});
 
 test('native adapter uses only exact store/file/product paths, independent GETs and scoped authorization each time', async()=>{
   const calls=[],auth=[],s=source(),identity=P.productIdentity(s);
@@ -99,7 +103,7 @@ test('every transport revalidates connection revision and the documented read/wr
 });
 
 test('fixture mode needs injection, fixture sources cannot use provider mode, and input scope is copied',async()=>{
-  assert.throws(()=>new A.PrintfulProductAdapter({scope,authorize:async()=>connection(),mode:'fixture'}),code('product_source_invalid'));
+  assert.throws(()=>new A.PrintfulProductAdapter({ admitDispatch: async () => {},scope,authorize:async()=>connection(),mode:'fixture'}),code('product_source_invalid'));
   const s=source();let calls=0;
   await assert.rejects(()=>adapter(async()=>{calls++;},{mode:'provider_response'}).create(s,P.productIdentity(s)),code('product_source_invalid'));
   const mutable={...scope};const a=adapter(async()=>json(store()),{scope:mutable});mutable.storeId=456;
