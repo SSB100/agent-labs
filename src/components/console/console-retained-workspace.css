@@ -79,3 +79,7 @@
   .consoleRetainedBody a { display:inline-flex; align-items:center; min-height:44px; min-width:44px; }
   .consoleRetainedBody summary { min-height:44px; }
 }
+@media(max-width:900px),(max-height:540px) {
+  .consoleRetained .consoleRetainedHeader a { display:inline-flex; align-items:center; min-height:44px; min-width:44px; }
+  .consoleRetained .consoleRetainedBody button { min-height:44px; min-width:44px; }
+}
