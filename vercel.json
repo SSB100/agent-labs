@@ -12,5 +12,6 @@
       "feat/r06-bounded-reads": false,
       "feat/r07-quest-controller": false
     }
-  }
+  },
+  "buildCommand": "npm run deploy:build"
 }
