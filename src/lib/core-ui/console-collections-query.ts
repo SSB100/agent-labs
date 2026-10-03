@@ -63,7 +63,7 @@ export function consoleCollectionHref(current: URLSearchParams | Record<string, 
   if (!(current instanceof URLSearchParams)) for (const [key, value] of Object.entries(current)) {
     if (typeof value === "string") params.set(key, value); else if (Array.isArray(value)) for (const item of value) params.append(key, item);
   }
-  if (Object.hasOwn(changes, "selected")) { params.delete("run"); if (!Object.hasOwn(changes, "artifact")) params.delete("artifact"); }
+  if (Object.hasOwn(changes, "selected")) { if (params.get("view") === "work" && params.has("quest")) { if (changes.selected) params.set("episode", String(changes.selected)); else params.delete("episode"); if (!Object.hasOwn(changes, "step")) params.delete("step"); if (!Object.hasOwn(changes, "agent")) params.delete("agent"); } params.delete("run"); if (!Object.hasOwn(changes, "artifact")) params.delete("artifact"); }
   for (const [key, value] of Object.entries(changes)) {
     if (value === null || value === undefined || value === "") params.delete(key); else params.set(key, String(value));
   }

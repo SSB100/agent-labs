@@ -1,3 +1,5 @@
+import { runWorkspaceHttp } from './r08-http.mjs';
+import { runWorkspaceJourneys } from './r08-journeys.mjs';
 import assert from 'node:assert/strict';
 import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -8,7 +10,7 @@ import { runQuestJourneys } from './quest-journeys.mjs';
 import { runAdmissionJourneys } from './admission-journeys.mjs';
 import { runHistoryJourneys } from './r06-journeys.mjs';
 
-export async function runNextJourneys({origin,boundary,output,httpOnly=false,questsOnly=false,controlsOnly=false,historyOnly=false}) {
+export async function runNextJourneys({origin,boundary,output,httpOnly=false,questsOnly=false,controlsOnly=false,historyOnly=false,workspaceOnly=false}) {
   const results=[];let browserStatus=httpOnly?'unrun (HTTP-only requested)':'unrun';
   const report=()=>writeFile(path.join(output,'acceptance.json'),JSON.stringify({results,browser:browserStatus},null,2));
   const check=async(name,fn)=>{try{await fn();results.push({name,status:'passed'});console.log('PASS:',name);}catch(error){results.push({name,status:'failed',error:String(error.stack)});console.error('FAIL:',name,String(error.stack));await report();}finally{await fetch(boundary.origin+'/control',{method:'POST',body:JSON.stringify({delayId:null,delayMs:0,failTable:null,actionMode:'success'})});}};
@@ -31,6 +33,7 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false,que
     assert.match(first,/Loading exact saved workflow/);assert.ok(chunks>1);assert.ok(Date.now()-start>=900,'No delayed stream boundary observed');assert.match(text,/data-work-detail/);
     await fetch(boundary.origin+'/control',{method:'POST',body:JSON.stringify({delayId:null,delayMs:0})});
   });
+  if(workspaceOnly) await runWorkspaceHttp({origin,boundary,check});
   if(httpOnly){await report();assert.ok(results.every(result=>result.status==='passed'),'HTTP streaming checks failed; see acceptance.json');return;}
   let browser;
   try { browser=await chromium.launch({headless:true,executablePath:process.env.GUIDED_UI_CHROMIUM_PATH,args:['--no-sandbox']});browserStatus='actual Chromium against production Next'; }
@@ -41,6 +44,12 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false,que
     await context.route('**/*',route=>{const u=new URL(route.request().url());if(['http:','https:'].includes(u.protocol)&&u.origin!==origin){external.push(u.origin);return route.abort('blockedbyclient');}return route.continue();});
     page.on('response',r=>{if(r.headers()['content-type']?.includes('text/x-component'))requests.push({url:r.url(),status:r.status()});if(r.request().method()==='POST'&&r.request().headers()['next-action'])actions.push({url:r.url(),status:r.status(),revalidated:r.headers()['x-action-revalidated']??null,redirect:r.headers()['x-action-redirect']??null});});
     const business=id(1);
+    if(workspaceOnly){
+      await runWorkspaceJourneys({page,context,origin,boundary,output,check,requests,actions});
+      assert.deepEqual(external,[]);assert.deepEqual(boundary.denied,[]);
+      assert.ok(results.every(result=>result.status==='passed'),'R08 workspace Next checks failed; see acceptance.json');
+      await context.close();return;
+    }
     if(historyOnly){
       await runHistoryJourneys({page,context,origin,boundary,output,check,requests,actions});
       assert.deepEqual(external,[]);assert.deepEqual(boundary.denied,[]);
@@ -323,6 +332,7 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false,que
       await signedOut.close();
     });
     await runHistoryJourneys({page,context,origin,boundary,output,check,requests,actions});
+    await runWorkspaceJourneys({page,context,origin,boundary,output,check,requests,actions});
     assert.deepEqual(external,[],'Browser attempted external effects');
     assert.equal(boundary.effects.length,effectCount,'Route reads caused an additional mutable effect');
     await writeFile(path.join(output,'action-responses.json'),JSON.stringify(actions,null,2));

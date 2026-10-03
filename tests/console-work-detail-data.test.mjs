@@ -72,7 +72,7 @@ test('each child is independently bounded for 135+ rows in each of two Businesse
     assert.ok(result.artifacts.every(row => row.business_id === businessId && row.workflow_run_id === selectedRun && !Object.hasOwn(row, 'content')));
   }
   for (const call of h.calls.filter(call => Object.hasOwn(first, call.table))) {
-    assert.deepEqual(call.range, [0,25]); assert.deepEqual(call.orders[1], ['id', false]);
+    assert.deepEqual(call.range, [0,25]); if(call.table==='workflow_stage_runs')assert.deepEqual(call.orders,[['sequence',true],['attempt',true],['id',true]]);else assert.deepEqual(call.orders[1], ['id', false]);
     assert.equal(call.payloads.length, 0);
     assert.ok(call.filters.some(f => f[1] === 'workflow_run_id'));
   }

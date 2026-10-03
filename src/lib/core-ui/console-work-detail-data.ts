@@ -67,7 +67,7 @@ export async function loadConsoleWorkDetail(context: OwnerUiContext, runId: stri
   const [definitionResult, stageResult, taskResult, workerResult, interventionResult, artifactResult, artifactSelection] = await Promise.all([
     consoleRead(client.from("workflow_definitions").select(CONSOLE_DEFINITION_SELECT, { count: "exact" }).eq("id", run.workflow_definition_id).limit(2)),
     // Stages inherit Business ownership from the independently verified exact parent run.
-    consoleRead(client.from("workflow_stage_runs").select(STAGE, { count: "exact" }).eq("workflow_run_id", run.id).order("created_at", { ascending: false }).order("id", { ascending: false }).range(childQuery("workflow_stage_runs").offset,childQuery("workflow_stage_runs").offset+CONSOLE_WORK_CHILD_LIMIT)),
+    consoleRead(client.from("workflow_stage_runs").select(STAGE, { count: "exact" }).eq("workflow_run_id", run.id).order("sequence", { ascending: true }).order("attempt", { ascending: true }).order("id", { ascending: true }).range(childQuery("workflow_stage_runs").offset,childQuery("workflow_stage_runs").offset+CONSOLE_WORK_CHILD_LIMIT)),
     consoleRead(metadata("task_contracts", TASK)), consoleRead(metadata("worker_runs", WORKER)),
     consoleRead(metadata("owner_interventions", INTERVENTION, "requested_at")), consoleRead(metadata("artifacts", ARTIFACT_METADATA)),
     consoleExactSelection<ArtifactRecord>(context, "artifacts", `${ARTIFACT_METADATA},metadata,content`, q.artifactId, [run.business_id], row => sameRun(row) && typeof row.artifact_type === "string" && (row.content === null || consoleObject(row.content)), run.id),

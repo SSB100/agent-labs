@@ -1,3 +1,4 @@
+import { carryWorkspace } from "@/lib/core-ui/workspace-navigation";
 import Link from "next/link";
 import { HistoryPager } from "./history-pager";
 import type { ReactNode } from "react";
@@ -9,7 +10,7 @@ import type { OwnerUiContext } from "@/lib/core-ui/data";
 
 import "./console-shell.css";
 
-export type ConsoleView = "overview" | "work" | "library" | "research" | "decisions" | "connections" | "activity" | "advanced";
+export type ConsoleView = "overview" | "work" | "library" | "research" | "decisions" | "connections" | "activity" | "advanced" | "products-catalog" | "knowledge" | "decision-log";
 
 export type ConsoleShellProps = {
   active: CoreSection | ConsoleView;
@@ -33,13 +34,16 @@ type ConsoleDestination = {
 
 export const consoleNavigation: readonly ConsoleDestination[] = [
   { view: "overview", href: "/dashboard?view=overview", icon: "dashboard", label: "Overview" },
-  { view: "work", href: "/dashboard?view=work", icon: "workflow", label: "Work" },
+  { view: "work", href: "/dashboard?view=work", icon: "workflow", label: "Events" },
   { view: "library", href: "/dashboard?view=library", icon: "artifacts", label: "Library" },
   { view: "research", href: "/dashboard?view=research", icon: "products", label: "Research" },
-  { view: "decisions", href: "/dashboard?view=decisions", icon: "needs-you", label: "Decisions" },
+  { view: "products-catalog", href: "/dashboard?view=products-catalog", icon: "products", label: "Products" },
+  { view: "knowledge", href: "/dashboard?view=knowledge", icon: "lab", label: "Knowledge" },
+  { view: "decision-log", href: "/dashboard?view=decision-log", icon: "history", label: "Decisions" },
+  { view: "decisions", href: "/dashboard?view=decisions", icon: "needs-you", label: "Needs owner" },
   { view: "connections", href: "/dashboard?view=connections", icon: "accounts", label: "Connections" },
-  { view: "activity", href: "/dashboard?view=activity", icon: "activity", label: "Activity" },
-  { view: "advanced", href: "/dashboard?view=advanced", icon: "settings", label: "Advanced" },
+  { view: "activity", href: "/dashboard?view=activity", icon: "activity", label: "Audit events" },
+  { view: "advanced", href: "/dashboard?view=advanced", icon: "settings", label: "Tools" },
 ];
 
 const sectionViews: Record<CoreSection, ConsoleView> = {
@@ -113,7 +117,7 @@ function WorkspaceContext({ context, selectedBusinessId, aggregate = false }: { 
   return (
     <div className="consoleWorkspaceContext" role={context.businessesUnavailable ? "status" : undefined}>
       <CoreIcon name="building" />
-      <span className="consoleWorkspaceName">{name}</span>
+      <span className="consoleWorkspaceName" title={context.workspaceQuest ? `${name} · Quest: ${context.workspaceQuest.title} · ${context.workspaceQuest.id}` : undefined}>{name}{context.workspaceQuest ? <small className="consoleQuestContext">Quest: {context.workspaceQuest.title} · {context.workspaceQuest.id.slice(-6)}</small> : null}</span>
     </div>
   );
 }
@@ -140,7 +144,7 @@ function OwnerMenu({ context }: { context: OwnerUiContext }) {
 export function ConsoleShell({ active, children, commandBar, context, workflowRunId, navigationBusinessId, globalDecisionCount = false, aggregateContext = false, toolDestination }: ConsoleShellProps) {
   const currentView = resolveConsoleView(active);
   const selectedBusinessId = context.businesses.some(business => business.id === navigationBusinessId) ? navigationBusinessId : undefined;
-  const destination = (href: string) => selectedBusinessId ? `${href}${href.includes("?") ? "&" : "?"}business=${encodeURIComponent(selectedBusinessId)}` : href;
+  const destination = (href: string) => carryWorkspace(selectedBusinessId ? `${href}${href.includes("?") ? "&" : "?"}business=${encodeURIComponent(selectedBusinessId)}` : href, context.readSearch);
   const currentLabel = toolDestination ? consoleToolNavigation.find(item => item.key === toolDestination)?.label ?? "Tools" : consoleNavigation.find(item => item.view === currentView)?.label ?? "Overview";
 
   return (
@@ -155,7 +159,7 @@ export function ConsoleShell({ active, children, commandBar, context, workflowRu
 
         <nav className="consoleNavigation" aria-label="Workspace views">
           {consoleNavigation.map(item => (
-            <Link key={item.view} className="consoleNavLink" href={item.view === "decisions" && globalDecisionCount ? item.href : destination(item.href)} aria-label={item.view === "connections" ? "Connections" : undefined} aria-current={item.view === currentView ? "page" : undefined}>
+            <Link key={item.view} className="consoleNavLink" href={item.view === "decisions" && globalDecisionCount && !new URLSearchParams(context.readSearch).has("quest") ? item.href : destination(item.href)} aria-label={item.view === "connections" ? "Connections" : undefined} aria-current={item.view === currentView ? "page" : undefined}>
               <CoreIcon name={item.icon} />
               <span className="consoleNavLabel">{item.view === "connections" ? <><span className="consoleNavFull">Connections</span><span className="consoleNavShort">Connect</span></> : item.label}</span>
               {item.view === "decisions" ? <DecisionCount context={context} global={globalDecisionCount} /> : null}

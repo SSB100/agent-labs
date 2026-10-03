@@ -64,6 +64,7 @@ export type OwnerUiContext = {
   readSearch?: string;
   readPath?: string;
   scopeBusinessId?: string;
+  workspaceQuest?: { id: string; title: string; selection: string };
 };
 
 export type WorkflowCollection = {
@@ -82,7 +83,7 @@ export type WorkflowCollection = {
   errors: string[];
 };
 
-const EMPTY_COLLECTION: WorkflowCollection = {
+export const EMPTY_COLLECTION: WorkflowCollection = {
   runs: [],
   definitions: [],
   stages: [],
@@ -153,7 +154,7 @@ export async function requireOwnerUiContext(): Promise<OwnerUiContext> {
 
 export async function loadWorkflowCollection(
   context: OwnerUiContext,
-  options: { limit?: number; statuses?: string[] } = {},
+  options: { limit?: number; statuses?: string[]; workflowRunId?: string } = {},
 ): Promise<WorkflowCollection> {
   const businessIds = context.scopeBusinessId ? [context.scopeBusinessId] : context.ownerDirectoryPaged ? null : context.businesses.map((business) => business.id);
   if (businessIds?.length===0) return { ...EMPTY_COLLECTION, errors: context.businessesUnavailable ? ["Business records could not be loaded"] : [] };
@@ -165,13 +166,14 @@ export async function loadWorkflowCollection(
     .order("created_at", { ascending: false }).order("id",{ascending:false})
     .limit(runLimit);
   if(businessIds!==null)baseRunQuery=baseRunQuery.in("business_id",businessIds);
+  if(options.workflowRunId)baseRunQuery=baseRunQuery.eq("id",options.workflowRunId);
   const runResult = options.statuses?.length
     ? await baseRunQuery.in("status", options.statuses)
     : await baseRunQuery;
   const runs = rows<WorkflowRunRecord>(runResult.data);
   // A newer terminal history page cannot hide the current open workflow.
   let activeUnavailable=false;
-  if(context.ownerDirectoryPaged && !options.statuses?.length){
+  if(context.ownerDirectoryPaged && !options.statuses?.length && !options.workflowRunId){
     let activeQuery=context.supabase.from("workflow_runs").select(WORKFLOW_RUN_SELECT,{count:"exact"}).in("status",["queued","running","waiting","review","needs_owner"]).is("completed_at",null).order("updated_at",{ascending:false}).order("id",{ascending:false}).limit(1);
     if(businessIds!==null)activeQuery=activeQuery.in("business_id",businessIds);
     const active=await activeQuery;activeUnavailable=!!active.error || !Number.isSafeInteger(active.count);

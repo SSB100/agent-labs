@@ -1,3 +1,4 @@
+import { carryWorkspace } from "@/lib/core-ui/workspace-navigation";
 import Link from "next/link";
 import { useId, type ReactNode } from "react";
 
@@ -39,6 +40,7 @@ export type ConsoleOutputPreview = { artifactId: string; signedUrl: string; alt:
 export type ConsoleOverviewContext = Pick<OwnerUiContext,
   "displayName" | "businesses" | "needsYouCount" | "needsYouUnavailable" | "businessesUnavailable">;
 export type ConsoleOverviewProps = {
+  workspaceSearch?: string;
   context: ConsoleOverviewContext;
   collection: WorkflowCollection;
   costs?: ConsoleCosts;
@@ -182,12 +184,14 @@ function ConnectionPanel({ connections, businessId }: { connections: ConsoleConn
   </Panel>;
 }
 
-export function ConsoleOverview({ context, collection, costs = { status: "not_loaded" }, connections = { status: "not_loaded" }, outputPreviews = [], researchHref, navigationBusinessId, centreMode = "overview", browserData }: ConsoleOverviewProps) {
-  const rootLink = (view: RootView) => `/dashboard?view=${view}${navigationBusinessId ? `&business=${encodeURIComponent(navigationBusinessId)}` : ""}`;
+export function ConsoleOverview({ context, collection, costs = { status: "not_loaded" }, connections = { status: "not_loaded" }, outputPreviews = [], researchHref, navigationBusinessId, centreMode = "overview", browserData, workspaceSearch }: ConsoleOverviewProps) {
+  const rootLink = (view: RootView) => carryWorkspace(`/dashboard?view=${view}${navigationBusinessId ? `&business=${encodeURIComponent(navigationBusinessId)}` : ""}`, workspaceSearch);
+  const runLink = (id: string) => workspaceSearch ? carryWorkspace(`/dashboard?view=work&business=${navigationBusinessId ?? ""}&selected=${id}&episode=${id}`, workspaceSearch) : `/dashboard?view=work&run=${encodeURIComponent(id)}`;
   const scopedResearchHref = researchHref ?? `/dashboard?view=overview${navigationBusinessId ? `&business=${encodeURIComponent(navigationBusinessId)}` : ""}&sheet=research`;
   const data = deriveConsoleOverview(context, collection, scopedResearchHref);
   const { unavailable, activeWorkers, receipts, decisions, decisionCount, currentRun } = data;
   const next = { ...data.next, href: navigationBusinessId && !/[?&](?:business|run)=/.test(data.next.href) ? `${data.next.href}&business=${encodeURIComponent(navigationBusinessId)}` : data.next.href };
+  if (workspaceSearch) next.href = carryWorkspace(next.href, workspaceSearch);
   const events = [...collection.events].filter(event => !event.workflow_run_id || data.runById.get(event.workflow_run_id)?.business_id === event.business_id).sort((a, b) => b.occurred_at.localeCompare(a.occurred_at));
   const currentDefinition = currentRun ? data.definitions.get(currentRun.workflow_definition_id) : undefined;
   const currentRunStopped = Boolean(currentRun && ACTIVE_WORKFLOW_STATUSES.has(currentRun.status) && workflowExecutionEnded(currentRun));

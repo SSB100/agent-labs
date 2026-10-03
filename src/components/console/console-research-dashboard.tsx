@@ -1,3 +1,4 @@
+import { copyWorkspace } from "@/lib/core-ui/workspace-navigation";
 import { verifyOwnerBusiness } from "@/lib/core-ui/owner-business";
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
@@ -19,7 +20,7 @@ type Search = Record<string, string | string[] | undefined>;
 /** Separately streamed exact content. Loading never attests a ready historical result. */
 export async function ConsoleResearchExactEvidence({ context, record, observedAt, scopeHref }: { context: OwnerUiContext; record: ConsoleResearchHistorical; observedAt: string; scopeHref: string }) {
   const evidence = await loadConsoleResearchEvidence(context, { experimentId: record.id, businessId: record.business_id, observedAt });
-  return <><ConsoleResearchEvidenceContent record={record} evidence={evidence}/><ConsoleResearchEvidenceReady ownerId={context.userId} scopeHref={scopeHref} recordId={record.id} businessId={record.business_id}/></>;
+  return <><ConsoleResearchEvidenceContent record={record} evidence={evidence} scopeHref={scopeHref}/><ConsoleResearchEvidenceReady ownerId={context.userId} scopeHref={scopeHref} recordId={record.id} businessId={record.business_id}/></>;
 }
 function unavailablePage(q: ConsoleResearchQuery): ConsoleResearchPage {
   const errors = ["Business records are unavailable; saved Research records could not be checked."];
@@ -34,7 +35,7 @@ export async function ConsoleResearchDashboard({ context, query }: { context: Ow
   try { const kind = query.type === "records" ? "records" : "roots"; q = consoleResearchQuery(kind, consoleResearchOptionsFromSearch(query, kind)); }
   catch { notFound(); }
   if (q.businessId && !context.businessesUnavailable && !context.businesses.some(business => business.id === q.businessId)) notFound();
-  const params = consoleResearchSearch(q);
+  const params = consoleResearchSearch(q); copyWorkspace(params, query);
   for(const key of ["businessPage","businessQuery","accountOpenPage"]){const value=query[key];if(typeof value==="string")params.set(key,value);}
   const returnTo = consoleResearchHref(params, {});
   const [data, accountRequests, observedAt] = await Promise.all([

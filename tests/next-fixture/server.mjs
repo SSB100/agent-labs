@@ -1,3 +1,4 @@
+import {workspaceSeed,workspaceView,workspaceRead} from './workspace.mjs';
 import { createServer } from 'node:http';
 import { fixtureData, id, time } from './data.mjs';
 import { readQuestFixture, saveQuestFixture } from './quests.mjs';
@@ -13,7 +14,7 @@ export async function startFixtureBoundary() {
     let body='';for await(const chunk of req)body+=chunk;
     const input=body?JSON.parse(body):{};
     const send = data => { res.setHeader('content-type','application/json');res.end(JSON.stringify(data)); };
-    if(req.url==='/control'){if(typeof input.history==='boolean'&&input.history!==state.history.enabled)state=fixtureData({history:input.history});control={...control,...input};return send({ok:true});}
+    if(req.url==='/control'){if(input.workspace===true&&!state.workspace)state.workspace=workspaceSeed(state,id,time);if(typeof input.history==='boolean'&&input.history!==state.history.enabled)state=fixtureData({history:input.history});control={...control,...input};return send({ok:true});}
     if(req.url==='/snapshot')return send({log,effects,denied,control});
     if(req.url==='/reset'){state=fixtureData();log.length=effects.length=denied.length=0;control={delayId:null,delayMs:0,failTable:null,actionMode:'success'};return send({ok:true});}
     if(req.url==='/claims')return send(input.session==='off'?{data:null,error:null}:{data:{claims:{sub:state.owner,email:'inert-owner@example.invalid'}},error:null});
@@ -21,7 +22,7 @@ export async function startFixtureBoundary() {
     if(req.url==='/read'){
       const call={...input};log.push(call);
       if(input.table===control.failTable||input.mode==='unavailable')return send({data:null,count:null,error:{message:'Inert unavailable read'}});
-      let rows=input.mode==='empty'&&!['businesses','profiles','workflow_definitions','worker_definitions'].includes(input.table)?[]:structuredClone(state.db[input.table]??[]),columns='*',settings={},limit=null,range=null,single=false;
+      let rows=input.mode==='empty'&&!['businesses','profiles','workflow_definitions','worker_definitions'].includes(input.table)?[]:structuredClone(input.table.startsWith('r08_')?workspaceView(state,input.table):state.db[input.table]??[]),columns='*',settings={},limit=null,range=null,single=false;
       const operations=input.operations??[];
       if(control.delayId && !operations.some(([op,key])=>op==='select'&&key==='business_id') && operations.some(([op,key,val])=>key==='id'&&((op==='eq'&&val===control.delayId)||(op==='in'&&val.includes(control.delayId)))))await new Promise(r=>setTimeout(r,control.delayMs));
       // RLS analogue: rows from a third Business are never exposed, including exact lookups.
@@ -50,6 +51,7 @@ export async function startFixtureBoundary() {
     }
     if(req.url==='/rpc'){
       const {name,args}=input;const business=args.p_business_id;
+      if(['r07_quest_read','r08_owner_read'].includes(name)){log.push({rpc:name,business,goal:args.p_goal_id,dataset:args.p_dataset,query:args.p_query});return send(workspaceRead(state,name,args,id,control.failDataset&&control.failDataset===args.p_dataset?'unavailable':input.mode));}
       if(name==='r06_read'){
         const call={rpc:name,business,dataset:args.p_dataset,query:args.p_query};log.push(call);
         const response=readHistoryFixture(state,args,control.failDataset===args.p_dataset?'unavailable':input.mode);

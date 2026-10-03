@@ -1,3 +1,5 @@
+import { ConsoleEpisodeEvidence } from "./console-episode-evidence";
+import { copyWorkspace } from "@/lib/core-ui/workspace-navigation";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { OwnerUiContext } from "@/lib/core-ui/data";
@@ -39,7 +41,7 @@ export async function ConsolePopulatedDashboard({ context, query, view }: { cont
     if (Array.isArray(query.sheet) || (query.sheet !== undefined && query.sheet !== "research")) notFound();
   } catch { notFound(); }
   if (q.businessId && !context.businessesUnavailable && !context.businesses.some(business => business.id === q.businessId)) notFound();
-  const params = collectionSearch(view, q);
+  const params = collectionSearch(view, q); copyWorkspace(params, query);
   const baseHref = `/dashboard?${params.toString()}`;
   const fragment = q.artifactId ? `#artifact-${q.artifactId}` : "";
   const returnTo = `${baseHref}${fragment}`;
@@ -80,7 +82,7 @@ export async function ConsolePopulatedDashboard({ context, query, view }: { cont
     <ConsoleMotionBoundary ownerId={context.userId} scopeKey={motionScope} snapshot={motionSnapshot}>
     {work ? <ConsoleWorkCollectionPane ownerId={context.userId} businesses={context.businesses} searchParams={params} data={work}
       headerAction={<Link className="consoleMiniAction" href={researchHref}>New research goal</Link>}>
-      {detail ? <ConsoleWorkDetail detail={detail} searchParams={params}/> : null}
+      {detail ? <ConsoleWorkDetail detail={detail} searchParams={params} episodeEvidence={detail.run && (query.step || query.agent) ? <ConsoleEpisodeEvidence context={context} businessId={detail.run.business_id} runId={detail.run.id} stepId={typeof query.step === "string" ? query.step : undefined} agentId={typeof query.agent === "string" ? query.agent : undefined}/> : null}/> : null}
     </ConsoleWorkCollectionPane> : null}
     {activity ? <ConsoleActivityCollectionPane ownerId={context.userId} businesses={context.businesses} searchParams={params} data={activity}/> : null}
     {researchSheet ? <ConsoleResearchSheet returnTo={returnTo}><QuestKickoff ownerId={context.userId} businesses={commandBusinesses} businessesUnavailable={context.businessesUnavailable} available={catalog?.available === true} quote={quote}/></ConsoleResearchSheet> : null}

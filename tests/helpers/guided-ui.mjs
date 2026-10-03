@@ -32,6 +32,7 @@ export function loadSource(file, dependencies = {}) {
   let sequence = 0;
   const crypto = { ...require("node:crypto"), randomUUID: () => `00000000-0000-4000-8000-${String(++sequence).padStart(12, "0")}` };
   runInNewContext(`(function(require,module,exports){${code}\n})`, { Date: FixtureDate, crypto, Buffer, URL, URLSearchParams, structuredClone, process: { env: { AGENTLABS_GUIDED_UI: "guided", NODE_ENV: "test" } } })(name => {
+    if (name === "@/lib/core-ui/workspace-navigation") return loadSource("src/lib/core-ui/workspace-navigation.ts");
     if (name === "../../core/quest-intake" && file === "src/lib/core-ui/quest-draft.ts") return loadSource("src/core/quest-intake.ts");
     if (name === "@/lib/core-ui/console-retained-feedback") return loadSource("src/lib/core-ui/console-retained-feedback.ts");
     if (["@/lib/core-ui/owner-business", "../lib/core-ui/owner-business", "./owner-business"].includes(name)) return loadSource("src/lib/core-ui/owner-business.ts");
@@ -211,7 +212,30 @@ export async function renderDashboard({ unavailable = false, empty = false, view
   if (libraryFixture) context.supabase = libraryFixture.context.supabase;
   const boundedLibrary = libraryFixture ? libraryFixture.load("src/components/console/console-library-dashboard.tsx") : { ConsoleLibraryDashboard: noAction };
 
+  // R03 supplemental presentation fixtures supply a typed inert R04 selection boundary.
+  // R08 source/SQL and actual Next suites exercise the genuine resolver and Quest-filtered transport.
+  const workspaceBoundary = { resolveWorkspace: async (ctx, input) => {
+    const selectedBusiness = ctx.businesses.find(b => b.id === input.business) ?? ctx.businesses[0];
+    if (input.business && !ctx.businesses.some(b => b.id === input.business)) throw Error("Fixture record was not found");
+    if (input.browserRun && !collection.runs.some(r => r.id === input.browserRun && r.business_id === selectedBusiness?.id)) throw Error("Fixture record was not found");
+    const qid = "00000000-0000-4000-8000-000000008200";
+    const selected = selectedBusiness && !empty ? {id:qid,businessId:selectedBusiness.id,title:"Synthetic selected Quest",revision:1,preference:"ready",content:{objective:"Inspect this exact Business workflow evidence",originalIntent:"Inert intent"}} : null;
+    const original = ctx.supabase;
+    const scoped = {...ctx,supabase:{...original,rpc:async name=>name==='r07_quest_read'?{data:{selected:null},error:null}:{data:{authorityRootId:selectedBusiness?.id,exposure:[]},error:null},from:table=>{
+      if(table!=='owner_interventions')return original.from(table);
+      const q={select:()=>q,eq:()=>q,then:(resolve,reject)=>Promise.resolve({data:null,count:ctx.needsYouCount,error:ctx.needsYouUnavailable?true:null}).then(resolve,reject)};return q;
+    }}};
+    return {context:scoped,businessId:selectedBusiness?.id??null,unavailable:businessesUnavailable,state:selectedBusiness?{businessId:selectedBusiness.id,business:{revision:1},selected,selection:selected?'current':'none',quests:selected?[selected]:[],total:selected?1:0,limit:20,offset:0}:null};
+  }};
+  const workspaceOverview = loadSource("src/components/console/console-workspace-overview.tsx", {
+    "./console-command":command,"@/components/guided/quest-kickoff":quest,"@/products/discovery-v2-data":{loadDiscoveryGoalData:async()=>({available:true})},
+    "@/lib/core-ui/console-data":{...consoleData,loadConsoleObservationTime:async()=>observedAt,loadConsoleResearchQuote:async()=>({one:370395,two:530914,verifiedAt:fixtureTime})},
+    "@/lib/core-ui/console-collections":{consoleObject:v=>!!v&&typeof v==='object'&&!Array.isArray(v)},"./console-shell":consoleShell,"./console-overview":overview,
+    "./console-motion":motionUi,"@/lib/core-ui/console-motion":motion,"@/lib/core-ui/data":{EMPTY_COLLECTION:workflowCollection({runs:[],definitions:[],stages:[],events:[],interventions:[],tasks:[],workerRuns:[],workerDefinitions:[],artifacts:[],errors:[]}),loadWorkflowCollection:async()=>collection},
+    "@/lib/core-ui/run-outcome-data":{loadRunCostData:async()=>costData},"@/browser/console-server":browserWire.server,"./console-workspace.css":{},
+  });
   const { default: Page } = loadSource("src/app/dashboard/page.tsx", {
+    "@/lib/core-ui/workspace-context":workspaceBoundary,"@/components/console/console-workspace-overview":workspaceOverview,
     "next/navigation": { notFound: () => { throw new Error("Fixture record was not found"); } },
     "@/components/console/console-shell": consoleShell, "@/components/console/console-overview": overview,
     "@/components/console/console-motion": motionUi, "@/lib/core-ui/console-motion": motion,
@@ -247,6 +271,7 @@ export async function renderDashboard({ unavailable = false, empty = false, view
   let tree = await Page({ searchParams: Promise.resolve(query) });
   if (React.isValidElement(tree) && tree.type?.name === "ConsolePopulatedDashboard") tree = await tree.type(tree.props);
   if (React.isValidElement(tree) && tree.type?.name === "ConsoleLibraryDashboard") tree = await tree.type(tree.props);
+  if (React.isValidElement(tree) && tree.type?.name === "ConsoleWorkspaceOverview") tree = await tree.type(tree.props);
   inspect?.(tree);
   reads.push(...browserWire.calls);
   return renderToStaticMarkup(tree);

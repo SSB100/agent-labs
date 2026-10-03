@@ -1,3 +1,4 @@
+import type { WorkspaceIntent } from "@/lib/core-ui/workspace-context";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ConsoleShell, consoleAdvancedNavigation, type ConsoleView } from "@/components/console/console-shell";
@@ -30,13 +31,21 @@ import "./products/products.css";
 
 export const dynamic = "force-dynamic";
 const first = (value: string | string[] | undefined) => Array.isArray(value) ? value[0] : value;
-const views = new Set<ConsoleView>(["overview", "work", "library", "research", "decisions", "connections", "activity", "advanced"]);
+const views = new Set<ConsoleView>(["overview", "work", "library", "research", "decisions", "connections", "activity", "advanced", "products-catalog", "knowledge", "decision-log"]);
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 export default async function DashboardPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   if (process.env.AGENTLABS_GUIDED_UI === "legacy") return <LegacyDashboard searchParams={searchParams}/>;
-  const context = await requireOwnerUiContext(), query = await searchParams;
+  let context = await requireOwnerUiContext(); const query = await searchParams;
   const proposedView = first(query.view) as ConsoleView | undefined;
   const view = proposedView && views.has(proposedView) ? proposedView : "overview";
+  let workspace: WorkspaceIntent = { state: null, businessId: typeof query.business === "string" ? query.business : null, unavailable: !!context.businessesUnavailable, context };
+  if (query.quest || ["overview", "products-catalog", "knowledge", "decision-log"].includes(view)) {
+    const { resolveWorkspace } = await import("@/lib/core-ui/workspace-context");
+    try { workspace = await resolveWorkspace(context, query, ["overview", "products-catalog", "knowledge", "decision-log"].includes(view)); } catch { notFound(); }
+  }
+  context = workspace.context;
+  if (["overview"].includes(view)) { const { ConsoleWorkspaceOverview } = await import("@/components/console/console-workspace-overview"); return <ConsoleWorkspaceOverview scope={workspace} query={query}/>; }
+  if (view === "products-catalog" || view === "knowledge" || view === "decision-log") { const { ConsoleOwnerRecords } = await import("@/components/console/console-owner-records"); return <ConsoleOwnerRecords scope={workspace} query={query} view={view}/>; }
   if (view === "work" || view === "activity") return <ConsolePopulatedDashboard context={context} query={query} view={view}/>;
   if (view === "research") {
     const { ConsoleResearchDashboard } = await import("@/components/console/console-research-dashboard");
@@ -83,15 +92,19 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   }
   if (view === "connections" && first(query.connectionRun)) current.set("connectionRun", first(query.connectionRun)!);
   if (view === "connections" && ["etsy", "printful"].includes(first(query.provider) ?? "")) current.set("provider", first(query.provider)!);
+  for (const key of ["quest", "episode", "step", "agent", "sourceArtifact"]) { const value = new URLSearchParams(context.readSearch).get(key); if (value) current.set(key, value); }
   const returnTo = decisionQuery ? consoleDecisionHref(decisionQuery) : `/dashboard?${current.toString()}`;
   const [accounts, costs, catalog, accountRequests, decisions, browserData] = await Promise.all([
     (view === "overview" || view === "connections") && selectedBusiness ? loadAccountWorkspace(context, selectedBusiness.id) : null,
     view === "overview" && focusRun ? loadRunCostData(context, focusRun, focusDefinition) : null,
     researchSheet ? loadDiscoveryGoalData(scopedContext, []) : null,
     context.businessesUnavailable ? { records: [], unavailable: true, page: undefined, globalCount:undefined } : loadAccountSetupInterventions(context, decisionQuery?.businessId),
-    decisionQuery ? loadConsoleDecisionPage(context, { businessId: decisionQuery.businessId ?? undefined, selectedId: decisionQuery.selectedId ?? undefined, page: decisionQuery.page, status: decisionQuery.status }) : null,
+    decisionQuery ? loadConsoleDecisionPage(context, { workspace: decisionQuery.workspace, businessId: decisionQuery.businessId ?? undefined, selectedId: decisionQuery.selectedId ?? undefined, page: decisionQuery.page, status: decisionQuery.status }) : null,
     view === "overview" ? loadConsoleBrowserWorkspace(context, { businessId: selectedBusiness?.id, workflowRunId: selectedBrowserRunId }) : null,
   ]);
+  const controllerRead = view === "decisions" && workspace.state?.selected ? await context.supabase.rpc("r07_quest_read", { p_business_id: workspace.businessId, p_goal_id: workspace.state.selected.id, p_plan_id: null, p_limit: 1, p_offset: 0 }) : null;
+  const controllerHead = controllerRead?.error ? null : controllerRead?.data?.selected?.head;
+  const controllerException = controllerHead && ["needs_owner", "blocked"].includes(controllerHead.state) && typeof controllerHead.reason === "string" ? { state: controllerHead.state, reason: controllerHead.reason, questId: workspace.state!.selected!.id, businessId: workspace.businessId! } : null;
   const verifiedDecisionBusinessId = decisions?.selection.status === "found" ? decisions.selection.item.business_id : undefined;
   const commandBusinessId = verifiedDecisionBusinessId ?? selectedBusiness?.id;
   const commandBusinesses = verifiedDecisionBusinessId ? context.businesses.filter(business => business.id === verifiedDecisionBusinessId) : scopedContext.businesses;
@@ -111,7 +124,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   return <ConsoleShell active={view} context={displayContext} globalDecisionCount navigationBusinessId={selectedBusiness?.id} commandBar={<ConsoleCommandBar ownerId={context.userId} businessId={commandBusinessId} returnTo={returnTo} unavailable={context.businessesUnavailable}/> }>
     <ConsoleMotionBoundary ownerId={context.userId} scopeKey={motionScope} snapshot={motionSnapshot}>
     {view === "overview" ? <ConsoleOverview context={displayContext} centreMode={centreMode} browserData={browserData ?? undefined} navigationBusinessId={selectedBusiness?.id} researchHref={`${returnTo}&sheet=research`} collection={collection} costs={consoleCostSummary(costs, `Current timeline run · ${focusRun?.id.slice(0, 8) ?? "not selected"}`, focusRun?.id)} connections={consoleConnectionSummary(accounts, selectedBusiness?.name ?? "Business", observedAt)}/> : null}
-    {view === "decisions" && decisions ? <ConsoleCompactDecisions data={decisions} businesses={context.businesses} businessId={decisionQuery?.businessId ?? undefined} actions={{ acknowledgeStoppedCreative: acknowledgeTerminalCreativeReview, syntheticReview: resumeSyntheticReview, browserControl: resumeBrowserControl, simulationReview: acknowledgeEtsySimulation }} outcome={decisionOutcome} notice={generalDecisionNotice} connectionRequests={{ page:accountRequests?.page, count: accountRequests?.unavailable ? null : accountRequests?.page?.total ?? 0, unavailable: accountRequests?.unavailable === true, records: accountRequests?.records ?? [] }}/> : null}
+    {view === "decisions" && decisions ? <ConsoleCompactDecisions controllerException={controllerException} data={decisions} businesses={context.businesses} businessId={decisionQuery?.businessId ?? undefined} actions={{ acknowledgeStoppedCreative: acknowledgeTerminalCreativeReview, syntheticReview: resumeSyntheticReview, browserControl: resumeBrowserControl, simulationReview: acknowledgeEtsySimulation }} outcome={decisionOutcome} notice={generalDecisionNotice} connectionRequests={{ page:accountRequests?.page, count: accountRequests?.unavailable ? null : accountRequests?.page?.total ?? 0, unavailable: accountRequests?.unavailable === true, records: accountRequests?.records ?? [] }}/> : null}
     {view === "connections" ? <section className="consolePane consoleConnectionsPane"><header className="consolePaneHeader"><div><h1>Connections</h1><p>{selectedBusiness?.name ?? "Business context unavailable"} · Saved account access and exact setup requests</p></div>{context.businesses.length > 1 ? <form method="get" className="connectionBusinessSelect"><input type="hidden" name="view" value="connections"/><label>Business <select name="business" defaultValue={selectedBusiness?.id}>{context.businesses.map(business => <option value={business.id} key={business.id}>{business.name}</option>)}</select></label><button className="coreButton" type="submit">Choose</button></form> : null}</header>{accounts ? <CompactConnectionsWorkspace data={accounts} returnTo={returnTo} provider={first(query.provider) === "etsy" ? "etsy" : "printful"} runId={first(query.connectionRun)} message={first(query.accountMessage)} resultId={uuid.test(first(query.accountResult) ?? "") ? first(query.accountResult) : undefined}/> : <p>{context.businessesUnavailable ? "Business records are unavailable." : "Create a Business in Advanced before adding connections."}</p>}</section> : null}
     {view === "advanced" ? <section className="consolePane"><header className="consolePaneHeader"><div><h1>Advanced</h1><p>Qualification tools, detailed records and owner settings</p></div></header><div className="consolePaneScroll"><div className="consoleActionGrid">{consoleAdvancedNavigation.map(item => <Link key={item.href} href={selectedBusiness && ["/dashboard/products", "/dashboard/artifacts", "/dashboard/accounts"].includes(item.href) ? `${item.href}?business=${selectedBusiness.id}` : item.href}>{item.label}<small>Open the existing protected workspace</small></Link>)}</div><details className="consoleDetails" id="workspace-setup" open={!context.businesses.length && !context.businessesUnavailable}><summary>Create a Business workspace</summary><form action={createBusiness} className="coreForm"><label htmlFor="console-business-name">Business name</label><input id="console-business-name" name="name" minLength={1} maxLength={120} required/><button className="coreButton coreButton-primary" disabled={context.businessesUnavailable} type="submit">Create workspace</button></form></details></div></section> : null}
     {researchSheet ? <ConsoleResearchSheet returnTo={returnTo}><QuestKickoff ownerId={context.userId} businesses={commandBusinesses} businessesUnavailable={context.businessesUnavailable} available={catalog?.available === true} quote={quote}/></ConsoleResearchSheet> : null}

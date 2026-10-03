@@ -23,7 +23,7 @@ export type ConsoleCollectionProps = {
 };
 type Config = { title: string; noun: string; search: string; order: string; description: string; statuses: readonly string[] };
 const config: Record<Kind, Config> = {
-  work: { title: "Work", noun: "runs", search: "Search workflow name", order: "Created", description: "Saved workflow runs and their recorded state", statuses: ["all", "active", "ended", "running", "queued", "waiting", "review", "needs_owner", "stopped", "completed", "failed", "cancelled"] },
+  work: { title: "Events", noun: "runs", search: "Search workflow name", order: "Created", description: "Work episodes backed by actual workflow runs · expand ordered Steps, Agents and outputs", statuses: ["all", "active", "ended", "running", "queued", "waiting", "review", "needs_owner", "stopped", "completed", "failed", "cancelled"] },
   activity: { title: "Recorded activity", noun: "events", search: "Search event type", order: "Occurred", description: "Underlying audit events; these rows are not work episodes", statuses: ["all"] },
 };
 const DISPLAY_LIMIT = 25;

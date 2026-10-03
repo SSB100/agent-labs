@@ -1,3 +1,4 @@
+import { copyWorkspace } from "@/lib/core-ui/workspace-navigation";
 import { notFound } from "next/navigation";
 import type { OwnerUiContext } from "@/lib/core-ui/data";
 import { loadAccountSetupInterventions } from "@/accounts/server";
@@ -33,7 +34,7 @@ export async function ConsoleLibraryDashboard({ context, query }: { context: Own
     q = consoleLibraryQuery(kind, consoleLibraryOptionsFromSearch(query, kind));
   } catch { notFound(); }
   if (q.businessId && !context.businessesUnavailable && !context.businesses.some(business => business.id === q.businessId)) notFound();
-  const params = canonicalLibrarySearch(q), returnTo = consoleLibraryHref(params, {});
+  const params = canonicalLibrarySearch(q); copyWorkspace(params, query); const returnTo = consoleLibraryHref(params, {});
   const options = consoleLibraryOptionsFromSearch(Object.fromEntries(params), q.kind);
   let data: ConsoleLibraryPage | ConsoleLibraryRecordsPage;
   if (context.businessesUnavailable) {

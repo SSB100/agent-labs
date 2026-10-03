@@ -303,6 +303,37 @@ jobs:
           R07_PG_PASSWORD: r07-isolated-fixture
         run: node --test tests/r07-quest-concurrency.test.mjs
 
+  r08-sql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: r08_test
+          POSTGRES_DB: r08_test
+          POSTGRES_PASSWORD: r08-isolated-fixture
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U r08_test -d r08_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Install isolated SQL runtime
+        run: npm install --prefix "$RUNNER_TEMP/r08-sql-host" --no-audit --no-fund --ignore-scripts @electric-sql/pglite@0.5.8 pg@8.16.3
+      - name: Verify R08 read-only projection, prior grants, owner isolation and exact scoped history
+        env:
+          R08_SQL_TEST_HOST: ${{ runner.temp }}/r08-sql-host
+          R08_REQUIRE_POSTGRES: "1"
+          R08_POSTGRES_URL: postgresql://r08_test:r08-isolated-fixture@127.0.0.1:5432/r08_test
+        run: node --test tests/r08-workspace-sql.test.mjs
+
   r03-next:
     runs-on: ubuntu-latest
     timeout-minutes: 30
