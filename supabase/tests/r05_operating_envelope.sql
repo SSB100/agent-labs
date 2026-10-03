@@ -39,6 +39,9 @@ declare candidate uuid:=gen_random_uuid(); experiment uuid:=gen_random_uuid(); r
  insert into public.product_research_cost_reservations(id,business_id,experiment_id,workflow_run_id,attempt_key,reserved_microusd,request_hash,estimate) values(reservation,b,experiment,wf,key,amount,repeat('e',64),'{}');
  return reservation;
 end $$;
+create function pg_temp.r05_legacy_receipt(b uuid,cost bigint,receipt text) returns jsonb language sql as $$
+ select pg_temp.r05_server(b,'legacy_settle',jsonb_build_object('kind','research','runId',null,'workflowRunId',w,'runtimeCapability',repeat('capability-',5),'callKey','selector:luna.standard','reportedMicrousd',cost,'providerRequestId',receipt,'receipt','{}'::jsonb)) from r05_fixture where r05_fixture.b=$1
+$$;
 select set_config('r05.a',pg_temp.r05_seed()::text,true);
 select set_config('r05.b',pg_temp.r05_seed()::text,true);
 grant select on r05_fixture to authenticated,anon,service_role;
@@ -50,6 +53,8 @@ select pg_temp.r05_reject($q$select public.r05_admission_read(current_setting('r
 select pg_temp.r05_reject($q$select * from private.r05_server_keys$q$,'permission denied');
 select set_config('request.jwt.claim.sub','95050000-0000-4000-8000-000000000001',true);
 select pg_temp.r05_assert(jsonb_array_length(public.r05_admission_read(current_setting('r05.a')::uuid)->'eligibleOperations')=1,'safe exact choices');
+select pg_temp.r05_reject($q$select public.r05_admission_read(current_setting('r05.a')::uuid,null,null,0)$q$,'r05_invalid_page');
+select pg_temp.r05_reject($q$select public.r05_admission_read(current_setting('r05.a')::uuid,null,20,null)$q$,'r05_invalid_page');
 select pg_temp.r05_reject($q$select public.r05_policy_owner(current_setting('r05.a')::uuid,'propose',(select jsonb_set(payload,'{currency}','"EUR"') from r05_fixture where b=current_setting('r05.a')::uuid),gen_random_uuid())$q$,'r05_unsupported_policy');
 select pg_temp.r05_reject($q$select public.r05_policy_owner(current_setting('r05.a')::uuid,'propose',(select jsonb_set(payload,'{startsAt}','null') from r05_fixture where b=current_setting('r05.a')::uuid),gen_random_uuid())$q$,'r05_invalid_policy_type');
 select pg_temp.r05_reject($q$select public.r05_policy_owner(current_setting('r05.a')::uuid,'pause',jsonb_build_object('kind','business','id',current_setting('r05.b')),gen_random_uuid())$q$,'r05_scope_unavailable');
@@ -68,6 +73,45 @@ select pg_temp.r05_assert(pg_temp.r05_server(current_setting('r05.a')::uuid,'gua
 select pg_temp.r05_settle(current_setting('r05.a')::uuid,(current_setting('r05.first')::jsonb->>'requestId')::uuid,'60','inert-receipt-a');
 select pg_temp.r05_assert(pg_temp.r05_server(current_setting('r05.a')::uuid,'guard',pg_temp.r05_input(current_setting('r05.a')::uuid,'third'))->>'reason'='financial_cap_exceeded','readback resolves unknown without resetting charge');
 reset role;
+do $$ declare biz uuid:=pg_temp.r05_seed(100); source uuid; request jsonb; p r05_fixture; begin
+ source:=pg_temp.r05_legacy(biz);
+ select * into p from r05_fixture where b=biz;
+ perform public.r05_policy_owner(biz,'revoke',jsonb_build_object('policyId',p.policy,'policyHash',p.hash),gen_random_uuid());
+ request:=pg_temp.r05_server(biz,'guard',jsonb_set(pg_temp.r05_input(biz,'no-policy'),'{accounting}','{"kind":"research","callKey":"selector:luna.standard"}'));
+ perform pg_temp.r05_assert(request->>'reason'='confirmed_operating_policy_required' and request->>'requestId' is not null,'definite no-policy denial retains exact release identity');
+ perform pg_temp.r05_assert(pg_temp.r05_server(biz,'release_unsent',jsonb_build_object('requestId',request->>'requestId','evidenceHash',repeat('e',64)))->>'reason'='released_unsent','definitely unsent denial releases R05 exposure');
+ perform pg_temp.r05_assert((select coalesce(sum(held),0)=0 from private.r05_exposure(biz)),'unsent source contributes no R05 liability');
+ perform pg_temp.r05_assert((select reserved_microusd=60 from public.product_research_cost_reservations where id=source),'release never rewrites original reservation');
+end $$;
+do $$ declare biz uuid:=pg_temp.r05_seed(200); source uuid; begin
+ source:=pg_temp.r05_legacy(biz);
+ perform pg_temp.r05_legacy_receipt(biz,null,null);
+ perform pg_temp.r05_assert((select bool_or(unknown) from private.r05_exposure(biz)),'trusted unknown retains old reservation');
+ perform pg_temp.r05_legacy_receipt(biz,40,'inert-late-readback');
+ perform pg_temp.r05_assert((select sum(held)=40 and not bool_or(unknown) from private.r05_exposure(biz)),'trusted late readback resolves immutable old unknown');
+ perform pg_temp.r05_assert((select count(*)=1 and bool_and(reported_microusd is null) from public.product_research_cost_settlements where reservation_id=source),'late readback preserves original unknown receipt');
+end $$;
+do $$ declare biz uuid:=pg_temp.r05_seed(200); source uuid; result jsonb; begin
+ source:=pg_temp.r05_legacy(biz);
+ result:=pg_temp.r05_legacy_receipt(biz,9007199254740991,'inert-large-overage');
+ perform pg_temp.r05_assert(result->>'r05Readback'='true','unrepresentable old research amount uses trusted sidecar');
+ perform pg_temp.r05_assert((select sum(held)=9007199254740991 and not bool_or(unknown) from private.r05_exposure(biz)),'full accepted amount preserved as known liability');
+ perform pg_temp.r05_assert(not exists(select 1 from public.product_research_cost_settlements where reservation_id=source),'old narrow ledger stays unchanged');
+ perform pg_temp.r05_assert(pg_temp.r05_server(biz,'guard',pg_temp.r05_input(biz,'after-large-overage'))->>'reason'='financial_cap_exceeded','large known overage blocks further admission');
+end $$;
+
+do $$ declare biz uuid:=pg_temp.r05_seed(200); request jsonb; p r05_fixture; begin
+ request:=pg_temp.r05_server(biz,'prepare',pg_temp.r05_input(biz,'old-owner'));
+ select * into p from r05_fixture where b=biz;
+ update public.businesses set owner_user_id='95050000-0000-4000-8000-000000000002' where id=biz;
+ perform pg_temp.r05_assert(pg_temp.r05_server(biz,'dispatch',jsonb_build_object('requestId',request->>'requestId'))->>'reason'='policy_owner_changed','old policy cannot survive ownership transfer');
+ perform set_config('request.jwt.claim.sub','95050000-0000-4000-8000-000000000002',true);
+ begin
+ perform public.r05_policy_owner(biz,'confirm',jsonb_build_object('policyId',p.policy,'policyHash',p.hash),gen_random_uuid());
+ raise exception 'Expected old policy actor rejection';
+ exception when others then if sqlerrm<>'r05_policy_owner_changed' then raise; end if; end;
+ perform set_config('request.jwt.claim.sub','95050000-0000-4000-8000-000000000001',true);
+end $$;
 do $$ declare biz uuid:=pg_temp.r05_seed(200); account uuid:=gen_random_uuid(); rev uuid:=gen_random_uuid(); p jsonb; q jsonb; request jsonb; begin
  insert into private.connected_accounts(id,business_id,owner_id,provider,provider_account_id,status,connection_revision,verified_at) values(account,biz,'95050000-0000-4000-8000-000000000001','printful','inert-r05-source','connected',rev,clock_timestamp());
  select jsonb_set(jsonb_set(jsonb_set(payload,'{expectedCapRevision}','1'),'{operations,0,accountId}',to_jsonb(account::text)),'{operations,0,accountRevision}',to_jsonb(rev::text)) into p from r05_fixture where b=biz;
@@ -114,7 +158,11 @@ do $$ declare b uuid:=pg_temp.r05_seed(200); source uuid; request jsonb; total b
  perform pg_temp.r05_assert(request->>'shouldDispatch'='true','exact existing reservation admitted');
  select sum(held) into total from private.r05_exposure(b);
  perform pg_temp.r05_assert(total=60,'legacy source is counted once');
- insert into public.product_research_cost_settlements(business_id,reservation_id,reported_microusd,provider_request_id,fingerprint) values(b,source,40,'inert-legacy-receipt',repeat('a',64));
+ begin
+ insert into public.product_research_cost_settlements(business_id,reservation_id,reported_microusd,provider_request_id,fingerprint) values(b,source,0,'forged-zero-receipt',repeat('a',64));
+ raise exception 'Expected trusted settlement rejection';
+ exception when others then if sqlerrm<>'r05_trusted_settlement_required' then raise; end if; end;
+ perform pg_temp.r05_legacy_receipt(b,40,'inert-legacy-receipt');
  select sum(held) into total from private.r05_exposure(b);
  perform pg_temp.r05_assert(total=40,'sidecar immediately follows original settlement');
  perform pg_temp.r05_assert(pg_temp.r05_server(b,'guard',pg_temp.r05_input(b,'after-legacy'))->>'shouldDispatch'='true','known legacy settlement permits next bounded dispatch');
@@ -156,6 +204,14 @@ do $$ declare b uuid:=current_setting('r05.b')::uuid; p uuid; r jsonb; begin
  perform pg_temp.r05_assert(pg_temp.r05_server(b,'release_unsent',jsonb_build_object('requestId',r->>'requestId','evidenceHash',repeat('e',64)))->>'reason'='released_unsent','unmarked release with evidence');
 end $$;
 select pg_temp.r05_reject($q$update private.r05_markers set created_at=clock_timestamp()$q$,'r05_immutable_history');
+
+-- Oversized inert administrative fixture proves the output bound independently of owner input validation.
+insert into private.r05_policies(business_id,goal_id,goal_revision,business_revision,payload,content_hash,actor_id)
+select business_id,goal_id,goal_revision,business_revision,jsonb_build_object('inert',repeat('x',262145)),repeat('a',64),actor_id
+from private.r05_policies where business_id=current_setting('r05.b')::uuid limit 1;
+set local role authenticated;
+select pg_temp.r05_reject($q$select public.r05_admission_read(current_setting('r05.b')::uuid)$q$,'r05_read_too_large_reduce_page');
+reset role;
 grant usage on schema private to service_role;
 grant insert on private.r05_server_keys to service_role;
 set local role service_role;

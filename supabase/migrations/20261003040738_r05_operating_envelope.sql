@@ -4,9 +4,10 @@ create table private.r05_server_keys(key_hash text primary key check(key_hash ~ 
 create table private.r05_server_revocations(key_hash text primary key references private.r05_server_keys(key_hash),created_at timestamptz not null default clock_timestamp());
 create table private.r05_readback_evidence(
  id uuid primary key default gen_random_uuid(),business_id uuid not null references public.businesses(id),provider text not null check(provider in ('etsy','printful')),run_id uuid not null,
+ owner_id uuid not null references auth.users(id),
  request_hash text not null check(request_hash ~ '^[a-f0-9]{64}$'),connection_id uuid not null,connection_revision uuid not null,
  purpose text not null check(purpose='existing_effect_readback'),data_classes jsonb not null check(data_classes='["provider_account_metadata","existing_effect_state"]'::jsonb),
- evidence_hash text not null check(evidence_hash ~ '^[a-f0-9]{64}$'),valid_from timestamptz not null,valid_until timestamptz not null,check(valid_until>valid_from),unique(business_id,provider,run_id)
+ evidence_hash text not null check(evidence_hash ~ '^[a-f0-9]{64}$'),valid_from timestamptz not null,valid_until timestamptz not null,check(valid_until>valid_from)
 );
 create table private.r05_readback_revocations(evidence_id uuid primary key references private.r05_readback_evidence(id),created_at timestamptz not null default clock_timestamp());
 create table private.r05_operations (
@@ -38,7 +39,7 @@ create table private.r05_pause_events(id bigint generated always as identity pri
 create index r05_pause_latest on private.r05_pause_events(business_id,kind,target_id,id desc);
 create table private.r05_submissions(business_id uuid not null references public.businesses(id), id uuid not null, request_hash text not null, result jsonb not null, primary key(business_id,id));
 create table private.r05_requests(
- id uuid primary key default gen_random_uuid(), business_id uuid not null, workflow_run_id uuid not null, policy_id uuid not null,
+ id uuid primary key default gen_random_uuid(), business_id uuid not null, workflow_run_id uuid not null, policy_id uuid,
  idempotency_key text not null, request_hash text not null, payload jsonb not null, source_key text not null,
  currency text not null, liability_microunits bigint not null check(liability_microunits>0), created_at timestamptz not null default clock_timestamp(),
  unique(business_id,idempotency_key), unique(business_id,source_key), unique(id,business_id),
@@ -48,9 +49,15 @@ create table private.r05_reservations(request_id uuid primary key, business_id u
 create table private.r05_markers(request_id uuid primary key, business_id uuid not null, created_at timestamptz not null default clock_timestamp(), foreign key(request_id,business_id) references private.r05_requests(id,business_id));
 create table private.r05_releases(request_id uuid primary key, business_id uuid not null, evidence_hash text not null check(evidence_hash ~ '^[a-f0-9]{64}$'), created_at timestamptz not null default clock_timestamp(), foreign key(request_id,business_id) references private.r05_requests(id,business_id));
 create table private.r05_settlements(id bigint generated always as identity primary key,request_id uuid not null, business_id uuid not null, currency text not null, actual_microunits bigint check(actual_microunits between 0 and 9007199254740991), provider_request_id text not null, receipt_hash text not null check(receipt_hash ~ '^[a-f0-9]{64}$'), created_at timestamptz not null default clock_timestamp(), unique(request_id,receipt_hash),foreign key(request_id,business_id) references private.r05_requests(id,business_id));
+create table private.r05_receipt_claims(provider text not null check(provider='openrouter'),provider_request_id text not null,business_id uuid not null references public.businesses(id),workflow_run_id uuid not null,source_key text not null,created_at timestamptz not null default clock_timestamp(),primary key(provider,provider_request_id),foreign key(workflow_run_id,business_id) references public.workflow_runs(id,business_id));
+create table private.r05_legacy_attestations(business_id uuid not null references public.businesses(id),workflow_run_id uuid not null,source_key text not null,reported_microusd bigint,provider_request_id text,receipt_hash text not null,created_at timestamptz not null default clock_timestamp(),primary key(business_id,source_key,receipt_hash),foreign key(workflow_run_id,business_id) references public.workflow_runs(id,business_id));
 create table private.r05_decisions(id bigint generated always as identity primary key,business_id uuid not null references public.businesses(id),request_id uuid,decision text not null,reason text not null,created_at timestamptz not null default clock_timestamp(),foreign key(request_id,business_id) references private.r05_requests(id,business_id));
 create index r05_requests_policy on private.r05_requests(business_id,policy_id);
 create index r05_decisions_business on private.r05_decisions(business_id,id desc);
+create index r05_research_receipt_lookup on public.product_research_cost_settlements(provider_request_id) where provider_request_id is not null;
+create index r05_listing_receipt_lookup on public.listing_cost_settlements(provider_request_id) where provider_request_id is not null;
+create index r05_qualification_receipt_lookup on private.listing_qualification_settlements(provider_request_id) where provider_request_id is not null;
+create index r05_model_receipt_lookup on public.model_invocations(provider,provider_request_id) where provider_request_id is not null;
 create function private.r05_guard() returns trigger language plpgsql set search_path='' as $$ begin
  if current_user in ('anon','authenticated','service_role') then raise exception 'r05_guarded_rpc_required' using errcode='42501'; end if;
  if tg_op<>'INSERT' then raise exception 'r05_immutable_history'; end if; return new;
@@ -86,15 +93,23 @@ create function private.r05_legacy_exposure(b uuid) returns table(source_key tex
  union all select 'model_invocation:'||m.id,m.workflow_run_id,'USD',ceil(1000000*case when m.provider_request_id is not null then coalesce(m.reported_cost_usd,m.estimated_cost_usd) else m.estimated_cost_usd end)::bigint,m.reported_cost_usd is null or m.provider_request_id is null,null::text,m.provider_model_id,m.provider_request_id,m.created_at,m.provider,m.status<>'started' from public.model_invocations m where m.business_id=b
 $$;
 -- Pending source exposure is never hidden by an unknown settlement. Unsent release is independent proof.
+create function private.r05_verified_telemetry_mirror(b uuid,k text) returns boolean language sql stable set search_path='' as $$
+ select k like 'model_invocation:%' and exists(select 1 from public.model_invocations m join public.listing_cost_reservations cr on cr.task_contract_id=m.task_contract_id and cr.worker_run_id=m.worker_run_id and cr.business_id=m.business_id join public.listing_runs lr on lr.id=cr.listing_run_id and lr.workflow_run_id=m.workflow_run_id join public.listing_cost_settlements cs on cs.listing_run_id=cr.listing_run_id and cs.role=cr.role where m.business_id=b and 'model_invocation:'||m.id=k and m.provider='openrouter' and m.provider_model_id=cr.model and m.provider_request_id=cs.provider_request_id and m.reported_cost_usd is not null and ceil(m.reported_cost_usd*1000000)=cs.reported_microusd)
+$$;
+create function private.r05_model_source(b uuid,invocation uuid) returns text language sql stable set search_path='' as $$
+ select coalesce((select 'listing:'||cr.listing_run_id||':'||cr.role from public.model_invocations m join public.listing_cost_reservations cr on cr.task_contract_id=m.task_contract_id and cr.worker_run_id=m.worker_run_id and cr.business_id=m.business_id join public.listing_runs lr on lr.id=cr.listing_run_id and lr.workflow_run_id=m.workflow_run_id where m.id=invocation and m.business_id=b and m.provider='openrouter' and m.provider_model_id=cr.model),'model_invocation:'||invocation)
+$$;
 create function private.r05_exposure(b uuid) returns table(source_key text,currency text,held bigint,unknown boolean,policy_id uuid) language sql stable set search_path='' as $$
- with legacy as (select l.*,r.id rid,r.policy_id,
- case when not l.unknown and l.receipt is not null then 'receipt:'||l.provider||':'||l.receipt else l.source_key end effect_key
+ with legacy as (select l.source_key,l.currency,
+ case when l.unknown then coalesce(a.actual,l.held) else greatest(l.held,coalesce(a.actual,0)) end held,
+ l.unknown and a.actual is null unknown,r.id rid,r.policy_id,l.receipt,l.provider
  from private.r05_legacy_exposure(b) l left join private.r05_requests r on r.business_id=b and r.source_key=l.source_key
+ left join lateral(select max(reported_microusd) filter(where provider_request_id is not null) actual from private.r05_legacy_attestations where business_id=b and source_key=l.source_key) a on true
  where not exists(select 1 from private.r05_releases z where z.request_id=r.id)
- ), ranked as (select *,row_number() over(partition by currency,effect_key order by (rid is not null) desc,source_key) rank,
- max(held) over(partition by currency,effect_key) maximum_held,min(held) over(partition by currency,effect_key) minimum_held from legacy)
- select l.source_key,l.currency,case when rank=1 then maximum_held else 0 end,
- (l.unknown and (rid is null or not exists(select 1 from private.r05_reservations v where v.request_id=rid) or exists(select 1 from private.r05_markers m where m.request_id=rid))) or maximum_held<>minimum_held,l.policy_id from ranked l
+ and not private.r05_verified_telemetry_mirror(b,l.source_key)
+ ), ranked as (select *,count(*) over(partition by provider,receipt) receipt_count from legacy)
+ select l.source_key,l.currency,l.held,
+ (l.unknown and (rid is null or not exists(select 1 from private.r05_reservations v where v.request_id=rid) or exists(select 1 from private.r05_markers m where m.request_id=rid))) or (receipt is not null and receipt_count>1),l.policy_id from ranked l
  union all select r.source_key,r.currency,coalesce(s.actual_microunits,r.liability_microunits),s.actual_microunits is null and exists(select 1 from private.r05_markers m where m.request_id=r.id),r.policy_id
  from private.r05_requests r join private.r05_reservations v on v.request_id=r.id left join lateral(select max(actual_microunits) actual_microunits from private.r05_settlements where request_id=r.id) s on true
  where r.business_id=b and r.payload->'accounting'->>'kind'='r05' and not exists(select 1 from private.r05_releases z where z.request_id=r.id)
@@ -126,7 +141,7 @@ declare x jsonb; o private.r05_operations; g private.r04_goal_versions; br priva
  if o.operation_key is null or x->>'workflowDefinitionId'<>o.workflow_definition_id::text or x->>'purpose'<>o.purpose or x->>'provider'<>o.provider or x->>'category'<>o.category or x->'sourceDomains'<>o.source_domains or x->'dataClasses'<>o.data_classes or private.r05_money(x->'maximumPerOperationMicrounits')<o.liability_microunits or private.r05_money(x->'maximumPerOperationMicrounits')>private.r05_money(p->'policyLimitMicrounits') then raise exception 'r05_operation_scope_mismatch'; end if;
  if not exists(select 1 from public.installed_packs i join public.packs pk on pk.id=i.root_pack_id where i.id=(x->>'installationId')::uuid and i.business_id=b and i.root_pack_id=o.pack_id and i.status='active' and pk.status<>'retired') then raise exception 'r05_pack_unavailable'; end if;
  if (x->'accountId'='null'::jsonb) is distinct from (x->'accountRevision'='null'::jsonb) then raise exception 'r05_account_scope_mismatch'; end if;
- if x->'accountId'<>'null'::jsonb and not exists(select 1 from private.connected_accounts where id=(x->>'accountId')::uuid and business_id=b and connection_revision=(x->>'accountRevision')::uuid and status='connected' and revoked_at is null) then raise exception 'r05_account_unavailable'; end if;
+ if x->'accountId'<>'null'::jsonb and not exists(select 1 from private.connected_accounts where id=(x->>'accountId')::uuid and business_id=b and owner_id=auth.uid() and connection_revision=(x->>'accountRevision')::uuid and status='connected' and revoked_at is null) then raise exception 'r05_account_unavailable'; end if;
  end loop;
  if exists(select 1 from jsonb_array_elements(p->'operations') item group by item->>'operationKey' having count(*)>1) then raise exception 'r05_duplicate_operation'; end if;
 end $$;
@@ -147,6 +162,7 @@ declare h text; old private.r05_submissions; p private.r05_policies; result json
  select * into p from private.r05_policies where id=(p_payload->>'policyId')::uuid and business_id=p_business_id;
  if p.id is null or p.content_hash is distinct from p_payload->>'policyHash' then raise exception 'r05_exact_policy_required'; end if;
  if p_operation='confirm' then
+ if p.actor_id<>auth.uid() then raise exception 'r05_policy_owner_changed'; end if;
  perform private.r05_policy_validate(p_business_id,p.payload);
  if exists(select 1 from private.r05_revocations where policy_id=p.id) then raise exception 'r05_revoked'; end if;
  if not exists(select 1 from private.r05_confirmations where policy_id=p.id) then
@@ -171,6 +187,8 @@ end $$;
 create function private.r05_admissible(r private.r05_requests) returns text language plpgsql set search_path='' as $$
 declare p private.r05_policies; o private.r05_operations; w public.workflow_runs; s jsonb; cap bigint; total numeric; policy_total numeric; own numeric; n integer; latest timestamptz; a private.connected_accounts; begin
  select * into p from private.r05_policies where id=r.policy_id;
+ if p.id is null then return 'confirmed_operating_policy_required'; end if;
+ if not exists(select 1 from public.businesses b join private.r05_confirmations c on c.business_id=b.id where b.id=r.business_id and b.owner_user_id=p.actor_id and c.policy_id=p.id and c.actor_id=b.owner_user_id) then return 'policy_owner_changed'; end if;
  if not exists(select 1 from private.r05_confirmations where policy_id=p.id) or exists(select 1 from private.r05_revocations where policy_id=p.id) then return 'policy_not_confirmed'; end if;
  if not exists(select 1 from private.r04_goal_state where goal_id=p.goal_id and business_id=r.business_id and revision=p.goal_revision) or not exists(select 1 from private.r04_business_state where business_id=r.business_id and revision=p.business_revision) then return 'intent_revision_changed'; end if;
  if not exists(select 1 from private.r04_goal_versions where goal_id=p.goal_id and business_id=r.business_id and revision=p.goal_revision and preference='ready') or not exists(select 1 from private.r04_business_versions where business_id=r.business_id and revision=p.business_revision and preference='setup') then return 'intent_stopped'; end if;
@@ -189,7 +207,7 @@ declare p private.r05_policies; o private.r05_operations; w public.workflow_runs
  if not found then return 'pack_unavailable'; end if;
  if s->>'accountId' is not null then
  select * into a from private.connected_accounts where id=(s->>'accountId')::uuid and business_id=r.business_id for share;
- if a.id is null or a.connection_revision::text is distinct from s->>'accountRevision' or a.status<>'connected' or a.revoked_at is not null then return 'account_unavailable'; end if;
+ if a.id is null or a.owner_id<>p.actor_id or a.connection_revision::text is distinct from s->>'accountRevision' or a.status<>'connected' or a.revoked_at is not null then return 'account_unavailable'; end if;
  end if;
  if private.r05_paused(r.business_id,'business',r.business_id) or private.r05_paused(r.business_id,'quest',p.goal_id) or private.r05_paused(r.business_id,'pack',w.pack_installation_id) or (s->>'accountId' is not null and private.r05_paused(r.business_id,'account',(s->>'accountId')::uuid)) then return 'scope_paused'; end if;
  if exists(select 1 from private.r05_releases where request_id=r.id) then return 'released_unsent'; end if;
@@ -202,17 +220,66 @@ declare p private.r05_policies; o private.r05_operations; w public.workflow_runs
  return null;
 end $$;
 
+create function private.r05_claim_receipt(b uuid,w uuid,k text,p_receipt text) returns void language plpgsql set search_path='' as $$
+declare claim private.r05_receipt_claims; begin
+ if p_receipt is null then return; end if;
+ if length(p_receipt) not between 1 and 300 then raise exception 'r05_invalid_receipt'; end if;
+ insert into private.r05_receipt_claims(provider,provider_request_id,business_id,workflow_run_id,source_key) values('openrouter',p_receipt,b,w,k) on conflict do nothing;
+ select * into claim from private.r05_receipt_claims where provider='openrouter' and provider_request_id=p_receipt;
+ if claim.business_id<>b or claim.workflow_run_id<>w or claim.source_key<>k then raise exception 'r05_receipt_already_used'; end if;
+ -- Historical receipts have no claim rows; check all original ledgers before accepting a claim.
+ if exists(select 1 from public.product_research_cost_settlements s where s.provider_request_id=p_receipt and (s.business_id<>b or 'research:'||s.reservation_id<>k))
+ or exists(select 1 from public.creative_cost_settlements s where s.provider_request_id=p_receipt and (s.business_id<>b or 'creative:'||s.creative_run_id||':'||s.call_key<>k))
+ or exists(select 1 from public.listing_cost_settlements s where s.provider_request_id=p_receipt and (s.business_id<>b or 'listing:'||s.listing_run_id||':'||s.role<>k))
+ or exists(select 1 from private.listing_qualification_settlements s join private.listing_qualification_runs q on q.id=s.run_id where s.provider_request_id=p_receipt and (q.business_id<>b or 'listing_qualification:'||s.run_id||':'||s.case_key<>k))
+ or exists(select 1 from public.model_invocations m where m.provider='openrouter' and m.provider_request_id=p_receipt and not (m.business_id=b and m.workflow_run_id=w and private.r05_model_source(b,m.id)=k)) then raise exception 'r05_receipt_already_used'; end if;
+end $$;
+create function private.r05_legacy_settle(b uuid,p jsonb) returns jsonb language plpgsql set search_path='' as $$
+declare source record; key text; wf uuid:=(p->>'workflowRunId')::uuid; kind text:=p->>'kind'; amount bigint; receipt_id text:=p->>'providerRequestId'; payload jsonb; result jsonb; expected_capability_hash text; begin
+ perform private.r04_keys(p,array['kind','runId','workflowRunId','runtimeCapability','callKey','reportedMicrousd','providerRequestId','receipt']);
+ perform private.r04_safe(p-'runtimeCapability');
+ if kind not in ('research','creative','listing','listing_qualification') or jsonb_typeof(p->'receipt') is distinct from 'object' or not exists(select 1 from public.workflow_runs where id=wf and business_id=b) then raise exception 'r05_invalid_legacy_settlement'; end if;
+ expected_capability_hash:=encode(extensions.digest(convert_to(p->>'runtimeCapability','UTF8'),'sha256'),'hex');
+ if expected_capability_hash is null or not coalesce((
+ (kind='research' and exists(select 1 from public.workflow_runs where id=wf and business_id=b and runtime_capability_hash=expected_capability_hash)) or
+ (kind='creative' and exists(select 1 from public.creative_runs r join private.creative_run_capabilities c on c.creative_run_id=r.id where r.id=(p->>'runId')::uuid and r.business_id=b and r.workflow_run_id=wf and c.capability_hash=expected_capability_hash)) or
+ (kind='listing' and exists(select 1 from public.listing_runs r join private.listing_run_capabilities c on c.listing_run_id=r.id where r.id=(p->>'runId')::uuid and r.business_id=b and r.workflow_run_id=wf and c.capability_hash=expected_capability_hash)) or
+ (kind='listing_qualification' and exists(select 1 from private.listing_qualification_runs r where r.id=(p->>'runId')::uuid and r.business_id=b and r.workflow_run_id=wf and r.capability_hash=expected_capability_hash))),false) then raise exception 'r05_runtime_authority_required'; end if;
+ if p->'reportedMicrousd'<>'null'::jsonb then
+ if jsonb_typeof(p->'reportedMicrousd') is distinct from 'number' or p->>'reportedMicrousd' !~ '^(0|[1-9][0-9]{0,15})$' or (p->>'reportedMicrousd')::numeric>9007199254740991 then raise exception 'r05_invalid_money'; end if;
+ amount:=(p->>'reportedMicrousd')::bigint; end if;
+ if kind='research' then select 'research:'||id into key from public.product_research_cost_reservations where business_id=b and workflow_run_id=wf and attempt_key=p->>'callKey';
+ else key:=kind||':'||(p->>'runId')||':'||(p->>'callKey'); end if;
+ select * into source from private.r05_legacy_exposure(b) where source_key=key;
+ if source.source_key is null or source.workflow_id<>wf then raise exception 'r05_accounting_source_mismatch'; end if;
+ if (source.receipt is not null and source.receipt is distinct from receipt_id) or exists(select 1 from private.r05_legacy_attestations a where a.business_id=b and a.source_key=key and a.provider_request_id is not null and a.provider_request_id is distinct from receipt_id) then raise exception 'r05_provider_identity_changed'; end if;
+ perform private.r05_claim_receipt(b,wf,key,receipt_id);
+ insert into private.r05_legacy_attestations(business_id,workflow_run_id,source_key,reported_microusd,provider_request_id,receipt_hash) values(b,wf,key,amount,receipt_id,private.r04_hash(p-'runtimeCapability')) on conflict do nothing;
+ -- Reconciliation of an immutable old receipt, an amount beyond the old research integer,
+ -- or an expired creative capability
+ -- appends trusted financial evidence only. It never rewrites the old receipt or resumes work.
+ if source.has_settlement or (kind='research' and amount>2147483647) or (kind='creative' and exists(select 1 from public.creative_runs where id=(p->>'runId')::uuid and capability_expires_at<=clock_timestamp())) then return jsonb_build_object('recorded',true,'r05Readback',true); end if;
+ payload:=jsonb_build_object('reportedMicrousd',p->'reportedMicrousd','providerRequestId',p->'providerRequestId','receipt',p->'receipt');
+ -- Every original capability/receipt/context check remains in force. Any failure rolls back
+ -- the trusted attestation and global claim together with the original ledger transaction.
+ if kind='research' then result:=public.record_product_research_cost(wf,b,p->>'runtimeCapability',p->>'callKey',amount::integer,receipt_id);
+ elsif kind='creative' then result:=public.creative_runtime_transition((p->>'runId')::uuid,b,p->>'runtimeCapability','record_call',payload||jsonb_build_object('callKey',p->>'callKey'));
+ elsif kind='listing' then result:=public.listing_runtime_transition((p->>'runId')::uuid,b,p->>'runtimeCapability','settle',payload||jsonb_build_object('role',p->>'callKey'));
+ else result:=public.listing_qualification_transition((p->>'runId')::uuid,b,p->>'runtimeCapability','settle',payload||jsonb_build_object('caseKey',p->>'callKey')); end if;
+ return result;
+end $$;
+
 create function private.r05_existing_effect_read(b uuid,p jsonb) returns text language plpgsql set search_path='' as $$
 declare proof private.r05_readback_evidence; pf private.printful_product_runs; et private.etsy_publication_runs; marker_hash text; marker_time timestamptz; endpoints text[]; root text; shop text; listing text; begin
  perform private.r04_safe(p);perform private.r04_keys(p,array['provider','runId','requestHash','sentAt','connectionId','connectionRevision','endpoint']);
  if p->>'provider' not in ('etsy','printful') or p->>'requestHash' !~ '^[a-f0-9]{64}$' or jsonb_typeof(p->'endpoint') is distinct from 'string' then return 'readback_binding_invalid'; end if;
- select * into proof from private.r05_readback_evidence where business_id=b and provider=p->>'provider' and run_id=(p->>'runId')::uuid for share;
+ select e.* into proof from private.r05_readback_evidence e where e.business_id=b and e.provider=p->>'provider' and e.run_id=(p->>'runId')::uuid and e.owner_id=(select owner_user_id from public.businesses where id=b) and e.valid_from<=clock_timestamp() and e.valid_until>clock_timestamp() and not exists(select 1 from private.r05_readback_revocations z where z.evidence_id=e.id) order by e.valid_from desc,e.id desc limit 1 for share;
  if proof.id is null or proof.request_hash is distinct from p->>'requestHash' or proof.connection_id::text is distinct from p->>'connectionId' or proof.connection_revision::text is distinct from p->>'connectionRevision' or proof.valid_from>clock_timestamp() or proof.valid_until<=clock_timestamp() or exists(select 1 from private.r05_readback_revocations where evidence_id=proof.id) then return 'readback_eligibility_unavailable'; end if;
  if proof.provider='printful' then
  select * into pf from private.printful_product_runs where id=proof.run_id and business_id=b for share;
  select request_hash,sent_at into marker_hash,marker_time from private.printful_product_operations where run_id=pf.id and business_id=b;
  if pf.id is null or pf.request_hash<>proof.request_hash or pf.connection_id<>proof.connection_id or pf.connection_revision<>proof.connection_revision then return 'readback_binding_changed'; end if;
- perform 1 from private.connected_accounts where id=proof.connection_id and business_id=b and provider='printful' and connection_revision=proof.connection_revision and status='connected' and revoked_at is null for share;
+ perform 1 from private.connected_accounts where id=proof.connection_id and business_id=b and owner_id=proof.owner_id and provider='printful' and connection_revision=proof.connection_revision and status='connected' and revoked_at is null for share;
  if not found then return 'readback_account_unavailable'; end if;
  root:='https://api.printful.com';
  endpoints:=array[root||'/stores/'||pf.store_id,root||'/files/'||(pf.source->>'printfulFileId'),root||'/store/products/@'||pf.identity];
@@ -221,7 +288,7 @@ declare proof private.r05_readback_evidence; pf private.printful_product_runs; e
  select * into et from private.etsy_publication_runs where id=proof.run_id and business_id=b for share;
  select request_hash,sent_at into marker_hash,marker_time from private.etsy_publication_operations where publication_run_id=et.id and business_id=b;
  if et.id is null or et.request_hash<>proof.request_hash or et.connection_id<>proof.connection_id or et.connection_revision<>proof.connection_revision then return 'readback_binding_changed'; end if;
- perform 1 from private.etsy_connections where id=proof.connection_id and business_id=b and revision=proof.connection_revision and status='connected' and revoked_at is null for share;
+ perform 1 from private.etsy_connections where id=proof.connection_id and business_id=b and owner_id=proof.owner_id and revision=proof.connection_revision and status='connected' and revoked_at is null for share;
  if not found then return 'readback_account_unavailable'; end if;
  root:='https://api.etsy.com/v3/application';shop:=root||'/shops/'||et.shop_id;listing:=root||'/listings/'||et.listing_id;
  endpoints:=array[shop,listing,listing||'/inventory',listing||'/images',shop||'/listings/'||et.listing_id||'/properties',shop||'/shipping-profiles/'||(et.package->>'shippingProfileId'),shop||'/policies/return/'||(et.preflight->>'returnPolicyId'),shop||'/readiness-state-definitions/'||(et.package->>'readinessStateId')];
@@ -238,6 +305,7 @@ declare r private.r05_requests; w public.workflow_runs; p private.r05_policies; 
  if not found then raise exception 'r05_business_unavailable'; end if;
  perform 1 from private.r05_server_keys k where key_hash=encode(extensions.digest(convert_to(p_server_key,'UTF8'),'sha256'),'hex') and expires_at>clock_timestamp() and not exists(select 1 from private.r05_server_revocations z where z.key_hash=k.key_hash) for share;
  if not found then raise exception 'r05_server_authority_required' using errcode='42501'; end if;
+ if p_operation='legacy_settle' then return private.r05_legacy_settle(p_business_id,p_payload); end if;
  if p_operation='existing_effect_read' then
  reason:=private.r05_existing_effect_read(p_business_id,p_payload);
  return private.r05_result(p_business_id,null,case when reason is null then 'allowed' else 'blocked' end,coalesce(reason,'existing_effect_read_allowed'))||jsonb_build_object('shouldRead',reason is null);
@@ -264,7 +332,6 @@ declare r private.r05_requests; w public.workflow_runs; p private.r05_policies; 
  goal:=w.goal_id;
  if goal is null then select goal_id into goal from private.r04_research_links where business_id=p_business_id and workflow_run_id=w.id order by experiment_id limit 1; end if;
  select q.* into p from private.r05_policies q join private.r05_confirmations c on c.policy_id=q.id where q.business_id=p_business_id and q.goal_id=goal and exists(select 1 from jsonb_array_elements(q.payload->'operations') x where x->>'operationKey'=saved->>'operationKey') and not exists(select 1 from private.r05_revocations z where z.policy_id=q.id) order by c.created_at desc,q.id desc limit 1;
- if p.id is null then return private.r05_result(p_business_id,null,'needs_owner','confirmed_operating_policy_required'); end if;
  if saved->'accounting'->>'kind'='r05' then
  perform private.r04_keys(saved->'accounting',array['kind']); sk:='r05:'||w.id||':'||(saved->>'idempotencyKey');
  elsif saved->'accounting'->>'kind'='research' then
@@ -290,7 +357,7 @@ declare r private.r05_requests; w public.workflow_runs; p private.r05_policies; 
  if p_operation in ('reserve','dispatch','guard') then
  if exists(select 1 from private.r05_markers where request_id=r.id) then return private.r05_result(p_business_id,r.id,'blocked','already_marked'); end if;
  reason:=private.r05_admissible(r);
- if reason is not null then return private.r05_result(p_business_id,r.id,'blocked',reason); end if;
+ if reason is not null then return private.r05_result(p_business_id,r.id,case when reason='confirmed_operating_policy_required' then 'needs_owner' else 'blocked' end,reason); end if;
  insert into private.r05_reservations(request_id,business_id) values(r.id,p_business_id) on conflict do nothing;
  if p_operation<>'reserve' then insert into private.r05_markers(request_id,business_id) values(r.id,p_business_id); end if;
  return private.r05_result(p_business_id,r.id,'allowed',case when p_operation='reserve' then 'reserved' else 'marked' end,p_operation<>'reserve');
@@ -298,7 +365,7 @@ declare r private.r05_requests; w public.workflow_runs; p private.r05_policies; 
  perform private.r04_keys(p_payload,array['requestId','evidenceHash']);
  if exists(select 1 from private.r05_markers where request_id=r.id) then return private.r05_result(p_business_id,r.id,'blocked','marked_liability_cannot_release'); end if;
  -- A trusted caller supplies exact absence evidence; neither owners nor workers can invoke this authority.
- if exists(select 1 from private.r05_legacy_exposure(p_business_id) e where e.source_key=r.source_key and (not e.unknown or e.receipt is not null)) then return private.r05_result(p_business_id,r.id,'blocked','legacy_effect_evidence_exists'); end if;
+ if exists(select 1 from private.r05_legacy_exposure(p_business_id) e where e.source_key=r.source_key and (e.has_settlement or not e.unknown or e.receipt is not null)) then return private.r05_result(p_business_id,r.id,'blocked','legacy_effect_evidence_exists'); end if;
  insert into private.r05_releases(request_id,business_id,evidence_hash) values(r.id,p_business_id,p_payload->>'evidenceHash') on conflict do nothing;
  return private.r05_result(p_business_id,r.id,'allowed','released_unsent');
  elsif p_operation in ('settle','readback') then
@@ -310,6 +377,7 @@ declare r private.r05_requests; w public.workflow_runs; p private.r05_policies; 
  if old.request_id is not null then
  if old.currency is distinct from p_payload->>'currency' or old.actual_microunits is distinct from actual or old.provider_request_id is distinct from p_payload->>'providerRequestId' or old.receipt_hash is distinct from p_payload->>'receiptHash' then raise exception 'r05_settlement_conflict'; end if;
  else
+ perform private.r05_claim_receipt(p_business_id,r.workflow_run_id,r.source_key,p_payload->>'providerRequestId');
  if exists(select 1 from private.r05_settlements where provider_request_id=p_payload->>'providerRequestId' and request_id<>r.id) or exists(select 1 from private.r05_settlements where request_id=r.id and provider_request_id<>p_payload->>'providerRequestId') or exists(select 1 from private.r05_legacy_exposure(p_business_id) where receipt=p_payload->>'providerRequestId') then raise exception 'r05_receipt_already_used'; end if;
  insert into private.r05_settlements(request_id,business_id,currency,actual_microunits,provider_request_id,receipt_hash) values(r.id,p_business_id,r.currency,actual,p_payload->>'providerRequestId',p_payload->>'receiptHash');
  end if;
@@ -318,11 +386,11 @@ declare r private.r05_requests; w public.workflow_runs; p private.r05_policies; 
  raise exception 'r05_unknown_operation';
 end $$;
 
-create function public.r05_admission_read(p_business_id uuid,p_policy_id uuid default null,p_limit integer default 20,p_offset integer default 0) returns jsonb language plpgsql security definer set search_path='' as $$ begin
- perform private.r05_owner(p_business_id);
- if p_limit not between 1 and 50 or p_offset not between 0 and 10000 then raise exception 'r05_invalid_page'; end if;
+create function public.r05_admission_read(p_business_id uuid,p_policy_id uuid default null,p_limit integer default 20,p_offset integer default 0) returns jsonb language plpgsql stable security definer set search_path='' as $$ declare result jsonb; begin
+ if auth.uid() is null or not exists(select 1 from public.businesses where id=p_business_id and owner_user_id=auth.uid()) then raise exception 'r05_owner_required' using errcode='42501'; end if;
+ if p_limit is null or p_offset is null or p_limit not between 1 and 50 or p_offset not between 0 and 10000 then raise exception 'r05_invalid_page'; end if;
  if p_policy_id is not null and not exists(select 1 from private.r05_policies where id=p_policy_id and business_id=p_business_id) then raise exception 'r05_policy_unavailable'; end if;
- return jsonb_build_object('authorityRootId',p_business_id,'financialMode','bounded_model_cost_only','serverAuthorityConfigured',exists(select 1 from private.r05_server_keys k where expires_at>clock_timestamp() and not exists(select 1 from private.r05_server_revocations z where z.key_hash=k.key_hash)),
+ result:=jsonb_build_object('authorityRootId',p_business_id,'financialMode','bounded_model_cost_only','serverAuthorityConfigured',exists(select 1 from private.r05_server_keys k where expires_at>clock_timestamp() and not exists(select 1 from private.r05_server_revocations z where z.key_hash=k.key_hash)),
  'unavailableReason',case when not exists(select 1 from private.r05_operations o join public.installed_packs i on i.root_pack_id=o.pack_id where i.business_id=p_business_id and i.status='active' and o.valid_from<=clock_timestamp() and o.valid_until>clock_timestamp() and not exists(select 1 from private.r05_operation_revocations z where z.operation_key=o.operation_key)) then 'No qualified operation is installed. Commerce, FX, recurring commitments, loss and margin controls remain unsupported.' else null end,
  'eligibleOperations',(select coalesce(jsonb_agg(x.item),'[]') from(select jsonb_build_object('operationKey',o.operation_key,'installationId',i.id,'workflowDefinitionId',o.workflow_definition_id,'purpose',o.purpose,'provider',o.provider,'category',o.category,'accountId',null,'accountRevision',null,'sourceDomains',o.source_domains,'dataClasses',o.data_classes,'maximumPerOperationMicrounits',o.liability_microunits::text,'providerModelId',o.provider_model_id,'maximumOutputTokens',o.maximum_output_tokens,'maximumRequestBytes',o.maximum_request_bytes,'validUntil',o.valid_until) item from private.r05_operations o join public.installed_packs i on i.root_pack_id=o.pack_id join public.packs pk on pk.id=o.pack_id where i.business_id=p_business_id and i.status='active' and pk.status<>'retired' and o.valid_from<=clock_timestamp() and o.valid_until>clock_timestamp() and not exists(select 1 from private.r05_operation_revocations z where z.operation_key=o.operation_key) order by o.operation_key limit 16) x),
  'capVersions',(select coalesce(jsonb_agg(x.item),'[]') from(select distinct on(currency) jsonb_build_object('currency',currency,'revision',revision,'maximumMicrounits',maximum_microunits::text) item from private.r05_cap_versions where business_id=p_business_id order by currency,revision desc) x),
@@ -331,7 +399,11 @@ create function public.r05_admission_read(p_business_id uuid,p_policy_id uuid de
  'policies',(select coalesce(jsonb_agg(x.item),'[]') from(select jsonb_build_object('id',p.id,'hash',p.content_hash,'policy',p.payload,'confirmed',exists(select 1 from private.r05_confirmations where policy_id=p.id),'revoked',exists(select 1 from private.r05_revocations where policy_id=p.id)) item from private.r05_policies p where p.business_id=p_business_id and (p_policy_id is null or p.id=p_policy_id) order by p.created_at desc,p.id desc limit p_limit offset p_offset) x),
  'exposure',(select coalesce(jsonb_agg(x.item),'[]') from(select jsonb_build_object('currency',currency,'category','model','heldMicrounits',sum(held)::text,'hasUnknown',bool_or(unknown)) item from private.r05_exposure(p_business_id) group by currency) x),
  'decisions',(select coalesce(jsonb_agg(x.item),'[]') from(select jsonb_build_object('requestId',request_id,'decision',decision,'reason',reason,'at',created_at) item from private.r05_decisions where business_id=p_business_id order by id desc limit p_limit offset p_offset) x),
+ 'policyTotal',(select count(*) from private.r05_policies where business_id=p_business_id and (p_policy_id is null or id=p_policy_id)),
+ 'decisionTotal',(select count(*) from private.r05_decisions where business_id=p_business_id),
  'limit',p_limit,'offset',p_offset,'businessPaused',private.r05_paused(p_business_id,'business',p_business_id));
+ if octet_length(result::text)>262144 then raise exception 'r05_read_too_large_reduce_page'; end if;
+ return result;
 end $$;
 
 -- Reservation writes in every legacy lane acquire the same Business lock. Known settlements
@@ -346,10 +418,30 @@ create trigger r05_revoke_lock before insert on private.r05_operation_revocation
 create trigger r05_revoke_lock before insert on private.r05_server_revocations for each row execute function private.r05_registry_revoke_lock();
 create trigger r05_revoke_lock before insert on private.r05_readback_revocations for each row execute function private.r05_registry_revoke_lock();
 create function private.r05_legacy_financial_lock() returns trigger language plpgsql security definer set search_path='' as $$
-declare b uuid; cap bigint; exposure numeric; j jsonb; begin
+declare b uuid; cap bigint; exposure numeric; j jsonb; source_identity text; wf uuid; amount bigint; receipt_id text; begin
  j:=to_jsonb(new); b:=(j->>'business_id')::uuid;
  if b is null and j ? 'run_id' then select business_id into b from private.listing_qualification_runs where id=(j->>'run_id')::uuid; end if;
  perform 1 from public.businesses where id=b for update;
+ if tg_table_name in ('product_research_cost_settlements','creative_cost_settlements','listing_cost_settlements','listing_qualification_settlements','model_invocations') then
+ if tg_table_name='product_research_cost_settlements' then source_identity:='research:'||(j->>'reservation_id');
+ elsif tg_table_name='creative_cost_settlements' then source_identity:='creative:'||(j->>'creative_run_id')||':'||(j->>'call_key');
+ elsif tg_table_name='listing_cost_settlements' then source_identity:='listing:'||(j->>'listing_run_id')||':'||(j->>'role');
+ elsif tg_table_name='listing_qualification_settlements' then source_identity:='listing_qualification:'||(j->>'run_id')||':'||(j->>'case_key');
+ else source_identity:=private.r05_model_source(b,(j->>'id')::uuid); end if;
+ receipt_id:=j->>'provider_request_id';
+ if tg_table_name='model_invocations' then wf:=(j->>'workflow_run_id')::uuid;
+ else select workflow_id into wf from private.r05_legacy_exposure(b) where source_key=source_identity; end if;
+ if receipt_id is not null and (tg_table_name<>'model_invocations' or j->>'provider'='openrouter') then perform private.r05_claim_receipt(b,wf,source_identity,receipt_id); end if;
+ if exists(select 1 from private.r05_cap_versions where business_id=b) then
+ if tg_table_name='model_invocations' then
+ amount:=ceil((j->>'reported_cost_usd')::numeric*1000000)::bigint;wf:=(j->>'workflow_run_id')::uuid;
+ if amount is not null and receipt_id is not null and not exists(select 1 from private.r05_legacy_attestations a where a.business_id=b and a.workflow_run_id=wf and a.provider_request_id=receipt_id and a.reported_microusd=amount) then raise exception 'r05_trusted_settlement_required'; end if;
+ else
+ amount:=(j->>'reported_microusd')::bigint;
+ if not exists(select 1 from private.r05_legacy_attestations a where a.business_id=b and a.source_key=source_identity and a.provider_request_id is not distinct from receipt_id and a.reported_microusd is not distinct from amount) then raise exception 'r05_trusted_settlement_required'; end if;
+ end if;
+ end if;
+ end if;
  if tg_table_name in ('product_research_cost_reservations','creative_cost_reservations','listing_cost_reservations','listing_qualification_reservations') or (tg_table_name='model_invocations' and tg_op='INSERT') then
  select maximum_microunits into cap from private.r05_cap_versions where business_id=b and currency='USD' order by revision desc limit 1;
  if cap is not null then

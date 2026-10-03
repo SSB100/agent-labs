@@ -3,7 +3,7 @@ import path from 'node:path';
 import {id} from './data.mjs';
 import {actualZoomBrowser} from './browser-zoom.mjs';
 export async function runAdmissionJourneys({page,context,origin,boundary,output,check,actions}){
- const business=id(1),quest=id(820000),base=`/dashboard/quests/controls?business=${business}&quest=${quest}`;
+ const business=id(1),quest=id(820001),base=`/dashboard/quests/controls?business=${business}&quest=${quest}`;
  const status=()=>page.getByRole('heading',{name:'Current availability',exact:true});
  const control=value=>fetch(boundary.origin+'/control',{method:'POST',body:JSON.stringify(value)});
  await check('R05 exact controls navigation and unavailable/foreign scope never substitute',async()=>{
@@ -36,7 +36,7 @@ export async function runAdmissionJourneys({page,context,origin,boundary,output,
  await check('R05 actual browser 200 percent zoom keeps pause and policy controls reachable',async()=>{
   const zoom=await actualZoomBrowser();try{
    await zoom.context.route('**/*',r=>new URL(r.request().url()).origin===origin?r.continue():r.abort('blockedbyclient'));
-   const p=await zoom.context.newPage();await p.goto(origin+base);assert.equal(await zoom.set(p,2),2);await p.getByText(/^Propose financial authority/).click();const field=p.getByRole('textbox',{name:'Authorization expires (UTC)',exact:true});await field.scrollIntoViewIfNeeded();await field.focus();assert.equal(await field.evaluate(n=>document.activeElement===n),true);assert.ok(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+   const p=await zoom.context.newPage();await p.goto(origin+base);assert.equal(await zoom.set(p,2),2);await p.getByText(/^Propose financial authority/).click();const field=p.getByRole('textbox',{name:'Authorization expires (UTC)',exact:true});await field.scrollIntoViewIfNeeded();await field.focus();assert.equal(await field.evaluate(n=>document.activeElement===n),true);assert.ok(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));await p.screenshot({path:path.join(output,'controls-form-zoom200.png')});
    await p.evaluate(()=>{window.scrollTo(0,0);document.querySelector('main').scrollTop=0;return new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));});await p.screenshot({path:path.join(output,'controls-zoom200.png')});
   }finally{await zoom.close();}
  });

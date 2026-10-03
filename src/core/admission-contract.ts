@@ -37,7 +37,7 @@ export type AdmissionDecision = {
   requestId: string | null; shouldDispatch: boolean;
 };
 export type AdmissionOwnerOperation = "propose" | "confirm" | "revoke" | "pause" | "resume";
-export type AdmissionServerOperation = "prepare" | "reserve" | "dispatch" | "guard" | "release_unsent" | "settle" | "readback" | "existing_effect_read";
+export type AdmissionServerOperation = "prepare" | "reserve" | "dispatch" | "guard" | "release_unsent" | "settle" | "readback" | "existing_effect_read" | "legacy_settle";
 export type AdmissionPauseScope = {kind: "business" | "quest" | "pack" | "account"; id: string};
 export const ADMISSION_RPC = {owner:"r05_policy_owner",server:"r05_admission_server",read:"r05_admission_read"} as const;
 export type AdmissionRead = {
@@ -49,5 +49,5 @@ export type AdmissionRead = {
  policies:Array<{id:string;hash:string;policy:OperatingPolicy;confirmed:boolean;revoked:boolean}>;
  exposure:Array<{currency:string;category:"model";heldMicrounits:string;hasUnknown:boolean}>;
  decisions:Array<{requestId:string|null;decision:string;reason:string;at:string}>;
- limit:number;offset:number;businessPaused:boolean;
+ limit:number;offset:number;policyTotal:number;decisionTotal:number;businessPaused:boolean;
 };

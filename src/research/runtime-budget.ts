@@ -1,6 +1,6 @@
 import { createRuntimeClient } from "../lib/supabase/runtime";
 import type { ResearchBudgetLedger } from "./budget";
-import { modelDispatchAdmission } from "../lib/admission-runtime";
+import { modelDispatchAdmission, settleLegacyAdmission } from "../lib/admission-runtime";
 
 type ResearchRuntimeScope = { businessId: string; coreWorkflowRunId: string; runtimeCapability: string };
 export function runtimeResearchBudget(input: ResearchRuntimeScope): ResearchBudgetLedger {
@@ -24,9 +24,7 @@ export function runtimeResearchBudget(input: ResearchRuntimeScope): ResearchBudg
       return result.data as { shouldCall: boolean; totalReservedMicrousd: number };
     },
     async settle(attemptKey, reportedMicrousd, providerRequestId) {
-      const result = await createRuntimeClient().rpc("record_product_research_cost", { ...scope, p_attempt_key: attemptKey,
-        p_reported_microusd: reportedMicrousd, p_provider_request_id: providerRequestId });
-      if (result.error) throw new Error(`Research cost settlement: ${result.error.message}`);
+      await settleLegacyAdmission(input, { kind: "research", runId: null, callKey: attemptKey, reportedMicrousd, providerRequestId, receipt: {} });
     },
   };
 }

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { AdmissionDispatchInput, LegacyAccountingSource } from "../core/admission-contract";
 import type { ModelDispatchAdmission } from "../models/types";
+import type { JsonObject } from "../core/contracts";
 import { createRuntimeClient } from "./supabase/runtime";
 
 type RuntimeScope = { businessId: string; coreWorkflowRunId: string; runtimeCapability: string };
@@ -10,6 +11,22 @@ type ModelAdmissionBinding = {
 };
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
 const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
+
+/** Only the trusted runtime that received the provider result can attest it.
+ * Database settlement and original ledger write occur in one transaction. */
+export async function settleLegacyAdmission(scope: RuntimeScope, settlement: {
+  kind: "research" | "creative" | "listing" | "listing_qualification"; runId: string | null;
+  callKey: string; reportedMicrousd: number | null; providerRequestId: string | null; receipt: JsonObject;
+}): Promise<void> {
+  const ownedScope = structuredClone(scope), owned = structuredClone(settlement);
+  const key = process.env.R05_ADMISSION_SERVER_KEY?.trim();
+  if (!key) throw new Error("operating_policy_settlement_unavailable");
+  const result = await createRuntimeClient().rpc("r05_admission_server", {
+    p_business_id: ownedScope.businessId, p_operation: "legacy_settle", p_server_key: key,
+    p_payload: { ...owned, workflowRunId: ownedScope.coreWorkflowRunId, runtimeCapability: ownedScope.runtimeCapability },
+  });
+  if (result.error) throw new Error("operating_policy_settlement_unverified");
+}
 
 /** Server runtime only. The authority key stays in environment and never enters
  * durable worker input, prompts, browser forms, receipts or returned errors. */
@@ -46,6 +63,17 @@ export function modelDispatchAdmission(scope: RuntimeScope, binding: ModelAdmiss
     const result = await createRuntimeClient().rpc("r05_admission_server", {
       p_business_id: ownedScope.businessId, p_operation: "guard", p_payload: payload, p_server_key: serverKey,
     });
+    if (!result.error && record(result.data) && ["blocked", "needs_owner"].includes(String(result.data.decision)) && result.data.shouldDispatch === false &&
+        typeof result.data.requestId === "string" && /^[0-9a-f-]{36}$/i.test(result.data.requestId)) {
+      // A definite denial permits only server-proven no-marker release. A lost
+      // response, ambiguous replay or possible dispatch never enters this path.
+      try {
+        await createRuntimeClient().rpc("r05_admission_server", {
+          p_business_id: ownedScope.businessId, p_operation: "release_unsent", p_server_key: serverKey,
+          p_payload: { requestId: result.data.requestId, evidenceHash: digest(JSON.stringify({ payload, denial: result.data })) },
+        });
+      } catch { /* Preserve held liability when the release cannot be verified. */ }
+    }
     if (result.error || !record(result.data) || result.data.decision !== "allowed" || result.data.shouldDispatch !== true ||
         typeof result.data.requestId !== "string" || !/^[0-9a-f-]{36}$/i.test(result.data.requestId)) {
       throw new Error("operating_policy_dispatch_denied");

@@ -2,7 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import { FatalError } from "workflow";
 import type { JsonObject } from "../core/contracts";
 import { createRuntimeClient } from "../lib/supabase/runtime";
-import { modelDispatchAdmission } from "../lib/admission-runtime";
+import { modelDispatchAdmission, settleLegacyAdmission } from "../lib/admission-runtime";
 import { getSupabasePublicConfig } from "../lib/supabase/env";
 import { creativeHash, validateBriefScreen, validateCreativeApproval, validateDesignBrief } from "../creative/contracts";
 import type { CreativeCallKey, CreativeLedger, CreativeModelCallKey } from "../creative/budget";
@@ -34,7 +34,7 @@ function ledger(input: CreativeRuntimeInput): CreativeLedger {
       dataClasses: reservation.callKey.startsWith("review:") ? ["business_context", "private_image"] : ["business_context"],
     }),
     reserve: reservation => transition(input, "reserve_call", { ...reservation }),
-    record: async (callKey, reportedMicrousd, providerRequestId, receipt) => { await transition(input, "record_call", { callKey, reportedMicrousd, providerRequestId, receipt }); } };
+    record: async (callKey, reportedMicrousd, providerRequestId, receipt) => { await settleLegacyAdmission(input, { kind: "creative", runId: input.creativeRunId, callKey, reportedMicrousd, providerRequestId, receipt }); } };
 }
 function storageClient(input: CreativeRuntimeInput) {
   const { url, publishableKey } = getSupabasePublicConfig();

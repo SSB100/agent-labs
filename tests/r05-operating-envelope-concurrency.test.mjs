@@ -48,6 +48,10 @@ test('R05 real PostgreSQL admission, legacy cap, pause and settlement races',{sk
   await observer.query(prefix.replace('\nbegin;','').replaceAll('pg_temp.','public.').replace('create temporary table r05_fixture','create table public.r05_fixture'));
 
   let business=await seed(),one=await input(observer,business,'duplicate');
+  await observer.query('begin read only');await observer.query('set local role authenticated');
+  await observer.query("select set_config('request.jwt.claim.sub',$1,true)",[owner]);
+  assert.equal((await value(observer,'select public.r05_admission_read($1) result',[business])).authorityRootId,business);
+  await observer.query('commit');
   const duplicate=await race(()=>server(left,business,'guard',one),()=>server(right,business,'guard',one));
   assert.ifError(duplicate.b.error);assert.equal(duplicate.a.shouldDispatch,true);assert.equal(duplicate.b.result.shouldDispatch,false);assert.equal(duplicate.b.result.reason,'already_marked');
   assert.equal((await observer.query('select count(*)::int n from private.r05_markers where business_id=$1',[business])).rows[0].n,1);
@@ -78,7 +82,7 @@ test('R05 real PostgreSQL admission, legacy cap, pause and settlement races',{sk
   // Use a parent experiment inserted by the first transaction, avoiding artificial fixture bypass.
   const legacy=await value(observer,'select public.r05_legacy($1) result',[business]);
   // Settle original to zero, leaving 100 available for two concurrent new reservations of 60 each.
-  await observer.query("insert into public.product_research_cost_settlements(business_id,reservation_id,reported_microusd,provider_request_id,fingerprint) values($1,$2,0,'inert-legacy-zero',repeat('d',64))",[business,legacy]);
+  await observer.query("select public.r05_legacy_receipt($1,0,'inert-legacy-zero')",[business]);
   const reserve=(c,key)=>c.query("insert into public.product_research_cost_reservations(business_id,experiment_id,workflow_run_id,attempt_key,reserved_microusd,request_hash,estimate) select business_id,experiment_id,workflow_run_id,$2,60,repeat('e',64),'{}' from public.product_research_cost_reservations where id=$1",[legacy,key]);
   const old=await race(()=>reserve(left,'search:luna.standard'),()=>reserve(right,'search:gemini.flash.large'));
   assert.match(old.b.error?.message??'',/r05_business_cap_exceeded/);
@@ -105,9 +109,23 @@ test('R05 real PostgreSQL admission, legacy cap, pause and settlement races',{sk
   assert.match(transferred.b.error?.message??'',/r05_owner_required/);
   assert.equal((await observer.query('select count(*)::int n from private.r05_pause_events where business_id=$1',[business])).rows[0].n,0);
 
+  const receiptBusinessA=await seed(),receiptBusinessB=await seed();
+  const requestA=await server(observer,receiptBusinessA,'guard',await input(observer,receiptBusinessA,'receipt-a'));
+  const requestB=await server(observer,receiptBusinessB,'guard',await input(observer,receiptBusinessB,'receipt-b'));
+  const receiptRace=await race(()=>value(left,"select public.r05_settle($1,$2,'40','inert-global-race') result",[receiptBusinessA,requestA.requestId]),()=>value(right,"select public.r05_settle($1,$2,'40','inert-global-race') result",[receiptBusinessB,requestB.requestId]));
+  assert.match(receiptRace.b.error?.message??'',/r05_receipt_already_used/);
+  assert.equal((await observer.query('select bool_or(unknown) uncertain from private.r05_exposure($1)',[receiptBusinessB])).rows[0].uncertain,true);
+
+  const legacyBusiness=await seed(),newBusiness=await seed();
+  await value(observer,'select public.r05_legacy($1) result',[legacyBusiness]);
+  const newRequest=await server(observer,newBusiness,'guard',await input(observer,newBusiness,'legacy-receipt-race'));
+  const legacyReceiptRace=await race(()=>value(left,"select public.r05_legacy_receipt($1,40,'inert-legacy-global-race') result",[legacyBusiness]),()=>value(right,"select public.r05_settle($1,$2,'40','inert-legacy-global-race') result",[newBusiness,newRequest.requestId]));
+  assert.match(legacyReceiptRace.b.error?.message??'',/r05_receipt_already_used/);
+  assert.equal((await observer.query('select count(*)::int n from private.r05_receipt_claims where provider_request_id=$1',['inert-legacy-global-race'])).rows[0].n,1);
+
   business=await seed();one=await input(observer,business,'eligibility-race');
   const eligibility=await race(()=>left.query("insert into private.r05_operation_revocations(operation_key) values('research.model')"),()=>server(right,business,'guard',one));
   assert.ifError(eligibility.b.error);assert.equal(eligibility.b.result.reason,'operation_evidence_unavailable');
-  t.diagnostic('Ten actual pg_stat_activity/pg_blocking_pids races passed: duplicate marker, split caps, both pause/marker orders, settlement/admission, legacy cap, revocation, account revision, ownership transfer, and registry eligibility revocation. No provider or remote database used.');
+  t.diagnostic('Twelve actual pg_stat_activity/pg_blocking_pids races passed: duplicate marker, split caps, both pause/marker orders, settlement/admission, legacy cap, revocation, account revision, ownership transfer, two cross-Business receipt claims, and registry eligibility revocation. No provider or remote database used.');
  }finally{await Promise.allSettled([left.end(),right.end(),observer.end()]);}
 });

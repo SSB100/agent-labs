@@ -35,6 +35,8 @@ test('R05 isolated full migration replay, rollback, finance and admission securi
   try{await db.exec(source.replace(/rollback;\s*$/,()=>sql(path.join(root,'supabase/tests/r05_existing_effect_readback.sql'))+'\nrollback;'));}
   catch(e){throw new Error(`${file}: ${e.message}\n${e.where??''}\n${e.internalQuery??''}`);}
  }
+ await db.exec("insert into auth.users(id,email) values('95050000-0000-4000-8000-000000000991','r05-readonly@example.invalid'); insert into public.businesses(id,owner_user_id,name) values('95050000-0000-4000-8000-000000000992','95050000-0000-4000-8000-000000000991','R05 read-only fixture');");
+ await db.exec("begin read only; set local role authenticated; select set_config('request.jwt.claim.sub','95050000-0000-4000-8000-000000000991',true); select public.r05_admission_read('95050000-0000-4000-8000-000000000992'); commit;");
  t.diagnostic('Actual SQL: owner/server/capability isolation, exact wire model/hash, immutable markers, replay, budgets, unknown readback, overage, revoke/pause, safe choices, DML fencing. Single PGlite backend is not a concurrency proof.');
  }finally{await db.close();}
 });

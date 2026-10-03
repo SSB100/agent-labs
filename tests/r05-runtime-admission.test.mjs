@@ -10,8 +10,8 @@ const binding=()=>({operationKey:'research.model',requestHash:'a'.repeat(64),cal
  providerModelId:'openai/gpt-5.6-luna',accounting:{kind:'research',callKey:'plan:1'},dataClasses:['business_context','public_evidence']});
 const wire=()=>({url:'https://openrouter.ai/api/v1/chat/completions',method:'POST',body:JSON.stringify({model:'openai/gpt-5.6-luna',max_tokens:1500,stream:false,messages:[{role:'user',content:'Private prompt never sent to admission RPC'}]})});
 test('trusted runtime guard transmits only exact saved scope and fingerprints and refuses uncertain/replayed decisions',async t=>{
- const calls=[];let decision={decision:'allowed',reason:'admitted',shouldDispatch:true,requestId:id};
- const server=createServer(async(req,res)=>{let body='';for await(const chunk of req)body+=chunk;calls.push({url:req.url,input:JSON.parse(body)});res.setHeader('content-type','application/json');res.end(JSON.stringify(decision));});
+ const calls=[];let decision={decision:'allowed',reason:'admitted',shouldDispatch:true,requestId:id},httpStatus=200;
+ const server=createServer(async(req,res)=>{let body='';for await(const chunk of req)body+=chunk;calls.push({url:req.url,input:JSON.parse(body)});res.statusCode=httpStatus;res.setHeader('content-type','application/json');res.end(JSON.stringify(decision));});
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
  const keys=['NEXT_PUBLIC_SUPABASE_URL','NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY','R05_ADMISSION_SERVER_KEY'];
  const previous=Object.fromEntries(keys.map(key=>[key,process.env[key]]));
@@ -40,4 +40,12 @@ test('trusted runtime guard transmits only exact saved scope and fingerprints an
  decision={decision:'allowed',shouldDispatch:true,requestId:id};await ledger.admissionFor(reservation)(request);
  const admitted=calls.at(-1).input;
  assert.equal(admitted.p_business_id,reserved.p_business_id);assert.equal(admitted.p_payload.workflowRunId,reserved.p_workflow_run_id);assert.equal(admitted.p_payload.runtimeCapability,reserved.p_runtime_capability);
+ decision=null;await ledger.settle('plan:1',5000,'exact-provider-receipt');
+ const settled=calls.at(-1).input;assert.equal(settled.p_operation,'legacy_settle');assert.equal(settled.p_payload.kind,'research');assert.equal(settled.p_payload.reportedMicrousd,5000);assert.equal(settled.p_payload.providerRequestId,'exact-provider-receipt');assert.equal(settled.p_payload.workflowRunId,id);assert.equal(settled.p_payload.runtimeCapability,'original-scope');
+ const beforeDenied=calls.length;decision={decision:'blocked',reason:'scope_paused',shouldDispatch:false,requestId:id};await assert.rejects(guard(request),/dispatch_denied/);
+ assert.deepEqual(calls.slice(beforeDenied).map(c=>c.input.p_operation),['guard','release_unsent']);assert.equal(calls.at(-1).input.p_payload.requestId,id);assert.match(calls.at(-1).input.p_payload.evidenceHash,/^[a-f0-9]{64}$/);
+ const beforeReplay=calls.length;decision={decision:'allowed',shouldDispatch:false,requestId:id};await assert.rejects(guard(request),/dispatch_denied/);assert.equal(calls.length,beforeReplay+1);
+ const beforeUncertain=calls.length;httpStatus=500;decision={message:'private-database-diagnostic'};await assert.rejects(guard(request),/dispatch_denied/);assert.ok(calls.slice(beforeUncertain).every(c=>c.input.p_operation==='guard'));
+ await assert.rejects(ledger.settle('plan:1',5000,'exact-provider-receipt'),e=>e.message==='operating_policy_settlement_unverified');assert.equal(calls.at(-1).input.p_operation,'legacy_settle');httpStatus=200;
+ delete process.env.R05_ADMISSION_SERVER_KEY;const beforeNoKey=calls.length;await assert.rejects(ledger.settle('plan:1',0,null),/settlement_unavailable/);assert.equal(calls.length,beforeNoKey);
 });

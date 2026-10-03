@@ -65,7 +65,7 @@ test('normalization failure settles the paid generation and preserves its source
   const source = { storagePath: 'fixture/version-1.original.webp', mediaType: 'image/webp', bytes: 64, sha256: 'a'.repeat(64), uploadConfirmed: true, downloadVerified: true };
   const { executeCreativePhase } = loadSource('src/workflows/creative-runtime-steps.ts', {
     '@supabase/supabase-js': { createClient: () => ({ storage: { from: () => ({}) } }) }, workflow: { FatalError: FixtureFatalError },
-    '../lib/admission-runtime': {modelDispatchAdmission:()=>async()=>{throw Error('Fixture does not authorize dispatch');}}, '../lib/supabase/runtime': { createRuntimeClient: () => ({ rpc: async (_name, args) => {
+    '../lib/admission-runtime': {settleLegacyAdmission:async (_scope,payload)=>{operations.push('legacy_settle');settlements.push(payload);},modelDispatchAdmission:()=>async()=>{throw Error('Fixture does not authorize dispatch');}}, '../lib/supabase/runtime': { createRuntimeClient: () => ({ rpc: async (_name, args) => {
       operations.push(args.p_operation);
       if (args.p_operation === 'record_call') settlements.push(args.p_payload);
       return { error: null, data: args.p_operation === 'load' ? { status: 'running', phaseKey: 'generate:1',
@@ -81,7 +81,7 @@ test('normalization failure settles the paid generation and preserves its source
     '../creative/stored-image': { storeCreativeImage: async input => { input.onSourceProgress(source); throw new Error('Unsupported source metadata'); } },
   });
   await assert.rejects(executeCreativePhase({ creativeRunId: 'fixture', businessId: 'fixture', runtimeCapability: 'mock-only' }, 'generate:1'), FixtureFatalError);
-  assert.equal(paid, 1); assert.deepEqual(operations, ['load', 'reserve_call', 'record_call']);
+  assert.equal(paid, 1); assert.deepEqual(operations, ['load', 'reserve_call', 'legacy_settle']);
   assert.equal(settlements.length, 1); assert.equal(settlements[0].reportedMicrousd, 210000);
   assert.equal(settlements[0].receipt.outputValidated, false);
   assert.equal(JSON.stringify(settlements[0].receipt.sourcePreservation), JSON.stringify(source));

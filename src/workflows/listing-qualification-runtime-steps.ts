@@ -1,7 +1,7 @@
 import { FatalError } from "workflow";
 import type { JsonObject } from "../core/contracts";
 import { createRuntimeClient } from "../lib/supabase/runtime";
-import { modelDispatchAdmission } from "../lib/admission-runtime";
+import { modelDispatchAdmission, settleLegacyAdmission } from "../lib/admission-runtime";
 import { EtsyError, requireEtsy } from "../etsy/contracts";
 import { executeListingQualification, type QualificationState, type ListingQualificationRepository } from "../listing/qualification";
 import type { ListingQualificationRuntimeInput } from "./listing-qualification-runtime";
@@ -18,7 +18,7 @@ function listingQualificationRepository(input:ListingQualificationRuntimeInput,r
     return {id,businessId,status,suiteHash,knowledgeHash,workerHashes,maximumMicrousd,quote,taskIds,cases};
   }
   return {load:()=>state("load"),guard:()=>state("guard"),reserve:payload=>transition(input,"reserve",payload as unknown as JsonObject),
-    settle:async payload=>{await transition(input,"settle",payload as unknown as JsonObject);},persist:async payload=>{await transition(input,"persist",payload as unknown as JsonObject);},
+    settle:async payload=>{await settleLegacyAdmission(input,{kind:"listing_qualification",runId:input.qualificationRunId,callKey:payload.caseKey,reportedMicrousd:payload.reportedMicrousd,providerRequestId:payload.providerRequestId,receipt:payload.receipt});},persist:async payload=>{await transition(input,"persist",payload as unknown as JsonObject);},
     finish:async()=>{await transition(input,"finish");},fail:async reason=>{await transition(input,"fail",{reason});}};
 }
 export async function executeListingQualificationStep(input:ListingQualificationRuntimeInput,runtimeRunId:string) {

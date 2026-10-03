@@ -47,10 +47,11 @@ export function OperatingControls({intent,state,ownerId,exactPolicy}:{intent:R04
     </section>
     <PolicyDraft intent={intent} state={state} busy={busy} onSave={p=>save("propose",p)} />
     <section aria-labelledby="saved-policies"><h2 id="saved-policies">Saved policies</h2><p>Review the saved policy before confirming its exact version. Confirmation grants only the listed scope; it does not start work.</p>
+      <p>{state.policyTotal} policies · showing {state.offset+(state.policies.length?1:0)}–{state.offset+state.policies.length}.</p>
       {!state.policies.length?<p>No policies in this page.</p>:state.policies.map(p=><SavedPolicy key={p.id} entry={p} busy={busy} onSave={save} />)}
-      {!exactPolicy?<><Link href={`${base}&offset=${Math.max(0,state.offset-state.limit)}`}>Previous policy page</Link>{" "}<Link href={`${base}&offset=${state.offset+state.limit}`}>Next policy page</Link></>:<Link href={base}>All policy pages</Link>}
+      {!exactPolicy?<>{state.offset>0?<Link href={`${base}&offset=${Math.max(0,state.offset-state.limit)}`}>Previous policy page</Link>:null}{" "}{state.offset+state.limit<state.policyTotal?<Link href={`${base}&offset=${state.offset+state.limit}`}>Next policy page</Link>:null}</>:<Link href={base}>All policy pages</Link>}
     </section>
-    <details><summary>Recent admission decisions</summary>{state.decisions.length?<ul>{state.decisions.map((d,i)=><li key={`${d.requestId}:${d.at}:${i}`}>{d.at} · {d.decision} · {d.reason.replaceAll("_"," ")}</li>)}</ul>:<p>No decisions in this page.</p>}</details>
+    <details><summary>Recent admission decisions · {state.decisionTotal}</summary>{state.decisions.length?<ul>{state.decisions.map((d,i)=><li key={`${d.requestId}:${d.at}:${i}`}>{d.at} · {d.decision} · {d.reason.replaceAll("_"," ")}</li>)}</ul>:<p>No decisions in this page.</p>}{!exactPolicy&&state.offset>0?<Link href={`${base}&offset=${Math.max(0,state.offset-state.limit)}`}>Previous decisions</Link>:null}{" "}{!exactPolicy&&state.offset+state.limit<state.decisionTotal?<Link href={`${base}&offset=${state.offset+state.limit}`}>Next decisions</Link>:null}</details>
   </div>;
 }
 
