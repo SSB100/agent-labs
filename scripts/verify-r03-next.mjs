@@ -45,16 +45,19 @@ try {
   const clientType = (await readFile(path.join(root,'src/lib/supabase/client.ts'),'utf8')).replace('export function createClient()', 'function productionClientType()');
   await writeFile(path.join(fixture,'src/lib/supabase/client.ts'), clientType + `\nexport function createClient() { const channel = { on(){return channel}, subscribe(){return channel} }; return { channel(){return channel}, removeChannel(){return Promise.resolve('ok')} } as unknown as ReturnType<typeof productionClientType>; }\n`);
   await writeFile(path.join(fixture,'src/lib/supabase/proxy.ts'), `import { NextResponse, type NextRequest } from 'next/server';\nexport function updateSupabaseSession(_request:NextRequest, requestHeaders:Headers) { return NextResponse.next({request:{headers:requestHeaders}}); }\n`);
-  await writeFile(path.join(output,'isolation.json'),JSON.stringify({copiedSource:true,substitutions:['supabase/server.ts','supabase/client.ts','supabase/proxy.ts','inert-transport.mjs'],credentials:'none; inert loopback identifiers only',network:'loopback only; denied effects logged',fixture:'two owned Businesses; realistic saved failures and costs'},null,2));
+  await cp(path.join(root,'tests/next-fixture/r10-dependencies.ts'),path.join(fixture,'src/browser/watch-dependencies.ts'));
+  await writeFile(path.join(output,'isolation.json'),JSON.stringify({copiedSource:true,substitutions:['supabase/server.ts','supabase/client.ts','supabase/proxy.ts','inert-transport.mjs','browser/watch-dependencies.ts (inert R10 authority/capture only)'],credentials:'none; inert loopback identifiers only',network:'loopback only; denied effects logged',fixture:'two owned Businesses; realistic saved failures and costs'},null,2));
   console.log('Building disposable production Next application with blocked external effects.');
   await completion(start(['build','--webpack'],'build.log'));
   const probe = createServer(); await new Promise(resolve => probe.listen(0,'127.0.0.1',resolve)); const port=probe.address().port; await new Promise(resolve=>probe.close(resolve));
   start(['start','-p',String(port),'-H','127.0.0.1'],'server.log');
-  const origin=`http://127.0.0.1:${port}`;
+  // Next normalizes loopback NextRequest URLs to localhost; use the same origin
+  // for the inert browser so production exact-Origin protections are unchanged.
+  const origin=`http://localhost:${port}`;
   let ready=false;
   for(let attempt=0;attempt<120;attempt++){try{const response=await fetch(origin+'/login',{redirect:'manual'});if(response.status<500){ready=true;break;}}catch{} await new Promise(resolve=>setTimeout(resolve,250));}
   assert.ok(ready,'Production Next fixture did not start');
-  await runNextJourneys({origin,boundary,output,httpOnly:process.argv.includes('--http-only'),questsOnly:process.argv.includes('--quests-only'),controlsOnly:process.argv.includes('--controls-only'),historyOnly:process.argv.includes('--history-only'),workspaceOnly:process.argv.includes('--workspace-only'),knowledgeOnly:process.argv.includes('--knowledge-only')});
+  await runNextJourneys({origin,boundary,output,httpOnly:process.argv.includes('--http-only'),questsOnly:process.argv.includes('--quests-only'),controlsOnly:process.argv.includes('--controls-only'),historyOnly:process.argv.includes('--history-only'),workspaceOnly:process.argv.includes('--workspace-only'),knowledgeOnly:process.argv.includes('--knowledge-only'),browserWatchOnly:process.argv.includes('--browser-watch-only')});
 } finally {
   const stopped=await Promise.allSettled(processes.map(child=>new Promise((resolve,reject)=>{
     if(child.exitCode!==null||child.signalCode!==null)return resolve();

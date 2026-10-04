@@ -101,7 +101,7 @@ export function rootLibraryFixture({ tables = fixtureTables(), readOptions = {},
       target = [target, `${target}.ts`, `${target}.tsx`].find(candidate => existsSync(candidate) && /\.tsx?$/.test(candidate));
       assert.ok(target, `Unresolved Library fixture source ${name} in ${file}`);
       target = target.replaceAll('\\', '/');
-      assert.ok(target === 'src/core/quest-intake.ts' || /^src\/(lib\/core-ui|components\/(console|guided|stage7)|browser\/console-view|creative\/(cost-display|types)|app\/dashboard\/console-populated-dashboard)/.test(target), `Non-read-only Library dependency ${target}`);
+      assert.ok(target === 'src/core/quest-intake.ts' || target === 'src/browser/console-watch-client.ts' || /^src\/(lib\/core-ui|components\/(console|guided|stage7)|browser\/console-view|creative\/(cost-display|types)|app\/dashboard\/console-populated-dashboard)/.test(target), `Non-read-only Library dependency ${target}`);
       return load(target);
     }, fixtureModule, exports);
     for (const name of ['loadConsoleLibraryPage', 'loadConsoleLibraryRecordsPage', 'loadConsoleLibraryRunDetail']) if (typeof fixtureModule.exports[name] === 'function') {

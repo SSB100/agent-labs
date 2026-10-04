@@ -12,7 +12,8 @@
       "feat/r06-bounded-reads": false,
       "feat/r07-quest-controller": false,
       "feat/r08-owner-workspace": false,
-      "feat/r09-reviewed-knowledge": false
+      "feat/r09-reviewed-knowledge": false,
+      "feat/r10-private-browser-viewer": false
     }
   },
   "buildCommand": "npm run deploy:build"

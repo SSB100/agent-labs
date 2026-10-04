@@ -54,7 +54,8 @@
     "src/app/dashboard/printful/preview.ts",
     "src/app/dashboard/printful/pricing-form.ts",
     "src/etsy-publication/**/*.ts",
-    "src/accounts/**/*.ts"
+    "src/accounts/**/*.ts",
+    "src/browser/watch/**/*.ts"
   ],
   "exclude": [
     "src/creative/data.ts",

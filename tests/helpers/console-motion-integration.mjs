@@ -77,12 +77,12 @@ async function browserBundle() {
       builder.onResolve({ filter: /^next\/link$/ }, () => ({ path: "link", namespace: "motion-boundary" }));
       builder.onLoad({ filter: /.*/, namespace: "motion-boundary" }, () => ({ loader: "js", resolveDir: root, contents: 'import React from "react"; export default function Link({children,...props}) { return React.createElement("a",props,children); }' }));
       builder.onResolve({ filter: /^@\// }, args => {
-        const files = { "@/lib/core-ui/workspace-navigation":"src/lib/core-ui/workspace-navigation.ts", "@/lib/core-ui/console-motion-dom": "src/lib/core-ui/console-motion-dom.ts", "@/lib/core-ui/workflows": "src/lib/core-ui/workflows.ts", "@/components/stage7/icons": "src/components/stage7/icons.tsx", "@/browser/console-view": "src/browser/console-view.ts" };
+        const files = { "@/lib/core-ui/workspace-navigation":"src/lib/core-ui/workspace-navigation.ts", "@/lib/core-ui/console-motion-dom": "src/lib/core-ui/console-motion-dom.ts", "@/lib/core-ui/workflows": "src/lib/core-ui/workflows.ts", "@/components/stage7/icons": "src/components/stage7/icons.tsx", "@/browser/console-watch-client": "src/browser/console-watch-client.ts", "@/browser/console-view": "src/browser/console-view.ts" };
         assert.ok(files[args.path], `Unexpected application import: ${args.path}`);
         return { path: path.join(root, files[args.path]) };
       });
     } }] });
-  const allowed = new Set(['src/lib/core-ui/workspace-navigation.ts',"src/components/console/console-motion.tsx", "src/components/console/console-motion.css", "src/components/console/console-overview.tsx", "src/components/console/console-overview.css", "src/components/console/console-browser-centre.tsx", "src/components/console/console-browser-centre.css", "src/browser/console-view.ts", "src/components/stage7/icons.tsx", "src/lib/core-ui/console-motion-dom.ts", "src/lib/core-ui/console-motion.ts", "src/lib/core-ui/workflows.ts"]);
+  const allowed = new Set(['src/lib/core-ui/workspace-navigation.ts',"src/components/console/console-motion.tsx", "src/components/console/console-motion.css", "src/components/console/console-overview.tsx", "src/components/console/console-overview.css", "src/components/console/console-browser-centre.tsx", "src/components/console/console-browser-centre.css", "src/components/console/console-browser-watch.tsx", "src/components/console/console-browser-watch.css", "src/browser/console-watch-client.ts", "src/browser/console-view.ts", "src/components/stage7/icons.tsx", "src/lib/core-ui/console-motion-dom.ts", "src/lib/core-ui/console-motion.ts", "src/lib/core-ui/workflows.ts"]);
   for (const file of Object.keys(result.metafile.inputs).filter(file => file.startsWith("src/"))) assert.ok(allowed.has(file), `Unexpected provider/server module: ${file}`);
   return result.outputFiles[0].text.replace(/<\/script/gi, "<\\/script");
 }

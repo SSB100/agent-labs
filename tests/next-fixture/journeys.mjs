@@ -1,3 +1,5 @@
+import { runViewerHttp } from './r10-http.mjs';
+import { runViewerJourneys } from './r10-journeys.mjs';
 import { runKnowledgeHttp } from './r09-http.mjs';
 import { runKnowledgeJourneys } from './r09-journeys.mjs';
 import { runWorkspaceHttp } from './r08-http.mjs';
@@ -12,7 +14,7 @@ import { runQuestJourneys } from './quest-journeys.mjs';
 import { runAdmissionJourneys } from './admission-journeys.mjs';
 import { runHistoryJourneys } from './r06-journeys.mjs';
 
-export async function runNextJourneys({origin,boundary,output,httpOnly=false,questsOnly=false,controlsOnly=false,historyOnly=false,workspaceOnly=false,knowledgeOnly=false}) {
+export async function runNextJourneys({origin,boundary,output,httpOnly=false,questsOnly=false,controlsOnly=false,historyOnly=false,workspaceOnly=false,knowledgeOnly=false,browserWatchOnly=false}) {
   const results=[];let browserStatus=httpOnly?'unrun (HTTP-only requested)':'unrun';
   const report=()=>writeFile(path.join(output,'acceptance.json'),JSON.stringify({results,browser:browserStatus},null,2));
   const check=async(name,fn)=>{
@@ -45,6 +47,7 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false,que
     await fetch(boundary.origin+'/control',{method:'POST',body:JSON.stringify({delayId:null,delayMs:0})});
   });
   if(workspaceOnly) await runWorkspaceHttp({origin,boundary,check});
+  if(browserWatchOnly) await runViewerHttp({origin,boundary,check});
   if(knowledgeOnly) await runKnowledgeHttp({origin,boundary,check});
   if(httpOnly){await report();assert.ok(results.every(result=>result.status==='passed'),'HTTP streaming checks failed; see acceptance.json');return;}
   let browser;
@@ -56,6 +59,11 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false,que
     await context.route('**/*',route=>{const u=new URL(route.request().url());if(['http:','https:'].includes(u.protocol)&&u.origin!==origin){external.push(u.origin);return route.abort('blockedbyclient');}return route.continue();});
     page.on('response',r=>{if(r.headers()['content-type']?.includes('text/x-component'))requests.push({url:r.url(),status:r.status()});if(r.request().method()==='POST'&&r.request().headers()['next-action'])actions.push({url:r.url(),status:r.status(),revalidated:r.headers()['x-action-revalidated']??null,redirect:r.headers()['x-action-redirect']??null});});
     const business=id(1);
+    if(browserWatchOnly){
+      await runViewerJourneys({page,context,origin,boundary,output,check,requests,actions});
+      assert.deepEqual(external,[],'R10 browser attempted an external request');assert.deepEqual(boundary.denied,[],'R10 boundary denied an unreviewed operation');
+      assert.ok(results.every(result=>result.status==='passed'),'R10 actual Next checks failed; see acceptance.json');await context.close();return;
+    }
     if(knowledgeOnly){
       await runKnowledgeJourneys({page,context,origin,boundary,output,check,requests,actions});
       assert.deepEqual(external,[],'R09 browser attempted an external request');
@@ -358,6 +366,8 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false,que
     assert.equal(boundary.effects.length,effectCount,'Route reads caused an additional mutable effect');
     await runKnowledgeJourneys({page,context,origin,boundary,output,check,requests,actions});
     assert.deepEqual(external,[],'R09 browser attempted an external request');assert.deepEqual(boundary.denied,[],'R09 boundary denied an unreviewed operation');
+    await runViewerHttp({origin,boundary,check});await runViewerJourneys({page,context,origin,boundary,output,check,requests,actions});
+    assert.deepEqual(external,[],'R10 browser attempted an external request');assert.deepEqual(boundary.denied,[],'R10 boundary denied an unreviewed operation');
     await writeFile(path.join(output,'action-responses.json'),JSON.stringify(actions,null,2));
     await writeFile(path.join(output,'rsc-responses.json'),JSON.stringify(requests,null,2));assert.ok(results.every(result=>result.status==='passed'), 'Actual Next checks failed; see acceptance.json');await context.close();
   }finally{await browser.close();await report();}

@@ -1,0 +1,10 @@
+.consoleBrowserWatch{display:flex;flex:1 1 0;flex-direction:column;min-height:0;min-width:0;gap:4px;color:#c2dce8;font-size:12px;line-height:1.35}
+.consoleBrowserWatchControls{display:flex;flex:0 0 auto;align-items:center;justify-content:space-between;gap:6px;min-width:0}
+.consoleBrowserWatchControls p{min-width:0;margin:0;font-size:12px;line-height:1.35;overflow-wrap:anywhere}
+.consoleBrowserWatchControls button{flex:0 0 auto;min-width:48px}
+.consoleBrowserWatchStage{position:relative;display:flex;flex:1 1 0;align-items:center;justify-content:center;min-height:40px;min-width:0;overflow:hidden;border:1px solid #294c61;border-radius:4px;background:#06121c}
+.consoleBrowserWatchStage canvas{display:block;max-width:100%;max-height:100%;width:100%;height:100%;object-fit:contain;pointer-events:none;user-select:none}
+.consoleBrowserWatchStage canvas[hidden]{display:none}
+.consoleBrowserWatchStage>p{margin:0;max-width:48ch;padding:8px;text-align:center;font-size:12px;line-height:1.4;color:#aec7d5}
+.consoleBrowserWatchCaption{flex:0 0 auto;margin:0;min-height:16px;color:#9ab9ca;font-size:12px;line-height:1.35;overflow-wrap:anywhere}
+@media(max-width:900px){.consoleBrowserWatch{gap:6px}.consoleBrowserWatchControls{align-items:flex-start}.consoleBrowserWatchControls button{min-width:64px;min-height:44px}}

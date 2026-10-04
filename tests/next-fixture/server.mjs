@@ -1,3 +1,5 @@
+import sharp from 'sharp';
+import {seedViewerFixture,readViewerFixture,viewerAuthorityFixture} from './r10.mjs';
 import {knowledgeSeed,readKnowledgeFixture,saveKnowledgeFixture} from './knowledge.mjs';
 import {workspaceSeed,workspaceView,workspaceRead} from './workspace.mjs';
 import { createServer } from 'node:http';
@@ -7,6 +9,7 @@ import { admissionFixture, saveAdmissionFixture } from './admission.mjs';
 import { readHistoryFixture } from './history.mjs';
 import { filterFixtureOr } from './query-predicates.mjs';
 export async function startFixtureBoundary() {
+  const viewerJpeg=await sharp({create:{width:960,height:540,channels:3,background:'#4d9ca6'}}).jpeg({quality:65}).toBuffer();
   let state = fixtureData(), control = { delayId: null, delayMs: 0, failTable: null, actionMode: 'success' };
   const log = [], effects = [], denied = [], heldKnowledgeActions = [];
   const releaseKnowledgeActions=()=>{control.holdKnowledgeActions=false;for(const release of heldKnowledgeActions.splice(0))release();};
@@ -16,10 +19,13 @@ export async function startFixtureBoundary() {
     let body='';for await(const chunk of req)body+=chunk;
     const input=body?JSON.parse(body):{};
     const send = data => { res.setHeader('content-type','application/json');res.end(JSON.stringify(data)); };
-    if(req.url==='/control'){if(input.knowledge===true&&!state.knowledge)state.knowledge=knowledgeSeed(state);if(input.resetKnowledge===true)state.knowledge=knowledgeSeed(state);if(input.workspace===true&&!state.workspace)state.workspace=workspaceSeed(state,id,time);if(typeof input.history==='boolean'&&input.history!==state.history.enabled)state=fixtureData({history:input.history});control={...control,...input};if(input.holdKnowledgeActions===false)releaseKnowledgeActions();return send({ok:true});}
+    if(req.url==='/control'){if(input.knowledge===true&&!state.knowledge)state.knowledge=knowledgeSeed(state);if(input.resetKnowledge===true)state.knowledge=knowledgeSeed(state);if(input.workspace===true&&!state.workspace)state.workspace=workspaceSeed(state,id,time);if(typeof input.history==='boolean'&&input.history!==state.history.enabled)state=fixtureData({history:input.history});if(input.viewer===true&&!state.viewer)state.viewer=seedViewerFixture(state);if(input.resetViewer===true)state.viewer=seedViewerFixture(state);if(input.viewerExpiresInMs&&state.viewer)state.viewer.expiresAt=new Date(Date.now()+input.viewerExpiresInMs).toISOString();control={...control,...input};if(input.holdKnowledgeActions===false)releaseKnowledgeActions();return send({ok:true});}
     if(req.url==='/snapshot')return send({log,effects,denied,control});
     if(req.url==='/reset'){state=fixtureData();log.length=effects.length=denied.length=0;control={delayId:null,delayMs:0,failTable:null,actionMode:'success'};return send({ok:true});}
-    if(req.url==='/claims')return send(input.session==='off'?{data:null,error:null}:{data:{claims:{sub:state.owner,email:'inert-owner@example.invalid'}},error:null});
+    if(req.url==='/claims')return send(input.session==='off'?{data:null,error:null}:{data:{claims:{sub:state.owner,session_id:id(910003),email:'inert-owner@example.invalid'}},error:null});
+    if(req.url==='/user')return send(input.session==='off'?{data:{user:null},error:null}:{data:{user:{id:state.owner,email:'inert-owner@example.invalid'}},error:null});
+    if(req.url==='/r10/authority'){if(input.scope?.ownerId!==state.owner||input.scope?.authSessionId!==id(910003))return send({error:'Inert identity rejected'});try{return send({data:viewerAuthorityFixture(state,input,effects,control)});}catch{return send({error:'Inert authority rejected'});}}
+    if(req.url==='/r10/capture'){log.push({kind:'inert-viewer-frame'});res.setHeader('content-type','image/jpeg');return res.end(control.viewerCorruptFrame?Buffer.from([255,216,255,217]):viewerJpeg);}
     if(input.session==='off')return send({data:null,error:{code:'42501',message:'inert owner absent'}});
     if(req.url==='/read'){
       const call={...input};log.push(call);
@@ -53,6 +59,7 @@ export async function startFixtureBoundary() {
     }
     if(req.url==='/rpc'){
       const {name,args}=input;const business=args.p_business_id;
+      if(['r10_viewer_owner','r10_viewer_catalog'].includes(name)){log.push({rpc:name,args});return send(readViewerFixture(state,name,args,effects,control));}
       if(name==='r09_knowledge_read'){
         const call={rpc:name,business,dataset:args.p_dataset,query:args.p_query};log.push(call);
         if(control.delayId===args.p_query?.selectedId)await new Promise(resolve=>setTimeout(resolve,control.delayMs));
