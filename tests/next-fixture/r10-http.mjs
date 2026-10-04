@@ -52,11 +52,26 @@ export async function runViewerHttp({origin,boundary,check}){
   assert.ok(effects.findIndex(row=>row.event==='dispose_finished')<effects.findIndex(row=>row.operation==='close'));
   await control({viewerDisposeDelayMs:0});
  });
- await check('R10 pre-first-frame failure and rejected disposal keep exact release, one create and unconfirmed closure',async()=>{
+ await check('R10 pre-first-frame empty EOF retains cleanup while held successful disposal blocks ACK',async()=>{
+  await control({resetViewer:true,viewerHoldDispose:true,viewerCaptureFailure:true,viewerDisposeFailure:false,viewerDisposeDelayMs:0});
+  const start=boundary.effects.length,response=await post(viewerEndpoint);
+  assert.equal(response.status,200);assert.match(response.headers.get('content-type'),/application\/x-ndjson/);assert.equal(await response.text(),'');
+  const events=()=>boundary.effects.slice(start),has=event=>events().some(row=>row.event===event);
+  try{await until(()=>has('provider_released')&&has('dispose_started'));assert.equal(boundary.state().viewer.close,false,'Empty EOF must not fabricate disposal ACK');}
+  finally{await control({viewerHoldDispose:false});}
+  await until(()=>boundary.state().viewer.close);const effects=events();
+  assert.equal(effects.filter(row=>row.event==='provider_create').length,1);assert.equal(effects.filter(row=>row.operation==='permit').length,1);
+  assert.ok(effects.findIndex(row=>row.event==='provider_released')<effects.findIndex(row=>row.event==='dispose_finished'));
+  assert.ok(effects.findIndex(row=>row.event==='dispose_finished')<effects.findIndex(row=>row.operation==='close'));
+  const audit=boundary.state().db.artifacts.find(row=>row.id===r10Lineage.auditArtifactId).content;
+  assert.equal(audit.closeOutcome,'failed');assert.equal(audit.capturedFrames,0);assert.equal(audit.deliveredFrames,0);
+ });
+ await check('R10 pre-first-frame empty EOF and rejected disposal keep exact release, one create and unconfirmed closure',async()=>{
   await control({resetViewer:true,viewerHoldDispose:false,viewerCaptureFailure:true,viewerDisposeFailure:true,viewerDisposeDelayMs:0});
   const start=boundary.effects.length;
-  // A real Next stream error can reject fetch before headers or while reading.
-  await assert.rejects(async()=>{const response=await post(viewerEndpoint);if(response.status>=500)throw Error('Expected Next stream failure');await response.text();});
+  // Empty EOF remains a client failure, but does not enter Next's pre-header
+  // pipe-error path or claim successful terminal status/physical closure.
+  const response=await post(viewerEndpoint);assert.equal(response.status,200);assert.equal(await response.text(),'');
   const events=()=>boundary.effects.slice(start);await until(()=>events().some(row=>row.event==='provider_released')&&events().some(row=>row.event==='dispose_failed'));
   assert.equal(boundary.state().viewer.close,false);assert.equal(events().filter(row=>row.event==='provider_create').length,1);assert.equal(events().filter(row=>row.operation==='permit').length,1);assert.equal(events().filter(row=>row.operation==='close').length,0);
   await control({resetViewer:true,viewerCaptureFailure:false,viewerDisposeFailure:false,viewerDisposeDelayMs:0});

@@ -86,7 +86,6 @@ export async function openWatchStream(deps: WatchDependencies, signal: AbortSign
     if (watchTimer) clearInterval(watchTimer);
     if (expiryTimer) clearTimeout(expiryTimer);
     signal.removeEventListener("abort", onAbort); lifetime.signal.removeEventListener("abort", onHostStop);
-    try { controller?.error(privateFailure()); } catch { /* Already cancelled. */ }
     emit("stop", reason);
     // Release is not ordered behind setup completion or context disposal.
     releaseKnown(); disposeCapture();
@@ -111,7 +110,15 @@ export async function openWatchStream(deps: WatchDependencies, signal: AbortSign
       if (!closureConfirmed) { emit("close", "unconfirmed"); return; }
       await bounded("close", () => deps.authority("close", { writerId, outcome: dispatched && !providerId ? "uncertain" : outcome,
         providerReceiptHash: receiptHash ?? null, releaseResult: released, capturedFrames, deliveredFrames: sequence }));
-    }).catch(() => { emit("cleanup", "failed"); }).finally(() => { emit("cleanup", "completed"); lifetime.finish(); });
+    }).catch(() => { emit("cleanup", "failed"); }).finally(() => {
+      emit("cleanup", "completed"); lifetime.finish(); emit("hosting", "completed");
+    });
+    // Install all cleanup work before ending transport. An empty response can
+    // close normally without triggering the host's pre-header pipe-error path;
+    // EOF is still a client failure, never a physical-close acknowledgement.
+    // Once a frame was enqueued, error instead so queued bytes cannot drain.
+    emit("cleanup", "started");
+    try { if (sequence === 0) controller?.close(); else controller?.error(privateFailure()); } catch { /* Already cancelled. */ }
     return cleanup;
   };
   const onAbort = () => { void stop("ended", "aborted"); };
@@ -206,7 +213,7 @@ export async function openWatchStream(deps: WatchDependencies, signal: AbortSign
         await requireAllowed("attest", { ...stamp(), sourceHash: deps.sourceHash });
         const captureCutoff = await permit("capture_permit");
         if (monotonic() >= captureCutoff) fail("capture_lease", "expired");
-        activeCapture = observe("capture", () => capture!.capture()).then(bytes => {
+        activeCapture = observe("capture", () => capture!.capture(captureCutoff)).then(bytes => {
           capturedFrames += 1;
           if (!stillLive()) { bytes.fill(0); throw privateFailure(); }
           return bytes;

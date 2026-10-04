@@ -4,9 +4,12 @@ import {createHash} from 'node:crypto';
 import {setTimeout as pause} from 'node:timers/promises';
 import {openWatchStream} from '../.core-tests/browser/watch/runtime.js';
 import {createWatchLifetime} from '../.core-tests/browser/watch/lifetime.js';
+import {loadBrowserSource} from './helpers/console-browser-fixtures.mjs';
 import {WATCH_HTML,WATCH_POLICY} from '../.core-tests/browser/watch/contracts.js';
+const {consumeConsoleWatchStream}=loadBrowserSource('src/browser/console-watch-client.ts');
 const hash=createHash('sha256').update(WATCH_HTML).digest('hex');
 const deferred=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b;});return{promise,resolve,reject};};
+const emptyEOF=async read=>assert.deepEqual(await read,{done:true,value:undefined});
 async function until(check){for(let i=0;i<100;i++){if(check())return;await pause(10);}assert.ok(check(),'bounded observable completion');}
 function fixture(options={}){
  const state={status:'available',events:[],closed:[],creates:0,shots:0,releases:0,disposed:false,suspended:false,invalidator:null,clock:0,diagnostics:[],registered:false,cleanupDone:false};
@@ -23,7 +26,7 @@ function fixture(options={}){
   return{allowed:true};
  },createProvider:async()=>{state.creates++;if(options.create)return options.create(state);return{providerSessionId:'provider-inert',endpoint:'wss://inert.invalid',receiptHash:'a'.repeat(64)};},
  createCapture:async(_endpoint,invalidate)=>{state.invalidator=invalidate;return{contextId:'00000000-0000-4000-8000-000000000001',pageId:'00000000-0000-4000-8000-000000000002',eligible:()=>!state.suspended,
-  capture:async()=>{state.shots++;return options.capture?options.capture(state):new Uint8Array([255,216,255,219,0,1]);},suspend(){state.suspended=true;},
+  capture:async cutoff=>{state.shots++;state.captureCutoff=cutoff;return options.capture?options.capture(state):new Uint8Array([255,216,255,219,0,1]);},suspend(){state.suspended=true;},
   async dispose(){state.disposed=true;if(options.disposeFail)throw Error('inert disposal failure');}};},
  releaseProvider:async()=>{state.releases++;if(options.releaseFail)throw Error('inert release failure');},
  ...(options.monotonic?{monotonic:()=>state.clock}:{})};
@@ -39,29 +42,29 @@ test('R10 stream emits only bounded exact source JPEG packets then physically di
  f.control.abort();await until(()=>f.state.closed.length===1);assert.ok(f.state.suspended&&f.state.disposed);assert.equal(f.state.releases,1);assert.equal(f.state.closed[0].releaseResult,'released');await assert.rejects(reader.read());
 });
 test('R10 rejects denied dispatch before any provider call',async()=>{
- const f=fixture({authority:op=>op==='create_dispatched'?{allowed:false}:undefined}),r=await f.open();await assert.rejects(r.body.getReader().read());await until(()=>f.state.closed.length===1);assert.equal(f.state.creates,0);assert.equal(f.state.closed[0].releaseResult,'not_created');
+ const f=fixture({authority:op=>op==='create_dispatched'?{allowed:false}:undefined}),r=await f.open();await emptyEOF(r.body.getReader().read());await until(()=>f.state.closed.length===1);assert.equal(f.state.creates,0);assert.equal(f.state.closed[0].releaseResult,'not_created');
 });
-test('R10 independent revoke watcher errors an already open stream even under backpressure',async()=>{
- const f=fixture(),r=await f.open();await until(()=>f.state.status==='watching');assert.equal(f.state.shots,0);f.state.status='revocation_pending';await until(()=>f.state.closed.length===1);assert.equal(f.state.status,'revoked');assert.equal(f.state.shots,0);await assert.rejects(r.body.getReader().read());
+test('R10 independent revoke watcher closes an empty stream under backpressure without capturing',async()=>{
+ const f=fixture(),r=await f.open();await until(()=>f.state.status==='watching');assert.equal(f.state.shots,0);f.state.status='revocation_pending';await until(()=>f.state.closed.length===1);assert.equal(f.state.status,'revoked');assert.equal(f.state.shots,0);await emptyEOF(r.body.getReader().read());
 });
 test('R10 revoke during in-flight screenshot discards late buffered bytes and never enqueues them',async()=>{
- const shot=deferred(),pixels=new Uint8Array([255,216,255,219]),f=fixture({capture:()=>shot.promise}),r=await f.open(),reader=r.body.getReader(),read=reader.read();const rejected=assert.rejects(read);
- await until(()=>f.state.shots===1);f.state.status='revocation_pending';await until(()=>f.state.disposed);assert.equal(f.state.closed.length,0);shot.resolve(pixels);await rejected;await until(()=>pixels.every(x=>x===0)&&f.state.closed.length===1);assert.equal(f.state.closed[0].capturedFrames,1);assert.equal(f.state.closed[0].deliveredFrames,0);
+ const shot=deferred(),pixels=new Uint8Array([255,216,255,219]),f=fixture({capture:()=>shot.promise}),r=await f.open(),reader=r.body.getReader(),read=reader.read();const terminal=emptyEOF(read);
+ await until(()=>f.state.shots===1);f.state.status='revocation_pending';await until(()=>f.state.disposed);assert.equal(f.state.closed.length,0);shot.resolve(pixels);await terminal;await until(()=>pixels.every(x=>x===0)&&f.state.closed.length===1);assert.equal(f.state.closed[0].capturedFrames,1);assert.equal(f.state.closed[0].deliveredFrames,0);
 });
 test('R10 producer privacy event suspends before a frame can be delivered',async()=>{
- const f=fixture({capture:state=>{state.invalidator();return new Uint8Array([255,216,255]);}}),r=await f.open();await assert.rejects(r.body.getReader().read());await until(()=>f.state.closed.length===1);assert.equal(f.state.shots,1);
+ const f=fixture({capture:state=>{state.invalidator();return new Uint8Array([255,216,255]);}}),r=await f.open();await emptyEOF(r.body.getReader().read());await until(()=>f.state.closed.length===1);assert.equal(f.state.shots,1);
 });
 test('R10 elapsed request latency cannot renew an already expired capture permit',async()=>{
- const f=fixture({monotonic:true,authority:(op,_p,state)=>{if(op==='permit'){state.clock+=2001;return{allowed:true,epoch:1,serverNow:new Date(0).toISOString(),leaseUntil:new Date(2000).toISOString()};}}}),r=await f.open();await assert.rejects(r.body.getReader().read());await until(()=>f.state.closed.length===1);assert.equal(f.state.shots,0);
+ const f=fixture({monotonic:true,authority:(op,_p,state)=>{if(op==='permit'){state.clock+=2001;return{allowed:true,epoch:1,serverNow:new Date(0).toISOString(),leaseUntil:new Date(2000).toISOString()};}}}),r=await f.open();await emptyEOF(r.body.getReader().read());await until(()=>f.state.closed.length===1);assert.equal(f.state.shots,0);
 });
 test('R10 stale screenshot crosses no final delivery fence',async()=>{
- const f=fixture({monotonic:true,capture:state=>{state.clock+=2001;return new Uint8Array([255,216,255]);}}),r=await f.open();await assert.rejects(r.body.getReader().read());await until(()=>f.state.closed.length===1);assert.equal(f.state.events.filter(x=>x==='permit').length,1);
+ const f=fixture({monotonic:true,capture:state=>{state.clock+=2001;return new Uint8Array([255,216,255]);}}),r=await f.open();await emptyEOF(r.body.getReader().read());await until(()=>f.state.closed.length===1);assert.equal(f.state.events.filter(x=>x==='permit').length,1);
 });
 test('R10 authority outage fails closed after a stream is established',async()=>{
  const f=fixture({authority:(op,_p,state)=>{if(op==='read'&&state.shots)throw Error('inert outage');}}),r=await f.open(),reader=r.body.getReader();await reader.read();await until(()=>f.state.closed.length===1);await assert.rejects(reader.read());
 });
 test('R10 ambiguous create is consumed once and cannot be mislabeled unsent',async()=>{
- const f=fixture({create:()=>{throw Error('ambiguous timeout');}}),r=await f.open();await assert.rejects(r.body.getReader().read());await until(()=>f.state.closed.length===1);assert.equal(f.state.creates,1);assert.equal(f.state.closed[0].outcome,'uncertain');assert.equal(f.state.closed[0].releaseResult,'unknown');
+ const f=fixture({create:()=>{throw Error('ambiguous timeout');}}),r=await f.open();await emptyEOF(r.body.getReader().read());await until(()=>f.state.closed.length===1);assert.equal(f.state.creates,1);assert.equal(f.state.closed[0].outcome,'uncertain');assert.equal(f.state.closed[0].releaseResult,'unknown');
 });
 test('R10 failed context disposal never acknowledges physical stream closure',async()=>{
  const f=fixture({disposeFail:true}),r=await f.open(),reader=r.body.getReader();await reader.read();f.control.abort();await until(()=>f.state.disposed);await pause(30);assert.equal(f.state.closed.length,0);await assert.rejects(reader.read());
@@ -70,20 +73,20 @@ test('R10 release failure is recorded without claiming provider release',async()
  const f=fixture({releaseFail:true}),r=await f.open();await r.body.getReader().read();f.control.abort();await until(()=>f.state.closed.length===1);assert.equal(f.state.closed[0].releaseResult,'failed');
 });
 test('R10 cancellation during provider creation releases late session without pixels or retry',async()=>{
- const created=deferred(),f=fixture({create:()=>created.promise}),r=await f.open(),read=r.body.getReader().read(),rejected=assert.rejects(read);await until(()=>f.state.creates===1);f.control.abort();created.resolve({providerSessionId:'late-inert',endpoint:'wss://inert.invalid',receiptHash:'a'.repeat(64)});await rejected;await until(()=>f.state.closed.length===1);assert.equal(f.state.creates,1);assert.equal(f.state.releases,1);assert.equal(f.state.shots,0);
+ const created=deferred(),f=fixture({create:()=>created.promise}),r=await f.open(),read=r.body.getReader().read(),terminal=emptyEOF(read);await until(()=>f.state.creates===1);f.control.abort();created.resolve({providerSessionId:'late-inert',endpoint:'wss://inert.invalid',receiptHash:'a'.repeat(64)});await terminal;await until(()=>f.state.closed.length===1);assert.equal(f.state.creates,1);assert.equal(f.state.releases,1);assert.equal(f.state.shots,0);
 });
 test('R10 partial constructor cleanup failure cannot become physical close acknowledgment',async()=>{
- const {CaptureSetupFailure}=await import('../.core-tests/browser/watch/contracts.js');const f=fixture();f.deps.createCapture=async()=>{throw new CaptureSetupFailure(false);};const r=await f.open();await assert.rejects(r.body.getReader().read());await until(()=>f.state.releases===1);assert.equal(f.state.closed.length,0);
+ const {CaptureSetupFailure}=await import('../.core-tests/browser/watch/contracts.js');const f=fixture();f.deps.createCapture=async()=>{throw new CaptureSetupFailure(false);};const r=await f.open();await emptyEOF(r.body.getReader().read());await until(()=>f.state.releases===1);assert.equal(f.state.closed.length,0);
 });
 test('R10 partial constructor with verified cleanup may acknowledge closed stream',async()=>{
- const {CaptureSetupFailure}=await import('../.core-tests/browser/watch/contracts.js');const f=fixture();f.deps.createCapture=async()=>{throw new CaptureSetupFailure(true);};const r=await f.open();await assert.rejects(r.body.getReader().read());await until(()=>f.state.closed.length===1);assert.equal(f.state.releases,1);
+ const {CaptureSetupFailure}=await import('../.core-tests/browser/watch/contracts.js');const f=fixture();f.deps.createCapture=async()=>{throw new CaptureSetupFailure(true);};const r=await f.open();await emptyEOF(r.body.getReader().read());await until(()=>f.state.closed.length===1);assert.equal(f.state.releases,1);
 });
 
 
 test('R10 hosting lifetime is registered before claim, early rejection and pre-first-frame capture failure',async()=>{
  for(const mode of ['claim','capture']){
   const f=fixture({authority:op=>{if(mode==='claim'&&op==='claim')throw Error('hostile https://endpoint.invalid/?key=SECRET');},capture:()=>{throw Error('hostile SECRET screenshot');}});
-  if(mode==='claim')await assert.rejects(f.open());else{const response=await f.open();await assert.rejects(response.body.getReader().read());}
+  if(mode==='claim')await assert.rejects(f.open());else{const response=await f.open();await emptyEOF(response.body.getReader().read());}
   await f.state.completion;assert.equal(f.state.events[0],'hosting_registered');assert.equal(f.state.cleanupDone,true);assert.equal(f.state.closed.length,1);
   assert.equal(f.state.closed[0].deliveredFrames,0);assert.equal(f.state.creates,mode==='claim'?0:1);
  }
@@ -108,7 +111,7 @@ test('R10 rejected and stalled disposal cannot delay exact-session release or ma
 test('R10 cancellation during capture setup releases before setup finishes and disposes late constructor',async()=>{
  const gate=deferred(),f=fixture(),original=f.deps.createCapture;
  f.deps.createCapture=async(...args)=>{const value=await original(...args);await gate.promise;return value;};
- const response=await f.open(),reader=response.body.getReader(),reading=assert.rejects(reader.read());
+ const response=await f.open(),reader=response.body.getReader(),reading=emptyEOF(reader.read());
  await until(()=>f.state.invalidator!==null);f.control.abort();await until(()=>f.state.releases===1);
  assert.equal(f.state.disposed,false);assert.equal(f.state.closed.length,0);gate.resolve();await reading;await f.state.completion;
  assert.equal(f.state.suspended,true);assert.equal(f.state.disposed,true);assert.equal(f.state.closed.length,1);assert.equal(f.state.shots,0);assert.equal(f.state.creates,1);
@@ -117,7 +120,7 @@ test('R10 cancellation during capture setup releases before setup finishes and d
 test('R10 cleanup timeout settles the registered lifetime without ACK and late pixels are zeroed',async t=>{
  t.mock.timers.enable({apis:['setTimeout']});
  const gate=deferred(),pixels=new Uint8Array([255,216,255]),f=fixture({capture:()=>gate.promise}),response=await f.open(),reader=response.body.getReader();
- const reading=assert.rejects(reader.read());await until(()=>f.state.shots===1);
+ const reading=emptyEOF(reader.read());await until(()=>f.state.shots===1);
  f.control.abort();for(let i=0;i<30;i++)await Promise.resolve();assert.equal(f.state.disposed,true);
  t.mock.timers.tick(15_001);for(let i=0;i<30;i++)await Promise.resolve();
  await f.state.completion;assert.equal(f.state.closed.length,0);assert.equal(f.state.releases,1);assert.equal(f.state.creates,1);
@@ -127,7 +130,7 @@ test('R10 cleanup timeout settles the registered lifetime without ACK and late p
 
 test('R10 only allowlisted phase/reason codes and bounded numeric fields survive hostile failures',async()=>{
  const hostile='SECRET_AUTH https://connect.steel.dev/?apiKey=SECRET provider-id owner-id page-content';
- const f=fixture({capture:()=>{throw new Error(hostile);}}),response=await f.open();await assert.rejects(response.body.getReader().read());await f.state.completion;
+ const f=fixture({capture:()=>{throw new Error(hostile);}}),response=await f.open();await emptyEOF(response.body.getReader().read());await f.state.completion;
  assert.doesNotMatch(JSON.stringify(f.state.diagnostics),/SECRET|https|provider-id|owner-id|page-content/);
  for(const event of f.state.diagnostics){assert.deepEqual(Object.keys(event).sort(),['capturedFrames','deliveredFrames','durationMs','phase','reason','remainingMs']);for(const key of ['capturedFrames','deliveredFrames','durationMs','remainingMs'])assert.ok(Number.isFinite(event[key])&&event[key]>=0);}
  assert.ok(f.state.diagnostics.some(event=>event.phase==='capture'&&event.reason==='failed'),JSON.stringify(f.state.diagnostics));
@@ -136,8 +139,8 @@ test('R10 only allowlisted phase/reason codes and bounded numeric fields survive
 
 test('R10 permits retain measured latency and screenshot expiry diagnostics without extending capture time',async()=>{
  const f=fixture({monotonic:true,authority:(op,_payload,state)=>{if(op==='permit'){state.clock+=800;return{allowed:true,epoch:1,serverNow:new Date(0).toISOString(),leaseUntil:new Date(2000).toISOString()};}},capture:state=>{state.clock+=1100;return new Uint8Array([255,216,255]);}}),response=await f.open();
- await assert.rejects(response.body.getReader().read());await f.state.completion;
- assert.ok(f.state.diagnostics.some(event=>event.phase==='capture_permit'&&event.durationMs===800));assert.ok(f.state.diagnostics.some(event=>event.phase==='capture'&&event.durationMs===1100));
+ await emptyEOF(response.body.getReader().read());await f.state.completion;
+ assert.equal(f.state.captureCutoff,1850);assert.ok(f.state.diagnostics.some(event=>event.phase==='capture_permit'&&event.durationMs===800));assert.ok(f.state.diagnostics.some(event=>event.phase==='capture'&&event.durationMs===1100));
  assert.ok(f.state.diagnostics.some(event=>event.phase==='capture_lease'&&event.reason==='expired'));assert.equal(f.state.events.filter(value=>value==='permit').length,1);assert.equal(f.state.closed[0].deliveredFrames,0);
 });
 
@@ -163,4 +166,21 @@ test('R10 stalled release preserves unknown release truth and leaves time for a 
  const response=await f.open();await response.body.getReader().read();f.control.abort();for(let i=0;i<40;i++)await Promise.resolve();assert.equal(f.state.disposed,true);assert.equal(f.state.closed.length,0);
  t.mock.timers.tick(10_001);for(let i=0;i<40;i++)await Promise.resolve();await f.state.completion;
  assert.equal(f.state.closed.length,1);assert.equal(f.state.closed[0].releaseResult,'unknown');assert.ok(f.state.diagnostics.some(event=>event.phase==='release'&&event.reason==='timeout'));gate.resolve();
+});
+
+
+test('R10 empty EOF preserves the client failure path while release is independent of held or rejected disposal',async()=>{
+ for(const rejected of [false,true]){
+  const gate=deferred(),f=fixture({capture:()=>{throw Error('inert capture failure');}}),original=f.deps.createCapture;
+  f.deps.createCapture=async(...args)=>{const capture=await original(...args);return{...capture,dispose:async()=>{f.state.disposed=true;if(rejected)throw Error('inert disposal failure');await gate.promise;}};};
+  const response=await f.open(),frames=[],statuses=[];
+  assert.equal(await consumeConsoleWatchStream(response,{signal:new AbortController().signal,onFrame:async frame=>frames.push(frame),onStatus:status=>statuses.push(status)}),'disconnected');
+  assert.deepEqual(frames,[]);assert.deepEqual(statuses,[]);assert.equal(f.state.suspended,true);
+  await until(()=>f.state.releases===1&&f.state.disposed);assert.equal(f.state.closed.length,0);
+  assert.ok(f.state.diagnostics.some(event=>event.phase==='cleanup'&&event.reason==='started'));
+  if(!rejected){assert.equal(f.state.cleanupDone,false);gate.resolve();}
+  await f.state.completion;assert.equal(f.state.closed.length,rejected?0:1);
+  if(!rejected){assert.equal(f.state.closed[0].outcome,'failed');assert.equal(f.state.closed[0].capturedFrames,0);assert.equal(f.state.closed[0].deliveredFrames,0);}
+  assert.ok(f.state.diagnostics.some(event=>event.phase==='hosting'&&event.reason==='completed'));
+ }
 });

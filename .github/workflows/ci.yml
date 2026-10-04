@@ -64,6 +64,15 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      - name: Preserve bounded actual R10 producer screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r10-producer-ui-${{ github.sha }}
+          path: test-results/guided-ui/r10-confined-producer.png
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Upload final Decisions screenshots
         if: always()
         uses: actions/upload-artifact@v4

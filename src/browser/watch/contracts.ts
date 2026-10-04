@@ -33,7 +33,8 @@ export type WatchCapture = {
   readonly contextId: string; readonly pageId: string;
   /** Must check the producer's own live confinement, never caller JSON. */
   eligible(): boolean;
-  capture(): Promise<Uint8Array>;
+  /** Original absolute monotonic capture cutoff, never a renewed deadline. */
+  capture(cutoff?: number): Promise<Uint8Array>;
   suspend(): void;
   dispose(): Promise<void>;
 };
