@@ -166,8 +166,12 @@ test('Quest workspace browser behavior is bounded and exact', { skip: process.en
 
     await t.test('current Quest selection waits for saved Business settings', async () => {
       await page.evaluate(business => window.__setQuestState({ business: { ...business, revision: 0 } }), baseState.business);
+      // The fixture's React setter schedules a render; isDisabled itself does
+      // not retry. Wait for the real control state rather than racing commit.
+      await page.waitForFunction(() => [...document.querySelectorAll('button')].find(button => button.textContent.trim() === 'Make this the current Quest')?.disabled === true, null, { timeout: 10000 });
       assert.equal(await page.getByRole('button', { name: 'Make this the current Quest' }).isDisabled(), true);
       await page.evaluate(business => window.__setQuestState({ business }), baseState.business);
+      await page.waitForFunction(() => [...document.querySelectorAll('button')].find(button => button.textContent.trim() === 'Make this the current Quest')?.disabled === false, null, { timeout: 10000 });
       assert.equal(await page.getByRole('button', { name: 'Make this the current Quest' }).isEnabled(), true);
     });
 

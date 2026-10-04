@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
+import {writeFile} from 'node:fs/promises';
 import {id} from './data.mjs';
 import {knowledgeId,knowledgePackKey} from './knowledge.mjs';
 import {knowledgeRoute} from './r09-http.mjs';
@@ -89,12 +90,12 @@ export async function runKnowledgeJourneys({page,context,origin,boundary,output,
    }
   }
   for(const failure of ['failDataset','shortDataset']){
-   await control({[failure]:'proposals'});await goto('proposals');await page.getByRole('alert').waitFor();
+   await control({[failure]:'proposals'});await goto('proposals');await page.locator('.r09Workspace').getByRole('alert').waitFor();
    assert.match(await page.locator('.r09Pager').innerText(),/Count unavailable/);
    assert.equal(await page.getByRole('button',{name:'Submit private lesson',exact:true}).count(),0);
    await control({[failure]:null});
   }
-  await context.addCookies([{name:'r03-mode',value:'empty',url:origin}]);try{await goto('usage');assert.match(await page.locator('.r09Pager').innerText(),/of 0/);assert.equal(await page.getByRole('alert').count(),0);}finally{await context.clearCookies({name:'r03-mode'});}
+  await context.addCookies([{name:'r03-mode',value:'empty',url:origin}]);try{await goto('usage');assert.match(await page.locator('.r09Pager').innerText(),/of 0/);assert.equal(await page.locator('.r09Workspace').getByRole('alert').count(),0);}finally{await context.clearCookies({name:'r03-mode'});}
  });
  await check('R09 newer exact Knowledge navigation wins over delayed old selection',async()=>{
   await goto('releases');const rows=page.locator('.r09List a');
@@ -135,23 +136,33 @@ export async function runKnowledgeJourneys({page,context,origin,boundary,output,
   await goto('usage',{selected:knowledgeId('usage')});await detail().waitFor();assert.match(await detail().innerText(),/1\.0\.0/);assert.match(await detail().innerText(),new RegExp(knowledgeId('release')));assert.doesNotMatch(await detail().innerText(),new RegExp(knowledgeId('release',0,1)));
  });
  await check('R09 late action after Close detail cannot reopen an obsolete selection; intentional retry recovers the saved version',async()=>{
-  const target=knowledgeId('version',0,20),title='Delayed private revision after closing exact detail',before=effects().length;
+  const target=knowledgeId('version',0,20),title='Delayed private revision after closing exact detail',before=effects().length,phases=[];
+  const trace=async phase=>{phases.push({phase,at:new Date().toISOString(),url:page.url(),effectCount:effects().length});console.log('R09 held-action:',phase);await writeFile(path.join(output,'r09-held-action.json'),JSON.stringify(phases,null,2));};
+  await trace('foreground the main page');await bounded(page.bringToFront(),'R09 foreground navigation page');assert.equal(await page.evaluate(()=>document.visibilityState),'visible');await trace('prepare exact revision form');
   await goto('proposals',{selected:target});await page.getByText('Revise as a new private version',{exact:true}).click();const revise=page.getByRole('form',{name:'Revise private lesson',exact:true});await revise.getByLabel('Lesson title',{exact:true}).fill(title);
-  const logBefore=boundary.log.length;let actionResponse;
+  const logBefore=boundary.log.length,actionUrl=page.url();let actionResponse,heldRequest;
+  const captureActionRequest=request=>{if(!heldRequest&&request.method()==='POST'&&request.url()===actionUrl&&request.headers()['next-action'])heldRequest=request;};
   const newer=await withReleasedGate(async()=>{
-   await control({holdKnowledgeActions:true});
-   actionResponse=observe(page.waitForResponse(response=>response.request().method()==='POST'&&!!response.request().headers()['next-action'],{timeout:FIXTURE_NAVIGATION_TIMEOUT_MS}));
-   await revise.getByRole('button',{name:'Save new private version',exact:true}).click();await revise.getByRole('button',{name:'Saving…',exact:true}).waitFor();
-   const held=()=>boundary.log.slice(logBefore).some(call=>call.rpc==='r09_knowledge_owner'&&call.held===true);for(let attempts=0;attempts<200&&!held();attempts++)await new Promise(resolve=>setTimeout(resolve,25));assert.ok(held(),'The inert RPC must be held before navigating away');
-   await detail().getByRole('link',{name:'Close detail',exact:true}).click();await page.waitForURL(u=>u.searchParams.get('type')==='proposals'&&!u.searchParams.has('selected'));return page.url();
+   await trace('enable inert action hold');await control({holdKnowledgeActions:true});
+   page.on('request',captureActionRequest);
+   actionResponse=observe(page.waitForResponse(response=>!!heldRequest&&response.request()===heldRequest,{timeout:FIXTURE_NAVIGATION_TIMEOUT_MS}));
+   await trace('dispatch held Save click');await revise.getByRole('button',{name:'Save new private version',exact:true}).click({noWaitAfter:true});await trace('Save click dispatched; await busy state');await revise.getByRole('button',{name:'Saving…',exact:true}).waitFor();
+   const held=()=>boundary.log.slice(logBefore).some(call=>call.rpc==='r09_knowledge_owner'&&call.held===true);for(let attempts=0;attempts<200&&!held();attempts++)await new Promise(resolve=>setTimeout(resolve,25));assert.ok(held(),'The inert RPC must be held before navigating away');assert.ok(heldRequest,'Capture the exact held Save request before navigation');
+   await trace('RPC held; dispatch Close detail click');await detail().getByRole('link',{name:'Close detail',exact:true}).click({noWaitAfter:true});await trace('Close click dispatched; require newer URL while action remains held');await page.waitForURL(u=>u.searchParams.get('type')==='proposals'&&!u.searchParams.has('selected'));await trace('newer URL committed before action release');return page.url();
   },async()=>{
-   // Release even when Click/URL/assertions fail, before draining the observed response.
-   try{await control({holdKnowledgeActions:false});}finally{boundary.releaseKnowledgeActions();}
-   if(actionResponse){const result=await actionResponse;if(!result.ok)throw result.error;await bounded(result.value.finished(),'R09 held action response completion');}
+   // Release even when Click/URL/assertions fail. An abandoned Flight body need not reach EOF.
+   try{
+    try{await trace('release held RPC in cleanup');await control({holdKnowledgeActions:false});}finally{boundary.releaseKnowledgeActions();}
+    if(actionResponse){const result=await actionResponse;if(!result.ok)throw result.error;assert.equal(result.value.request(),heldRequest);assert.equal(result.value.status(),200,'The exact held action must return 200');assert.ok(Number(result.value.headers()['x-action-revalidated'])>0,'The exact held action must report revalidation');await trace('exact held action returned 200 with revalidation');}
+   }finally{page.off('request',captureActionRequest);}
   });
-  await bounded(page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))),'R09 post-action render settling');
-  assert.equal(page.url(),newer,'A completed obsolete action must not push its former selection');assert.equal(await detail().getAttribute('data-knowledge-detail'),null);assert.equal(await page.locator('.r09Outcome').count(),0);assert.equal(effects().length,before+1);
-  const saved=boundary.state().knowledge.proposals.find(p=>p.title===title);assert.ok(saved);assert.equal(saved.version,2);assert.equal(saved.businessId,business);
+  const savedRows=boundary.state().knowledge.proposals.filter(p=>p.title===title);assert.equal(savedRows.length,1,'One exact revision is saved');const saved=savedRows[0];assert.equal(saved.version,2);assert.equal(saved.businessId,business);assert.equal(saved.proposalId,boundary.state().knowledge.proposals.find(p=>p.id===target).proposalId);assert.equal(effects().length,before+1);
+  // Do not reload, navigate or push. Existing-page revalidation must make the exact saved row visible.
+  await trace('await natural current-list refresh with the exact saved revision');
+  await page.locator(`.r09List [data-knowledge-record="${saved.id}"]`).getByRole('link',{name:title,exact:true}).waitFor();
+  await trace('natural current-list refresh displayed the exact saved revision');
+  assert.equal(page.url(),newer,'A completed obsolete action must not push its former selection');assert.equal(await detail().getAttribute('data-knowledge-detail'),null);assert.equal(await page.locator('.r09Outcome,.r09Form [role=status]').count(),0,'Late action must not restore stale feedback');assert.equal(effects().length,before+1);
+  await trace('newer URL, closed detail and no stale feedback verified before intentional inspection');
   await goto('proposals',{selected:saved.id});assert.match(await detail().innerText(),/Delayed private revision after closing exact detail/);
   await goto('proposals',{selected:target});await page.getByText('Revise as a new private version',{exact:true}).click();const retry=page.getByRole('form',{name:'Revise private lesson',exact:true});await retry.getByLabel('Lesson title',{exact:true}).fill(title);await retry.getByRole('button',{name:'Save new private version',exact:true}).click();await waitForSaved('propose');assert.equal(new URL(page.url()).searchParams.get('selected'),saved.id);assert.equal(effects().length,before+1,'Unchanged request recovers the single saved version after navigation');
  });

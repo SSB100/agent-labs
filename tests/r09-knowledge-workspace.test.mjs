@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {loadSource} from './helpers/guided-ui.mjs';
@@ -102,4 +103,21 @@ test('R09 private evidence explicitly labels context exit and does not link an u
  const unlinked=await render('proposals',proposal);assert.match(unlinked,/Business-wide, unlinked evidence/);assert.match(unlinked,/deliberately leaves the current Quest and episode context/);
  const unavailable=await render('proposals',proposal,{evidenceLinks:[{id:id(50),href:null,context:'unavailable'}]});assert.match(unavailable,/Exact evidence scope is unavailable or incomplete/);assert.doesNotMatch(unavailable,/Exact owned artifact/);assert.doesNotMatch(unavailable,/href="[^\"]*selected=00000000-0000-4000-8000-000000000050/);
  const changed=await render('proposals',proposal,{evidenceLinks:[{id:id(50),href:`/dashboard?view=library&business=${business}&quest=${id(88)}&episode=${id(89)}&selected=${id(50)}`,context:'changed-quest'}]});assert.match(changed,/recorded Quest and episode/);assert.match(changed,/incompatible earlier Step, Agent and artifact context is cleared/);
+});
+
+
+test('R09 private form has 44px input, textarea and button targets on desktop as well as mobile',async()=>{
+ const css=readFileSync('src/components/console/console-knowledge-workspace.css','utf8'),base=css.split('@media')[0];
+ const controls=/\.r09Workspace :where\(input,textarea,button\)\s*\{([^}]+)\}/.exec(base)?.[1];
+ const buttons=/\.r09Workspace button\s*\{([^}]+)\}/.exec(base)?.[1];
+ const formButtons=/\.r09Form button\s*\{([^}]+)\}/.exec(base)?.[1];
+ assert.match(controls??'',/min-height:\s*44px/,'44px controls must be in base CSS, not only the mobile media query');
+ assert.match(buttons??'',/min-height:\s*44px/,'The higher-specificity desktop button rule must not shrink the target');
+ assert.match(formButtons??'',/min-width:\s*100px/);
+ assert.match(base,/\.r09ListPane,\.r09Detail\s*\{[^}]*overflow:auto/,'Larger fields remain in the compact contained scroll regions');
+ const html=await render('proposals',proposal);
+ assert.match(html,/class="r09Form" aria-label="Submit private lesson"/);
+ assert.match(html,/<input[^>]*name="artifactIds"/);
+ assert.match(html,/<textarea[^>]*name="lesson"/);
+ assert.match(html,/<button[^>]*type="submit"[^>]*>Submit private lesson<\/button>/);
 });
