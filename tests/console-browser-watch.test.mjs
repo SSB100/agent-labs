@@ -16,7 +16,7 @@ const render=data=>renderToStaticMarkup(React.createElement(component.ConsoleBro
 
 test('only a matching dedicated descriptor shows an explicit inert Watch button',()=>{
  const data=workspace();data.selectedSession={...data.selectedSession,label:'Controlled public qualification'};data.sessions=[data.selectedSession];data.viewer=viewer();
- const html=render(data);assert.match(html,/Controlled public qualification/);assert.match(html,/>Watch<\/button>/);assert.match(html,/No input, clipboard or upload controls/);assert.match(html,/canvas[^>]+width="0"[^>]+height="0"[^>]+hidden/);
+ const html=render(data);assert.match(html,/Controlled public qualification/);assert.match(html,/>Watch<\/button>/);assert.match(html,/Watch starts the separately approved, bounded public qualification session/);assert.match(html,/Enlarge viewer/);assert.match(html,/No input, clipboard or upload controls/);assert.match(html,/canvas[^>]+width="0"[^>]+height="0"[^>]+hidden/);
  assert.doesNotMatch(html,/<iframe|<img|<video|src=|data:image|https:/);
  for(const mismatch of [{sessionId:id(4)},{businessId:id(9)},{workflowRunId:id(10)}]){const invalid=render({...data,viewer:{...viewer(),...mismatch}});assert.doesNotMatch(invalid,/>Watch<\/button>/);assert.match(invalid,/Live viewing unavailable for this session/);}
  const legacy=render(workspace({viewer:viewer()}));assert.doesNotMatch(legacy,/<canvas|>Watch<\/button>/);
@@ -52,6 +52,8 @@ test('client watcher has no native endpoint, active input, persistent bytes or a
  assert.doesNotMatch(source,/iframe|connectCDP|localStorage|sessionStorage|setInterval|debugUrl|viewerUrl|window\.open/);
  assert.match(source,/credentials: "same-origin", cache: "no-store", redirect: "error"/);
  assert.match(source,/target\.width = bitmap\.width/);assert.match(source,/canvas\.current\.width = 0/);assert.match(source,/bitmap\.close\(\)/);
+ assert.match(source,/Math\.min\(expiry\.current, updated\)/);assert.match(source,/\}, \[clearPixels, revoke\]\)/);
+ assert.match(source,/element\.close\(\)/);assert.match(source,/element\.showModal\(\)/);assert.match(source,/element\.show\(\)/);assert.match(source,/sizeButton\.current\?\.focus/);assert.match(source,/onCancel=\{event => \{ event\.preventDefault\(\); resize\(false\)/);
  assert.match(source,/visibilitychange/);assert.match(source,/pagehide/);assert.match(source,/started\.current \|\| status !== "ready"/);
  const css=readFileSync('src/components/console/console-browser-watch.css','utf8');assert.match(css,/pointer-events:none/);assert.match(css,/min-height:44px/);
 });

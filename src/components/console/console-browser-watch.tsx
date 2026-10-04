@@ -8,7 +8,7 @@ import "./console-browser-watch.css";
 type Viewer = NonNullable<ConsoleBrowserWorkspace["viewer"]>;
 type ViewStatus = ConsoleWatchStatus | "ready" | "disconnected";
 const labels: Record<ViewStatus, string> = {
-  ready: "Ready for one bounded watch", starting: "Starting watch", watching: "Watching · read-only",
+  ready: "Ready for approved qualification", starting: "Starting watch", watching: "Watching · read-only",
   revocation_pending: "Stopping · server confirmation pending", revoked: "Stopped · server confirmed",
   ended: "Watch ended", expired: "Watch expired", unavailable: "Live viewing unavailable for this session",
   disconnected: "Watch disconnected · pixels cleared",
@@ -22,7 +22,10 @@ export function ConsoleBrowserWatch({ viewer }: { viewer: Viewer }) {
   const [status, setStatus] = useState<ViewStatus>(viewer.status === "available" ? "ready" : viewer.status);
   const [frameTime, setFrameTime] = useState<string | null>(null);
   const [issue, setIssue] = useState("");
+  const [expanded, setExpanded] = useState(false);
+  const panel = useRef<HTMLDialogElement>(null), sizeButton = useRef<HTMLButtonElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null), mounted = useRef(true), started = useRef(false), revoking = useRef(false), generation = useRef(0);
+  const expiry = useRef(Date.parse(expiresAt));
   const stream = useRef<AbortController | null>(null), frameTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const endpoint = `/api/browser/sessions/${encodeURIComponent(sessionId)}/watch`;
   const body = JSON.stringify({ businessId, questId, workflowRunId });
@@ -62,12 +65,6 @@ export function ConsoleBrowserWatch({ viewer }: { viewer: Viewer }) {
 
   useEffect(() => {
     mounted.current = true;
-    const expires = Date.parse(expiresAt);
-    const expire = () => {
-      clearPixels(); setStatus("expired");
-      if (started.current) void revoke();
-    };
-    const timer = setTimeout(expire, Number.isFinite(expires) ? Math.max(0, Math.min(expires - Date.now(), 2_147_483_647)) : 0);
     const hidden = () => {
       if (document.visibilityState === "hidden" && started.current) void revoke();
     };
@@ -76,14 +73,37 @@ export function ConsoleBrowserWatch({ viewer }: { viewer: Viewer }) {
     window.addEventListener("pagehide", pagehide);
     return () => {
       mounted.current = false;
-      clearTimeout(timer); document.removeEventListener("visibilitychange", hidden); window.removeEventListener("pagehide", pagehide);
+      document.removeEventListener("visibilitychange", hidden); window.removeEventListener("pagehide", pagehide);
       clearPixels();
       if (started.current) void revoke();
     };
+  }, [clearPixels, revoke]);
+
+  useEffect(() => {
+    const updated = Date.parse(expiresAt);
+    // Refresh may narrow a grant after claim; it must neither recreate the
+    // stream nor silently extend this mount's original maximum lifetime.
+    expiry.current = Number.isFinite(updated) && Number.isFinite(expiry.current) ? Math.min(expiry.current, updated) : 0;
+    const timer = setTimeout(() => {
+      clearPixels(); setStatus("expired");
+      if (started.current) void revoke();
+    }, Math.max(0, Math.min(expiry.current - Date.now(), 2_147_483_647)));
+    return () => clearTimeout(timer);
   }, [clearPixels, expiresAt, revoke]);
 
+  function resize(enlarge: boolean) {
+    const element = panel.current;
+    if (!element || enlarge === expanded) return;
+    // Promote the same open nonmodal panel to the browser top layer. Neither
+    // its canvas nor its stream is replaced when changing presentation size.
+    element.close();
+    if (enlarge) element.showModal(); else element.show();
+    setExpanded(enlarge);
+    sizeButton.current?.focus({ preventScroll: true });
+  }
+
   async function start() {
-    if (started.current || status !== "ready" || document.visibilityState === "hidden" || !Number.isFinite(Date.parse(expiresAt)) || Date.parse(expiresAt) <= Date.now()) return;
+    if (started.current || status !== "ready" || document.visibilityState === "hidden" || !Number.isFinite(expiry.current) || expiry.current <= Date.now()) return;
     started.current = true; setStatus("starting"); setIssue("");
     const controller = new AbortController(); stream.current = controller;
     const current = generation.current;
@@ -130,16 +150,18 @@ export function ConsoleBrowserWatch({ viewer }: { viewer: Viewer }) {
     }
   }
 
-  return <section className="consoleBrowserWatch" aria-label="Controlled public qualification viewer" data-watch-status={status}>
+  return <dialog ref={panel} open className="consoleBrowserWatch" aria-label="Controlled public qualification viewer" aria-modal={expanded ? true : undefined} data-watch-status={status} data-watch-expires-at={expiresAt} data-expanded={expanded} onCancel={event => { event.preventDefault(); resize(false); }}>
+    <h2 className="consoleBrowserWatchTitle" hidden={!expanded}>Controlled public qualification</h2>
     <div className="consoleBrowserWatchControls">
       <p role="status" aria-live="polite">{labels[status]}</p>
+      <div className="consoleBrowserWatchActions"><button ref={sizeButton} type="button" onClick={() => resize(!expanded)} aria-label={expanded ? "Compact viewer" : "Enlarge viewer"}>{expanded ? "Compact" : "Enlarge"}</button>
       {status === "ready" ? <button type="button" onClick={() => void start()}>Watch</button>
-        : active(status) && status !== "revocation_pending" ? <button type="button" onClick={() => { started.current = true; void revoke(); }}>Stop watching</button> : null}
+        : active(status) && status !== "revocation_pending" ? <button type="button" onClick={() => { started.current = true; void revoke(); }}>Stop watching</button> : null}</div>
     </div>
     <div className="consoleBrowserWatchStage">
       <canvas ref={canvas} width={0} height={0} hidden={!frameTime} role="img" aria-label={frameTime ? `Read-only public qualification frame captured ${frameTime}` : "No frame displayed"}/>
-      {!frameTime ? <p>{issue || (status === "ready" ? "Only the dedicated public qualification can be watched. Select Watch to connect once." : "No browser pixels are displayed.")}</p> : null}
+      {!frameTime ? <p>{issue || (status === "ready" ? "Watch starts the separately approved, bounded public qualification session. One watch only." : "No browser pixels are displayed.")}</p> : null}
     </div>
     <p className="consoleBrowserWatchCaption">{frameTime ? <>Captured <time dateTime={frameTime}>{frameTime.replace("T", " ").replace(".000Z", " UTC")}</time></> : "No input, clipboard or upload controls"}</p>
-  </section>;
+  </dialog>;
 }

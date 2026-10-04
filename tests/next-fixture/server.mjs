@@ -1,5 +1,5 @@
 import sharp from 'sharp';
-import {seedViewerFixture,readViewerFixture,viewerAuthorityFixture} from './r10.mjs';
+import {seedViewerFixture,readViewerFixture,viewerAuthorityFixture,R10_FIXTURE_SVG} from './r10.mjs';
 import {knowledgeSeed,readKnowledgeFixture,saveKnowledgeFixture} from './knowledge.mjs';
 import {workspaceSeed,workspaceView,workspaceRead} from './workspace.mjs';
 import { createServer } from 'node:http';
@@ -9,7 +9,7 @@ import { admissionFixture, saveAdmissionFixture } from './admission.mjs';
 import { readHistoryFixture } from './history.mjs';
 import { filterFixtureOr } from './query-predicates.mjs';
 export async function startFixtureBoundary() {
-  const viewerJpeg=await sharp({create:{width:960,height:540,channels:3,background:'#4d9ca6'}}).jpeg({quality:65}).toBuffer();
+  const viewerJpeg=await sharp(Buffer.from(R10_FIXTURE_SVG)).jpeg({quality:65}).toBuffer();
   let state = fixtureData(), control = { delayId: null, delayMs: 0, failTable: null, actionMode: 'success' };
   const log = [], effects = [], denied = [], heldKnowledgeActions = [];
   const releaseKnowledgeActions=()=>{control.holdKnowledgeActions=false;for(const release of heldKnowledgeActions.splice(0))release();};

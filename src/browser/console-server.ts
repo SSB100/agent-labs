@@ -60,7 +60,14 @@ export async function loadConsoleBrowserWorkspace(context: OwnerUiContext, selec
     if (selection.workflowRunId && !runs.data.some(item => item.id === selection.workflowRunId && item.business_id === selection.businessId)) return { ...data, status: "invalid_selection" };
     for (const session of sessions) {
       if (session.business_id !== selection.businessId) return { ...data, status: "unavailable", sessions: [] };
-      const summary = consoleBrowserSummary(session, runs.data.find(item => item.id === session.workflow_run_id));
+      const run = runs.data.find(item => item.id === session.workflow_run_id);
+      // withQuestScope positively scopes the run relation before it reaches us.
+      // Other-Quest legacy sessions cannot invalidate this exact R10 catalog.
+      if (!run && questId && session.workflow_run_id !== selection.workflowRunId &&
+          CONSOLE_BROWSER_UUID.test(session.id) && CONSOLE_BROWSER_UUID.test(session.workflow_run_id)) {
+        data.truncated = true; continue;
+      }
+      const summary = consoleBrowserSummary(session, run);
       if (!summary) return { ...data, status: "unavailable", sessions: [] };
       data.sessions.push(summary);
     }

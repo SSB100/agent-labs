@@ -465,3 +465,12 @@ jobs:
             test-results/r03-next/*-zoom200.png
           if-no-files-found: warn
           retention-days: 14
+
+      - name: Preserve bounded R10 viewer screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r10-viewer-ui-${{ github.sha }}
+          path: test-results/r03-next/r10-*.png
+          if-no-files-found: warn
+          retention-days: 14
