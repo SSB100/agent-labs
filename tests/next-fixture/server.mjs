@@ -9,13 +9,14 @@ import { filterFixtureOr } from './query-predicates.mjs';
 export async function startFixtureBoundary() {
   let state = fixtureData(), control = { delayId: null, delayMs: 0, failTable: null, actionMode: 'success' };
   const log = [], effects = [], denied = [], heldKnowledgeActions = [];
+  const releaseKnowledgeActions=()=>{control.holdKnowledgeActions=false;for(const release of heldKnowledgeActions.splice(0))release();};
   const valueAt = (row,path) => path.replace(/->>?/g,'.').split('.').reduce((v,k) => v?.[k],row);
   const server = createServer(async(req,res) => {
     try {
     let body='';for await(const chunk of req)body+=chunk;
     const input=body?JSON.parse(body):{};
     const send = data => { res.setHeader('content-type','application/json');res.end(JSON.stringify(data)); };
-    if(req.url==='/control'){if(input.knowledge===true&&!state.knowledge)state.knowledge=knowledgeSeed(state);if(input.resetKnowledge===true)state.knowledge=knowledgeSeed(state);if(input.workspace===true&&!state.workspace)state.workspace=workspaceSeed(state,id,time);if(typeof input.history==='boolean'&&input.history!==state.history.enabled)state=fixtureData({history:input.history});control={...control,...input};if(input.holdKnowledgeActions===false)for(const release of heldKnowledgeActions.splice(0))release();return send({ok:true});}
+    if(req.url==='/control'){if(input.knowledge===true&&!state.knowledge)state.knowledge=knowledgeSeed(state);if(input.resetKnowledge===true)state.knowledge=knowledgeSeed(state);if(input.workspace===true&&!state.workspace)state.workspace=workspaceSeed(state,id,time);if(typeof input.history==='boolean'&&input.history!==state.history.enabled)state=fixtureData({history:input.history});control={...control,...input};if(input.holdKnowledgeActions===false)releaseKnowledgeActions();return send({ok:true});}
     if(req.url==='/snapshot')return send({log,effects,denied,control});
     if(req.url==='/reset'){state=fixtureData();log.length=effects.length=denied.length=0;control={delayId:null,delayMs:0,failTable:null,actionMode:'success'};return send({ok:true});}
     if(req.url==='/claims')return send(input.session==='off'?{data:null,error:null}:{data:{claims:{sub:state.owner,email:'inert-owner@example.invalid'}},error:null});
@@ -124,5 +125,5 @@ export async function startFixtureBoundary() {
   });
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
   const origin=`http://127.0.0.1:${server.address().port}`;
-  return {origin,state:()=>state,log,effects,denied,close:()=>new Promise(resolve=>server.close(resolve))};
+  return {origin,state:()=>state,log,effects,denied,releaseKnowledgeActions,close:()=>{releaseKnowledgeActions();return new Promise(resolve=>server.close(resolve));}};
 }

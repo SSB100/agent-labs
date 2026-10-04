@@ -1,5 +1,6 @@
 // Pure contract smoke tests. No ports, Chromium, external calls or production writes.
 import assert from 'node:assert/strict';
+import {bounded,observe,setFixtureBrowserTimeouts,withReleasedGate} from './async-bounds.mjs';
 import {loadSource} from '../helpers/guided-ui.mjs';
 import {fixtureData,id,time} from './data.mjs';
 import {workspaceSeed,workspaceView} from './workspace.mjs';
@@ -55,4 +56,12 @@ const same=new URL(evidenceLinks[0].href,'https://fixture.invalid').searchParams
 const changed=new URL(evidenceLinks[1].href,'https://fixture.invalid').searchParams;assert.equal(changed.get('quest'),id(820001));assert.equal(changed.get('episode'),id(710100));assert.equal(changed.has('step'),false);assert.equal(changed.has('sourceArtifact'),false);
 const unlinked=new URL(evidenceLinks[2].href,'https://fixture.invalid').searchParams;for(const key of ['quest','episode','step','agent','sourceArtifact'])assert.equal(unlinked.has(key),false);assert.equal(unlinked.get('business'),id(1));
 const foreignEvidence=await evidence.loadKnowledgeEvidenceLinks(context,id(1),[knowledgeId('artifact',1)]);assert.equal(foreignEvidence[0].href,null);assert.equal(foreignEvidence[0].context,'unavailable');
+// Failure paths remain finite and release the held gate without an unhandled response rejection.
+const deadlines=[],target={setDefaultTimeout:ms=>deadlines.push(['action',ms]),setDefaultNavigationTimeout:ms=>deadlines.push(['navigation',ms])};setFixtureBrowserTimeouts(target,target);assert.deepEqual(deadlines,[['action',20000],['navigation',30000],['action',20000],['navigation',30000]]);
+assert.equal(await bounded(Promise.resolve('ready'),'immediate check',100),'ready');await assert.rejects(bounded(new Promise(()=>{}),'held unit response',5),/held unit response timed out after 5ms/);
+let released=0;assert.equal(await withReleasedGate(async()=>42,async()=>{released++;}),42);assert.equal(released,1);
+const navigationFailure=Error('newer navigation did not commit'),responseFailure=Error('action response wait expired');
+const observedFailure=observe(new Promise((_,reject)=>setTimeout(()=>reject(responseFailure),5)));
+await assert.rejects(withReleasedGate(async()=>{throw navigationFailure;},async()=>{released++;const result=await observedFailure;if(!result.ok)throw result.error;}),error=>error instanceof AggregateError&&error.errors[0]===navigationFailure&&error.errors[1]===responseFailure);assert.equal(released,2);
+await assert.rejects(withReleasedGate(async()=>{throw navigationFailure;},async()=>{released++;}),error=>error===navigationFailure);assert.equal(released,3);
 console.log('R09 pure fixture contracts passed: scope, pages, independent exact details, private proposals, CAS/idempotency, stale/withdrawn rejection, rollback/removal and immutable historical pins. Chromium remains a separate hosted gate.');

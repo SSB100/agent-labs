@@ -4,9 +4,11 @@ import {id} from './data.mjs';
 import {knowledgeId,knowledgePackKey} from './knowledge.mjs';
 import {knowledgeRoute} from './r09-http.mjs';
 import {actualZoomBrowser} from './browser-zoom.mjs';
+import {bounded,observe,setFixtureBrowserTimeouts,withReleasedGate,FIXTURE_NAVIGATION_TIMEOUT_MS} from './async-bounds.mjs';
 
 export async function runKnowledgeJourneys({page,context,origin,boundary,output,check,requests,actions}){
- const control=value=>fetch(boundary.origin+'/control',{method:'POST',body:JSON.stringify(value)});
+ setFixtureBrowserTimeouts(context,page);
+ const control=async value=>{const response=await fetch(boundary.origin+'/control',{method:'POST',body:JSON.stringify(value),signal:AbortSignal.timeout(10_000)});assert.equal(response.status,200,'Inert control must succeed');return response.json();};
  await control({workspace:true,knowledge:true,resetKnowledge:true});
  const business=id(1),goto=(type,extra={})=>page.goto(origin+knowledgeRoute(type,extra));
  const detail=()=>page.locator('.r09Detail'),effects=()=>boundary.effects.filter(e=>e.kind==='in-memory-knowledge');
@@ -119,14 +121,14 @@ export async function runKnowledgeJourneys({page,context,origin,boundary,output,
   assert.doesNotMatch(await page.locator('body').innerText(),/Private inert Knowledge diagnostic/);await control({actionDelayMs:0});
  });
  await check('R09 apply race selects one exact Business version; rollback and remove preserve immutable usage',async()=>{
-  await goto('releases',{selected:knowledgeId('release',0,1)});const second=await context.newPage();await second.goto(page.url());
+  await goto('releases',{selected:knowledgeId('release',0,1)});const second=await bounded(context.newPage(),'R09 competing action page creation');await second.goto(page.url());
   const form=page.getByRole('form',{name:'Apply this version',exact:true}),other=second.getByRole('form',{name:'Apply this version',exact:true});
   for(const f of [form,other])await f.getByLabel('Reason for this Business',{exact:true}).fill('Use the reviewed second source comparison version for this exact Business.');
   const before=effects().length;await control({actionDelayMs:400});await Promise.all([form.getByRole('button',{name:'Apply this version',exact:true}).click(),other.getByRole('button',{name:'Apply this version',exact:true}).click()]);
   const feedback=current=>current.locator('.r09Outcome,.r09Form [role=status]');await Promise.all([feedback(page).waitFor(),feedback(second).waitFor()]);
   const statuses=await Promise.all([feedback(page).innerText(),feedback(second).innerText()]);assert.equal(statuses.filter(t=>t.includes('Exact reviewed version selected')).length,1);assert.equal(statuses.filter(t=>t.includes('could not be verified')).length,1);assert.equal(effects().length,before+1);
   assert.equal(application().releaseId,knowledgeId('release',0,1));assert.equal(boundary.state().knowledge.applications.find(a=>a.businessId===id(2)&&a.packKey===knowledgePackKey&&a.isCurrent).releaseId,knowledgeId('release'));
-  await second.close();await control({actionDelayMs:0});
+  await bounded(second.close(),'R09 competing action page close');await control({actionDelayMs:0});
   await goto('applications',{selected:knowledgeId('application')});const rollback=page.getByRole('form',{name:'Roll back to this version',exact:true});await rollback.getByLabel('Reason for this Business',{exact:true}).fill('Restore the first reviewed version for this Business.');await rollback.getByRole('button',{name:'Roll back to this version',exact:true}).click();await waitForSaved('rollback');assert.equal(application().releaseId,knowledgeId('release'));
   const remove=page.getByRole('form',{name:'Remove future selection',exact:true});await remove.getByLabel('Reason for this Business',{exact:true}).fill('Remove the optional lesson from this Business future plans.');await remove.getByRole('button',{name:'Remove future selection',exact:true}).click();await waitForSaved('remove');assert.equal(application().releaseId,null);assert.equal(application().operation,'remove');
   assert.equal(JSON.stringify(boundary.state().knowledge.usage),history,'Application changes cannot mutate historical plan/task pins');
@@ -135,12 +137,19 @@ export async function runKnowledgeJourneys({page,context,origin,boundary,output,
  await check('R09 late action after Close detail cannot reopen an obsolete selection; intentional retry recovers the saved version',async()=>{
   const target=knowledgeId('version',0,20),title='Delayed private revision after closing exact detail',before=effects().length;
   await goto('proposals',{selected:target});await page.getByText('Revise as a new private version',{exact:true}).click();const revise=page.getByRole('form',{name:'Revise private lesson',exact:true});await revise.getByLabel('Lesson title',{exact:true}).fill(title);
-  const logBefore=boundary.log.length;await control({holdKnowledgeActions:true});
-  const actionResponse=page.waitForResponse(response=>response.request().method()==='POST'&&!!response.request().headers()['next-action']);
-  await revise.getByRole('button',{name:'Save new private version',exact:true}).click();await revise.getByRole('button',{name:'Saving…',exact:true}).waitFor();
-  const held=()=>boundary.log.slice(logBefore).some(call=>call.rpc==='r09_knowledge_owner'&&call.held===true);for(let attempts=0;attempts<200&&!held();attempts++)await new Promise(resolve=>setTimeout(resolve,25));assert.ok(held(),'The inert RPC must be held before navigating away');
-  await detail().getByRole('link',{name:'Close detail',exact:true}).click();await page.waitForURL(u=>u.searchParams.get('type')==='proposals'&&!u.searchParams.has('selected'));const newer=page.url();
-  await control({holdKnowledgeActions:false});await (await actionResponse).finished();await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+  const logBefore=boundary.log.length;let actionResponse;
+  const newer=await withReleasedGate(async()=>{
+   await control({holdKnowledgeActions:true});
+   actionResponse=observe(page.waitForResponse(response=>response.request().method()==='POST'&&!!response.request().headers()['next-action'],{timeout:FIXTURE_NAVIGATION_TIMEOUT_MS}));
+   await revise.getByRole('button',{name:'Save new private version',exact:true}).click();await revise.getByRole('button',{name:'Saving…',exact:true}).waitFor();
+   const held=()=>boundary.log.slice(logBefore).some(call=>call.rpc==='r09_knowledge_owner'&&call.held===true);for(let attempts=0;attempts<200&&!held();attempts++)await new Promise(resolve=>setTimeout(resolve,25));assert.ok(held(),'The inert RPC must be held before navigating away');
+   await detail().getByRole('link',{name:'Close detail',exact:true}).click();await page.waitForURL(u=>u.searchParams.get('type')==='proposals'&&!u.searchParams.has('selected'));return page.url();
+  },async()=>{
+   // Release even when Click/URL/assertions fail, before draining the observed response.
+   try{await control({holdKnowledgeActions:false});}finally{boundary.releaseKnowledgeActions();}
+   if(actionResponse){const result=await actionResponse;if(!result.ok)throw result.error;await bounded(result.value.finished(),'R09 held action response completion');}
+  });
+  await bounded(page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))),'R09 post-action render settling');
   assert.equal(page.url(),newer,'A completed obsolete action must not push its former selection');assert.equal(await detail().getAttribute('data-knowledge-detail'),null);assert.equal(await page.locator('.r09Outcome').count(),0);assert.equal(effects().length,before+1);
   const saved=boundary.state().knowledge.proposals.find(p=>p.title===title);assert.ok(saved);assert.equal(saved.version,2);assert.equal(saved.businessId,business);
   await goto('proposals',{selected:saved.id});assert.match(await detail().innerText(),/Delayed private revision after closing exact detail/);
@@ -165,11 +174,12 @@ export async function runKnowledgeJourneys({page,context,origin,boundary,output,
   }
  });
  await check('R09 actual 200 percent browser zoom preserves Knowledge details and private proposal controls',async()=>{
-  const zoom=await actualZoomBrowser();try{
-   await zoom.context.route('**/*',r=>new URL(r.request().url()).origin===origin?r.continue():r.abort('blockedbyclient'));const p=await zoom.context.newPage();
+  const zoom=await actualZoomBrowser();await withReleasedGate(async()=>{
+   setFixtureBrowserTimeouts(zoom.context);
+   await zoom.context.route('**/*',r=>new URL(r.request().url()).origin===origin?r.continue():r.abort('blockedbyclient'));const p=await bounded(zoom.context.newPage(),'R09 zoom page creation');
    for(const[name,type,extra]of scenes){await p.goto(origin+knowledgeRoute(type,extra));assert.equal(await zoom.set(p,2),2);await p.locator('.r09Detail').waitFor();assert.ok(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));await p.screenshot({path:path.join(output,`${name}-zoom200.png`),fullPage:true});}
    await p.goto(origin+knowledgeRoute('proposals'));await zoom.set(p,2);await p.getByText('Propose a private lesson',{exact:true}).click();const field=p.getByRole('form',{name:'Submit private lesson',exact:true}).getByLabel('Owned evidence artifact UUIDs',{exact:true});await field.scrollIntoViewIfNeeded();await field.focus();assert.equal(await field.evaluate(n=>document.activeElement===n),true);assert.ok(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));await p.screenshot({path:path.join(output,'r09-proposal-form-zoom200.png')});
-  }finally{await zoom.close();}
+  },()=>zoom.close());
  });
  assert.ok(requests.length>0,'R09 real Next RSC navigation must be observed');assert.ok(actions.slice(initialActions).some(a=>a.status===200),'R09 real server actions must be observed');assert.ok(actions.slice(initialActions).some(a=>Number(a.revalidated)>0),'R09 successful server action must report revalidation');assert.equal(JSON.stringify(boundary.state().knowledge.usage),history);
  await page.setViewportSize({width:1280,height:720});

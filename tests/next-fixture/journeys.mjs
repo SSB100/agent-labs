@@ -15,7 +15,16 @@ import { runHistoryJourneys } from './r06-journeys.mjs';
 export async function runNextJourneys({origin,boundary,output,httpOnly=false,questsOnly=false,controlsOnly=false,historyOnly=false,workspaceOnly=false,knowledgeOnly=false}) {
   const results=[];let browserStatus=httpOnly?'unrun (HTTP-only requested)':'unrun';
   const report=()=>writeFile(path.join(output,'acceptance.json'),JSON.stringify({results,browser:browserStatus},null,2));
-  const check=async(name,fn)=>{try{await fn();results.push({name,status:'passed'});console.log('PASS:',name);}catch(error){results.push({name,status:'failed',error:String(error.stack)});console.error('FAIL:',name,String(error.stack));await report();}finally{await fetch(boundary.origin+'/control',{method:'POST',body:JSON.stringify({delayId:null,delayMs:0,failTable:null,failDataset:null,shortDataset:null,actionDelayMs:0,holdKnowledgeActions:false,actionMode:'success'})});}};
+  const check=async(name,fn)=>{
+    const result={name,status:'running'};results.push(result);console.log('START:',name);await report();
+    try{await fn();result.status='passed';console.log('PASS:',name);}
+    catch(error){result.status='failed';result.error=String(error.stack??error);console.error('FAIL:',name,result.error);}
+    finally{
+      try{await fetch(boundary.origin+'/control',{method:'POST',body:JSON.stringify({delayId:null,delayMs:0,failTable:null,failDataset:null,shortDataset:null,actionDelayMs:0,holdKnowledgeActions:false,actionMode:'success'}),signal:AbortSignal.timeout(10_000)});}
+      catch(error){result.status='failed';result.error=[result.error,`Inert control cleanup failed: ${String(error.stack??error)}`].filter(Boolean).join('\n');console.error('FAIL:',name,result.error);}
+      finally{boundary.releaseKnowledgeActions();await report();}
+    }
+  };
   await check('real Next History redirect selects ended outcomes',async()=>{
     const response=await fetch(origin+`/dashboard/history?business=${id(1)}`,{redirect:'manual'});
     assert.equal(response.status,307);assert.match(response.headers.get('location'),/view=work/);assert.match(response.headers.get('location'),/status=ended/);
