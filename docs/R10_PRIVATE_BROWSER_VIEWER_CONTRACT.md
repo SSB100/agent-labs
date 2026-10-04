@@ -42,7 +42,7 @@ Acknowledged closure fences future capture/enqueue; the runtime does not guarant
 
 The runtime emits an allowlisted phase/reason plus integer duration, remaining budget, captured count and enqueue count. Distinct phases cover authority/claim/dispatch, provider creation, capture setup, attestation, capture permit, screenshot, capture-lease expiry, delivery permit, final delivery, suspension, disposal, release and close. Known screenshot timeout and source/frame rejection have fixed codes; arbitrary exceptions remain a generic failure. A second allowlist at the production logging boundary strips all extra fields and rejects unknown codes or non-finite/out-of-bound numbers. Diagnostics never include raw exceptions, stack traces, source pixels/content, URLs, provider identifiers, owner/auth identities or credentials.
 
-The failed separately authorized attempt reached attestation and one capture permit but no delivery permit. Its actual first-frame failure remains unproven; the old implementation discarded error distinctions. Offline latency, timeout and cleanup regressions are not evidence that one of those hypotheses caused that incident. This repair does not authorize or perform another live session, renew a grant or extend provider/server authority, and it does not close the live qualification exit.
+The failed separately authorized attempt reached attestation and one capture permit but no delivery permit. Its actual first-frame failure remains unproven; the old implementation discarded error distinctions. Offline latency, timeout and cleanup regressions are not evidence that one of those hypotheses caused that incident. That repair alone did not authorize another live session, renew a grant, extend provider/server authority or close the live qualification exit. The separately authorized qualification below supersedes only that open-exit status; it does not relabel the failed attempts.
 
 ## Owner UI and headers
 
@@ -60,6 +60,16 @@ Stop reports success only with a physical close acknowledgement; abort-before-re
 - A separately approved harmless remote-provider qualification must prove this exact production path, actual fresh-context support, embedded frames, cancellation/cleanup and factual records. Historical Stage 8/9 provider qualification is insufficient
 
 The older two optional legacy SQL harnesses and the known incomplete 200% screenshot captures remain separately disclosed. Source/layout geometry tests do not silently replace missing image or live evidence.
+
+## Scoped qualification status 2026-10-04
+
+The capability/live exit is qualified for **`r10.controlled-public.v1` only**, at application source `a8a6122b5481e09e60d1c70ee8238c780b33c372`. [CI440](https://github.com/SSB100/agent-labs/actions/runs/37237093278) passed all nine jobs: 2,640 quality tests, 218 actual-Next checks, 15 isolated PostgreSQL checks and both actual-Chromium cases. The release-order regressions include the installed SDK's destructive-release race: the prior ordering fails and the bounded disposal-first path passes without weakening physical proof.
+
+A separately authorized real-provider session demonstrated embedded fixed-public pixels, Enlarge/Compact continuity, exact-run RSC refreshes during viewing, immediate clearing on Stop, normal writer acknowledgement and matching completed workflow/Task/Agent/audit lineage. Independent provider and request-terminal observations corroborated cleanup. Direct same-DOM-object identity and deliberately invoked router refresh are instrumented CI proofs; production evidence covers continuous viewing and actual matching RSC requests. Earlier failed/uncertain records remain distinct. This is capability qualification, not a claim of billing settlement or a new operational grant.
+
+Arbitrary sites, authenticated or secure-entry pages, takeover, ordinary worker sessions and persistent profiles remain excluded. Cancellation, natural expiry, hosting loss or failed physical proof can still end unconfirmed; no universal successful-ACK guarantee is made. Provider recording retention/deletion and recall of downstream-accepted bytes are not qualified. The compact 640px composer overlap, incomplete 200% screenshot captures and two optional legacy SQL harnesses remain disclosed acceptance limits. No unconditional all-viewport, whole-app, merged-main or later-stage completion is claimed.
+
+This status-only documentation does not change application/runtime code or the historical qualification pin, install authority or start R11. Future work follows the [canonical remaining queue](AGENT_LABS_V2_IMPLEMENTATION_PLAN.md).
 
 ## Official technical references
 

@@ -1,9 +1,9 @@
 # Agent Labs V2 remaining implementation plan
 
 Repository: `SSB100/agent-labs`
-Implementation baseline: `49be7f61d99d1d89b052e55917cf021010f5826d` (PR50 read-only release accepted)
+Application continuation baseline: `a8a6122b5481e09e60d1c70ee8238c780b33c372` ([CI440](https://github.com/SSB100/agent-labs/actions/runs/37237093278); scoped R10 qualification, not a merged-main claim)
 Document status: active remaining-work plan
-Document scope: remaining work only; one dependency-ordered implementation queue
+Document scope: one dependency-ordered remaining-work queue, with earlier acceptance/dependency definitions retained for reference
 
 Use this queue for every remaining UI, backend, qualification and product task. Use the [route acceptance checklist](CONSOLE_ROUTE_ACCEPTANCE.md) to verify coverage, not to choose a separate release order. Consult the [reuse and evidence crosswalk](AGENT_LABS_V2_EVIDENCE_CROSSWALK.md) for existing implementation, historical proofs, limits and the byte-preserved original plan. Keep historical checkpoints as evidence, not competing instructions to restart completed stages.
 
@@ -22,15 +22,19 @@ This document specifies the intended product and future engineering work. It gra
 - Distinguish software release, schema installation, configuration, operation authorization, live capability qualification and commercial outcome. A successful test, connected account or existing source file cannot stand in for the next evidence level.
 - Apply the universal viewport, identity, bounded-query, accessibility, interruption and release gates below to each affected task. Never call the whole application complete from a subset of routes or an empty-state screenshot.
 
-## The active queue
+## Current continuation
 
-Tasks R03–R19 are the sole remaining implementation order. Completed R02 root-collection/read-only implementation and acceptance are retained in the evidence crosswalk, not re-queued here. Dependencies are acceptance gates, not permission to execute. A blocked external qualification must not cause unrelated safe UI or contract review to stop; retain its position and dependency explicitly. Backend and activation work must not be folded into an otherwise UI-only release.
+The next unstarted stage is **R11**; the remaining stage order is **R11–R19**. Retain accepted R03–R09 implementation rather than restarting from old planning snapshots. R10's controlled-public capability/live exit is qualified within the [explicit source and acceptance limits](R10_PRIVATE_BROWSER_VIEWER_CONTRACT.md#scoped-qualification-status-2026-10-04). The definitions for R03–R10 below remain dependency/acceptance references, not a second active queue or a claim that every broader visual/product obligation is closed. The disclosed compact-640px/200%-capture limits and optional legacy SQL gaps remain visible under the universal gates.
+
+Dependencies are acceptance gates, not permission to execute. A blocked external qualification must not cause unrelated safe UI or contract review to stop; retain its position and dependency explicitly. Backend and activation work must not be folded into an otherwise UI-only release. This source-accuracy update starts no R11 work and grants no new access or spending authority.
+
+## Retained dependency definitions (R03–R10)
 
 ### R03 Convert all remaining retained routes into the compact console
 
 **Class:** immediate UI and existing read projections. **Dependency:** the accepted R02 root-collection/read-only foundation; complete historical-data acceptance also depends on R06.
 
-**Review status:** R03 implementation is submitted in [draft PR52](https://github.com/SSB100/agent-labs/pull/52). [Route/transport completion report](R03_COMPLETION_REPORT.md) records the isolated acceptance scope and remaining limits. Both final matching-head CI jobs must pass before review-ready status. Release/deployed acceptance is pending; R04 is not started. The remaining queue stays R03–R19 until review closes R03.
+**Historical reference:** [PR52](https://github.com/SSB100/agent-labs/pull/52) and the [route/transport completion report](R03_COMPLETION_REPORT.md) retain the original isolated R03 review scope. Their dated pending/next-stage statements do not replace the current continuation above; unresolved broader acceptance limits remain explicit.
 
 - Cover every remaining row in the [route checklist](CONSOLE_ROUTE_ACCEPTANCE.md), including routes reachable only through Advanced. Preserve the accepted shell geometry, compact rows, frequent actions, contained long content and exact record links.
 - Adapt legacy Workflows, Needs You and History routes into canonical scoped views without losing action outcomes, record identity or Back behavior. Keep technical workflow detail and its error boundary inside a consistent bounded workspace with all stage/task/worker/artifact/browser tabs accessible.
@@ -140,6 +144,10 @@ Tasks R03–R19 are the sole remaining implementation order. Completed R02 root-
 - Verify embedding without broad security-header relaxation, safe disconnect/expiry behavior and no input/CDP/clipboard/upload authority. Retain the saved-metadata fallback whenever safe viewing cannot be established.
 
 **Exit:** adversarial frame, navigation, takeover, stale/copy/revocation and cross-Business tests pass; a separately authorized harmless session proves actual embedded viewing. Historical provider qualification is insufficient to close this current viewer requirement.
+
+**Scoped status:** controlled-public capability/live exit met; [qualification and remaining limits](R10_PRIVATE_BROWSER_VIEWER_CONTRACT.md#scoped-qualification-status-2026-10-04). This does not qualify arbitrary or secure browser sources.
+
+## Remaining implementation queue (R11–R19)
 
 ### R11 Qualify external access and platform purposes
 
