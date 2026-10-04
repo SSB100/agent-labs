@@ -54,7 +54,7 @@ try {
   let ready=false;
   for(let attempt=0;attempt<120;attempt++){try{const response=await fetch(origin+'/login',{redirect:'manual'});if(response.status<500){ready=true;break;}}catch{} await new Promise(resolve=>setTimeout(resolve,250));}
   assert.ok(ready,'Production Next fixture did not start');
-  await runNextJourneys({origin,boundary,output,httpOnly:process.argv.includes('--http-only'),questsOnly:process.argv.includes('--quests-only'),controlsOnly:process.argv.includes('--controls-only'),historyOnly:process.argv.includes('--history-only'),workspaceOnly:process.argv.includes('--workspace-only')});
+  await runNextJourneys({origin,boundary,output,httpOnly:process.argv.includes('--http-only'),questsOnly:process.argv.includes('--quests-only'),controlsOnly:process.argv.includes('--controls-only'),historyOnly:process.argv.includes('--history-only'),workspaceOnly:process.argv.includes('--workspace-only'),knowledgeOnly:process.argv.includes('--knowledge-only')});
 } finally {
   const stopped=await Promise.allSettled(processes.map(child=>new Promise((resolve,reject)=>{
     if(child.exitCode!==null||child.signalCode!==null)return resolve();

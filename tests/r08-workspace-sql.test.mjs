@@ -17,7 +17,7 @@ test('R08 additive pure reads preserve authority and qualify exact Quest, privac
  const functions="select p.oid::regprocedure::text id,pg_get_functiondef(p.oid) body,p.proacl::text acl from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname in ('public','private') and p.prokind='f' order by 1";
  const tables="select c.oid::regclass::text id,c.relacl::text acl,c.relrowsecurity rls from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname in ('public','private') and c.relkind in ('r','v','p') order by 1";
  try{
-  await db.exec(r04SqlBootstrap);let oldFunctions,oldTables;
+  await db.exec(r04SqlBootstrap);let oldFunctions,oldTables,afterR08Functions,afterR08Tables;
   for(const file of readdirSync('supabase/migrations').filter(f=>f.endsWith('.sql')).sort()){
    const sql=readFileSync(`supabase/migrations/${file}`,'utf8');
    if(file.endsWith('_r08_owner_workspace.sql')){
@@ -26,14 +26,19 @@ test('R08 additive pure reads preserve authority and qualify exact Quest, privac
     assert.deepEqual((await db.query(functions)).rows,oldFunctions);assert.deepEqual((await db.query(tables)).rows,oldTables);
    }
    await db.exec(sql);
+   // Attribute the additive-only guarantee to R08 itself. Continue replaying all
+   // later migrations below, so its read/isolation behavior remains integrated.
+   // R09 separately qualifies its explicit pure r07_snapshot projection change.
+   if(file.endsWith('_r08_owner_workspace.sql')){afterR08Functions=(await db.query(functions)).rows;afterR08Tables=(await db.query(tables)).rows;}
   }
   // Qualify production Knowledge projections against the replayed schema, not a permissive transport fixture.
   const ownerRecords=readFileSync('src/components/console/console-owner-records.tsx','utf8');
   const installationProjections=[...ownerRecords.matchAll(/from\("installed_packs"\)\.select\("([^"]+)"/g)].map(match=>match[1]);
   assert.equal(installationProjections.length,2);
   for(const projection of installationProjections){assert.match(projection,/activated_at/);assert.doesNotMatch(projection,/created_at/);assert.match(projection,/^[a-z_,]+$/);await db.query(`select ${projection} from public.installed_packs order by activated_at desc,id desc limit 0`);}
-  const after=new Map((await db.query(functions)).rows.map(x=>[x.id,x]));for(const row of oldFunctions)assert.deepEqual(after.get(row.id),row);
-  const rels=new Map((await db.query(tables)).rows.map(x=>[x.id,x]));for(const row of oldTables)assert.deepEqual(rels.get(row.id),row);
+  assert.ok(afterR08Functions&&afterR08Tables,'R08 migration boundary must be replayed');
+  const after=new Map(afterR08Functions.map(x=>[x.id,x]));for(const row of oldFunctions)assert.deepEqual(after.get(row.id),row);
+  const rels=new Map(afterR08Tables.map(x=>[x.id,x]));for(const row of oldTables)assert.deepEqual(rels.get(row.id),row);
   for(const name of ['workflow_runs','product_experiments','artifacts','creative_runs','creative_assets','owner_interventions','events']){
    const table=`public.r08_${name}`;
    const acl=(await db.query("select has_table_privilege('authenticated',$1,'SELECT') sel,has_table_privilege('authenticated',$1,'INSERT,UPDATE,DELETE') mut,has_table_privilege('anon',$1,'SELECT') anon,has_table_privilege('service_role',$1,'SELECT') service",[table])).rows[0];assert.deepEqual(acl,{sel:true,mut:false,anon:false,service:false});

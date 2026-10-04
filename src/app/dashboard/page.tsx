@@ -46,7 +46,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   }
   context = workspace.context;
   if (["overview"].includes(view)) { const { ConsoleWorkspaceOverview } = await import("@/components/console/console-workspace-overview"); return <ConsoleWorkspaceOverview scope={workspace} query={query}/>; }
-  if (view === "products-catalog" || view === "knowledge" || view === "decision-log") { const { ConsoleOwnerRecords } = await import("@/components/console/console-owner-records"); return <ConsoleOwnerRecords scope={workspace} query={query} view={view}/>; }
+  if (view === "knowledge") { const { ConsoleKnowledgeWorkspace } = await import("@/components/console/console-knowledge-workspace"); return <ConsoleKnowledgeWorkspace scope={workspace} query={query}/>; }
+  if (view === "products-catalog" || view === "decision-log") { const { ConsoleOwnerRecords } = await import("@/components/console/console-owner-records"); return <ConsoleOwnerRecords scope={workspace} query={query} view={view}/>; }
   if (view === "work" || view === "activity") return <ConsolePopulatedDashboard context={context} query={query} view={view}/>;
   if (view === "research") {
     const { ConsoleResearchDashboard } = await import("@/components/console/console-research-dashboard");

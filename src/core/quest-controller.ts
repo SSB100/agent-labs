@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { AdmissionDispatchInput } from "./admission-contract";
 import { compileQuestPlan, type QuestPlan, type QuestStep } from "./quest-plan";
+import { readQuestKnowledge, type QuestKnowledgeSnapshot } from "./reviewed-knowledge";
 
 export type QuestDependency = { stepKey: string; attemptId: string; resultHash: string };
 export type QuestAttempt = {
@@ -15,6 +16,8 @@ export type QuestSnapshot = {
   head: { planId: string; revision: number; state: string; reason: string; epoch: number; leaseExpiresAt: string; repairsUsed: number; pivotsUsed: number; childrenCreated: number; dispatches: number };
   attempts: QuestAttempt[];
   reused: Array<{ stepKey: string; attemptId: string; resultHash: string }>;
+  /** Required by the deployed R09 reader; absent only in pre-R09 inert stores. */
+  knowledge?: QuestKnowledgeSnapshot;
 };
 export type QuestSettlement = { actualMicrounits: string | null; providerRequestId: string; receiptHash: string };
 export type QuestEffectResponse = {
@@ -29,7 +32,7 @@ export type QuestPreparedCall = {
   /** Exact bytes to be sent. Only trusted, explicitly registered adapters see these. */
   wire: Readonly<{ url: string; method: "POST"; body: string }>;
 };
-export type QuestAdapterContext = Readonly<{ planId: string; planHash: string; plan: QuestPlan; step: QuestStep; attempt: QuestAttempt }>;
+export type QuestAdapterContext = Readonly<{ planId: string; planHash: string; plan: QuestPlan; step: QuestStep; attempt: QuestAttempt; knowledge: QuestKnowledgeSnapshot }>;
 export type QuestAdapter = {
   qualificationHash: string;
   workflowDefinitionId: string;
@@ -94,6 +97,7 @@ export async function driveQuestOnce(store: QuestStore, options: {
   if (!Number.isSafeInteger(epoch) || epoch < 1) throw new Error("r07_invalid_lease_response");
   const snapshot = await store.read();
   if (!snapshot || snapshot.planId !== initial.planId || snapshot.planHash !== initial.planHash) return { status: "waiting", reason: "plan_changed_reload" };
+  const knowledge = readQuestKnowledge(snapshot.knowledge ?? { format: "r09.1", businessId: snapshot.businessId, planId: snapshot.planId, pins: [] }, snapshot.businessId, snapshot.planId);
   const registry = options.adapters ?? PRODUCTION_QUEST_ADAPTERS;
   const apply = (operation: string, payload: Record<string, unknown>) => store.command(operation, payload, epoch);
   // Project received evidence before considering any new dispatch, including after pause.
@@ -104,7 +108,7 @@ export async function driveQuestOnce(store: QuestStore, options: {
       const step = plan.steps.find(s => s.key === responded.stepKey);
       const adapter = step && adapterFor(registry, step);
       if (!step || !adapter) return { status: "blocked", reason: "adapter_implementation_unavailable" };
-      const context = immutable({ planId: snapshot.planId, planHash: snapshot.planHash, plan, step, attempt: responded });
+      const context = immutable({ planId: snapshot.planId, planHash: snapshot.planHash, plan, step, attempt: responded, knowledge });
       const readback = await adapter.reconcile(context);
       if (readback.status === "unknown") return { status: "blocked", reason: "liability_still_uncertain" };
       // Financial readback appends evidence even if a conflicting result is rejected.
@@ -121,7 +125,7 @@ export async function driveQuestOnce(store: QuestStore, options: {
     if (!step) throw new Error("r07_saved_step_unavailable");
     const adapter = adapterFor(registry, step);
     if (!adapter) return { status: "blocked", reason: "adapter_implementation_unavailable" };
-    const context = immutable({ planId: snapshot.planId, planHash: snapshot.planHash, plan, step, attempt: pending });
+    const context = immutable({ planId: snapshot.planId, planHash: snapshot.planHash, plan, step, attempt: pending, knowledge });
     if (pending.status === "dispatched" || pending.status === "uncertain") {
       if (!options.reconcile) {
         if (pending.status === "dispatched") await apply("uncertain", { attemptId: pending.id, evidenceHash: digest(`restart:${pending.id}`) });

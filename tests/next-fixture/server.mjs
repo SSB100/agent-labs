@@ -1,3 +1,4 @@
+import {knowledgeSeed,readKnowledgeFixture,saveKnowledgeFixture} from './knowledge.mjs';
 import {workspaceSeed,workspaceView,workspaceRead} from './workspace.mjs';
 import { createServer } from 'node:http';
 import { fixtureData, id, time } from './data.mjs';
@@ -7,14 +8,14 @@ import { readHistoryFixture } from './history.mjs';
 import { filterFixtureOr } from './query-predicates.mjs';
 export async function startFixtureBoundary() {
   let state = fixtureData(), control = { delayId: null, delayMs: 0, failTable: null, actionMode: 'success' };
-  const log = [], effects = [], denied = [];
+  const log = [], effects = [], denied = [], heldKnowledgeActions = [];
   const valueAt = (row,path) => path.replace(/->>?/g,'.').split('.').reduce((v,k) => v?.[k],row);
   const server = createServer(async(req,res) => {
     try {
     let body='';for await(const chunk of req)body+=chunk;
     const input=body?JSON.parse(body):{};
     const send = data => { res.setHeader('content-type','application/json');res.end(JSON.stringify(data)); };
-    if(req.url==='/control'){if(input.workspace===true&&!state.workspace)state.workspace=workspaceSeed(state,id,time);if(typeof input.history==='boolean'&&input.history!==state.history.enabled)state=fixtureData({history:input.history});control={...control,...input};return send({ok:true});}
+    if(req.url==='/control'){if(input.knowledge===true&&!state.knowledge)state.knowledge=knowledgeSeed(state);if(input.resetKnowledge===true)state.knowledge=knowledgeSeed(state);if(input.workspace===true&&!state.workspace)state.workspace=workspaceSeed(state,id,time);if(typeof input.history==='boolean'&&input.history!==state.history.enabled)state=fixtureData({history:input.history});control={...control,...input};if(input.holdKnowledgeActions===false)for(const release of heldKnowledgeActions.splice(0))release();return send({ok:true});}
     if(req.url==='/snapshot')return send({log,effects,denied,control});
     if(req.url==='/reset'){state=fixtureData();log.length=effects.length=denied.length=0;control={delayId:null,delayMs:0,failTable:null,actionMode:'success'};return send({ok:true});}
     if(req.url==='/claims')return send(input.session==='off'?{data:null,error:null}:{data:{claims:{sub:state.owner,email:'inert-owner@example.invalid'}},error:null});
@@ -51,6 +52,20 @@ export async function startFixtureBoundary() {
     }
     if(req.url==='/rpc'){
       const {name,args}=input;const business=args.p_business_id;
+      if(name==='r09_knowledge_read'){
+        const call={rpc:name,business,dataset:args.p_dataset,query:args.p_query};log.push(call);
+        if(control.delayId===args.p_query?.selectedId)await new Promise(resolve=>setTimeout(resolve,control.delayMs));
+        const response=readKnowledgeFixture(state,args,control.failDataset===args.p_dataset?'unavailable':input.mode);
+        if(control.shortDataset===args.p_dataset&&response.data?.items?.length)response.data.items.pop();
+        call.returned=response.data?.items?.length;call.total=response.data?.total;call.ids=response.data?.items?.map(row=>row.id);call.selection=response.data?.selection?.status;call.selectedId=response.data?.selection?.item?.id;
+        return send(response);
+      }
+      if(name==='r09_knowledge_owner'&&['propose','apply','rollback','remove'].includes(args.p_operation)){
+        const call={rpc:name,business,operation:args.p_operation,submission:args.p_submission_id};log.push(call);
+        if(control.holdKnowledgeActions){call.held=true;await new Promise(resolve=>heldKnowledgeActions.push(resolve));}
+        if(control.actionDelayMs)await new Promise(resolve=>setTimeout(resolve,control.actionDelayMs));
+        return send(saveKnowledgeFixture(state,args,effects,control.actionMode));
+      }
       if(['r07_quest_read','r08_owner_read'].includes(name)){log.push({rpc:name,business,goal:args.p_goal_id,dataset:args.p_dataset,query:args.p_query});return send(workspaceRead(state,name,args,id,control.failDataset&&control.failDataset===args.p_dataset?'unavailable':input.mode));}
       if(name==='r06_read'){
         const call={rpc:name,business,dataset:args.p_dataset,query:args.p_query};log.push(call);
