@@ -184,3 +184,26 @@ test('R10 empty EOF preserves the client failure path while release is independe
   assert.ok(f.state.diagnostics.some(event=>event.phase==='hosting'&&event.reason==='completed'));
  }
 });
+test('R10 deliberate transport AbortError still purges a queued packet before held cleanup',async t=>{
+ const shot=deferred(),dispose=deferred(),f=fixture({capture:()=>shot.promise}),original=f.deps.createCapture;
+ t.after(async()=>{shot.resolve(new Uint8Array([255,216,255]));dispose.resolve();f.control.abort();await f.state.completion;});
+ f.deps.createCapture=async(...args)=>{const capture=await original(...args);return{...capture,dispose:async()=>{f.state.disposed=true;await dispose.promise;}};};
+ const response=await f.open(),reader=response.body.getReader(),pendingRead=reader.read();
+ const releasedRead=assert.rejects(pendingRead,{name:'TypeError'});
+ await until(()=>f.state.shots===1);reader.releaseLock();await releasedRead;
+ shot.resolve(new Uint8Array([255,216,255,219]));
+ await until(()=>f.state.diagnostics.some(event=>event.phase==='delivery'&&event.reason==='completed'));
+ f.control.abort();assert.equal(f.state.suspended,true);
+ await assert.rejects(response.body.getReader().read(),{name:'AbortError',message:'Read-only viewing ended. Saved records remain available.'});
+ await until(()=>f.state.disposed&&f.state.releases===1);assert.equal(f.state.closed.length,0);assert.equal(f.state.cleanupDone,false);
+ dispose.resolve();await f.state.completion;assert.equal(f.state.closed.length,1);assert.equal(f.state.creates,1);assert.equal(f.state.shots,1);
+});
+test('R10 post-frame capture failure uses only a sanitized transport AbortError and preserves failed outcome',async()=>{
+ const f=fixture({capture:state=>{if(state.shots>1)throw Error('SECRET_AUTH private provider failure');return new Uint8Array([255,216,255]);}});
+ const response=await f.open(),reader=response.body.getReader();await reader.read();
+ await assert.rejects(reader.read(),{name:'AbortError',message:'Read-only viewing ended. Saved records remain available.'});
+ await f.state.completion;assert.equal(f.state.closed[0].outcome,'failed');assert.equal(f.state.releases,1);
+ assert.ok(f.state.diagnostics.some(event=>event.phase==='capture'&&event.reason==='failed'));
+ assert.ok(f.state.diagnostics.some(event=>event.phase==='stop'&&event.reason==='failed'));
+ assert.doesNotMatch(JSON.stringify(f.state.diagnostics),/SECRET_AUTH|private provider/);
+});

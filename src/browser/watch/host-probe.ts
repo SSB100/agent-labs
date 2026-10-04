@@ -28,7 +28,13 @@ function log(phase: ProbePhase, reason: ProbeReason, started: number, capturedFr
 export function hostProbeUnavailable(status = 404) { return new Response(null, { status, headers: HEADERS }); }
 export function isHostProbeRequest(request: Request, post: boolean): boolean {
   const url = new URL(request.url), origin = request.headers.get("origin"), site = request.headers.get("sec-fetch-site");
-  if (url.search || (site && site !== "same-origin" && (post || site !== "none"))) return false;
+  // A clicked external link may open this inert landing document. It cannot run
+  // a case: the existing POST Origin and fetch-metadata checks stay unchanged.
+  const landingNavigation = !post && request.method === "GET"
+    && (site === "cross-site" || site === "same-site")
+    && request.headers.get("sec-fetch-mode") === "navigate"
+    && request.headers.get("sec-fetch-dest") === "document";
+  if (url.search || (site && site !== "same-origin" && (post || (site !== "none" && !landingNavigation)))) return false;
   if (post && origin !== url.origin) return false;
   return !origin || origin === url.origin;
 }

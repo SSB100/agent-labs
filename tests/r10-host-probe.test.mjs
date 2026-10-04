@@ -88,6 +88,32 @@ test('host probe route is404 outside preview and maxDuration stays10',async()=>{
  for(const environment of [undefined,'development','production','preview ']){const route=loadRoute(environment);assert.equal(route.maxDuration,10);assert.equal((await route.GET(new Request(origin))).status,404);assert.equal((await route.POST(request('normal-response'))).status,404);}
  assert.equal((await loadRoute('preview').GET(new Request(origin))).status,200);
 });
+test('host probe permits external top-level GET landing navigation without running a case',async()=>{
+ const route=loadRoute('preview'); // The mocked after throws if any case starts.
+ for(const site of ['cross-site','same-site']){
+  const headers={'sec-fetch-site':site,'sec-fetch-mode':'navigate','sec-fetch-dest':'document'};
+  const response=await route.GET(new Request(origin+'/api/health/r10-host-probe',{headers}));
+  assert.equal(response.status,200);assert.match(await response.text(),/Choose a fixed diagnostic case/);
+  assert.match(response.headers.get('content-security-policy'),/frame-ancestors 'none'/);
+  assert.equal(response.headers.get('x-r10-host-probe'),null);
+  assert.equal((await route.POST(request('normal-response',{headers:{...headers,origin,'content-type':'application/json'}}))).status,403);
+  assert.equal((await route.GET(new Request(origin+'/api/health/r10-host-probe?case=normal-response',{headers}))).status,403);
+  assert.equal((await route.GET(new Request(origin,{headers:{...headers,origin:'https://other.invalid'}}))).status,403);
+ }
+});
+test('host probe still rejects cross-site subresources, incomplete metadata and non-GET navigation',async()=>{
+ const route=loadRoute('preview');
+ for(const site of ['cross-site','same-site','unknown']){
+  for(const mode of [undefined,'cors','no-cors','navigate']){
+   for(const dest of [undefined,'empty','image','iframe','document']){
+    if(site!=='unknown'&&mode==='navigate'&&dest==='document')continue;
+    const headers={'sec-fetch-site':site};if(mode!==undefined)headers['sec-fetch-mode']=mode;if(dest!==undefined)headers['sec-fetch-dest']=dest;
+    assert.equal((await route.GET(new Request(origin,{headers}))).status,403,JSON.stringify({site,mode,dest}));
+   }
+  }
+ }
+ assert.equal(probe.isHostProbeRequest(new Request(origin,{method:'HEAD',headers:{'sec-fetch-site':'cross-site','sec-fetch-mode':'navigate','sec-fetch-dest':'document'}}),false),false);
+});
 test('host probe UI has exact buttons, inert marker checking, normal fetch abort and hash-only CSP',async()=>{
  const response=page.hostProbePage(),html=await response.text(),csp=response.headers.get('content-security-policy');
  for(const mode of probe.HOST_PROBE_CASES)assert.equal(html.split(`data-case="${mode}"`).length,2);

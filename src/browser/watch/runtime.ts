@@ -13,6 +13,13 @@ function finiteDate(value: unknown): number {
   return typeof value === "string" && Number.isFinite(Date.parse(value)) ? Date.parse(value) : Number.NaN;
 }
 function privateFailure(): Error { return new Error("Read-only viewing ended. Saved records remain available."); }
+function transportAbort(): Error {
+  const error = privateFailure();
+  // Deliberate stream termination still destroys queued bytes immediately.
+  // Next handles AbortError as cancellation, not a failed response pipeline.
+  error.name = "AbortError";
+  return error;
+}
 function deferred() {
   let resolve!: () => void;
   const promise = new Promise<void>(done => { resolve = done; });
@@ -118,7 +125,7 @@ export async function openWatchStream(deps: WatchDependencies, signal: AbortSign
     // EOF is still a client failure, never a physical-close acknowledgement.
     // Once a frame was enqueued, error instead so queued bytes cannot drain.
     emit("cleanup", "started");
-    try { if (sequence === 0) controller?.close(); else controller?.error(privateFailure()); } catch { /* Already cancelled. */ }
+    try { if (sequence === 0) controller?.close(); else controller?.error(transportAbort()); } catch { /* Already cancelled. */ }
     return cleanup;
   };
   const onAbort = () => { void stop("ended", "aborted"); };
