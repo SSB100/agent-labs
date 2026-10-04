@@ -13,7 +13,8 @@
       "feat/r07-quest-controller": false,
       "feat/r08-owner-workspace": false,
       "feat/r09-reviewed-knowledge": false,
-      "feat/r10-private-browser-viewer": false
+      "feat/r10-private-browser-viewer": false,
+      "test/r10-host-lifetime-probe": false
     }
   },
   "buildCommand": "npm run deploy:build"
