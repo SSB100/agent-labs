@@ -3,23 +3,50 @@ import assert from 'node:assert/strict';
 import {EventEmitter} from 'node:events';
 import {createHash} from 'node:crypto';
 import {readFileSync} from 'node:fs';
+import {Module,createRequire} from 'node:module';
+import {dirname,join} from 'node:path';
 import {createControlledCapture} from '../.core-tests/browser/watch/capture.js';
+import {openWatchStream} from '../.core-tests/browser/watch/runtime.js';
+import {createWatchLifetime} from '../.core-tests/browser/watch/lifetime.js';
 import {SteelBrowserAdapter} from '../.core-tests/browser/providers/steel.js';
-import {CaptureFailure,CaptureSetupFailure,WATCH_DISPOSE_TIMEOUT_MS,WATCH_HTML,WATCH_MAX_FRAME_BYTES,WATCH_SOURCE_URL,WATCH_CSP} from '../.core-tests/browser/watch/contracts.js';
+import {CaptureFailure,CaptureSetupFailure,WATCH_DISPOSE_TIMEOUT_MS,WATCH_HTML,WATCH_MAX_FRAME_BYTES,WATCH_SOURCE_URL,WATCH_CSP,WATCH_POLICY} from '../.core-tests/browser/watch/contracts.js';
 const deferred=()=>{let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});return{promise,resolve,reject};};
 const drainMicrotasks=async()=>{for(let i=0;i<40;i++)await Promise.resolve();};
 const frame=data=>({data:Buffer.from(data).toString('base64')});
 const defaultMetrics=()=>({cssLayoutViewport:{pageX:0,pageY:0,clientWidth:960,clientHeight:540},cssVisualViewport:{pageX:0,pageY:0,offsetX:0,offsetY:0,clientWidth:960,clientHeight:540,scale:1,zoom:1}});
 const pixelOptions={format:'jpeg',quality:65,fromSurface:true,captureBeyondViewport:false,clip:{x:0,y:0,width:960,height:540,scale:1}};
 function browserFixture(){
- const browser=new EventEmitter(),context=new EventEmitter(),page=new EventEmitter(),session=new EventEmitter(),events=[];let route,ws,readyUrl='about:blank',closed=false,ctxClosed=false;
- const fixture={browser,context,page,session,events,websocket:()=>ws,capture:async()=>frame([255,216,255,219]),metrics:async()=>defaultMetrics()};
+ const browser=new EventEmitter(),context=new EventEmitter(),page=new EventEmitter(),session=new EventEmitter(),events=[];let route,ws,readyUrl='about:blank',closed=false,ctxClosed=false,connected=true;
+ const fixture={browser,context,page,session,events,websocket:()=>ws,capture:async()=>frame([255,216,255,219]),metrics:async()=>defaultMetrics(),closeContext:()=>{ctxClosed=true;closed=true;context.emit('close');session.emit('close');},disconnect:()=>{connected=false;browser.emit('disconnected');}};
  const main={url:()=>readyUrl};Object.assign(page,{mainFrame:()=>main,context:()=>context,viewportSize:()=>({width:960,height:540}),url:()=>readyUrl,isClosed:()=>closed,frames:()=>[main],screenshot:()=>{throw Error('Playwright screenshot must never be called');},
  goto:async url=>{await route({request:()=>({url:()=>url,method:()=> 'GET',isNavigationRequest:()=>true,frame:()=>main}),fulfill:async response=>{events.push(response);readyUrl=url;page.emit('framenavigated',main);},abort:async()=>{events.push('abort');}});}});
- Object.assign(context,{routeWebSocket:async(_,handler)=>{ws=handler;},route:async(_,handler)=>{route=handler;},newPage:async()=>{events.push('page');context.emit('page',page);return page;},newCDPSession:async candidate=>{assert.strictEqual(candidate,page);events.push('attach');return session;},pages:()=>[page],cookies:async()=>[],close:async()=>{ctxClosed=true;closed=true;context.emit('close');session.emit('close');}});
+ Object.assign(context,{routeWebSocket:async(_,handler)=>{ws=handler;},route:async(_,handler)=>{route=handler;},newPage:async()=>{events.push('page');context.emit('page',page);return page;},newCDPSession:async candidate=>{assert.strictEqual(candidate,page);events.push('attach');return session;},pages:()=>[page],cookies:async()=>[],isClosed:()=>ctxClosed,close:async()=>{fixture.closeContext();}});
  Object.assign(session,{send:async(method,params)=>{events.push({method,params});if(method==='Page.getLayoutMetrics')return fixture.metrics();if(method==='Page.captureScreenshot')return fixture.capture(params);throw Error('Disallowed protocol method');},detach:async()=>{events.push('detach');session.emit('close');}});
- Object.assign(browser,{newContext:async options=>{events.push(options);return context;},contexts:()=>{throw Error('default context must never be read');},newBrowserCDPSession:()=>{throw Error('browser session must never be used');},isConnected:()=>!ctxClosed,close:async()=>{events.push('disconnect');}});
+ Object.assign(browser,{newContext:async options=>{events.push(options);return context;},contexts:()=>{throw Error('default context must never be read');},newBrowserCDPSession:()=>{throw Error('browser session must never be used');},isConnected:()=>connected,close:async()=>{events.push('disconnect');fixture.disconnect();}});
  return fixture;
+}
+
+// Use the installed SDK's exact close and nested-session methods. Only their
+// channel/transport endpoints are inert. Private fields below belong solely to
+// this offline harness; production capture uses only public APIs and events.
+const sdkFile=join(dirname(createRequire(import.meta.url).resolve('playwright-core/package.json')),'lib/coreBundle.js');
+const sdkModule=new Module(sdkFile);sdkModule.filename=sdkFile;sdkModule.paths=Module._nodeModulePaths(dirname(sdkFile));
+sdkModule._compile(readFileSync(sdkFile,'utf8')+'\nmodule.exports.__captureProofHarness={Browser2,BrowserContext2,TargetClosedError2,CRConnection,CDPSession,nullProgress};',sdkFile);
+const {Browser2,BrowserContext2,TargetClosedError2,CRConnection,CDPSession,nullProgress}=sdkModule.exports.__captureProofHarness;
+function sdkBrowserFixture(){
+ const b=browserFixture(),contextClosed=deferred(),browserClosed=deferred();
+ const closeContext=b.closeContext,disconnect=b.disconnect;
+ b.closeContext=()=>{b.context._closingStatus='closed';closeContext();contextClosed.resolve();};
+ b.disconnect=()=>{disconnect();browserClosed.resolve();};
+ b.contextCommand=async()=>{b.closeContext();};b.disconnectCommand=async()=>{b.disconnect();};
+ Object.assign(b.context,{_closingStatus:'none',isClosed:BrowserContext2.prototype.isClosed,request:{dispose:async()=>{}},
+  _instrumentation:{runBeforeCloseBrowserContext:async()=>{}},tracing:{_exportAllHars:async()=>{}},_closedPromise:contextClosed.promise,
+  _channel:{close:async()=>{b.events.push('context-close-command');await b.contextCommand();}},
+  close:options=>BrowserContext2.prototype.close.call(b.context,options)});
+ Object.assign(b.browser,{_shouldCloseConnectionOnClose:false,_closedPromise:browserClosed.promise,
+  _channel:{close:async()=>{b.events.push('browser-close-command');await b.disconnectCommand();}},
+  close:options=>Browser2.prototype.close.call(b.browser,options)});
+ return b;
 }
 test('R10 producer installs confinement and exact-page CDP before any pixels, then issues one fixed capture command',async()=>{
  const b=browserFixture();let invalid=0;const source=await createControlledCapture(b.browser,()=>invalid++);assert.equal(invalid,0);assert.equal(source.eligible(),true);
@@ -41,7 +68,7 @@ test('R10 websocket and unexpected context page cannot retain eligibility',async
  const b=browserFixture();let invalid=0,closed=false;const source=await createControlledCapture(b.browser,()=>invalid++);b.websocket()({close:()=>closed=true});assert.ok(closed&&invalid);b.context.emit('page',{});assert.equal(source.eligible(),false);await source.dispose();
 });
 for(const event of ['session','browser','context'])test(`R10 ${event} close synchronously invalidates exact-page CDP eligibility`,async()=>{
- const b=browserFixture();let invalid=0;const source=await createControlledCapture(b.browser,()=>invalid++);b[event].emit(event==='browser'?'disconnected':'close');assert.ok(invalid);assert.equal(source.eligible(),false);await assert.rejects(source.capture(),error=>error instanceof CaptureFailure&&error.reason==='source_invalidated');assert.equal(b.events.filter(x=>x?.method==='Page.captureScreenshot').length,0);await source.dispose();
+ const b=browserFixture();let invalid=0;const source=await createControlledCapture(b.browser,()=>invalid++);b[event].emit(event==='browser'?'disconnected':'close');assert.ok(invalid);assert.equal(source.eligible(),false);await assert.rejects(source.capture(),error=>error instanceof CaptureFailure&&error.reason==='source_invalidated');assert.equal(b.events.filter(x=>x?.method==='Page.captureScreenshot').length,0);if(event==='session')await source.dispose();else await assert.rejects(source.dispose(),{message:'capture_disposal_unconfirmed'});
 });
 for(const kind of ['wrong_context','wrong_page','extra_frame','wrong_viewport'])test(`R10 ${kind} never starts a pixel command`,async()=>{
  const b=browserFixture(),source=await createControlledCapture(b.browser,()=>{});if(kind==='wrong_context')b.page.context=()=>({});if(kind==='wrong_page')b.context.pages=()=>[{}];if(kind==='extra_frame')b.page.frames=()=>[b.page.mainFrame(),{}];if(kind==='wrong_viewport')b.page.viewportSize=()=>({width:1920,height:1080});
@@ -137,28 +164,28 @@ test('R10 partial constructor preserves unconfirmed cleanup failures',async()=>{
 });
 test('R10 disposal is idempotent and suspends synchronously before confirmed context close and disconnect',async()=>{
  const b=browserFixture(),calls=[],contextGate=deferred(),disconnectGate=deferred();let invalid=0;
- b.context.close=async()=>{calls.push('context');await contextGate.promise;calls.push('context_closed');};
- b.browser.close=async()=>{calls.push('disconnect');await disconnectGate.promise;calls.push('disconnected');};
+ b.context.close=async()=>{calls.push('context');await contextGate.promise;calls.push('context_closed');b.closeContext();};
+ b.browser.close=async()=>{calls.push('disconnect');await disconnectGate.promise;calls.push('disconnected');b.disconnect();};
  const source=await createControlledCapture(b.browser,()=>invalid++),first=source.dispose();let settled=false;first.then(()=>settled=true);
  assert.equal(source.eligible(),false);assert.strictEqual(source.dispose(),first);await drainMicrotasks();assert.deepEqual(calls,['context']);assert.equal(settled,false);
  contextGate.resolve();await drainMicrotasks();assert.deepEqual(calls,['context','context_closed','disconnect']);assert.equal(settled,false);
  disconnectGate.resolve();await first;assert.deepEqual(calls,['context','context_closed','disconnect','disconnected']);assert.strictEqual(source.dispose(),first);assert.equal(invalid,0);
 });
 test('R10 rejected context close still disconnects and keeps a sanitized idempotent disposal failure',async()=>{
- const b=browserFixture(),calls=[];b.context.close=()=>{calls.push('context');throw Error('inert private endpoint apiKey=do-not-expose');};b.browser.close=async()=>{calls.push('disconnect');};
+ const b=browserFixture(),calls=[];b.context.close=()=>{calls.push('context');throw Error('inert private endpoint apiKey=do-not-expose');};b.browser.close=async()=>{calls.push('disconnect');b.disconnect();};
  const source=await createControlledCapture(b.browser,()=>{}),disposal=source.dispose();await assert.rejects(disposal,{message:'capture_disposal_unconfirmed'});
  assert.deepEqual(calls,['context','disconnect']);assert.equal(source.eligible(),false);assert.strictEqual(source.dispose(),disposal);await assert.rejects(source.dispose(),{message:'capture_disposal_unconfirmed'});assert.deepEqual(calls,['context','disconnect']);
 });
 test('R10 hanging context close has a deadline, still disconnects, and late success never fabricates closure',async t=>{
  t.mock.timers.enable({apis:['setTimeout']});const b=browserFixture(),calls=[],contextGate=deferred();let invalid=0;
- b.context.close=async()=>{calls.push('context');await contextGate.promise;calls.push('context_closed');b.context.emit('close');};b.browser.close=async()=>{calls.push('disconnect');};
+ b.context.close=async()=>{calls.push('context');await contextGate.promise;calls.push('context_closed');b.context.emit('close');};b.browser.close=async()=>{calls.push('disconnect');b.disconnect();};
  const source=await createControlledCapture(b.browser,()=>invalid++),disposal=source.dispose(),rejected=assert.rejects(disposal,{message:'capture_disposal_unconfirmed'});
  await drainMicrotasks();assert.deepEqual(calls,['context']);t.mock.timers.tick(WATCH_DISPOSE_TIMEOUT_MS-1);await drainMicrotasks();assert.deepEqual(calls,['context']);
  t.mock.timers.tick(1);await rejected;assert.deepEqual(calls,['context','disconnect']);assert.equal(source.eligible(),false);
  contextGate.resolve();await drainMicrotasks();assert.deepEqual(calls,['context','disconnect','context_closed']);assert.strictEqual(source.dispose(),disposal);await assert.rejects(source.dispose(),{message:'capture_disposal_unconfirmed'});assert.equal(invalid,0);
 });
 for(const failure of ['reject','hang'])test(`R10 ${failure} during disconnect cannot report successful physical disposal`,async t=>{
- t.mock.timers.enable({apis:['setTimeout']});const b=browserFixture(),calls=[],disconnectGate=deferred();b.context.close=async()=>{calls.push('context');};
+ t.mock.timers.enable({apis:['setTimeout']});const b=browserFixture(),calls=[],disconnectGate=deferred();b.context.close=async()=>{calls.push('context');b.closeContext();};
  b.browser.close=async()=>{calls.push('disconnect');if(failure==='reject')throw Error('inert private disconnect detail');await disconnectGate.promise;};
  const source=await createControlledCapture(b.browser,()=>{}),disposal=source.dispose(),rejected=assert.rejects(disposal,{message:'capture_disposal_unconfirmed'});
  await drainMicrotasks();assert.deepEqual(calls,['context','disconnect']);if(failure==='hang')t.mock.timers.tick(WATCH_DISPOSE_TIMEOUT_MS);await rejected;assert.equal(source.eligible(),false);assert.strictEqual(source.dispose(),disposal);
@@ -170,17 +197,17 @@ test('R10 context and disconnect hangs are independently bounded within two clea
  t.mock.timers.tick(WATCH_DISPOSE_TIMEOUT_MS);await drainMicrotasks();assert.deepEqual(calls,['context','disconnect']);t.mock.timers.tick(WATCH_DISPOSE_TIMEOUT_MS);await rejected;assert.strictEqual(source.dispose(),disposal);
 });
 test('R10 partial constructor only confirms cleanup after context close and browser disconnect both succeed',async()=>{
- const b=browserFixture(),calls=[];b.context.routeWebSocket=async()=>{throw Error('inert setup failure');};b.context.close=async()=>{calls.push('context');};b.browser.close=async()=>{calls.push('disconnect');};
+ const b=browserFixture(),calls=[];b.context.routeWebSocket=async()=>{throw Error('inert setup failure');};b.context.close=async()=>{calls.push('context');b.closeContext();};b.browser.close=async()=>{calls.push('disconnect');b.disconnect();};
  await assert.rejects(createControlledCapture(b.browser,()=>{}),error=>error instanceof CaptureSetupFailure&&error.closureConfirmed===true&&error.message==='capture_confinement_unavailable');assert.deepEqual(calls,['context','disconnect']);
 });
 test('R10 partial constructor context hang still disconnects and remains unconfirmed after late closure',async t=>{
  t.mock.timers.enable({apis:['setTimeout']});const b=browserFixture(),calls=[],contextGate=deferred();let setupError;
- b.context.routeWebSocket=async()=>{throw Error('inert setup failure');};b.context.close=async()=>{calls.push('context');await contextGate.promise;};b.browser.close=async()=>{calls.push('disconnect');};
+ b.context.routeWebSocket=async()=>{throw Error('inert setup failure');};b.context.close=async()=>{calls.push('context');await contextGate.promise;};b.browser.close=async()=>{calls.push('disconnect');b.disconnect();};
  const rejected=assert.rejects(createControlledCapture(b.browser,()=>{}),error=>{setupError=error;return error instanceof CaptureSetupFailure&&error.closureConfirmed===false&&error.message==='capture_confinement_unavailable';});
  await drainMicrotasks();assert.deepEqual(calls,['context']);t.mock.timers.tick(WATCH_DISPOSE_TIMEOUT_MS);await rejected;assert.deepEqual(calls,['context','disconnect']);contextGate.resolve();await drainMicrotasks();assert.equal(setupError.closureConfirmed,false);
 });
 for(const failure of ['reject','hang'])test(`R10 partial constructor disconnect ${failure} preserves unconfirmed cleanup`,async t=>{
- t.mock.timers.enable({apis:['setTimeout']});const b=browserFixture(),calls=[];b.context.routeWebSocket=async()=>{throw Error('inert setup failure');};b.context.close=async()=>{calls.push('context');};
+ t.mock.timers.enable({apis:['setTimeout']});const b=browserFixture(),calls=[];b.context.routeWebSocket=async()=>{throw Error('inert setup failure');};b.context.close=async()=>{calls.push('context');b.closeContext();};
  b.browser.close=async()=>{calls.push('disconnect');if(failure==='reject')throw Error('inert private disconnect detail');await new Promise(()=>{});};
  const rejected=assert.rejects(createControlledCapture(b.browser,()=>{}),error=>error instanceof CaptureSetupFailure&&error.closureConfirmed===false&&error.message==='capture_confinement_unavailable');
  await drainMicrotasks();assert.deepEqual(calls,['context','disconnect']);if(failure==='hang')t.mock.timers.tick(WATCH_DISPOSE_TIMEOUT_MS);await rejected;
@@ -190,4 +217,109 @@ test('R10 Steel fixed-origin session binding ignores returned native endpoints',
 });
 test('R10 final synchronous dispatch fence rejects after delayed admission without transport',async()=>{
  let sent=0,revoked=false;const adapter=new SteelBrowserAdapter({config:{apiKey:'inert-test-key',baseUrl:'https://api.steel.dev'},admitDispatch:async()=>{await Promise.resolve();revoked=true;},fetcher:async()=>{sent++;throw Error('must not dispatch');}});await assert.rejects(adapter.createViewerSession(15000,()=>{if(revoked)throw Error('revoked');}));assert.equal(sent,0);
+});
+
+
+test('R10 installed SDK normal close proves context command, close observation, and later transport disconnect',async()=>{
+ const b=sdkBrowserFixture(),source=await createControlledCapture(b.browser,()=>{});await source.dispose();
+ assert.equal(b.context.isClosed(),true);assert.equal(b.browser.isConnected(),false);assert.deepEqual(b.events.filter(x=>typeof x==='string'&&x.endsWith('-command')),['context-close-command','browser-close-command']);
+});
+for(const phase of ['preclosed','closing','release_before_entry'])test(`R10 installed SDK ${phase} cannot turn a no-op context close into physical ACK`,async()=>{
+ const b=sdkBrowserFixture(),source=await createControlledCapture(b.browser,()=>{});
+ if(phase==='preclosed')b.context._closingStatus='closed';if(phase==='closing')b.context._closingStatus='closing';
+ const disposal=source.dispose();if(phase==='release_before_entry'){b.closeContext();b.disconnect();}
+ await assert.rejects(disposal,{message:'capture_disposal_unconfirmed'});
+ assert.equal(b.events.includes('context-close-command'),false);assert.equal(b.events.filter(x=>x==='browser-close-command').length,1);assert.strictEqual(source.dispose(),disposal);
+});
+for(const settlement of ['reject','fulfill'])test(`R10 installed SDK disconnect during context close with ${settlement} cannot confirm disposal`,async()=>{
+ const b=sdkBrowserFixture(),source=await createControlledCapture(b.browser,()=>{});
+ b.contextCommand=async()=>{b.closeContext();b.disconnect();if(settlement==='reject')throw new TargetClosedError2();};
+ await assert.rejects(source.dispose(),{message:'capture_disposal_unconfirmed'});
+ assert.deepEqual(b.events.filter(x=>typeof x==='string'&&x.endsWith('-command')),['context-close-command','browser-close-command']);
+});
+for(const state of ['connected','disconnected_without_event'])test(`R10 installed SDK swallowed browser TargetClosed remains unconfirmed when ${state}`,async t=>{
+ t.mock.timers.enable({apis:['setTimeout']});const b=sdkBrowserFixture(),source=await createControlledCapture(b.browser,()=>{});
+ b.disconnectCommand=async()=>{if(state==='disconnected_without_event')b.browser.isConnected=()=>false;throw new TargetClosedError2();};
+ let settled=false;const disposal=source.dispose(),rejected=assert.rejects(disposal,{message:'capture_disposal_unconfirmed'}).then(()=>{settled=true;});
+ await drainMicrotasks();assert.equal(b.events.includes('browser-close-command'),true);assert.equal(settled,false);
+ t.mock.timers.tick(WATCH_DISPOSE_TIMEOUT_MS);await rejected;assert.equal(settled,true);b.disconnect();await assert.rejects(source.dispose(),{message:'capture_disposal_unconfirmed'});
+});
+test('R10 observed browser event without disconnected state cannot confirm disposal',async()=>{
+ const b=browserFixture(),source=await createControlledCapture(b.browser,()=>{});b.browser.close=async()=>{b.browser.emit('disconnected');};
+ await assert.rejects(source.dispose(),{message:'capture_disposal_unconfirmed'});
+});
+test('R10 context-close fulfillment without the owned close observation cannot confirm disposal',async()=>{
+ const b=browserFixture(),source=await createControlledCapture(b.browser,()=>{});b.context.close=async()=>{b.context.isClosed=()=>true;};
+ await assert.rejects(source.dispose(),{message:'capture_disposal_unconfirmed'});assert.ok(b.events.includes('disconnect'));
+});
+test('R10 installed SDK nested raw capture still blocks ACK after transport loss until exact-page detach',async t=>{
+ t.mock.timers.enable({apis:['setTimeout']});const b=sdkBrowserFixture(),transport={send(){},close(){}},connection=new CRConnection({attribution:{},instrumentation:{}},transport,()=>{},{recentLogs:()=>[]});
+ const browserSession=new CDPSession(connection.rootSession,'browser-session'),pageSession=new CDPSession(browserSession._session,'exact-page-session');
+ b.capture=()=>pageSession.send(nullProgress,'Page.captureScreenshot',{});const source=await createControlledCapture(b.browser,()=>{});
+ let captureSettled=false;const capture=assert.rejects(source.capture(),error=>error instanceof CaptureFailure).then(()=>{captureSettled=true;});await drainMicrotasks();
+ b.disconnectCommand=async()=>{transport.onclose('inert loss without detach');b.disconnect();};
+ const disposal=source.dispose(),rejected=assert.rejects(disposal,{message:'capture_disposal_unconfirmed'});await drainMicrotasks();assert.equal(captureSettled,false);
+ t.mock.timers.tick(1500);await capture;t.mock.timers.tick(WATCH_DISPOSE_TIMEOUT_MS-1500);await rejected;
+ pageSession._onClose();await drainMicrotasks();await assert.rejects(source.dispose(),{message:'capture_disposal_unconfirmed'});
+});
+for(const failure of ['throw','reject'])test(`R10 ambiguous newContext ${failure} never confirms absence of an owned context`,async()=>{
+ const b=browserFixture();b.browser.newContext=()=>{assert.equal(b.browser.listenerCount('disconnected'),1);if(failure==='throw')throw Error('inert creation failure');return Promise.reject(Error('inert creation failure'));};
+ await assert.rejects(createControlledCapture(b.browser,()=>{}),error=>error instanceof CaptureSetupFailure&&error.closureConfirmed===false);assert.ok(b.events.includes('disconnect'));
+});
+test('R10 newContext has a setup allowance longer than a pixel RPC',async t=>{
+ t.mock.timers.enable({apis:['setTimeout']});const b=browserFixture(),gate=deferred();b.browser.newContext=()=>gate.promise;
+ const work=createControlledCapture(b.browser,()=>{});await drainMicrotasks();t.mock.timers.tick(7200);await drainMicrotasks();assert.equal(b.events.includes('disconnect'),false);gate.resolve(b.context);const source=await work;assert.equal(source.eligible(),true);await source.dispose();
+});
+for(const timing of ['within_cleanup','after_cleanup'])test(`R10 timed-out newContext settling ${timing} after failed preflight never repairs proof`,async t=>{
+ t.mock.timers.enable({apis:['setTimeout']});const b=browserFixture(),gate=deferred();let closes=0,routes=0,setupError;b.browser.newContext=()=>gate.promise;
+ const close=b.context.close;b.context.close=async()=>{closes++;await close();};b.context.routeWebSocket=async()=>{routes++;};
+ const rejected=assert.rejects(createControlledCapture(b.browser,()=>{}),error=>{setupError=error;return error instanceof CaptureSetupFailure&&error.closureConfirmed===false;});
+ await drainMicrotasks();t.mock.timers.tick(14999);await drainMicrotasks();assert.equal(b.events.includes('disconnect'),false);t.mock.timers.tick(1);await drainMicrotasks();assert.ok(b.events.includes('disconnect'));
+ if(timing==='after_cleanup'){t.mock.timers.tick(WATCH_DISPOSE_TIMEOUT_MS);await rejected;}
+ gate.resolve(b.context);await rejected;await drainMicrotasks();assert.equal(closes,1);assert.equal(routes,0);assert.equal(setupError.closureConfirmed,false);assert.equal(b.events.includes('page'),false);assert.equal(b.events.includes('attach'),false);
+});
+// The timeout itself is never proof. A context acquired in its same-turn
+// window can still satisfy disposal's genuine open-context preflight. Once
+// that preflight fails, a later best-effort close cannot repair the result.
+for(const offset of [0,1])test(`R10 installed SDK constructor timeout edge at microtask offset ${offset} requires genuine disposal proof`,async t=>{
+ t.mock.timers.enable({apis:['setTimeout']});const b=sdkBrowserFixture(),gate=deferred(),observed=[];let closes=0,routes=0,setupError;
+ b.browser.newContext=()=>gate.promise;const close=b.context.close;b.context.close=async options=>{closes++;await close(options);};b.context.routeWebSocket=async()=>{routes++;};
+ b.context.on('close',()=>observed.push('context-closed'));b.browser.on('disconnected',()=>observed.push('disconnected'));
+ const rejected=assert.rejects(createControlledCapture(b.browser,()=>{}),error=>{setupError=error;return error instanceof CaptureSetupFailure&&error.closureConfirmed===(offset===0);});
+ await drainMicrotasks();t.mock.timers.tick(15000);
+ // Even zero iterations yields once, reproducing the constructor/disposal
+ // boundary rather than resolving the constructor before the timeout runs.
+ await (async()=>{for(let turn=0;turn<offset;turn++)await Promise.resolve();})();gate.resolve(b.context);
+ await rejected;assert.equal(routes,0);assert.equal(closes,offset===0?2:1);assert.equal(setupError.closureConfirmed,offset===0);
+ assert.deepEqual(b.events.filter(x=>typeof x==='string'&&x.endsWith('-command')),['context-close-command','browser-close-command']);
+ assert.deepEqual(observed,['context-closed','disconnected']);assert.equal(b.context.isClosed(),true);assert.equal(b.browser.isConnected(),false);assert.equal(b.events.includes('page'),false);assert.equal(b.events.includes('attach'),false);
+});
+test('R10 hanging newContext times out, attempts disconnect, and cannot report positive cleanup',async t=>{
+ t.mock.timers.enable({apis:['setTimeout']});const b=browserFixture();b.browser.newContext=()=>new Promise(()=>{});
+ const rejected=assert.rejects(createControlledCapture(b.browser,()=>{}),error=>error instanceof CaptureSetupFailure&&error.closureConfirmed===false);
+ await drainMicrotasks();t.mock.timers.tick(15000);await drainMicrotasks();assert.ok(b.events.includes('disconnect'));t.mock.timers.tick(WATCH_DISPOSE_TIMEOUT_MS);await rejected;
+});
+for(const phase of ['new_context','first_route'])test(`R10 context loss during ${phase} is observed before partial constructor cleanup`,async()=>{
+ const b=sdkBrowserFixture();let invalid=0;
+ if(phase==='new_context')b.browser.newContext=async()=>{b.closeContext();b.disconnect();return b.context;};
+ else b.context.routeWebSocket=async()=>{assert.equal(b.context.listenerCount('close'),1);b.closeContext();b.disconnect();throw Error('inert setup failure');};
+ await assert.rejects(createControlledCapture(b.browser,()=>invalid++),error=>error instanceof CaptureSetupFailure&&error.closureConfirmed===false);
+ assert.ok(invalid);assert.equal(b.events.includes('context-close-command'),false);assert.equal(b.events.includes('browser-close-command'),true);
+});
+
+for(const race of ['release_before_entry','disconnect_during_close','normal'])test(`R10 runtime with installed SDK ${race} keeps immediate provider release and gates physical ACK`,async()=>{
+ const b=sdkBrowserFixture(),acks=[],diagnostics=[];let completion;
+ if(race==='disconnect_during_close')b.contextCommand=async()=>{b.closeContext();b.disconnect();throw new TargetClosedError2();};
+ const deps={sourceHash:createHash('sha256').update(WATCH_HTML).digest('hex'),diagnostic:event=>diagnostics.push(event),
+  authority:async(operation,payload={})=>{const now=Date.now();if(operation==='claim')return{allowed:true,epoch:1,serverNow:new Date(now).toISOString(),expiresAt:new Date(now+30000).toISOString(),timeoutMs:30000,policyVersion:WATCH_POLICY,sourceHash:deps.sourceHash};if(operation==='read')return{status:'starting'};if(operation==='close'){acks.push(payload);return{};}if(operation==='permit')return{allowed:true,epoch:1,serverNow:new Date(now).toISOString(),leaseUntil:new Date(now+2000).toISOString()};return{allowed:true};},
+  createProvider:async()=>({providerSessionId:'inert-session',endpoint:'inert',receiptHash:'a'.repeat(64)}),
+  createCapture:async(_,invalidate)=>createControlledCapture(b.browser,invalidate),
+  releaseProvider:async()=>{b.events.push('release');if(race==='release_before_entry'){b.closeContext();b.disconnect();}}};
+ const abort=new AbortController(),lifetime=createWatchLifetime(work=>{completion=work;});
+ try{
+  const response=await openWatchStream(deps,abort.signal,lifetime);await response.body.getReader().read();abort.abort();await completion;
+  assert.equal(acks.length,race==='normal'?1:0);assert.equal(b.events.filter(x=>x==='release').length,1);assert.equal(b.events.filter(x=>x==='browser-close-command').length,1);
+  if(race==='release_before_entry')assert.equal(b.events.includes('context-close-command'),false);else assert.ok(b.events.indexOf('release')<b.events.indexOf('context-close-command'));
+  assert.ok(diagnostics.some(event=>event.phase==='cleanup'&&event.reason==='completed'));if(race!=='normal')assert.ok(diagnostics.some(event=>event.phase==='close'&&event.reason==='unconfirmed'));
+ }finally{abort.abort();lifetime.finish();}
 });

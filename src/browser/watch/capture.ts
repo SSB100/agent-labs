@@ -3,6 +3,9 @@ import { chromium, type Browser, type BrowserContext, type CDPSession, type Page
 import { CaptureFailure, CaptureSetupFailure, WATCH_CSP, WATCH_DISPOSE_TIMEOUT_MS, WATCH_HTML, WATCH_MAX_FRAME_BYTES, WATCH_SOURCE_URL, type WatchCapture } from "./contracts";
 
 const CAPTURE_TIMEOUT_MS = 1_500, CDP_SETUP_TIMEOUT_MS = 1_500;
+// Context creation gets the same setup allowance as connection/navigation,
+// rather than the shorter pixel/CDP-command deadline.
+const CONTEXT_SETUP_TIMEOUT_MS = 15_000;
 const VIEWPORT = { width: 960, height: 540 } as const;
 const MAX_SCROLLBAR_SIZE = 32;
 const MAX_BASE64_LENGTH = 4 * Math.ceil(WATCH_MAX_FRAME_BYTES / 3);
@@ -72,6 +75,9 @@ export async function createControlledCapture(browser: Browser, invalidate: () =
   let context: BrowserContext | undefined, page: Page | undefined, session: CDPSession | undefined;
   let suspended = false, ready = false, preparing = true, disposing = false, admittedDocument = false;
   let capturePending = false;
+  let contextCloseObserved = false, disconnectObserved = false;
+  let observeDisconnect!: () => void;
+  const transportDisconnected = new Promise<void>(resolve => { observeDisconnect = resolve; });
   const contextId = randomUUID(), pageId = randomUUID();
   const rawWork = new Set<Promise<void>>(), ownedPixels = new Set<Uint8Array>();
   const suspend = () => {
@@ -80,6 +86,9 @@ export async function createControlledCapture(browser: Browser, invalidate: () =
     ownedPixels.clear();
   };
   const fail = () => { suspend(); if (!disposing) invalidate(); };
+  // Observe transport loss before the first constructor await. Browser.close()
+  // can swallow TargetClosed, so its fulfillment is not disconnect evidence.
+  browser.on("disconnected", () => { disconnectObserved = true; observeDisconnect(); fail(); });
   const track = <T>(work: Promise<T>): Promise<T> => {
     const settled = work.then(() => undefined, () => undefined);
     rawWork.add(settled);
@@ -100,19 +109,46 @@ export async function createControlledCapture(browser: Browser, invalidate: () =
       // Start this alongside physical close, not after it. A caller-facing
       // timeout, detach or successful close cannot stand in for raw settlement.
       const commandsSettled = closeWithinDeadline(async () => { await Promise.all([...rawWork]); });
-      const contextClosed = !context || await closeWithinDeadline(() => context!.close({ reason: "Read-only viewer ended." }));
+      const contextClosed = await closeWithinDeadline(async () => {
+        const ownedContext = context;
+        // Public isClosed() includes an already-closing context. Its close()
+        // would fulfill without dispatch, which cannot prove our physical close.
+        if (!ownedContext || contextCloseObserved || ownedContext.isClosed() ||
+            disconnectObserved || !browser.isConnected()) throw new Error("capture_disposal_unconfirmed");
+        await ownedContext.close({ reason: "Read-only viewer ended." });
+        if (!contextCloseObserved || !ownedContext.isClosed() || disconnectObserved ||
+            !browser.isConnected()) throw new Error("capture_disposal_unconfirmed");
+      });
       // Attempt this independently even if context.close rejects or times out.
-      const disconnected = await closeWithinDeadline(() => browser.close({ reason: "Read-only viewer disconnected." }));
+      const disconnected = await closeWithinDeadline(async () => {
+        await browser.close({ reason: "Read-only viewer disconnected." });
+        await transportDisconnected;
+        if (browser.isConnected()) throw new Error("capture_disposal_unconfirmed");
+      });
       if (!await commandsSettled || !contextClosed || !disconnected) throw new Error("capture_disposal_unconfirmed");
     })();
     return disposal;
   };
-  const setup = <T>(work: Promise<T>) => withinDeadline(track(work), performance.now() + CDP_SETUP_TIMEOUT_MS, fail);
+  const setup = <T>(work: Promise<T>, timeout = CDP_SETUP_TIMEOUT_MS) => withinDeadline(track(work), performance.now() + timeout, fail);
   try {
-    context = await browser.newContext({
-      acceptDownloads: false, javaScriptEnabled: false, serviceWorkers: "block",
-      permissions: [], viewport: VIEWPORT, deviceScaleFactor: 1, colorScheme: "light", locale: "en-US",
-    });
+    await setup(Promise.resolve().then(() => {
+      if (disconnectObserved || !browser.isConnected()) throw new Error("capture_confinement_unavailable");
+      return browser.newContext({
+        acceptDownloads: false, javaScriptEnabled: false, serviceWorkers: "block",
+        permissions: [], viewport: VIEWPORT, deviceScaleFactor: 1, colorScheme: "light", locale: "en-US",
+      });
+    }).then(async created => {
+      context = created;
+      // Install this before route/page setup can fail or the context can close.
+      context.on("close", () => { contextCloseObserved = true; fail(); });
+      if (disposing) {
+        // An ambiguous late constructor never repairs an earlier failed proof.
+        await closeWithinDeadline(() => created.close({ reason: "Read-only viewer ended." }));
+        throw new Error("capture_confinement_unavailable");
+      }
+      if (context.isClosed() || disconnectObserved || !browser.isConnected()) throw new Error("capture_confinement_unavailable");
+    }), CONTEXT_SETUP_TIMEOUT_MS);
+    if (!context) throw new Error("capture_confinement_unavailable");
     await context.routeWebSocket("**/*", socket => { fail(); socket.close(); });
     await context.route("**/*", async route => {
       const request = route.request();
@@ -128,8 +164,6 @@ export async function createControlledCapture(browser: Browser, invalidate: () =
       }
     });
     context.on("page", candidate => { if (!preparing || page && candidate !== page) fail(); });
-    context.on("close", fail);
-    browser.on("disconnected", fail);
     page = await context.newPage();
     page.on("popup", fail); page.on("download", fail); page.on("dialog", fail);
     page.on("crash", fail); page.on("close", fail); page.on("frameattached", fail);
