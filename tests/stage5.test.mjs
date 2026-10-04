@@ -11,7 +11,7 @@ test("Stage 5 keeps the canonical application build and removes qualification ha
 
   assert.equal(packageJson.scripts.build, "npm run quality && next build");
   assert.equal(packageJson.scripts["qualify:stage5"], undefined);
-  assert.equal(vercel.buildCommand, "npm run deploy:build");
+  assert.equal(vercel.buildCommand, "node -e \"if (process.env.VERCEL_ENV !== 'preview' || process.env.VERCEL_TARGET_ENV !== 'preview') { console.error('R10 diagnostic builds require Preview'); process.exit(1); }\" && npm run deploy:build");
   assert.equal(packageJson.scripts["deploy:build"], "next build");
   assert.doesNotMatch(eslint, /scripts\/\*\*/);
 

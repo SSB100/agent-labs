@@ -17,5 +17,5 @@
       "test/r10-host-lifetime-probe": false
     }
   },
-  "buildCommand": "npm run deploy:build"
+  "buildCommand": "node -e \"if (process.env.VERCEL_ENV !== 'preview' || process.env.VERCEL_TARGET_ENV !== 'preview') { console.error('R10 diagnostic builds require Preview'); process.exit(1); }\" && npm run deploy:build"
 }
