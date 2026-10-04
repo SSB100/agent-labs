@@ -57,3 +57,18 @@ test('client watcher has no native endpoint, active input, persistent bytes or a
  assert.match(source,/visibilitychange/);assert.match(source,/pagehide/);assert.match(source,/started\.current \|\| status !== "ready"/);
  const css=readFileSync('src/components/console/console-browser-watch.css','utf8');assert.match(css,/pointer-events:none/);assert.match(css,/min-height:44px/);
 });
+
+
+test('enlarged viewer Tab wraps enabled visible local buttons in both directions and leaves browser shortcuts alone',()=>{
+ const doc={activeElement:null,defaultView:{getComputedStyle:button=>({visibility:button.visibility??'visible'})}};
+ const button=(name,extra={})=>({name,hidden:false,matches:selector=>selector===':disabled'&&Boolean(extra.disabled),getAttribute:key=>key==='aria-disabled'&&extra.ariaDisabled?'true':null,getClientRects:()=>extra.noRect?[]:[{}],...extra});
+ function make(name,extra={}){const node=button(name,extra);node.focus=options=>{assert.equal(options.preventScroll,true);doc.activeElement=node;};return node;}
+ const compact=make('Compact'),stop=make('Stop'),disabled=make('Disabled',{disabled:true}),hidden=make('Hidden',{hidden:true}),invisible=make('Invisible',{visibility:'hidden'}),offscreen=make('Not rendered',{noRect:true}),ariaDisabled=make('Unavailable',{ariaDisabled:true});
+ let controls=[compact,disabled,hidden,invisible,offscreen,ariaDisabled,stop];const panel={ownerDocument:doc,querySelectorAll:selector=>{assert.equal(selector,'button');return controls;}};
+ const press=(overrides={})=>{let prevented=false;const event={key:'Tab',shiftKey:false,altKey:false,ctrlKey:false,metaKey:false,defaultPrevented:false,preventDefault:()=>{prevented=true;},...overrides};return {handled:client.wrapConsoleWatchFocus(event,panel),prevented};};
+ doc.activeElement=compact;assert.deepEqual(press(),{handled:true,prevented:true});assert.equal(doc.activeElement,stop);press();assert.equal(doc.activeElement,compact);press({shiftKey:true});assert.equal(doc.activeElement,stop);press({shiftKey:true});assert.equal(doc.activeElement,compact);
+ controls=[compact];doc.activeElement=stop;press();assert.equal(doc.activeElement,compact);press({shiftKey:true});assert.equal(doc.activeElement,compact);
+ for(const overrides of [{key:'Escape'},{ctrlKey:true},{altKey:true},{metaKey:true},{defaultPrevented:true}]){doc.activeElement=stop;assert.deepEqual(press(overrides),{handled:false,prevented:false});assert.equal(doc.activeElement,stop);}
+ controls=[];assert.deepEqual(press(),{handled:false,prevented:false});
+ const source=readFileSync('src/components/console/console-browser-watch.tsx','utf8');assert.match(source,/if \(expanded\) wrapConsoleWatchFocus/);assert.match(source,/!element\.contains\(element\.ownerDocument\.activeElement\)/);
+});

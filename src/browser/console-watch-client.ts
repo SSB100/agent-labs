@@ -77,3 +77,19 @@ export async function consumeConsoleWatchStream(response: Response, input: {
     reader.releaseLock();
   }
 }
+
+/** Local presentation controls only. Never forward keyboard input to the source. */
+export function wrapConsoleWatchFocus(event: Pick<KeyboardEvent, "key" | "shiftKey" | "altKey" | "ctrlKey" | "metaKey" | "defaultPrevented" | "preventDefault">, panel: HTMLElement): boolean {
+  if (event.key !== "Tab" || event.altKey || event.ctrlKey || event.metaKey || event.defaultPrevented) return false;
+  const view = panel.ownerDocument.defaultView;
+  const buttons = Array.from(panel.querySelectorAll<HTMLButtonElement>("button")).filter(button => {
+    const visibility = view?.getComputedStyle(button).visibility;
+    return !button.matches(":disabled") && button.getAttribute("aria-disabled") !== "true" && !button.hidden &&
+      button.getClientRects().length > 0 && visibility !== "hidden" && visibility !== "collapse";
+  });
+  if (!buttons.length) return false;
+  const index = buttons.findIndex(button => button === panel.ownerDocument.activeElement);
+  const next = index < 0 ? event.shiftKey ? buttons.length - 1 : 0 : (index + (event.shiftKey ? -1 : 1) + buttons.length) % buttons.length;
+  event.preventDefault(); buttons[next].focus({ preventScroll: true });
+  return true;
+}

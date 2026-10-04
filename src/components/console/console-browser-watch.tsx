@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ConsoleBrowserWorkspace } from "@/browser/console-view";
-import { CONSOLE_WATCH_FRAME_MAX_AGE_MS, consumeConsoleWatchStream, type ConsoleWatchStatus } from "@/browser/console-watch-client";
+import { CONSOLE_WATCH_FRAME_MAX_AGE_MS, consumeConsoleWatchStream, wrapConsoleWatchFocus, type ConsoleWatchStatus } from "@/browser/console-watch-client";
 import "./console-browser-watch.css";
 
 type Viewer = NonNullable<ConsoleBrowserWorkspace["viewer"]>;
@@ -91,6 +91,15 @@ export function ConsoleBrowserWatch({ viewer }: { viewer: Viewer }) {
     return () => clearTimeout(timer);
   }, [clearPixels, expiresAt, revoke]);
 
+  useEffect(() => {
+    // Stop/expiry may remove the focused action. Keep the remaining Compact
+    // control reachable without changing stream state or moving the canvas.
+    const element = panel.current;
+    if (expanded && element?.matches(":modal") && element.ownerDocument.hasFocus() && !element.contains(element.ownerDocument.activeElement)) {
+      sizeButton.current?.focus({ preventScroll: true });
+    }
+  }, [expanded, status]);
+
   function resize(enlarge: boolean) {
     const element = panel.current;
     if (!element || enlarge === expanded) return;
@@ -150,7 +159,7 @@ export function ConsoleBrowserWatch({ viewer }: { viewer: Viewer }) {
     }
   }
 
-  return <dialog ref={panel} open className="consoleBrowserWatch" aria-label="Controlled public qualification viewer" aria-modal={expanded ? true : undefined} data-watch-status={status} data-watch-expires-at={expiresAt} data-expanded={expanded} onCancel={event => { event.preventDefault(); resize(false); }}>
+  return <dialog ref={panel} open className="consoleBrowserWatch" aria-label="Controlled public qualification viewer" aria-modal={expanded ? true : undefined} data-watch-status={status} data-watch-expires-at={expiresAt} data-expanded={expanded} onKeyDown={event => { if (expanded) wrapConsoleWatchFocus(event, event.currentTarget); }} onCancel={event => { event.preventDefault(); resize(false); }}>
     <h2 className="consoleBrowserWatchTitle" hidden={!expanded}>Controlled public qualification</h2>
     <div className="consoleBrowserWatchControls">
       <p role="status" aria-live="polite">{labels[status]}</p>
