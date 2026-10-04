@@ -7,6 +7,22 @@ export const WATCH_CSP = "default-src 'none'; style-src 'unsafe-inline'; script-
 export const WATCH_MAX_FRAME_BYTES = 150_000;
 export const WATCH_MAX_FRAMES = 120;
 export const WATCH_MAX_RUNTIME_MS = 120_000;
+export const WATCH_DISPOSE_TIMEOUT_MS = 5_000;
+export const WATCH_CLEANUP_BUDGET_MS = 15_000;
+export type WatchLifetime = {
+  readonly completion: Promise<void>;
+  readonly signal: AbortSignal;
+  readonly workDeadline: number;
+  finish(): void;
+};
+export type WatchPhase = "hosting" | "claim" | "dispatch" | "provider_create" | "provider_record" | "capture_setup" |
+  "attest" | "capture_permit" | "capture" | "capture_lease" | "delivery_permit" | "delivery" | "authority_read" |
+  "stop" | "setup_settle" | "dispose" | "capture_settle" | "release" | "close" | "cleanup";
+export type WatchReason = "started" | "completed" | "failed" | "denied" | "expired" | "aborted" |
+  "source_invalidated" | "timeout" | "unconfirmed" | "frame_invalid" | "frame_limit";
+/** Only fixed codes and bounded numbers, never exceptions or source/identity data. */
+export type WatchDiagnostic = { phase: WatchPhase; reason: WatchReason; durationMs: number; remainingMs: number;
+  capturedFrames: number; deliveredFrames: number };
 export type WatchScope = { sessionId: string; businessId: string; questId: string; workflowRunId: string };
 export type WatchIdentity = WatchScope & { ownerId: string; authSessionId: string };
 export type WatchStatus = "available" | "starting" | "watching" | "revocation_pending" | "revoked" | "ended" | "expired" | "unavailable";
@@ -27,9 +43,13 @@ export type WatchDependencies = {
   createProvider(timeoutMs: number, assertDispatch: () => void): Promise<{ providerSessionId: string; endpoint: string; receiptHash: string }>;
   createCapture(endpoint: string, invalidate: () => void): Promise<WatchCapture>;
   releaseProvider(providerSessionId: string): Promise<void>;
+  diagnostic?: (event: WatchDiagnostic) => void;
   /** Only dependency injection in inert tests substitutes time/producer. */
   monotonic?: () => number;
 };
+export class CaptureFailure extends Error {
+  constructor(readonly reason: "timeout" | "source_invalidated" | "frame_invalid") { super("capture_unavailable"); }
+}
 export class CaptureSetupFailure extends Error {
   constructor(readonly closureConfirmed: boolean) { super("capture_confinement_unavailable"); }
 }

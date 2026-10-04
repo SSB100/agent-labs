@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
+import {setTimeout as pause} from 'node:timers/promises';
 import {r10Scope,r10LegacyScopes,r10Lineage} from './r10.mjs';
 export const viewerRoute=(extra={})=>'/dashboard?'+new URLSearchParams({view:'overview',centre:'browser',business:r10Scope.businessId,quest:r10Scope.questId,browserRun:r10Scope.workflowRunId,...extra});
 export const viewerEndpoint=`/api/browser/sessions/${r10Scope.sessionId}/watch`;
 export async function runViewerHttp({origin,boundary,check}){
+ const until=async check=>{const end=Date.now()+5_000;while(!check()&&Date.now()<end)await pause(20);assert.ok(check(),'Bounded actual Next cleanup did not settle');};
  const control=values=>fetch(boundary.origin+'/control',{method:'POST',body:JSON.stringify(values),signal:AbortSignal.timeout(10_000)});
  const {sessionId:_,...scope}=r10Scope;void _;
  const post=(path,body=scope,headers={})=>fetch(origin+path,{method:'POST',headers:{origin,'content-type':'application/json',...headers},body:JSON.stringify(body),signal:AbortSignal.timeout(30_000)});
@@ -34,6 +36,29 @@ export async function runViewerHttp({origin,boundary,check}){
   const state=boundary.state(),audit=state.db.artifacts.find(row=>row.id===r10Lineage.auditArtifactId);assert.equal(audit.workflow_run_id,r10Scope.workflowRunId);assert.equal(audit.task_contract_id,r10Lineage.taskId);assert.equal(audit.content.workerRunId,r10Lineage.workerRunId);assert.ok(audit.content.capturedFrames>=audit.content.deliveredFrames&&audit.content.deliveredFrames>=1);assert.equal(audit.content.actualMicrounits,null);
   const record='/dashboard?'+new URLSearchParams({view:'work',business:r10Scope.businessId,quest:r10Scope.questId,selected:r10Scope.workflowRunId,episode:r10Scope.workflowRunId,agent:r10Lineage.workerRunId});
   const recordResponse=await fetch(origin+record,{signal:AbortSignal.timeout(30_000)}),recordHtml=await recordResponse.text();assert.equal(recordResponse.status,200);assert.match(recordHtml.replace(/<!--.*?-->/gs,''),new RegExp('Actual Worker Run '+r10Lineage.workerRunId+' · Task '+r10Lineage.taskId));assert.match(recordHtml,/Controlled public viewer closure audit/);assert.doesNotMatch(recordHtml,/This exact Step\/Agent\/task chain is unavailable/);
+  assert.equal(state.db.task_contracts.find(row=>row.id===r10Lineage.taskId).workflow_stage_run_id,null);
+  const plain=recordHtml.replace(/<!--.*?-->/gs,'');assert.match(plain,/Saved tasks, newest first · 1 loaded of 1/);assert.match(plain,/Run-level task · No stage assigned/);assert.match(plain,/Render the fixed reviewed public R10 source/);
+  assert.doesNotMatch(plain,/Step outputs/);
 
+ });
+ await check('R10 actual Next response cancellation retains cleanup while independent release precedes delayed disposal',async()=>{
+  await control({resetViewer:true,viewerHoldDispose:true,viewerDisposeDelayMs:0,viewerDisposeFailure:false,viewerCaptureFailure:false});
+  const start=boundary.effects.length,response=await post(viewerEndpoint),reader=response.body.getReader();assert.equal(response.status,200);await reader.read();await reader.cancel();
+  const events=()=>boundary.effects.slice(start),has=event=>events().some(row=>row.event===event);
+  try{await until(()=>has('provider_released')&&has('dispose_started'));assert.equal(boundary.state().viewer.close,false,'Release must not fabricate disposal ACK');}
+  finally{await control({viewerHoldDispose:false});}
+  await until(()=>boundary.state().viewer.close);const effects=events();assert.equal(effects.filter(row=>row.event==='provider_create').length,1);
+  assert.ok(effects.findIndex(row=>row.event==='provider_released')<effects.findIndex(row=>row.event==='dispose_finished'));
+  assert.ok(effects.findIndex(row=>row.event==='dispose_finished')<effects.findIndex(row=>row.operation==='close'));
+  await control({viewerDisposeDelayMs:0});
+ });
+ await check('R10 pre-first-frame failure and rejected disposal keep exact release, one create and unconfirmed closure',async()=>{
+  await control({resetViewer:true,viewerHoldDispose:false,viewerCaptureFailure:true,viewerDisposeFailure:true,viewerDisposeDelayMs:0});
+  const start=boundary.effects.length;
+  // A real Next stream error can reject fetch before headers or while reading.
+  await assert.rejects(async()=>{const response=await post(viewerEndpoint);if(response.status>=500)throw Error('Expected Next stream failure');await response.text();});
+  const events=()=>boundary.effects.slice(start);await until(()=>events().some(row=>row.event==='provider_released')&&events().some(row=>row.event==='dispose_failed'));
+  assert.equal(boundary.state().viewer.close,false);assert.equal(events().filter(row=>row.event==='provider_create').length,1);assert.equal(events().filter(row=>row.operation==='permit').length,1);assert.equal(events().filter(row=>row.operation==='close').length,0);
+  await control({resetViewer:true,viewerCaptureFailure:false,viewerDisposeFailure:false,viewerDisposeDelayMs:0});
  });
 }

@@ -1,6 +1,25 @@
 import { randomUUID } from "node:crypto";
-import { chromium, type Browser, type BrowserContext, type Page } from "playwright-core";
-import { CaptureSetupFailure, WATCH_CSP, WATCH_HTML, WATCH_MAX_FRAME_BYTES, WATCH_SOURCE_URL, type WatchCapture } from "./contracts";
+import { chromium, errors, type Browser, type BrowserContext, type Page } from "playwright-core";
+import { CaptureFailure, CaptureSetupFailure, WATCH_CSP, WATCH_DISPOSE_TIMEOUT_MS, WATCH_HTML, WATCH_MAX_FRAME_BYTES, WATCH_SOURCE_URL, type WatchCapture } from "./contracts";
+
+/** A stalled context must not prevent disconnecting the transport. A timeout
+ * records uncertainty, never evidence that either physical close succeeded. */
+async function closeWithinDeadline(close: () => Promise<void>): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      Promise.resolve().then(close),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("capture_disposal_unconfirmed")), WATCH_DISPOSE_TIMEOUT_MS);
+      }),
+    ]);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /** Only this constructor can establish the producer's eligibility. No saved
  * live/status/URL/fixture metadata is consumed. Every pixel comes from the
@@ -11,6 +30,18 @@ export async function createControlledCapture(browser: Browser, invalidate: () =
   const contextId = randomUUID(), pageId = randomUUID();
   const suspend = () => { suspended = true; ready = false; };
   const fail = () => { suspend(); if (!disposing) invalidate(); };
+  let disposal: Promise<void> | undefined;
+  const dispose = (): Promise<void> => {
+    if (disposal) return disposal;
+    disposing = true; suspend();
+    disposal = (async () => {
+      const contextClosed = !context || await closeWithinDeadline(() => context!.close({ reason: "Read-only viewer ended." }));
+      // Attempt this independently even if context.close rejects or times out.
+      const disconnected = await closeWithinDeadline(() => browser.close({ reason: "Read-only viewer disconnected." }));
+      if (!contextClosed || !disconnected) throw new Error("capture_disposal_unconfirmed");
+    })();
+    return disposal;
+  };
   try {
     context = await browser.newContext({
       acceptDownloads: false, javaScriptEnabled: false, serviceWorkers: "block",
@@ -47,26 +78,27 @@ export async function createControlledCapture(browser: Browser, invalidate: () =
     const eligible = () => Boolean(ready && !suspended && page && !page.isClosed() && browser.isConnected() &&
       page.url() === WATCH_SOURCE_URL && context?.pages().length === 1 && context.pages()[0] === page && page.frames().length === 1);
     return {
-      contextId, pageId, eligible, suspend,
+      contextId, pageId, eligible, suspend, dispose,
       async capture() {
-        if (!eligible()) throw new Error("capture_not_eligible");
-        const pixels = await page!.screenshot({ type: "jpeg", quality: 65, fullPage: false, timeout: 1_500, animations: "disabled" });
-        if (!eligible() || pixels.byteLength > WATCH_MAX_FRAME_BYTES || pixels[0] !== 0xff || pixels[1] !== 0xd8) {
-          pixels.fill(0); throw new Error("capture_not_eligible");
+        if (!eligible()) throw new CaptureFailure("source_invalidated");
+        let pixels: Uint8Array;
+        try {
+          pixels = await page!.screenshot({ type: "jpeg", quality: 65, fullPage: false, timeout: 1_500, animations: "disabled" });
+        } catch (error) {
+          if (error instanceof errors.TimeoutError) throw new CaptureFailure("timeout");
+          if (!eligible()) throw new CaptureFailure("source_invalidated");
+          throw new Error("capture_unavailable");
+        }
+        if (!eligible()) { pixels.fill(0); throw new CaptureFailure("source_invalidated"); }
+        if (pixels.byteLength > WATCH_MAX_FRAME_BYTES || pixels[0] !== 0xff || pixels[1] !== 0xd8) {
+          pixels.fill(0); throw new CaptureFailure("frame_invalid");
         }
         return pixels;
       },
-      async dispose() {
-        disposing = true; suspend();
-        await context!.close({ reason: "Read-only viewer ended." });
-        await browser.close({ reason: "Read-only viewer disconnected." });
-      },
     };
   } catch {
-    disposing = true; suspend();
-    let closureConfirmed = true;
-    try { await context?.close(); } catch { closureConfirmed = false; }
-    try { await browser.close(); } catch { closureConfirmed = false; }
+    let closureConfirmed = false;
+    try { await dispose(); closureConfirmed = true; } catch { /* A failed or timed-out close remains unconfirmed. */ }
     throw new CaptureSetupFailure(closureConfirmed);
   }
 }

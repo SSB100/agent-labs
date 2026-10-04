@@ -1,8 +1,10 @@
 import "server-only";
+import { after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createViewerDependencies } from "./watch-dependencies";
 import { openWatchStream } from "./watch/runtime";
-import { validWatchScope, type WatchIdentity, type WatchScope } from "./watch/contracts";
+import { createWatchLifetime, withinWatchLifetime } from "./watch/lifetime";
+import { validWatchScope, type WatchIdentity, type WatchLifetime, type WatchScope } from "./watch/contracts";
 
 const headers = { "Cache-Control": "private, no-store, max-age=0", "Referrer-Policy": "no-referrer", Vary: "Cookie" };
 function unavailable(status = 404) { return Response.json({ status: "unavailable" }, { status, headers }); }
@@ -37,11 +39,19 @@ async function authenticatedScope(scope: WatchScope): Promise<WatchIdentity | nu
   if (result.error || !validWatchScope(value) || Object.keys(scope).some(key => scope[key as keyof WatchScope] !== value[key as keyof WatchScope])) return null;
   return { ...scope, ownerId: userData.user.id, authSessionId };
 }
-export async function openOwnedBrowserWatch(request: Request, scope: WatchScope): Promise<Response> {
+export async function openOwnedBrowserWatch(request: Request, scope: WatchScope, registeredLifetime?: WatchLifetime): Promise<Response> {
+  // Pass the promise itself: after() registers it immediately, including errors
+  // and cancelled responses. Registering inside stop() would already be late.
+  const lifetime = registeredLifetime ?? createWatchLifetime(completion => after(completion));
+  let runtimeOwnsCleanup = false;
   try {
-    const identity = await authenticatedScope(scope); if (!identity) return unavailable();
-    return await openWatchStream(createViewerDependencies(identity), request.signal);
+    const identity = await withinWatchLifetime(lifetime, () => authenticatedScope(scope), request.signal);
+    if (!identity || request.signal.aborted) return unavailable();
+    const dependencies = createViewerDependencies(identity);
+    runtimeOwnsCleanup = true;
+    return await openWatchStream(dependencies, request.signal, lifetime);
   } catch { return unavailable(409); }
+  finally { if (!runtimeOwnsCleanup) lifetime.finish(); }
 }
 export async function revokeOwnedBrowserWatch(_request: Request, scope: WatchScope): Promise<Response> {
   try {

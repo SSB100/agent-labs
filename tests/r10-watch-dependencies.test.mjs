@@ -34,13 +34,14 @@ function loadSource(file, mocks = {}, globals = {}) {
 }
 
 function fixture(options = {}) {
-  const state = { clock: 0, fetches: [], rpcs: [], clients: 0, configReads: 0 };
+  const state = { clock: 0, fetches: [], rpcs: [], clients: 0, configReads: 0, diagnostics: [] };
   const env = {
     STEEL_API_KEY: 'INERT_PROVIDER_KEY',
     R10_VIEWER_SERVER_KEY: 'INERT_AUTHORITY_NOT_A_REAL_KEY_123456',
     ...options.env,
   };
   const globals = {
+    console: { info: (...values) => state.diagnostics.push(values) },
     process: { env }, performance: { now: () => state.clock },
     fetch: async (url, init) => {
       state.fetches.push({ url: String(url), init });
@@ -62,6 +63,7 @@ function fixture(options = {}) {
     './providers/steel': { ...provider, getSteelConfig: () => { state.configReads++; return originalConfig(); } },
     './watch/capture': { connectControlledCapture: () => { throw Error('Real capture is forbidden in this inert fixture'); } },
     './watch/contracts': contracts,
+    './watch/diagnostics': loadSource('src/browser/watch/diagnostics.ts'),
     '@/lib/supabase/runtime': { createRuntimeClient: () => {
       state.clients++;
       return { rpc: async (name, args) => {
@@ -153,4 +155,13 @@ test('R10 production factory refuses noncanonical provider configuration and amb
   assert.equal(f.state.fetches.length, 1, 'An ambiguous create is never automatically retried');
   await assert.rejects(deps.releaseProvider('ambiguous-id'));
   assert.equal(f.state.fetches.length, 1);
+});
+
+
+test('R10 production diagnostics rebuild a strict field/code/numeric allowlist without secrets',()=>{
+ const f=fixture(),deps=f.create(),safe={phase:'capture',reason:'failed',durationMs:1499,remainingMs:5000,capturedFrames:0,deliveredFrames:0};
+ deps.diagnostic({...safe,message:'PRIVATE_CONTENT',stack:'secret',endpoint:'https://secret.invalid?apiKey=SECRET',providerSessionId:providerId,authSessionId:identity.authSessionId});
+ assert.equal(f.state.diagnostics.length,1);assert.equal(f.state.diagnostics[0][0],'r10_viewer');assert.deepEqual(JSON.parse(JSON.stringify(f.state.diagnostics[0][1])),safe);
+ for(const value of [{...safe,phase:'SECRET'}, {...safe,reason:'https://private.invalid'}, {...safe,durationMs:NaN}, {...safe,remainingMs:Infinity}, {...safe,capturedFrames:121}, {...safe,deliveredFrames:1}, new Error('SECRET')])deps.diagnostic(value);
+ assert.equal(f.state.diagnostics.length,1);assert.doesNotMatch(JSON.stringify(f.state.diagnostics),/SECRET|PRIVATE|https|providerSession|authSession/);
 });

@@ -2,6 +2,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { SteelBrowserAdapter, getSteelConfig } from "./providers/steel";
 import { connectControlledCapture } from "./watch/capture";
+import { watchDiagnosticRecord } from "./watch/diagnostics";
 import { WATCH_HTML, type WatchAuthority, type WatchDependencies, type WatchIdentity } from "./watch/contracts";
 import { createRuntimeClient } from "@/lib/supabase/runtime";
 
@@ -35,6 +36,7 @@ export function createViewerDependencies(identity: WatchIdentity): WatchDependen
     if (performance.now() >= admissionCutoff) throw new Error("viewer_dispatch_not_admitted");
   } });
   return {
+    diagnostic: event => { const record = watchDiagnosticRecord(event); if (record) console.info("r10_viewer", record); },
     authority, sourceHash: createHash("sha256").update(WATCH_HTML).digest("hex"),
     async createProvider(timeoutMs, assertDispatch) {
       const result = await adapter.createViewerSession(timeoutMs, () => {

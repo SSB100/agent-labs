@@ -73,6 +73,10 @@ export function viewerAuthorityFixture(state,input,effects,control){
  const v=state.viewer;
  if(!v||Object.entries(v.scope).some(([key,value])=>input.scope?.[key]!==value))throw Error('Inert viewer exact scope rejected');
  const op=input.operation,p=input.payload??{};
+ if(op==='fixture_event'){
+  if(!['provider_create','capture_failed','dispose_started','dispose_failed','dispose_finished','provider_released'].includes(p.event)||Object.keys(p).length!==1)throw Error('Inert lifecycle event rejected');
+  effects.push({kind:'in-memory-viewer',operation:op,event:p.event,sessionId:v.scope.sessionId});return{allowed:true};
+ }
  effects.push({kind:'in-memory-viewer',operation:op,sessionId:v.scope.sessionId});
  if(op==='read')return viewerSummary(state);
  if(op==='claim'){
