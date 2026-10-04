@@ -36,7 +36,7 @@ for(const mode of ['early-empty-eof','post-frame-failure','owner-revoke','client
   else{
    const packet=JSON.parse(new TextDecoder().decode((await reader.read()).value));assert.equal(packet.data,'/9j/2Q==');
    if(mode==='client-cancel')control.abort();
-   await assert.rejects(reader.read());
+   assert.deepEqual(await reader.read(),{done:true,value:undefined});
   }
   assert.equal(has(f.events,'fake_close','completed'),false);
   await completionFence(f.completion);

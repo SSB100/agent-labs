@@ -87,7 +87,7 @@ export async function openWatchStream(deps: WatchDependencies, signal: AbortSign
   };
   const stop = (outcome: "ended" | "failed" | "uncertain" = "ended", reason: WatchReason = "completed") => {
     if (stopped) return cleanup ?? lifetime.completion;
-    // No await before the pre-pixel/pre-delivery fence and transport termination.
+    // No await before the pre-pixel/pre-delivery fence and source-stream termination.
     stopped = true; capture?.suspend(); discard();
     cleanupCutoff = Math.min(performance.now() + WATCH_CLEANUP_BUDGET_MS, lifetime.workDeadline + WATCH_CLEANUP_BUDGET_MS);
     if (watchTimer) clearInterval(watchTimer);
@@ -120,12 +120,14 @@ export async function openWatchStream(deps: WatchDependencies, signal: AbortSign
     }).catch(() => { emit("cleanup", "failed"); }).finally(() => {
       emit("cleanup", "completed"); lifetime.finish(); emit("hosting", "completed");
     });
-    // Install all cleanup work before ending transport. An empty response can
-    // close normally without triggering the host's pre-header pipe-error path;
-    // EOF is still a client failure, never a physical-close acknowledgement.
-    // Once a frame was enqueued, error instead so queued bytes cannot drain.
+    // Install all cleanup work before ending transport. With this stream's
+    // fixed highWaterMark=0 and default unit-size strategy, desiredSize===0
+    // proves the source queue is empty. Check and close synchronously after
+    // suspension; late pulls cannot enqueue past the stopped fence. Otherwise
+    // error immediately to discard every queued packet. EOF is still a client
+    // disconnection, never a successful watch or physical-close acknowledgement.
     emit("cleanup", "started");
-    try { if (sequence === 0) controller?.close(); else controller?.error(transportAbort()); } catch { /* Already cancelled. */ }
+    try { if (controller?.desiredSize === 0) controller.close(); else controller?.error(transportAbort()); } catch { /* Already cancelled. */ }
     return cleanup;
   };
   const onAbort = () => { void stop("ended", "aborted"); };
