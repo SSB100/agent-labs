@@ -4,6 +4,7 @@ import { CaptureFailure, CaptureSetupFailure, WATCH_CLEANUP_BUDGET_MS, WATCH_MAX
   type WatchCapture, type WatchDependencies, type WatchLifetime, type WatchPhase, type WatchReason } from "./contracts";
 
 const POLL_MS = 250, FRAME_INTERVAL_MS = 1_000, PERMIT_MARGIN_MS = 150;
+const RELEASE_HEAD_START_MS = 2_000, RELEASE_WAIT_MS = 10_000, CLOSE_ACK_MARGIN_MS = 3_000;
 const WATCH_HEADERS = {
   "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "private, no-store, max-age=0",
   "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer", "X-Accel-Buffering": "no",
@@ -40,6 +41,7 @@ export async function openWatchStream(deps: WatchDependencies, signal: AbortSign
   let watchTimer: ReturnType<typeof setInterval> | undefined, expiryTimer: ReturnType<typeof setTimeout> | undefined;
   let checking = false, setup: Promise<void>, cleanup: Promise<void> | undefined, disposal: Promise<void> | undefined;
   let release: Promise<void> | undefined;
+  let releaseReady: Promise<void> | undefined, dispatchRelease: (() => void) | undefined;
   const setupFinished = deferred(), providerKnown = deferred(), encoder = new TextEncoder();
   const stillLive = () => !stopped && !signal.aborted && !lifetime.signal.aborted && monotonic() < deadline;
   const discard = () => { pending?.fill(0); pending = undefined; };
@@ -86,7 +88,10 @@ export async function openWatchStream(deps: WatchDependencies, signal: AbortSign
     return disposal;
   };
   const stop = (outcome: "ended" | "failed" | "uncertain" = "ended", reason: WatchReason = "completed") => {
-    if (stopped) return cleanup ?? lifetime.completion;
+    if (stopped) {
+      if (reason === "aborted") dispatchRelease?.();
+      return cleanup ?? lifetime.completion;
+    }
     // No await before the pre-pixel/pre-delivery fence and source-stream termination.
     stopped = true; capture?.suspend(); discard();
     cleanupCutoff = Math.min(performance.now() + WATCH_CLEANUP_BUDGET_MS, lifetime.workDeadline + WATCH_CLEANUP_BUDGET_MS);
@@ -94,15 +99,43 @@ export async function openWatchStream(deps: WatchDependencies, signal: AbortSign
     if (expiryTimer) clearTimeout(expiryTimer);
     signal.removeEventListener("abort", onAbort); lifetime.signal.removeEventListener("abort", onHostStop);
     emit("stop", reason);
-    // Release is not ordered behind setup completion or context disposal.
-    releaseKnown(); disposeCapture();
+    // This one synchronous sample governs both EOF and release eligibility.
+    // Only a positively empty source queue has a retained-host cleanup path.
+    const sourceEmpty = controller?.desiredSize === 0, now = performance.now();
+    const headStartMs = providerId && capture && sourceEmpty && reason !== "aborted" && !signal.aborted && !lifetime.signal.aborted
+      ? Math.max(0, Math.min(RELEASE_HEAD_START_MS, deadline - monotonic(), lifetime.workDeadline - now,
+        cleanupCutoff - now - RELEASE_WAIT_MS - CLOSE_ACK_MARGIN_MS)) : 0;
+    if (headStartMs > 0) {
+      const ready = deferred(), cutoff = now + headStartMs;
+      releaseReady = ready.promise;
+      let dispatchedRelease = false;
+      const dispatch = () => {
+        if (dispatchedRelease) return;
+        dispatchedRelease = true;
+        clearTimeout(timer);
+        signal.removeEventListener("abort", dispatch); lifetime.signal.removeEventListener("abort", dispatch);
+        dispatchRelease = undefined;
+        releaseKnown(); ready.resolve();
+      };
+      dispatchRelease = dispatch;
+      // Install an unconditional absolute fallback before disposal can start.
+      // Abort never waits for context proof, setup, or an authority ACK.
+      const timer = setTimeout(dispatch, Math.max(0, cutoff - performance.now()));
+      signal.addEventListener("abort", dispatch, { once: true });
+      lifetime.signal.addEventListener("abort", dispatch, { once: true });
+      if (signal.aborted || lifetime.signal.aborted) dispatch();
+      void disposeCapture()!.then(dispatch, dispatch);
+    } else { releaseKnown(); disposeCapture(); }
     cleanup = Promise.resolve().then(async () => {
       const releaseResult = (async () => {
         const known = await bounded("setup_settle", () => providerKnown.promise);
         if (!known.ok) return "unknown";
+        // Dispatch readiness is distinct from release settlement: the bounded
+        // provider operation retains its full wait after the head start.
+        await releaseReady;
         const work = releaseKnown();
         if (!work) return dispatched ? "unknown" : "not_created";
-        const result = await bounded("release", () => work, 10_000);
+        const result = await bounded("release", () => work, RELEASE_WAIT_MS);
         return result.ok ? "released" : result.reason === "failed" ? "failed" : "unknown";
       })();
       const setupResult = await bounded("setup_settle", () => setupFinished.promise);
@@ -127,7 +160,8 @@ export async function openWatchStream(deps: WatchDependencies, signal: AbortSign
     // error immediately to discard every queued packet. EOF is still a client
     // disconnection, never a successful watch or physical-close acknowledgement.
     emit("cleanup", "started");
-    try { if (controller?.desiredSize === 0) controller.close(); else controller?.error(transportAbort()); } catch { /* Already cancelled. */ }
+    try { if (sourceEmpty) controller!.close(); else controller?.error(transportAbort()); }
+    catch { dispatchRelease?.(); /* Already cancelled: no retained-host grace. */ }
     return cleanup;
   };
   const onAbort = () => { void stop("ended", "aborted"); };

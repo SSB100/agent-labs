@@ -169,13 +169,15 @@ test('R10 stalled release preserves unknown release truth and leaves time for a 
 });
 
 
-test('R10 empty EOF preserves the client failure path while release is independent of held or rejected disposal',async()=>{
+test('R10 empty EOF preserves the client failure path while release has only a bounded disposal head start',async t=>{
+ t.mock.timers.enable({apis:['setTimeout']});
  for(const rejected of [false,true]){
   const gate=deferred(),f=fixture({capture:()=>{throw Error('inert capture failure');}}),original=f.deps.createCapture;
   f.deps.createCapture=async(...args)=>{const capture=await original(...args);return{...capture,dispose:async()=>{f.state.disposed=true;if(rejected)throw Error('inert disposal failure');await gate.promise;}};};
   const response=await f.open(),frames=[],statuses=[];
   assert.equal(await consumeConsoleWatchStream(response,{signal:new AbortController().signal,onFrame:async frame=>frames.push(frame),onStatus:status=>statuses.push(status)}),'disconnected');
   assert.deepEqual(frames,[]);assert.deepEqual(statuses,[]);assert.equal(f.state.suspended,true);
+  if(!rejected){assert.equal(f.state.releases,0);t.mock.timers.tick(2000);}
   await until(()=>f.state.releases===1&&f.state.disposed);assert.equal(f.state.closed.length,0);
   assert.ok(f.state.diagnostics.some(event=>event.phase==='cleanup'&&event.reason==='started'));
   if(!rejected){assert.equal(f.state.cleanupDone,false);gate.resolve();}
