@@ -42,6 +42,25 @@ export async function runKnowledgeJourneys({page,context,origin,boundary,output,
   await page.waitForURL(u=>u.searchParams.get('type')==='usage'&&u.searchParams.get('selected')===knowledgeId('usage'));assert.equal(new URL(page.url()).searchParams.get('quest'),id(820000));await detail().waitFor();assert.match(await detail().innerText(),/Exact plan v1/);
   await page.goBack();await page.waitForURL(u=>u.searchParams.get('view')==='overview');assert.equal(new URL(page.url()).searchParams.get('quest'),id(820000));await page.goForward();await page.waitForURL(u=>u.searchParams.get('selected')===knowledgeId('usage'));await page.reload();await detail().waitFor();
  });
+ await check('R09 Knowledge → Pack tools → exact learned release preserves selected Quest and native history',async()=>{
+  const quest=id(820000),episode=id(1001),sourceArtifact=knowledgeId('artifact');
+  await goto('installed',{selected:id(790000),quest,episode,sourceArtifact});
+  await detail().getByRole('link',{name:'Pack tools and installation history',exact:true}).click();await page.waitForURL(u=>u.pathname==='/dashboard/packs');
+  for(const[key,value]of Object.entries({business,quest,episode,sourceArtifact}))assert.equal(new URL(page.url()).searchParams.get(key),value,`Pack tools retained ${key}`);
+  const learned=page.locator('.packCard').filter({has:page.getByRole('heading',{name:'Reviewed source comparison guidance',exact:true})});
+  await learned.getByRole('link',{name:'Review and deliberately apply this Knowledge version',exact:true}).click();await page.waitForURL(u=>u.searchParams.get('view')==='knowledge'&&u.searchParams.get('type')==='releases'&&u.searchParams.get('selected')===knowledgeId('release',0,1));await detail().waitFor();
+  for(const[key,value]of Object.entries({business,quest,episode,sourceArtifact}))assert.equal(new URL(page.url()).searchParams.get(key),value,`Learned release retained ${key}`);
+  await page.goBack();await page.waitForURL(u=>u.pathname==='/dashboard/packs');assert.equal(new URL(page.url()).searchParams.get('quest'),quest);await page.goBack();await page.waitForURL(u=>u.searchParams.get('type')==='installed');assert.equal(new URL(page.url()).searchParams.get('selected'),id(790000));assert.equal(new URL(page.url()).searchParams.get('quest'),quest);
+  await page.goForward();await page.waitForURL(u=>u.pathname==='/dashboard/packs');await page.goForward();await page.waitForURL(u=>u.searchParams.get('selected')===knowledgeId('release',0,1));await page.reload();await detail().waitFor();assert.equal(new URL(page.url()).searchParams.get('quest'),quest);
+ });
+ await check('R09 same-Quest private evidence opens the exact scoped Library artifact and returns to its proposal',async()=>{
+  const quest=id(820000),episode=id(1001),artifact=knowledgeId('artifact'),proposal=knowledgeId('version');
+  await goto('proposals',{selected:proposal,quest,episode});await detail().getByRole('link',{name:new RegExp(`^Exact owned artifact ${artifact}`)}).click();await page.waitForURL(u=>u.searchParams.get('view')==='library'&&u.searchParams.get('selected')===artifact);
+  for(const[key,value]of Object.entries({business,quest,episode}))assert.equal(new URL(page.url()).searchParams.get(key),value,`Private artifact retained ${key}`);
+  await page.locator(`[data-library-artifact="${artifact}"]`).waitFor();assert.match(await page.locator(`[data-library-artifact="${artifact}"]`).innerText(),/Private synthetic evidence 0:0/);assert.doesNotMatch(await page.locator('body').innerText(),/This exact record could not be verified|No substitute/);
+  const reads=boundary.log.filter(call=>call.table==='r08_artifacts');assert.ok(reads.some(call=>call.operations.some(([op,key,value])=>op==='eq'&&key==='quest_id'&&value===quest)&&call.operations.some(([op,key,value])=>op==='eq'&&key==='id'&&value===artifact)),'Library independently verifies exact artifact under the selected Quest');
+  await page.goBack();await page.waitForURL(u=>u.searchParams.get('type')==='proposals'&&u.searchParams.get('selected')===proposal);await detail().waitFor();assert.equal(new URL(page.url()).searchParams.get('quest'),quest);await page.goForward();await page.waitForURL(u=>u.searchParams.get('view')==='library');await page.reload();await page.locator(`[data-library-artifact="${artifact}"]`).waitFor();
+ });
  await check('R09 paged Knowledge exact off-page selection survives search, Back, Forward, close and reload',async()=>{
   for(const type of ['proposals','releases','applications','usage']){
    const selected=knowledgeId({proposals:'version',releases:'release',applications:'application',usage:'usage'}[type]);

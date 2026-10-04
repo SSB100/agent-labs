@@ -4,6 +4,7 @@ import type { WorkspaceIntent, WorkspaceSearch } from "@/lib/core-ui/workspace-c
 import { carryWorkspace } from "@/lib/core-ui/workspace-navigation";
 import { verifyOwnerBusiness } from "@/lib/core-ui/owner-business";
 import { loadKnowledgePage } from "@/lib/core-ui/console-knowledge-data";
+import { loadKnowledgeEvidenceLinks } from "@/lib/core-ui/console-knowledge-evidence";
 import { knowledgeObject, knowledgeQuery, knowledgeSections, unavailableKnowledgePage, type KnowledgeSection } from "@/lib/core-ui/console-knowledge-query";
 import { ConsoleShell } from "./console-shell";
 import { KnowledgeForm } from "./console-knowledge-forms";
@@ -36,6 +37,7 @@ export async function ConsoleKnowledgeWorkspace({ scope, query: search }: { scop
   if (query.selectedId) params.set("selected", query.selectedId);
   const href = (changes: Record<string, string | null> = {}) => { const next = new URLSearchParams(params); for (const [key, value] of Object.entries(changes)) { if (value === null) next.delete(key); else next.set(key, value); } return carryWorkspace(`/dashboard?${next}`, context.readSearch); };
   const item = page.detail, content = object(item?.content), head = object(item?.application);
+  const evidenceLinks = item && businessId && query.section === "proposals" ? await loadKnowledgeEvidenceLinks(context, businessId, strings(item.artifactIds)) : [];
   const form = businessId ? { businessId, ownerId: context.userId, businessName, returnTo: href() } : null;
   const releaseSelectable = item?.status === "current";
   const applicationReleaseStatus = text(item?.releaseStatus, text(item?.status));
@@ -58,11 +60,11 @@ export async function ConsoleKnowledgeWorkspace({ scope, query: search }: { scop
     <section className="r09Detail" tabIndex={0} aria-label="Exact selected Knowledge record" data-knowledge-detail={item ? text(item.id) : undefined}>
       {query.selectedId ? <header><h2>Exact selected record</h2><Link href={href({ selected: null })}>Close detail</Link></header> : null}
       {page.selection === "missing" ? <p>This exact record is not available in this Business. No substitute was selected.</p> : !page.available ? <p>Exact record unavailable. Reload when this scoped read is available.</p> : !item ? <><Process/><p>Select a record to inspect its exact evidence, version and history.</p></> : <>
-        {query.section === "installed" ? <><InstalledDetail item={item}/><Link href={`/dashboard/packs?business=${businessId}`}>Pack tools and installation history</Link></> : null}
+        {query.section === "installed" ? <><InstalledDetail item={item}/><Link href={carryWorkspace(`/dashboard/packs?business=${businessId}`, context.readSearch)}>Pack tools and installation history</Link></> : null}
         {query.section === "proposals" ? <>
           <h3>{text(item.title)} · private v{String(item.version)}</h3><p className="r09Status">Review status: {text(item.status)} · never applied as unreviewed guidance</p>
           <p>{text(item.lesson)}</p><h3>Proposed scope</h3><p>{text(item.scope)}</p><h3>Declared limitations</h3><List value={item.limitations}/>
-          <h3>Private evidence references</h3><ul>{strings(item.artifactIds).map(id => <li key={id}><Link href={`/dashboard?view=library&type=records&business=${businessId}&selected=${id}`}>Exact owned artifact {id}</Link></li>)}</ul>
+          <h3>Private evidence references</h3><ul>{evidenceLinks.map(evidence => <li key={evidence.id}>{evidence.href ? <><Link href={evidence.href}>Exact owned artifact {evidence.id}</Link>{evidence.context === "unlinked" ? <p>Business-wide, unlinked evidence. Opening this record deliberately leaves the current Quest and episode context.</p> : evidence.context === "changed-quest" ? <p>Opens this evidence’s recorded Quest and episode; incompatible earlier Step, Agent and artifact context is cleared.</p> : <p>Retains the verified Quest and this evidence’s recorded episode.</p>}</> : <><span>Owned artifact reference {evidence.id}</span><p>Exact evidence scope is unavailable or incomplete. No destination was guessed.</p></>}</li>)}</ul>
           <Facts values={{ "Evidence fingerprint": item.evidenceHash, "Review reference": item.reviewId, "Review reason": item.reviewReason }}/>
           {item.status === "rejected" || item.status === "needs_evidence" ? <p className="r08Warning">This version cannot be reused. Rejected redaction or missing proof requires new evidence and another trusted review; ownership does not override it.</p> : null}
           <details className="r08Exact"><summary>Review and promotion process</summary><Process/></details>

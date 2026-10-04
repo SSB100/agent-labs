@@ -56,9 +56,9 @@ test('R09 reader uses one bounded scoped RPC with independent exact selection an
 });
 const Link=({children,...props})=>React.createElement('a',props,children);
 const forms=loadSource('src/components/console/console-knowledge-forms.tsx',{'next/navigation':{useRouter:()=>({refresh(){}})},'@/app/dashboard/knowledge/actions':{saveKnowledge:()=>{throw Error('No effect in rendering');}},'@/core/quest-intake':guard,'@/lib/core-ui/console-knowledge-query':queries});
-async function render(section,record,{available=true,selectedId=record?.id??null}={}){
+async function render(section,record,{available=true,selectedId=record?.id??null,evidenceLinks}={}){
  const page={items:record?[record]:[],total:available?record?1:0:null,detail:record,selection:selectedId?record?'selected':'missing':'none',available};
- const component=loadSource('src/components/console/console-knowledge-workspace.tsx',{'next/navigation':{notFound:()=>{throw Error('not found');}},'next/link':Link,'@/lib/core-ui/owner-business':{verifyOwnerBusiness:async()=>true},'@/lib/core-ui/console-knowledge-data':{loadKnowledgePage:async()=>page},'@/lib/core-ui/console-knowledge-query':queries,'./console-shell':{ConsoleShell:({children})=>React.createElement('main',null,children)},'./console-knowledge-forms':forms,'./console-workspace.css':{},'./console-knowledge-workspace.css':{}});
+ const component=loadSource('src/components/console/console-knowledge-workspace.tsx',{'next/navigation':{notFound:()=>{throw Error('not found');}},'next/link':Link,'@/lib/core-ui/owner-business':{verifyOwnerBusiness:async()=>true},'@/lib/core-ui/console-knowledge-data':{loadKnowledgePage:async()=>page},'@/lib/core-ui/console-knowledge-evidence':{loadKnowledgeEvidenceLinks:async(_context,_business,ids)=>evidenceLinks??ids.map(id=>({id,href:`/dashboard?view=library&type=records&business=${_business}&selected=${id}`,context:'unlinked'}))},'@/lib/core-ui/console-knowledge-query':queries,'./console-shell':{ConsoleShell:({children})=>React.createElement('main',null,children)},'./console-knowledge-forms':forms,'./console-workspace.css':{},'./console-knowledge-workspace.css':{}});
  const scope={businessId:business,state:null,unavailable:false,context:{userId:id(100),businesses:[{id:business,name:'Synthetic Business A'}],readSearch:`?business=${business}`}};
  return renderToStaticMarkup(await component.ConsoleKnowledgeWorkspace({scope,query:{type:section,...(selectedId?{selected:selectedId}:{})}}));
 }
@@ -96,4 +96,10 @@ test('R09 transport exceptions and mismatched receipt revisions are unavailable 
 });
 test('R09 expired or withdrawn historical application cannot offer rollback even when its selection is superseded',async()=>{
  for(const releaseStatus of ['expired','withdrawn']){const html=await render('applications',{id:id(30),businessId:business,packKey:release.packKey,releaseId:selected,version:'1.0.0',operation:'apply',status:'superseded',releaseStatus,reason:'Historical rationale',isCurrent:false,application:{id:id(31),releaseId:id(21)}});assert.doesNotMatch(html,/Roll back to this version/);assert.match(html,/now stale or withdrawn/);}
+});
+
+test('R09 private evidence explicitly labels context exit and does not link an unverified exact scope',async()=>{
+ const unlinked=await render('proposals',proposal);assert.match(unlinked,/Business-wide, unlinked evidence/);assert.match(unlinked,/deliberately leaves the current Quest and episode context/);
+ const unavailable=await render('proposals',proposal,{evidenceLinks:[{id:id(50),href:null,context:'unavailable'}]});assert.match(unavailable,/Exact evidence scope is unavailable or incomplete/);assert.doesNotMatch(unavailable,/Exact owned artifact/);assert.doesNotMatch(unavailable,/href="[^\"]*selected=00000000-0000-4000-8000-000000000050/);
+ const changed=await render('proposals',proposal,{evidenceLinks:[{id:id(50),href:`/dashboard?view=library&business=${business}&quest=${id(88)}&episode=${id(89)}&selected=${id(50)}`,context:'changed-quest'}]});assert.match(changed,/recorded Quest and episode/);assert.match(changed,/incompatible earlier Step, Agent and artifact context is cleared/);
 });

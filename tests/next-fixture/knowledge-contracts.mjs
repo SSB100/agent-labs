@@ -1,7 +1,8 @@
 // Pure contract smoke tests. No ports, Chromium, external calls or production writes.
 import assert from 'node:assert/strict';
 import {loadSource} from '../helpers/guided-ui.mjs';
-import {fixtureData,id} from './data.mjs';
+import {fixtureData,id,time} from './data.mjs';
+import {workspaceSeed,workspaceView} from './workspace.mjs';
 import {knowledgeSeed,knowledgeId,knowledgePackKey,readKnowledgeFixture,saveKnowledgeFixture} from './knowledge.mjs';
 const decoder=loadSource('src/lib/core-ui/console-knowledge-query.ts');
 const state=fixtureData();state.knowledge=knowledgeSeed(state);
@@ -42,4 +43,16 @@ const removed=mutate('remove',{packKey:knowledgePackKey,expectedApplicationId:ro
 assert.equal(JSON.stringify(state.knowledge.usage),historical,'Historical plan snapshots must remain byte-exact');assert.equal(JSON.stringify(state.knowledge.applications.filter(a=>a.businessId!==id(1))),foreign,'Same-owner and foreign Business applications must not change');
 assert.ok(mutate('apply',{releaseId:knowledgeId('release',0,1),expectedApplicationId:null,reason}).error,'A removal remains the current compare-and-swap head');const reapplied=mutate('apply',{releaseId:knowledgeId('release',0,1),expectedApplicationId:removed.data.id,reason});assert.equal(reapplied.data.previousApplicationId,removed.data.id);assert.equal(effects.length,6);assert.ok(effects.every(e=>e.kind==='in-memory-knowledge'&&e.business===id(1)));
 assert.doesNotMatch(JSON.stringify(read('releases').data),/PRIVATE_BUSINESS_EVIDENCE_|FOREIGN_OWNER_EVIDENCE_/);
+// Verify actual metadata-only evidence link derivation against the independent Quest fixture.
+const navigation=loadSource('src/lib/core-ui/workspace-navigation.ts');
+const evidence=loadSource('src/lib/core-ui/console-knowledge-evidence.ts',{'server-only':{},'./console-knowledge-query':decoder,'./workspace-navigation':navigation});
+const scoped=fixtureData();scoped.knowledge=knowledgeSeed(scoped);scoped.workspace=workspaceSeed(scoped,id,time);
+const source=`?business=${id(1)}&quest=${id(820000)}&episode=${id(1001)}&step=${id(4001)}&sourceArtifact=${knowledgeId('artifact')}`;
+const context={readSearch:source,supabase:{from(table){assert.equal(table,'r08_artifacts');let rows=workspaceView(scoped,table),columns=[];const query={select(value,options){columns=value.split(',');assert.deepEqual(columns,['id','business_id','workflow_run_id','quest_id']);assert.equal(options.count,'exact');return query;},eq(key,value){rows=rows.filter(row=>row[key]===value);return query;},in(key,values){rows=rows.filter(row=>values.includes(row[key]));return query;},limit(max){assert.equal(max,12);return query;},then(resolve){return Promise.resolve({data:rows.map(row=>Object.fromEntries(columns.map(key=>[key,row[key]??null]))),count:rows.length,error:null}).then(resolve);}};return query;}}};
+const evidenceLinks=await evidence.loadKnowledgeEvidenceLinks(context,id(1),[0,1,2].map(n=>knowledgeId('artifact',0,n)));
+assert.deepEqual(Array.from(evidenceLinks,row=>row.context),['same-quest','changed-quest','unlinked']);
+const same=new URL(evidenceLinks[0].href,'https://fixture.invalid').searchParams;assert.equal(same.get('quest'),id(820000));assert.equal(same.get('episode'),id(1001));assert.equal(same.get('step'),id(4001));
+const changed=new URL(evidenceLinks[1].href,'https://fixture.invalid').searchParams;assert.equal(changed.get('quest'),id(820001));assert.equal(changed.get('episode'),id(710100));assert.equal(changed.has('step'),false);assert.equal(changed.has('sourceArtifact'),false);
+const unlinked=new URL(evidenceLinks[2].href,'https://fixture.invalid').searchParams;for(const key of ['quest','episode','step','agent','sourceArtifact'])assert.equal(unlinked.has(key),false);assert.equal(unlinked.get('business'),id(1));
+const foreignEvidence=await evidence.loadKnowledgeEvidenceLinks(context,id(1),[knowledgeId('artifact',1)]);assert.equal(foreignEvidence[0].href,null);assert.equal(foreignEvidence[0].context,'unavailable');
 console.log('R09 pure fixture contracts passed: scope, pages, independent exact details, private proposals, CAS/idempotency, stale/withdrawn rejection, rollback/removal and immutable historical pins. Chromium remains a separate hosted gate.');
