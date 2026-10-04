@@ -12,8 +12,10 @@
       "feat/r06-bounded-reads": false,
       "feat/r07-quest-controller": false,
       "feat/r08-owner-workspace": false,
-      "feat/r09-reviewed-knowledge": false
+      "feat/r09-reviewed-knowledge": false,
+      "feat/r10-private-browser-viewer": false,
+      "test/r10-host-lifetime-probe": true
     }
   },
-  "buildCommand": "npm run deploy:build"
+  "buildCommand": "node -e \"if (process.env.VERCEL_ENV !== 'preview' || process.env.VERCEL_TARGET_ENV !== 'preview') { console.error('R10 diagnostic builds require Preview'); process.exit(1); }\" && npm run deploy:build"
 }

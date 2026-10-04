@@ -14,7 +14,7 @@ test("real root Browser uses the owner-scoped metadata reader and sanitizes the 
   assert.equal(fixture.state.overview.browserData.selectedSession.businessId, id(2));
   assert.equal((fixture.markup.match(/aria-label="Centre view"/g) ?? []).length, 1, "Integrated Overview owns exactly one toggle");
   assert.match(fixture.markup, /Recorded session state: live/);
-  assert.match(fixture.markup, /privacy-safe viewer contract is not yet implemented/);
+  assert.match(fixture.markup, /Live viewing unavailable for this session/);
   for (const read of fixture.reads.filter(read => typeof read === "object")) {
     assert.ok(["browser_sessions", "workflow_runs"].includes(read.table));
     assert.ok(read.filters.some(([key, value]) => key === "business_id" && value === id(2)), "Every metadata query keeps the owned Business");

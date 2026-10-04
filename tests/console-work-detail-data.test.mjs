@@ -241,3 +241,84 @@ test('invalid child transport cannot crash actual detail badges or animate an ac
     for (const target of ['core', 'run', 'stage', 'worker']) assert.equal(motion.consoleMotionPresentation(ledger, target, id(3000), now).state, 'unavailable');
   }
 });
+
+function runLevelRows(taskStatus = 'ready', workerStatus = 'queued') {
+  // Real R10 enrollment omits workflow_stage_run_id; the SQL nullable column is
+  // returned as null. There is no workflow_stage_runs row to invent or borrow.
+  const taskId = id(2000), workerDefinitionId = 'a1100000-0000-4000-8000-000000000003';
+  const workflowDefinitionId = 'a1100000-0000-4000-8000-000000000002';
+  const common = { business_id: business, workflow_run_id: runId, created_at: stamp, updated_at: stamp };
+  return {
+    workflow_runs: [{ ...run, workflow_definition_id: workflowDefinitionId, current_stage_key: null }],
+    workflow_definitions: [{ ...definition, id: workflowDefinitionId, workflow_key: 'r10.public-viewer', version: '1.0.0', name: 'Controlled public viewer qualification' }],
+    workflow_stage_runs: [],
+    task_contracts: [{ ...common, id: taskId, workflow_stage_run_id: null, worker_definition_id: workerDefinitionId, status: taskStatus,
+      objective: 'Render the fixed reviewed public R10 source, relay only bounded read-only frames, then acknowledge producer drain.',
+      permitted_capabilities: ['browser.observe'], required_output_schema: { type: 'object', format: 'r10.close-audit.v1' },
+      completion_criteria: { requires: 'trusted physical stream/context closure acknowledgement' },
+      non_goals: ['No external requests', 'No account or saved profile', 'No input authority', 'No arbitrary navigation'] }],
+    worker_runs: [{ ...common, id: id(3000), task_contract_id: taskId, worker_definition_id: workerDefinitionId, status: workerStatus, started_at: null, completed_at: null }],
+    worker_definitions: [{ id: workerDefinitionId, worker_key: 'r10.controlled-capture', version: '1.0.0', name: 'Controlled public capture worker', role: 'read-only capture', status: 'experimental' }],
+  };
+}
+
+test('real R10 SQL-shaped run-level task loads with exact task and worker totals without a fabricated stage', async () => {
+  for (const [taskStatus, workerStatus] of [['ready', 'queued'], ['running', 'running'], ['completed', 'completed'], ['failed', 'failed']]) {
+    const h = fixture(runLevelRows(taskStatus, workerStatus)), result = await loadConsoleWorkDetail(h.context, runId, { businessId: business });
+    assert.equal(result.complete, true); assert.deepEqual(result.errors, []); assert.deepEqual(result.stages, []);
+    assert.deepEqual(result.completeness.tasks, { total: 1, loaded: 1, limit: 25, complete: true, hasMore: false, errors: [] });
+    assert.equal(result.completeness.workers.total, 1); assert.equal(result.completeness.workers.complete, true);
+    assert.equal(result.tasks[0].workflow_stage_run_id, null); assert.equal(result.tasks[0].status, taskStatus);
+    assert.equal(result.workerRuns[0].task_contract_id, result.tasks[0].id); assert.equal(result.workerRuns[0].status, workerStatus);
+    assert.equal(result.workerDefinitions[0].id, result.tasks[0].worker_definition_id);
+    const call = h.calls.find(call => call.table === 'task_contracts');
+    assert.deepEqual(call.range, [0, 25]); assert.ok(call.filters.some(([, key, value]) => key === 'business_id' && value === business));
+    assert.ok(call.filters.some(([, key, value]) => key === 'workflow_run_id' && value === runId));
+    assert.ok(call.columns.split(',').includes('workflow_stage_run_id'));
+  }
+});
+
+test('run-level task history renders truthful stage label and exact Agent navigation without retaining another Step', async () => {
+  const { workDetailUi } = await import('./helpers/console-collection-fixtures.mjs');
+  const React = require('react'), { renderToStaticMarkup } = require('react-dom/server');
+  const detail = await loadConsoleWorkDetail(fixture(runLevelRows()).context, runId);
+  const markup = renderToStaticMarkup(React.createElement(workDetailUi.ConsoleWorkDetail, { detail,
+    searchParams: { view: 'work', business, selected: runId, quest: id(9000), episode: runId, step: id(1000) } }));
+  assert.match(markup, /Saved tasks, newest first · 1 loaded of 1/);
+  assert.match(markup, /Run-level task · No stage assigned/); assert.match(markup, new RegExp(`Task ${id(2000)}`));
+  assert.doesNotMatch(markup, /Total unavailable|Incomplete history|Stage null|Stage undefined/);
+  const workerLink = [...markup.matchAll(/href="([^"]+)"/g)].map(([, href]) => new URL(href.replaceAll('&amp;', '&'), 'https://fixture.invalid')).find(url => url.searchParams.get('agent') === id(3000));
+  assert.ok(workerLink); assert.equal(workerLink.searchParams.get('selected'), runId); assert.equal(workerLink.searchParams.get('business'), business);
+  assert.equal(workerLink.searchParams.get('episode'), runId); assert.equal(workerLink.searchParams.get('quest'), id(9000)); assert.equal(workerLink.searchParams.get('step'), null);
+});
+
+test('nullable task stage accepts only explicit null or a valid UUID and malformed rows invalidate the full task window', async () => {
+  const data = rows(2); data.task_contracts[0].workflow_stage_run_id = null;
+  const valid = await loadConsoleWorkDetail(fixture(data).context, runId);
+  assert.equal(valid.completeness.tasks.complete, true); assert.equal(valid.completeness.tasks.total, 2);
+  for (const value of [undefined, '', ' ', 'not-a-stage', 0, false, {}, [], id(1000).slice(1)]) {
+    const h = fixture(data, { transport(table, records) {
+      if (table !== 'task_contracts') return records;
+      const next = records.map(row => ({ ...row }));
+      if (value === undefined) delete next[0].workflow_stage_run_id; else next[0].workflow_stage_run_id = value;
+      return next;
+    } });
+    const result = await loadConsoleWorkDetail(h.context, runId);
+    assert.deepEqual(result.tasks, [], String(value)); assert.equal(result.completeness.tasks.loaded, 0);
+    assert.equal(result.completeness.tasks.total, null); assert.equal(result.completeness.tasks.complete, false); assert.equal(result.complete, false);
+  }
+});
+
+test('run-level tasks retain exact Business/run and all required row validation after transport', async () => {
+  for (const [field, value] of [['id', undefined], ['business_id', other], ['workflow_run_id', otherRunId], ['worker_definition_id', undefined], ['status', undefined], ['objective', undefined], ['created_at', undefined], ['updated_at', undefined]]) {
+    const h = fixture(runLevelRows(), { transport(table, records) {
+      return table === 'task_contracts' ? records.map(row => { const next = { ...row, [field]: value }; if (value === undefined) delete next[field]; return next; }) : records;
+    } });
+    const result = await loadConsoleWorkDetail(h.context, runId);
+    assert.deepEqual(result.tasks, [], field); assert.equal(result.completeness.tasks.total, null, field); assert.equal(result.completeness.tasks.complete, false, field);
+  }
+  for (const count of [null, 0, 2, '1']) {
+    const result = await loadConsoleWorkDetail(fixture(runLevelRows(), { counts: { task_contracts: count } }).context, runId);
+    assert.equal(result.completeness.tasks.complete, false); assert.equal(result.completeness.tasks.total, null);
+  }
+});
