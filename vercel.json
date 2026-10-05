@@ -8,7 +8,14 @@
     "deploymentEnabled": {
       "ui/r03-retained-console": false,
       "feat/r04-business-quest": false,
-      "feat/r05-operating-envelope": false
+      "feat/r05-operating-envelope": false,
+      "feat/r06-bounded-reads": false,
+      "feat/r07-quest-controller": false,
+      "feat/r08-owner-workspace": false,
+      "feat/r09-reviewed-knowledge": false,
+      "feat/r10-private-browser-viewer": false,
+      "feat/r11-external-eligibility": false
     }
-  }
+  },
+  "buildCommand": "npm run deploy:build"
 }

@@ -5,7 +5,7 @@ import type { StoredImageProvenance } from "../../creative/stored-image";
 import { mergeCreativeCosts, type CreativeCostRecord } from "../../creative/cost-display";
 import type { ConsoleCollectionPage, ConsoleCollectionSelection } from "./console-collections-query";
 import { consoleLibraryQuery, consoleLibrarySearchPattern, type ConsoleLibraryOptions, type ConsoleLibraryQuery } from "./console-library-query";
-import { CONSOLE_RUN_METADATA_SELECT, CONSOLE_RUN_SELECT, CONSOLE_DEFINITION_METADATA_SELECT, consoleDistinct, consoleExactSelection, consoleGuard, consoleObject, consoleRead, consoleRelation, consoleRunGuard, consoleScopedIds, consoleValidCount, consoleValidId, consoleValidStatus, consoleValidTimestamp, type ConsoleReadResult, type ConsoleWorkRunMetadata, type ConsoleWorkflowDefinitionMetadata } from "./console-collections";
+import { CONSOLE_RUN_METADATA_SELECT, CONSOLE_RUN_SELECT, CONSOLE_DEFINITION_METADATA_SELECT, consoleDistinct, consoleExactSelection, consoleGuard, consoleObject, consoleRead, consoleRelation, consoleRunGuard, consoleScopedIds, consoleScope, consoleValidCount, consoleValidId, consoleValidStatus, consoleValidTimestamp, type ConsoleReadResult, type ConsoleWorkRunMetadata, type ConsoleWorkflowDefinitionMetadata } from "./console-collections";
 
 export const CONSOLE_LIBRARY_PREVIEW_LIMIT = 26;
 export const CONSOLE_LIBRARY_PHASE_KEYS = ["brief:1", "screen:1", "generate:1", "review:1", "generate:2", "review:2"] as const;
@@ -82,7 +82,7 @@ const unknownCosts = (): ConsoleLibraryCosts => ({ status: "unavailable", record
 /** Exact public-table context, also useful when paid generation failed before an asset existed.
  * Six immutable phase keys are the existing schema boundary, never a recent-run sample. No signing. */
 export async function loadConsoleLibraryRunDetail(context: OwnerUiContext, creativeRunId: string, options: { businessId?: string } = {}): Promise<ConsoleLibraryRunDetail> {
-  const q = consoleLibraryQuery("designs", { ...options, selectedId: creativeRunId }), ids = consoleScopedIds(context, q.businessId);
+  const q = consoleLibraryQuery("designs", { ...options, selectedId: creativeRunId }), ids = await consoleScopedIds(context, q.businessId);
   const selection = await consoleExactSelection<ConsoleLibraryRunSnapshot>(context, "creative_runs", `${CREATIVE_RUN},catalog_snapshot`, q.selectedId, ids, row => runGuard(row) && consoleObject(row.catalog_snapshot));
   if (selection.status !== "found") return { selection, approval: noSelection(), workflow: noSelection(), assets: unavailable(2), outputs: unavailable(6), reviews: unavailable(2), costs: unknownCosts(), complete: false, errors: ["Exact creative run could not be verified."] };
   const run = selection.item, client = context.supabase;
@@ -120,9 +120,9 @@ export async function loadConsoleLibraryRunDetail(context: OwnerUiContext, creat
 
 /** Content, metadata and checksum are returned only for the explicitly selected artifact. */
 export async function loadConsoleLibraryRecordsPage(context: OwnerUiContext, options: ConsoleLibraryOptions = {}): Promise<ConsoleLibraryRecordsPage> {
-  const q = consoleLibraryQuery("records", options), ids = consoleScopedIds(context, q.businessId);
-  if (!ids.length) return { query: q, page: emptyPage(q), selection: { status: q.selectedId ? "missing" : "none", item: null }, errors: [] };
-  let query = context.supabase.from("artifacts").select(CONSOLE_LIBRARY_ARTIFACT_METADATA_SELECT, { count: "exact" }).in("business_id", ids);
+  const q = consoleLibraryQuery("records", options), ids = await consoleScopedIds(context, q.businessId);
+  if (ids?.length === 0) return { query: q, page: emptyPage(q), selection: { status: q.selectedId ? "missing" : "none", item: null }, errors: [] };
+  let query = consoleScope(context.supabase.from("artifacts").select(CONSOLE_LIBRARY_ARTIFACT_METADATA_SELECT, { count: "exact" }), ids);
   if (q.query) query = query.ilike("name", consoleLibrarySearchPattern(q.query));
   if (q.mediaType !== "all") query = query.eq("media_type", q.mediaType);
   if (q.artifactType !== "all") query = query.eq("artifact_type", q.artifactType);
@@ -130,7 +130,7 @@ export async function loadConsoleLibraryRecordsPage(context: OwnerUiContext, opt
     consoleRead(query.order("created_at", { ascending: q.sort === "oldest" }).order("id", { ascending: q.sort === "oldest" }).range(q.offset, q.offset + q.pageSize)),
     consoleExactSelection<ConsoleLibraryArtifactDetail>(context, "artifacts", ARTIFACT_DETAIL, q.selectedId, ids, artifactDetailGuard),
   ]);
-  const page = pageResult<ConsoleLibraryArtifactMetadata>(result, q, row => artifactGuard(row) && ids.includes(row.business_id) && hasNo(row, ["content", "metadata", "checksum"]) && (!q.query || row.name.toLowerCase().includes(q.query.toLowerCase())) && (q.mediaType === "all" || row.media_type === q.mediaType) && (q.artifactType === "all" || row.artifact_type === q.artifactType), "created_at");
+  const page = pageResult<ConsoleLibraryArtifactMetadata>(result, q, row => artifactGuard(row) && (ids === null || ids.includes(row.business_id)) && hasNo(row, ["content", "metadata", "checksum"]) && (!q.query || row.name.toLowerCase().includes(q.query.toLowerCase())) && (q.mediaType === "all" || row.media_type === q.mediaType) && (q.artifactType === "all" || row.artifact_type === q.artifactType), "created_at");
   const selection: ConsoleCollectionSelection<ConsoleLibraryArtifactDetail> = exact.status === "found" ? { status: "found", item: { ...exact.item, version: null } } : exact;
   const errors = [...page.errors, ...(selection.status === "unavailable" ? ["Selected artifact could not be verified."] : [])];
   return { query: q, page, selection, errors };
@@ -175,9 +175,9 @@ async function signPreviews(context: OwnerUiContext, paths: string[], errors: st
  * Canonical normalized PNGs use existing owner-session storage signing only. No sentinel or original
  * WebP is signed. Preview access is not production/commerce/file-placement qualification. */
 export async function loadConsoleLibraryPage(context: OwnerUiContext, options: ConsoleLibraryOptions = {}): Promise<ConsoleLibraryPage> {
-  const q = consoleLibraryQuery("designs", options), ids = consoleScopedIds(context, q.businessId);
-  if (!ids.length) return { query: q, page: emptyPage(q), selection: { status: q.selectedId ? "missing" : "none", item: null }, runDetail: q.creativeRunId ? await loadConsoleLibraryRunDetail(context, q.creativeRunId) : null, errors: [] };
-  let query = context.supabase.from("creative_assets").select(CONSOLE_LIBRARY_ASSET_METADATA_SELECT, { count: "exact" }).in("business_id", ids);
+  const q = consoleLibraryQuery("designs", options), ids = await consoleScopedIds(context, q.businessId);
+  if (ids?.length === 0) return { query: q, page: emptyPage(q), selection: { status: q.selectedId ? "missing" : "none", item: null }, runDetail: q.creativeRunId ? await loadConsoleLibraryRunDetail(context, q.creativeRunId) : null, errors: [] };
+  let query = consoleScope(context.supabase.from("creative_assets").select(CONSOLE_LIBRARY_ASSET_METADATA_SELECT, { count: "exact" }), ids);
   if (q.query) query = query.ilike("prompt", consoleLibrarySearchPattern(q.query));
   type ExactAsset = ConsoleLibraryAssetMetadata & { inspection: Record<string, unknown> };
   const [result, exactRead, runDetail] = await Promise.all([
@@ -185,7 +185,7 @@ export async function loadConsoleLibraryPage(context: OwnerUiContext, options: C
     consoleExactSelection<ExactAsset>(context, "creative_assets", `${CONSOLE_LIBRARY_ASSET_METADATA_SELECT},inspection`, q.selectedId, ids, row => assetGuard(row) && consoleObject(row.inspection) && row.inspection.sha256 === row.asset_hash),
     q.creativeRunId ? loadConsoleLibraryRunDetail(context, q.creativeRunId, { businessId: q.businessId ?? undefined }) : null,
   ]);
-  const page = pageResult<ConsoleLibraryAssetMetadata>(result, q, row => assetGuard(row) && ids.includes(row.business_id) && hasNo(row, ["inspection"]) && (!q.query || row.prompt.toLowerCase().includes(q.query.toLowerCase())), "generated_at"), errors = [...page.errors, ...(runDetail?.errors ?? [])];
+  const page = pageResult<ConsoleLibraryAssetMetadata>(result, q, row => assetGuard(row) && (ids === null || ids.includes(row.business_id)) && hasNo(row, ["inspection"]) && (!q.query || row.prompt.toLowerCase().includes(q.query.toLowerCase())), "generated_at"), errors = [...page.errors, ...(runDetail?.errors ?? [])];
   let exact = exactRead;
   const exactItem = exact.status === "found" ? exact.item : null;
   const visibleSelected = exactItem ? page.items.find(row => row.id === exactItem.id) : undefined;
@@ -200,13 +200,13 @@ export async function loadConsoleLibraryPage(context: OwnerUiContext, options: C
   // Re-project full selection before sharing the metadata context; large inspection stays in detail.
   if (exact.status === "found" && !assets.some(row => row.id === exact.item.id)) { const metadata = { ...exact.item }; delete (metadata as Partial<ExactAsset>).inspection; assets.push(metadata); }
   const runIds = consoleDistinct(assets.map(asset => asset.creative_run_id));
-  const runs = runIds.length ? await consoleRelation<ConsoleLibraryRunMetadata>(context.supabase.from("creative_runs").select(CREATIVE_RUN, { count: "exact" }).in("business_id", ids).in("id", runIds), runIds.length, row => runGuard(row) && hasNo(row, ["catalog_snapshot"]) && assets.some(asset => row.id === asset.creative_run_id && row.business_id === asset.business_id && row.approval_id === asset.approval_id && row.candidate_id === asset.candidate_id), "Asset run context", errors) : [];
+  const runs = runIds.length ? await consoleRelation<ConsoleLibraryRunMetadata>(consoleScope(context.supabase.from("creative_runs").select(CREATIVE_RUN, { count: "exact" }), ids).in("id", runIds), runIds.length, row => runGuard(row) && hasNo(row, ["catalog_snapshot"]) && assets.some(asset => row.id === asset.creative_run_id && row.business_id === asset.business_id && row.approval_id === asset.approval_id && row.candidate_id === asset.candidate_id), "Asset run context", errors) : [];
   if (runs.length !== runIds.length) errors.push("Some exact asset run context is unavailable.");
   const approvalIds = consoleDistinct(runs.map(run => run.approval_id)), workflowIds = consoleDistinct(runs.map(run => run.workflow_run_id)), artifactIds = consoleDistinct(assets.flatMap(asset => asset.artifact_id ? [asset.artifact_id] : []));
   const [approvals, workflows, artifacts, detail] = await Promise.all([
-    approvalIds.length ? consoleRelation<ConsoleLibraryApprovalMetadata>(context.supabase.from("creative_approvals").select(APPROVAL, { count: "exact" }).in("business_id", ids).in("id", approvalIds), approvalIds.length, row => approvalGuard(row) && hasNo(row, ["snapshot", "quote"]) && runs.some(run => row.id === run.approval_id && row.business_id === run.business_id && row.candidate_id === run.candidate_id), "Asset approval context", errors) : [],
-    workflowIds.length ? consoleRelation<ConsoleWorkRunMetadata>(context.supabase.from("workflow_runs").select(CONSOLE_RUN_METADATA_SELECT, { count: "exact" }).in("business_id", ids).in("id", workflowIds), workflowIds.length, row => consoleRunGuard(row) && hasNo(row, ["input", "state"]) && runs.some(run => row.id === run.workflow_run_id && row.business_id === run.business_id), "Asset workflow context", errors) : [],
-    artifactIds.length ? consoleRelation<ConsoleLibraryArtifactMetadata>(context.supabase.from("artifacts").select(CONSOLE_LIBRARY_ARTIFACT_METADATA_SELECT, { count: "exact" }).in("business_id", ids).in("id", artifactIds), artifactIds.length, row => artifactGuard(row) && hasNo(row, ["content", "metadata", "checksum"]) && assets.some(asset => row.id === asset.artifact_id && row.business_id === asset.business_id), "Asset artifact context", errors) : [],
+    approvalIds.length ? consoleRelation<ConsoleLibraryApprovalMetadata>(consoleScope(context.supabase.from("creative_approvals").select(APPROVAL, { count: "exact" }), ids).in("id", approvalIds), approvalIds.length, row => approvalGuard(row) && hasNo(row, ["snapshot", "quote"]) && runs.some(run => row.id === run.approval_id && row.business_id === run.business_id && row.candidate_id === run.candidate_id), "Asset approval context", errors) : [],
+    workflowIds.length ? consoleRelation<ConsoleWorkRunMetadata>(consoleScope(context.supabase.from("workflow_runs").select(CONSOLE_RUN_METADATA_SELECT, { count: "exact" }), ids).in("id", workflowIds), workflowIds.length, row => consoleRunGuard(row) && hasNo(row, ["input", "state"]) && runs.some(run => row.id === run.workflow_run_id && row.business_id === run.business_id), "Asset workflow context", errors) : [],
+    artifactIds.length ? consoleRelation<ConsoleLibraryArtifactMetadata>(consoleScope(context.supabase.from("artifacts").select(CONSOLE_LIBRARY_ARTIFACT_METADATA_SELECT, { count: "exact" }), ids).in("id", artifactIds), artifactIds.length, row => artifactGuard(row) && hasNo(row, ["content", "metadata", "checksum"]) && assets.some(asset => row.id === asset.artifact_id && row.business_id === asset.business_id), "Asset artifact context", errors) : [],
     exact.status === "found" ? loadConsoleLibraryRunDetail(context, exact.item.creative_run_id, { businessId: exact.item.business_id }) : null,
   ]);
   if (approvals.length !== approvalIds.length) errors.push("Some exact asset approvals are unavailable.");

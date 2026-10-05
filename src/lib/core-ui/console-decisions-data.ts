@@ -28,6 +28,7 @@ export type ConsoleDecisionPage = {
 };
 type ReadResult = { data: unknown; count?: number | null; error: unknown };
 const object = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
+const consoleScope=<T,>(query:T,ids:string[]|null):T=>ids===null?query:(query as {in(column:string,values:string[]):T}).in("business_id",ids);
 const unique = (values: string[]) => [...new Set(values)];
 const validCount = (value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 async function read(query: PromiseLike<ReadResult>): Promise<ReadResult> { try { return await query; } catch { return { data: null, count: null, error: true }; } }
@@ -37,24 +38,24 @@ function complete<T>(result: ReadResult, maximum: number, guard: (row: T) => boo
   catch { return { status: "unavailable" }; }
 }
 const rows = <T,>(value: OutcomeRecords<T>): T[] => value.status === "ready" ? [...value.records] : [];
-function validIntervention(row: OwnerInterventionRecord, ids: string[]): boolean {
-  return CONSOLE_DECISION_UUID.test(row.id) && ids.includes(row.business_id) && (row.workflow_run_id === null || CONSOLE_DECISION_UUID.test(row.workflow_run_id)) &&
+function validIntervention(row: OwnerInterventionRecord, ids: string[] | null): boolean {
+  return CONSOLE_DECISION_UUID.test(row.id) && (ids === null || ids.includes(row.business_id)) && (row.workflow_run_id === null || CONSOLE_DECISION_UUID.test(row.workflow_run_id)) &&
     object(row.resolution) && typeof row.intervention_type === "string" && typeof row.title === "string" && typeof row.description === "string" && typeof row.updated_at === "string";
 }
 /** Queue-first exact count and deterministic 25-row paging, independent of any recent-run window. */
 export async function loadConsoleDecisionPage(context: OwnerUiContext, options: ConsoleDecisionOptions = {}): Promise<ConsoleDecisionPage> {
   const query = consoleDecisionQuery(options), owned = unique(context.businesses.map(row => row.id));
   if (!context.businessesUnavailable && query.businessId && !owned.includes(query.businessId)) throw new Error("Business selection is not available.");
-  const ids = query.businessId ? owned.filter(id => id === query.businessId) : owned;
+  const ids = query.businessId ? owned.filter(id => id === query.businessId) : context.ownerDirectoryPaged ? null : owned;
   const empty = (unavailable: boolean): ConsoleDecisionPage => ({ query, page: { items: [], page: query.page, pageSize: query.pageSize, total: unavailable ? null : 0, complete: !unavailable, hasPrevious: query.page > 1, hasNext: unavailable ? null : false },
     selection: { status: query.selectedId ? unavailable ? "unavailable" : "missing" : "none", item: null }, runs: [], definitions: [], detail: null, errors: unavailable ? ["Business records could not be checked."] : [] });
-  if (context.businessesUnavailable || !ids.length) return empty(Boolean(context.businessesUnavailable));
+  if (context.businessesUnavailable || ids?.length === 0) return empty(Boolean(context.businessesUnavailable));
   const db = context.supabase;
-  let pageQuery = db.from("owner_interventions").select(INTERVENTION, { count: "exact" }).in("business_id", ids);
+  let pageQuery = consoleScope(db.from("owner_interventions").select(INTERVENTION, { count: "exact" }), ids);
   if (query.status !== "all") pageQuery = pageQuery.eq("status", query.status);
   const [result, selectedResult] = await Promise.all([
     read(pageQuery.order("requested_at", { ascending: false }).order("id", { ascending: false }).range(query.offset, query.offset + query.pageSize)),
-    query.selectedId ? read(db.from("owner_interventions").select(INTERVENTION, { count: "exact" }).in("business_id", ids).eq("id", query.selectedId).limit(2)) : null,
+    query.selectedId ? read(consoleScope(db.from("owner_interventions").select(INTERVENTION, { count: "exact" }), ids).eq("id", query.selectedId).limit(2)) : null,
   ]);
   const raw = !result.error && Array.isArray(result.data) ? result.data as OwnerInterventionRecord[] : [];
   const valid = !result.error && Array.isArray(result.data) && raw.length <= query.pageSize + 1 && raw.every(row => object(row) && validIntervention(row, ids) && (query.status === "all" || row.status === query.status));
@@ -71,7 +72,7 @@ export async function loadConsoleDecisionPage(context: OwnerUiContext, options: 
   }
   const requests = selection.status === "found" && !items.some(row => row.id === selection.item.id) ? [...items, selection.item] : items;
   const runIds = unique(requests.flatMap(row => row.workflow_run_id ? [row.workflow_run_id] : []));
-  const runRead = runIds.length ? complete<WorkflowRunRecord>(await read(db.from("workflow_runs").select(RUN, { count: "exact" }).in("business_id", ids).in("id", runIds).limit(runIds.length + 1)), runIds.length,
+  const runRead = runIds.length ? complete<WorkflowRunRecord>(await read(consoleScope(db.from("workflow_runs").select(RUN, { count: "exact" }), ids).in("id", runIds).limit(runIds.length + 1)), runIds.length,
     row => CONSOLE_DECISION_UUID.test(row.id) && requests.some(request => request.workflow_run_id === row.id && request.business_id === row.business_id)) : { status: "ready" as const, records: [] };
   const runs = rows(runRead), definitionIds = unique(runs.map(run => run.workflow_definition_id));
   const definitionRead = definitionIds.length ? complete<WorkflowDefinitionRecord>(await read(db.from("workflow_definitions").select(DEFINITION, { count: "exact" }).in("id", definitionIds).limit(definitionIds.length + 1)), definitionIds.length,

@@ -11,7 +11,8 @@ test("Stage 5 keeps the canonical application build and removes qualification ha
 
   assert.equal(packageJson.scripts.build, "npm run quality && next build");
   assert.equal(packageJson.scripts["qualify:stage5"], undefined);
-  assert.equal(vercel.buildCommand, undefined);
+  assert.equal(vercel.buildCommand, "npm run deploy:build");
+  assert.equal(packageJson.scripts["deploy:build"], "next build");
   assert.doesNotMatch(eslint, /scripts\/\*\*/);
 
   assert.equal(existsSync("src/app/api/stage5/qualification/route.ts"), false);

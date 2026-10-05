@@ -1,3 +1,4 @@
+import { ownerBusiness, historyQuery } from './helpers/history-fixtures.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
@@ -11,11 +12,11 @@ function load(path, dependencies = {}) {
   return loaded.exports;
 }
 const query = load('src/lib/core-ui/console-collections-query.ts');
-const collections = load('src/lib/core-ui/console-collections.ts', { 'server-only': {}, './console-collections-query': query });
+const collections = load('src/lib/core-ui/console-collections.ts', { 'server-only': {}, './owner-business': ownerBusiness, './console-collections-query': query });
 const workflows = load('src/lib/core-ui/workflows.ts');
 const outcome = load('src/lib/core-ui/run-outcome.ts', { './workflows': workflows });
 const costs = load('src/lib/core-ui/run-outcome-data.ts', { './run-outcome': outcome });
-const { loadConsoleWorkDetail } = load('src/lib/core-ui/console-work-detail-data.ts', { 'server-only': {}, './console-collections-query': query, './console-collections': collections, './run-outcome-data': costs });
+const { loadConsoleWorkDetail } = load('src/lib/core-ui/console-work-detail-data.ts', { 'server-only': {}, './history-query': historyQuery, './console-collections-query': query, './console-collections': collections, './run-outcome-data': costs });
 const id = n => `92000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const business = id(1), other = id(2), defId = id(3), runId = id(4), otherRunId = id(5), workerId = id(6), stamp = '2026-10-02T00:00:00.000Z';
 const run = { id: runId, business_id: business, workflow_definition_id: defId, status: 'running', current_stage_key: 'old.active', input: {}, state: {}, runtime_provider: null, runtime_run_id: null, started_at: stamp, completed_at: null, created_at: stamp, updated_at: stamp };
@@ -35,17 +36,19 @@ function fixture(tables = {}, options = {}) {
   const context = { businesses: [business, other].map(id => ({ id, name: definition.name, created_at: stamp, updated_at: stamp })), userId: id(7), supabase: { from(table) {
     const call = { table, filters: [], orders: [] }; calls.push(call);
     const q = {
-      select(columns, config) { call.columns = columns; call.config = config; assert.equal(config?.count, 'exact'); assert.ok(!columns.includes('*')); return q; },
+      select(columns, config) { call.columns = columns; call.config = config; if(table !== 'businesses')assert.equal(config?.count, 'exact'); assert.ok(!columns.includes('*')); return q; },
+      maybeSingle() { assert.equal(table, 'businesses'); assert.deepEqual(call.filters, [['eq','id',id(999)],['eq','owner_user_id',context.userId]]); return Promise.resolve({data:null,error:null}); },
+      range(from,to) { call.range=[from,to]; return q; },
       eq(key, value) { call.filters.push(['eq', key, value]); return q; }, in(key, value) { call.filters.push(['in', key, value]); return q; },
       order(key, config) { call.orders.push([key, config.ascending]); return q; }, limit(n) { call.limit = n; return q; },
       then(resolve, reject) {
         if (options.throwTable === table) return Promise.reject(Error('read failed')).then(resolve, reject);
-        assert.ok(Number.isSafeInteger(call.limit) && call.limit <= 1001, `Unbounded ${table}`);
+        assert.ok(call.range ? call.range[1]-call.range[0]===25 : Number.isSafeInteger(call.limit) && call.limit <= 1001, `Unbounded ${table}`);
         let result = structuredClone(db[table] ?? []);
         if (!options.ignore?.includes(table)) for (const [op, key, expected] of call.filters) result = result.filter(row => op === 'in' ? expected.includes(row[key]) : row[key] === expected);
         result.sort((left, right) => { for (const [key, asc] of call.orders) { const compared = String(left[key] ?? '').localeCompare(String(right[key] ?? '')); if (compared) return asc ? compared : -compared; } return 0; });
         const count = Object.hasOwn(options.counts ?? {}, table) ? options.counts[table] : result.length;
-        result = result.slice(0, call.limit); if (Object.hasOwn(options.cap ?? {}, table)) result = result.slice(0, options.cap[table]);
+        result = call.range ? result.slice(call.range[0],call.range[1]+1) : result.slice(0, call.limit); if (Object.hasOwn(options.cap ?? {}, table)) result = result.slice(0, options.cap[table]);
         if (options.duplicate === table && result.length) result.push(result[0]);
         result = result.map(row => Object.fromEntries(call.columns.split(',').filter(key => Object.hasOwn(row, key)).map(key => [key, row[key]])));
         if (options.transport) result = options.transport(table, result, call);
@@ -64,12 +67,12 @@ test('each child is independently bounded for 135+ rows in each of two Businesse
     const result = await loadConsoleWorkDetail(h.context, selectedRun, { businessId });
     assert.equal(result.selection.status, 'found'); assert.equal(result.run.business_id, businessId); assert.equal(result.complete, false);
     for (const key of ['stages', 'tasks', 'workers', 'interventions', 'artifacts']) {
-      assert.equal(result.completeness[key].loaded, 100); assert.equal(result.completeness[key].total, count); assert.equal(result.completeness[key].hasMore, true); assert.equal(result.completeness[key].complete, false);
+      assert.equal(result.completeness[key].loaded, 25); assert.equal(result.completeness[key].total, count); assert.equal(result.completeness[key].hasMore, true); assert.equal(result.completeness[key].complete, false);
     }
     assert.ok(result.artifacts.every(row => row.business_id === businessId && row.workflow_run_id === selectedRun && !Object.hasOwn(row, 'content')));
   }
   for (const call of h.calls.filter(call => Object.hasOwn(first, call.table))) {
-    assert.equal(call.limit, 101); assert.deepEqual(call.orders[1], ['id', false]);
+    assert.deepEqual(call.range, [0,25]); if(call.table==='workflow_stage_runs')assert.deepEqual(call.orders,[['sequence',true],['attempt',true],['id',true]]);else assert.deepEqual(call.orders[1], ['id', false]);
     assert.equal(call.payloads.length, 0);
     assert.ok(call.filters.some(f => f[1] === 'workflow_run_id'));
   }
@@ -123,9 +126,9 @@ test('missing/invalid counts, response caps and failures do not establish absent
   for (const key of ['stages', 'tasks', 'workers', 'interventions', 'artifacts']) { assert.equal(result.completeness[key].loaded, 4); assert.equal(result.completeness[key].complete, false); assert.equal(result.completeness[key].total, null); }
 });
 test('complete empty and short reads report exact child totals without inventing activity', async () => {
-  for (const count of [0, 1, 49, 50, 51, 100]) {
+  for (const count of [0, 1, 24, 25, 26, 49, 50, 51, 100]) {
     const h = fixture(rows(count)), result = await loadConsoleWorkDetail(h.context, runId);
-    for (const key of ['stages', 'tasks', 'workers', 'interventions', 'artifacts']) { assert.equal(result.completeness[key].complete, true); assert.equal(result.completeness[key].total, count); assert.equal(result.completeness[key].hasMore, false); }
+    for (const key of ['stages', 'tasks', 'workers', 'interventions', 'artifacts']) { assert.equal(result.completeness[key].complete, count<=25); assert.equal(result.completeness[key].total, count); assert.equal(result.completeness[key].loaded, Math.min(count,25)); assert.equal(result.completeness[key].hasMore, count>25); }
     assert.equal(result.research.status, 'not-loaded'); assert.ok(!Object.hasOwn(result, 'currentWorker'));
   }
 });
@@ -159,9 +162,9 @@ test('foreign selected Business and malformed artifact identity fail before chil
   const h = fixture(rows(1));
   await assert.rejects(loadConsoleWorkDetail(h.context, runId, { artifactId: 'not-an-id' }), /identity/);
   await assert.rejects(loadConsoleWorkDetail(h.context, runId, { businessId: id(999) }), /Business selection/);
-  assert.equal(h.calls.length, 0);
+  assert.deepEqual(h.calls.map(call => call.table), ['businesses']);
   const unavailable = await loadConsoleWorkDetail(h.context, runId, { businessId: other });
-  assert.equal(unavailable.selection.status, 'missing'); assert.equal(h.calls.length, 1);
+  assert.equal(unavailable.selection.status, 'missing'); assert.deepEqual(h.calls.map(call => call.table), ['businesses','workflow_runs']);
 });
 
 test('research without exact experiment identity remains explicitly not loaded and incomplete', async () => {
@@ -236,5 +239,86 @@ test('invalid child transport cannot crash actual detail badges or animate an ac
     const now = Date.parse(stamp), snapshot = motion.deriveConsoleMotionSnapshot({ runs: detail.run ? [detail.run] : [], stages: detail.stages, tasks: detail.tasks, workerRuns: detail.workerRuns, artifacts: detail.artifacts, interventions: detail.interventions, errors: detail.errors }, { businessIds: [business], observedAt: now, unavailable: !detail.complete });
     const ledger = motion.advanceConsoleMotion(null, snapshot, now);
     for (const target of ['core', 'run', 'stage', 'worker']) assert.equal(motion.consoleMotionPresentation(ledger, target, id(3000), now).state, 'unavailable');
+  }
+});
+
+function runLevelRows(taskStatus = 'ready', workerStatus = 'queued') {
+  // Real R10 enrollment omits workflow_stage_run_id; the SQL nullable column is
+  // returned as null. There is no workflow_stage_runs row to invent or borrow.
+  const taskId = id(2000), workerDefinitionId = 'a1100000-0000-4000-8000-000000000003';
+  const workflowDefinitionId = 'a1100000-0000-4000-8000-000000000002';
+  const common = { business_id: business, workflow_run_id: runId, created_at: stamp, updated_at: stamp };
+  return {
+    workflow_runs: [{ ...run, workflow_definition_id: workflowDefinitionId, current_stage_key: null }],
+    workflow_definitions: [{ ...definition, id: workflowDefinitionId, workflow_key: 'r10.public-viewer', version: '1.0.0', name: 'Controlled public viewer qualification' }],
+    workflow_stage_runs: [],
+    task_contracts: [{ ...common, id: taskId, workflow_stage_run_id: null, worker_definition_id: workerDefinitionId, status: taskStatus,
+      objective: 'Render the fixed reviewed public R10 source, relay only bounded read-only frames, then acknowledge producer drain.',
+      permitted_capabilities: ['browser.observe'], required_output_schema: { type: 'object', format: 'r10.close-audit.v1' },
+      completion_criteria: { requires: 'trusted physical stream/context closure acknowledgement' },
+      non_goals: ['No external requests', 'No account or saved profile', 'No input authority', 'No arbitrary navigation'] }],
+    worker_runs: [{ ...common, id: id(3000), task_contract_id: taskId, worker_definition_id: workerDefinitionId, status: workerStatus, started_at: null, completed_at: null }],
+    worker_definitions: [{ id: workerDefinitionId, worker_key: 'r10.controlled-capture', version: '1.0.0', name: 'Controlled public capture worker', role: 'read-only capture', status: 'experimental' }],
+  };
+}
+
+test('real R10 SQL-shaped run-level task loads with exact task and worker totals without a fabricated stage', async () => {
+  for (const [taskStatus, workerStatus] of [['ready', 'queued'], ['running', 'running'], ['completed', 'completed'], ['failed', 'failed']]) {
+    const h = fixture(runLevelRows(taskStatus, workerStatus)), result = await loadConsoleWorkDetail(h.context, runId, { businessId: business });
+    assert.equal(result.complete, true); assert.deepEqual(result.errors, []); assert.deepEqual(result.stages, []);
+    assert.deepEqual(result.completeness.tasks, { total: 1, loaded: 1, limit: 25, complete: true, hasMore: false, errors: [] });
+    assert.equal(result.completeness.workers.total, 1); assert.equal(result.completeness.workers.complete, true);
+    assert.equal(result.tasks[0].workflow_stage_run_id, null); assert.equal(result.tasks[0].status, taskStatus);
+    assert.equal(result.workerRuns[0].task_contract_id, result.tasks[0].id); assert.equal(result.workerRuns[0].status, workerStatus);
+    assert.equal(result.workerDefinitions[0].id, result.tasks[0].worker_definition_id);
+    const call = h.calls.find(call => call.table === 'task_contracts');
+    assert.deepEqual(call.range, [0, 25]); assert.ok(call.filters.some(([, key, value]) => key === 'business_id' && value === business));
+    assert.ok(call.filters.some(([, key, value]) => key === 'workflow_run_id' && value === runId));
+    assert.ok(call.columns.split(',').includes('workflow_stage_run_id'));
+  }
+});
+
+test('run-level task history renders truthful stage label and exact Agent navigation without retaining another Step', async () => {
+  const { workDetailUi } = await import('./helpers/console-collection-fixtures.mjs');
+  const React = require('react'), { renderToStaticMarkup } = require('react-dom/server');
+  const detail = await loadConsoleWorkDetail(fixture(runLevelRows()).context, runId);
+  const markup = renderToStaticMarkup(React.createElement(workDetailUi.ConsoleWorkDetail, { detail,
+    searchParams: { view: 'work', business, selected: runId, quest: id(9000), episode: runId, step: id(1000) } }));
+  assert.match(markup, /Saved tasks, newest first · 1 loaded of 1/);
+  assert.match(markup, /Run-level task · No stage assigned/); assert.match(markup, new RegExp(`Task ${id(2000)}`));
+  assert.doesNotMatch(markup, /Total unavailable|Incomplete history|Stage null|Stage undefined/);
+  const workerLink = [...markup.matchAll(/href="([^"]+)"/g)].map(([, href]) => new URL(href.replaceAll('&amp;', '&'), 'https://fixture.invalid')).find(url => url.searchParams.get('agent') === id(3000));
+  assert.ok(workerLink); assert.equal(workerLink.searchParams.get('selected'), runId); assert.equal(workerLink.searchParams.get('business'), business);
+  assert.equal(workerLink.searchParams.get('episode'), runId); assert.equal(workerLink.searchParams.get('quest'), id(9000)); assert.equal(workerLink.searchParams.get('step'), null);
+});
+
+test('nullable task stage accepts only explicit null or a valid UUID and malformed rows invalidate the full task window', async () => {
+  const data = rows(2); data.task_contracts[0].workflow_stage_run_id = null;
+  const valid = await loadConsoleWorkDetail(fixture(data).context, runId);
+  assert.equal(valid.completeness.tasks.complete, true); assert.equal(valid.completeness.tasks.total, 2);
+  for (const value of [undefined, '', ' ', 'not-a-stage', 0, false, {}, [], id(1000).slice(1)]) {
+    const h = fixture(data, { transport(table, records) {
+      if (table !== 'task_contracts') return records;
+      const next = records.map(row => ({ ...row }));
+      if (value === undefined) delete next[0].workflow_stage_run_id; else next[0].workflow_stage_run_id = value;
+      return next;
+    } });
+    const result = await loadConsoleWorkDetail(h.context, runId);
+    assert.deepEqual(result.tasks, [], String(value)); assert.equal(result.completeness.tasks.loaded, 0);
+    assert.equal(result.completeness.tasks.total, null); assert.equal(result.completeness.tasks.complete, false); assert.equal(result.complete, false);
+  }
+});
+
+test('run-level tasks retain exact Business/run and all required row validation after transport', async () => {
+  for (const [field, value] of [['id', undefined], ['business_id', other], ['workflow_run_id', otherRunId], ['worker_definition_id', undefined], ['status', undefined], ['objective', undefined], ['created_at', undefined], ['updated_at', undefined]]) {
+    const h = fixture(runLevelRows(), { transport(table, records) {
+      return table === 'task_contracts' ? records.map(row => { const next = { ...row, [field]: value }; if (value === undefined) delete next[field]; return next; }) : records;
+    } });
+    const result = await loadConsoleWorkDetail(h.context, runId);
+    assert.deepEqual(result.tasks, [], field); assert.equal(result.completeness.tasks.total, null, field); assert.equal(result.completeness.tasks.complete, false, field);
+  }
+  for (const count of [null, 0, 2, '1']) {
+    const result = await loadConsoleWorkDetail(fixture(runLevelRows(), { counts: { task_contracts: count } }).context, runId);
+    assert.equal(result.completeness.tasks.complete, false); assert.equal(result.completeness.tasks.total, null);
   }
 });

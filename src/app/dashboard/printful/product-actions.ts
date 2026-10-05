@@ -1,4 +1,5 @@
 "use server";
+import { verifyOwnerBusiness } from "@/lib/core-ui/owner-business";
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
@@ -21,7 +22,7 @@ function done(businessId: string, message: "product-consent-required" | "product
 export async function configureReviewedPrintfulProduct(form: FormData) {
   const context = await requireOwnerUiContext();
   const businessId = field(form, "businessId");
-  if (!uuid.test(businessId) || !context.businesses.some(business => business.id === businessId)) done("", "product-blocked");
+  if (!uuid.test(businessId) || !(await verifyOwnerBusiness(context,businessId))) done("", "product-blocked");
   if (field(form, "configurationConsent") !== "on") done(businessId, "product-consent-required");
   const sourceId = field(form, "sourceId"), sourceHash = field(form, "sourceHash");
   if (!uuid.test(sourceId) || !hash.test(sourceHash)) done(businessId, "product-blocked");
@@ -37,7 +38,7 @@ export async function configureReviewedPrintfulProduct(form: FormData) {
 export async function reconcilePrintfulProduct(form: FormData) {
   const context = await requireOwnerUiContext();
   const businessId = field(form, "businessId"), runId = field(form, "runId");
-  if (!uuid.test(businessId) || !context.businesses.some(business => business.id === businessId) || !uuid.test(runId)) done("", "product-blocked");
+  if (!uuid.test(businessId) || !(await verifyOwnerBusiness(context,businessId)) || !uuid.test(runId)) done("", "product-blocked");
   try { await runPrintfulProduct(context, businessId, runId, true); }
   catch { done(businessId, "product-needs-review"); }
   done(businessId, "product-needs-review");
@@ -46,7 +47,7 @@ export async function reconcilePrintfulProduct(form: FormData) {
 export async function stopPrintfulProduct(form: FormData) {
   const context = await requireOwnerUiContext();
   const businessId = field(form, "businessId"), runId = field(form, "runId");
-  if (!uuid.test(businessId) || !context.businesses.some(business => business.id === businessId) || !uuid.test(runId)) done("", "product-blocked");
+  if (!uuid.test(businessId) || !(await verifyOwnerBusiness(context,businessId)) || !uuid.test(runId)) done("", "product-blocked");
   try { await productRpc(context, businessId, "cancel", { runId }); }
   catch { done(businessId, "product-needs-review"); }
   done(businessId, "product-stop-requested");

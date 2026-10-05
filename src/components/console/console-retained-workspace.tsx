@@ -67,10 +67,7 @@ export function ConsoleRetainedWorkspace({ ownerId, header, panels, initialPanel
   </div>;
 }
 
-/** Paginates only the explicitly loaded window, never claims server/history completeness. */
+/** Render the server page as supplied. Historical navigation belongs to the server contract. */
 export function ConsoleRecentRows({ rows: children, label }: { rows: ReactNode[]; label: string }) {
-  const query = useSearchParams(), pathname = usePathname();
-  const page = Math.max(1, Math.min(Math.ceil(children.length / 10) || 1, (/^\d{1,4}$/.test(query.get("toolPage") ?? "") ? Number(query.get("toolPage")) : 1)));
-  const href = (next: number) => { const params = new URLSearchParams(query); params.set("toolPage", String(next)); return `${pathname}?${params}`; };
-  return <div className="consoleRecentRows"><div className="consoleRecentPager"><span>{label}: {children.length} loaded · page {page} of {Math.ceil(children.length / 10) || 1}</span>{page > 1 ? <Link href={href(page - 1)} scroll={false}>Previous loaded rows</Link> : null}{page * 10 < children.length ? <Link href={href(page + 1)} scroll={false}>Next loaded rows</Link> : null}</div>{children.slice((page - 1) * 10, page * 10)}</div>;
+  return <div className="consoleRecentRows"><p className="consoleRecentPager">{label}: {children.length} loaded</p>{children}</div>;
 }

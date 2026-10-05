@@ -8,7 +8,7 @@ const sources: Record<"stage"|"task"|"worker",{table:string;columns:string;owned
 };
 /** Exact payload read after the parent run has been verified. Never a latest-row fallback. */
 export async function loadRetainedChild(context: OwnerUiContext, run: { id: string; business_id: string }, kind: keyof typeof sources, id: string) {
-  if (!CONSOLE_COLLECTION_UUID.test(id) || !context.businesses.some(b => b.id === run.business_id)) return { status: "missing" as const, item: null };
+  if (!CONSOLE_COLLECTION_UUID.test(id) || (!context.ownerDirectoryPaged && !context.businesses.some(b => b.id === run.business_id))) return { status: "missing" as const, item: null };
   const source = sources[kind];
   try {
     let query = context.supabase.from(source.table).select(source.columns).eq("id",id).eq("workflow_run_id",run.id).limit(2);

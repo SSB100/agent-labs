@@ -1,8 +1,11 @@
+import { safeTablePage, historyRows } from "@/lib/core-ui/history-read";
+import { HistoryPager } from "@/components/console/history-pager";
+import type { HistoryPage } from "@/lib/core-ui/history-query";
 import { AppShell } from "@/components/stage7/app-shell";
 import { ConsoleRetainedWorkspace, ConsoleRecentRows } from "@/components/console/console-retained-workspace";
 import { requireOwnerUiContext } from "@/lib/core-ui/data";
 import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 
 import { WORKER_PACK_RUNTIME_WORKFLOW_DEFINITION_ID } from "../../../workflows/worker-pack-runtime";
 
@@ -14,10 +17,6 @@ type WorkerProofPageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
-type Business = {
-  id: string;
-  name: string;
-};
 
 type WorkflowRun = {
   business_id: string;
@@ -125,21 +124,9 @@ export default async function WorkerProofPage({ searchParams }: WorkerProofPageP
   const exactRunId = firstValue(query.run);
   if (query.run && (Array.isArray(query.run) || !/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(exactRunId ?? ""))) notFound();
 
-  const { data: claimsData, error: claimsError } = await supabase.auth.getClaims();
-  const userId = claimsData?.claims?.sub;
-
-  if (claimsError || !userId) {
-    redirect("/login?error=session-required");
-  }
-
-  const { data: businessData, error: businessError } = await supabase
-    .from("businesses")
-    .select("id, name")
-    .eq("owner_user_id", userId)
-    .order("created_at", { ascending: false });
-
-  const businesses = ((businessData ?? []) as Business[]).filter(b=>!selectedBusinessId || b.id===selectedBusinessId);
-  const businessIds = businesses.map((business) => business.id);
+  const businessError=context.businessesUnavailable;
+  const businesses = context.businesses.filter(b=>!selectedBusinessId || b.id===selectedBusinessId);
+  let historyPage:HistoryPage|undefined;
   let workflowRuns: WorkflowRun[] = [];
   let stages: StageRun[] = [];
   let taskContracts: TaskContract[] = [];
@@ -147,22 +134,11 @@ export default async function WorkerProofPage({ searchParams }: WorkerProofPageP
   let events: WorkflowEvent[] = [];
   let historyError = false;
 
-  if (businessIds.length > 0) {
-    let runRead = supabase
-      .from("workflow_runs")
-      .select(
-        "id, business_id, status, current_stage_key, runtime_run_id, started_at, completed_at, created_at",
-      )
-      .eq("workflow_definition_id", WORKER_PACK_RUNTIME_WORKFLOW_DEFINITION_ID)
-      .in("business_id", businessIds)
-      .order("created_at", { ascending: false }).order("id", { ascending: false })
-      .limit(exactRunId ? 2 : 30);
-    if (exactRunId) runRead = runRead.eq("id",exactRunId);
-    const {data:runData,error:runError} = await runRead;
-    if (exactRunId && !runError && !runData?.length) notFound();
-
-    workflowRuns = (runData ?? []) as WorkflowRun[];
-    historyError = Boolean(runError);
+  if (!context.businessesUnavailable) {
+    const runResult=await safeTablePage<WorkflowRun>(context,"workflow_runs","id,business_id,status,current_stage_key,runtime_run_id,started_at,completed_at,created_at","proof",{businessId:selectedBusinessId,filters:[["workflow_definition_id",WORKER_PACK_RUNTIME_WORKFLOW_DEFINITION_ID]],selectedId:exactRunId,statusColumn:"status"});
+    historyPage=runResult.page;
+    if(exactRunId && runResult.page.available && !runResult.selected)notFound();
+    workflowRuns=historyRows(runResult); historyError ||= !runResult.page.available;
 
     const runIds = workflowRuns.map((run) => run.id);
     if (runIds.length > 0) {
@@ -171,25 +147,25 @@ export default async function WorkerProofPage({ searchParams }: WorkerProofPageP
           .from("workflow_stage_runs")
           .select("id, workflow_run_id, stage_key, sequence, attempt, status")
           .in("workflow_run_id", runIds)
-          .order("sequence", { ascending: true }),
+          .order("sequence", { ascending: true }).order("id").limit(201),
         supabase
           .from("task_contracts")
           .select(
             "id, workflow_run_id, status, objective, input_artifact_ids, permitted_capabilities, required_knowledge, non_goals",
           )
-          .in("workflow_run_id", runIds),
+          .in("workflow_run_id", runIds).order("id").limit(201),
         supabase
           .from("worker_runs")
           .select(
             "id, workflow_run_id, task_contract_id, status, input, output, failure, execution_metadata, started_at, completed_at",
           )
-          .in("workflow_run_id", runIds),
+          .in("workflow_run_id", runIds).order("id").limit(201),
         supabase
           .from("events")
           .select("id, workflow_run_id, event_type, occurred_at")
           .in("workflow_run_id", runIds)
           .order("occurred_at", { ascending: false })
-          .limit(120),
+          .order("id",{ascending:false}).limit(201),
       ]);
 
       stages = (stageResult.data ?? []) as StageRun[];
@@ -197,7 +173,7 @@ export default async function WorkerProofPage({ searchParams }: WorkerProofPageP
       workerRuns = (workerResult.data ?? []) as WorkerRun[];
       events = (eventResult.data ?? []) as WorkflowEvent[];
       historyError ||= Boolean(
-        stageResult.error || taskResult.error || workerResult.error || eventResult.error,
+        stageResult.error || taskResult.error || workerResult.error || eventResult.error || [stageResult,taskResult,workerResult,eventResult].some(result=>(result.data?.length??0)>=201),
       );
     }
   }
@@ -226,7 +202,7 @@ export default async function WorkerProofPage({ searchParams }: WorkerProofPageP
   const completedCount = workflowRuns.filter((run) => run.status === "completed").length;
   const failedCount = workflowRuns.filter((run) => run.status === "failed").length;
 
-  return (<AppShell active="settings" toolDestination="worker-proof" context={context} navigationBusinessId={selectedBusinessId}><ConsoleRetainedWorkspace ownerId={context.userId} notice={<p className="coreNotice">Recent loaded records only. Earlier history and complete totals remain pending R06.</p>} header={<><header className="workspaceHeader">
+  return (<AppShell active="settings" toolDestination="worker-proof" context={context} navigationBusinessId={selectedBusinessId}><ConsoleRetainedWorkspace ownerId={context.userId} notice={<><HistoryPager page={historyPage} name="proof" label="Proof runs"/><p className="coreNotice">Recent loaded records only. Proof run history is independently server-paged; related execution details are bounded and missing records remain unavailable.</p></>} header={<><header className="workspaceHeader">
           <div className="workspaceTitle">
             <p>Worker execution</p>
             <h1>Worker Pack runtime</h1>

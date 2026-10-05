@@ -7,7 +7,7 @@ import researchRuntime from '../.core-tests/research/runtime-budget.js';
 const {modelDispatchAdmission}=runtimeModule;
 const id='10000000-0000-4000-8000-000000000001';
 const binding=()=>({operationKey:'research.model',requestHash:'a'.repeat(64),callKey:'plan:1',reservedMicrousd:5000,
- providerModelId:'openai/gpt-5.6-luna',accounting:{kind:'research',callKey:'plan:1'},dataClasses:['business_context','public_evidence']});
+ providerModelId:'openai/gpt-5.6-luna',accounting:{kind:'research',callKey:'plan:1'},dataClasses:['business_context'],sourceProvenance:{version:'r11.1',kind:'source_free',requestHash:'a'.repeat(64)}});
 const wire=()=>({url:'https://openrouter.ai/api/v1/chat/completions',method:'POST',body:JSON.stringify({model:'openai/gpt-5.6-luna',max_tokens:1500,stream:false,messages:[{role:'user',content:'Private prompt never sent to admission RPC'}]})});
 test('trusted runtime guard transmits only exact saved scope and fingerprints and refuses uncertain/replayed decisions',async t=>{
  const calls=[];let decision={decision:'allowed',reason:'admitted',shouldDispatch:true,requestId:id},httpStatus=200;
@@ -37,9 +37,9 @@ test('trusted runtime guard transmits only exact saved scope and fingerprints an
  decision={shouldCall:true,totalReservedMicrousd:5000};await ledger.reserve(reservation);
  const reserved=calls.at(-1).input;
  assert.equal(reserved.p_business_id,id);assert.equal(reserved.p_workflow_run_id,id);assert.equal(reserved.p_runtime_capability,'original-scope');
- decision={decision:'allowed',shouldDispatch:true,requestId:id};await ledger.admissionFor(reservation)(request);
- const admitted=calls.at(-1).input;
- assert.equal(admitted.p_business_id,reserved.p_business_id);assert.equal(admitted.p_payload.workflowRunId,reserved.p_workflow_run_id);assert.equal(admitted.p_payload.runtimeCapability,reserved.p_runtime_capability);
+ decision={decision:'allowed',shouldDispatch:true,requestId:id};const beforeSourceDenial=calls.length;
+ await assert.rejects(ledger.admissionFor(reservation)(request),/external_source_provenance_required/);
+ assert.equal(calls.length,beforeSourceDenial,'Opaque R05 eligibility cannot admit untracked public evidence');
  decision=null;await ledger.settle('plan:1',5000,'exact-provider-receipt');
  const settled=calls.at(-1).input;assert.equal(settled.p_operation,'legacy_settle');assert.equal(settled.p_payload.kind,'research');assert.equal(settled.p_payload.reportedMicrousd,5000);assert.equal(settled.p_payload.providerRequestId,'exact-provider-receipt');assert.equal(settled.p_payload.workflowRunId,id);assert.equal(settled.p_payload.runtimeCapability,'original-scope');
  const beforeDenied=calls.length;decision={decision:'blocked',reason:'scope_paused',shouldDispatch:false,requestId:id};await assert.rejects(guard(request),/dispatch_denied/);

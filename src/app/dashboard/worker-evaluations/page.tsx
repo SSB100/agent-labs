@@ -1,8 +1,10 @@
+import { safeTablePage, historyRows } from "@/lib/core-ui/history-read";
+import { HistoryPager } from "@/components/console/history-pager";
+import type { HistoryPage } from "@/lib/core-ui/history-query";
 import { AppShell } from "@/components/stage7/app-shell";
 import { ConsoleRetainedWorkspace, ConsoleRecentRows } from "@/components/console/console-retained-workspace";
 import { requireOwnerUiContext } from "@/lib/core-ui/data";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 
 import {
   GENERIC_RESEARCHER_EVALUATION_SUITE_KEY,
@@ -150,10 +152,7 @@ function formatDate(value: string | null) {
 export default async function WorkerEvaluationsPage({ searchParams }: Props) {
   const context = await requireOwnerUiContext();
   const supabase = context.supabase;
-  const { data: claimsData, error: claimsError } = await supabase.auth.getClaims();
-  const userId = claimsData?.claims?.sub;
-  if (claimsError || !userId) redirect("/login?error=session-required");
-
+  const query=await searchParams;
   const [workerResult, suiteResult, modelResult, promotionResult] = await Promise.all([
     supabase
       .from("worker_definitions")
@@ -168,67 +167,34 @@ export default async function WorkerEvaluationsPage({ searchParams }: Props) {
       .eq("suite_key", GENERIC_RESEARCHER_EVALUATION_SUITE_KEY)
       .eq("version", GENERIC_RESEARCHER_EVALUATION_SUITE_VERSION)
       .maybeSingle(),
-    supabase
-      .from("model_definitions")
-      .select("id, model_key, display_name")
-      .order("model_key"),
-    supabase
-      .from("worker_promotions")
-      .select(
-        "id, worker_definition_id, evaluation_id, from_status, to_status, reason, promoted_at",
-      )
-      .eq("worker_definition_id", MODEL_RESEARCHER_WORKER_DEFINITION_ID)
-      .order("promoted_at", { ascending: false })
-      .limit(10),
+    safeTablePage<ModelDefinition>(context,"model_definitions","id,model_key,display_name","evaluationModel",{time:"model_key"}),
+    safeTablePage<Promotion>(context,"worker_promotions","id,worker_definition_id,evaluation_id,from_status,to_status,reason,promoted_at","promotion",{filters:[["worker_definition_id",MODEL_RESEARCHER_WORKER_DEFINITION_ID]],time:"promoted_at"}),
   ]);
 
   const worker = workerResult.data as WorkerDefinition | null;
   const suite = suiteResult.data as EvaluationSuite | null;
-  const models = (modelResult.data ?? []) as ModelDefinition[];
-  const promotions = (promotionResult.data ?? []) as Promotion[];
+  const models = historyRows(modelResult);
+  const promotions = historyRows(promotionResult);
   let cases: EvaluationCase[] = [];
   let runs: EvaluationRun[] = [];
   let results: EvaluationResult[] = [];
   let loadError = Boolean(
-    workerResult.error || suiteResult.error || modelResult.error || promotionResult.error,
+    workerResult.error || suiteResult.error || !modelResult.page.available || !promotionResult.page.available,
   );
 
+  let evaluationPage:HistoryPage|undefined,casePage:HistoryPage|undefined,resultPage:HistoryPage|undefined;
+  let latest:EvaluationRun|null=null; let running=true;
   if (suite) {
-    const [caseResult, runResult] = await Promise.all([
-      supabase
-        .from("worker_evaluation_cases")
-        .select(
-          "id, case_key, name, category, execution_mode, model_target, required, weight",
-        )
-        .eq("suite_id", suite.id)
-        .order("case_key"),
-      supabase
-        .from("worker_evaluations")
-        .select(
-          "id, status, score, passed_case_count, failed_case_count, required_case_count, required_failure_count, source, subject_fingerprint, started_at, completed_at, created_at",
-        )
-        .eq("suite_id", suite.id)
-        .order("created_at", { ascending: false })
-        .limit(20),
+    const [caseResult,runResult,latestResult,openResult]=await Promise.all([
+      safeTablePage<EvaluationCase>(context,"worker_evaluation_cases","id,case_key,name,category,execution_mode,model_target,required,weight","evaluationCase",{filters:[["suite_id",suite.id]],time:"case_key"}),
+      safeTablePage<EvaluationRun>(context,"worker_evaluations","id,status,score,passed_case_count,failed_case_count,required_case_count,required_failure_count,source,subject_fingerprint,started_at,completed_at,created_at","evaluation",{filters:[["suite_id",suite.id]],statusColumn:"status"}),
+      supabase.from("worker_evaluations").select("id,status,score,passed_case_count,failed_case_count,required_case_count,required_failure_count,source,subject_fingerprint,started_at,completed_at,created_at").eq("suite_id",suite.id).order("created_at",{ascending:false}).order("id",{ascending:false}).limit(1),
+      supabase.from("worker_evaluations").select("id",{count:"exact",head:true}).eq("suite_id",suite.id).eq("status","running"),
     ]);
-    cases = (caseResult.data ?? []) as EvaluationCase[];
-    runs = (runResult.data ?? []) as EvaluationRun[];
-    loadError ||= Boolean(caseResult.error || runResult.error);
-
-    if (runs.length) {
-      const resultData = await supabase
-        .from("worker_evaluation_case_results")
-        .select(
-          "id, evaluation_id, case_id, status, score_awarded, model_definition_id, provider, provider_model_id, input_tokens, output_tokens, reported_cost_usd, estimated_cost_usd, latency_ms, failure",
-        )
-        .in(
-          "evaluation_id",
-          runs.map((run) => run.id),
-        )
-        .order("created_at");
-      results = (resultData.data ?? []) as EvaluationResult[];
-      loadError ||= Boolean(resultData.error);
-    }
+    cases=historyRows(caseResult);runs=historyRows(runResult);latest=latestResult.data?.[0] as EvaluationRun??null;
+    evaluationPage=runResult.page;casePage=caseResult.page;running=!!openResult.error || !Number.isSafeInteger(openResult.count) || Number(openResult.count)>0;
+    loadError ||= !caseResult.page.available || !runResult.page.available || !!latestResult.error;
+    if(runs.length){const resultData=await safeTablePage<EvaluationResult>(context,"worker_evaluation_case_results","id,evaluation_id,case_id,status,score_awarded,model_definition_id,provider,provider_model_id,input_tokens,output_tokens,reported_cost_usd,estimated_cost_usd,latency_ms,failure","evaluationResult",{inFilters:[["evaluation_id",runResult.selected?[runResult.selected.id]:runs.map(r=>r.id)]]});results=historyRows(resultData);resultPage=resultData.page;loadError ||= !resultData.page.available;}
   }
 
   const modelById = new Map(models.map((model) => [model.id, model]));
@@ -240,8 +206,8 @@ export default async function WorkerEvaluationsPage({ searchParams }: Props) {
     resultsByRun.set(result.evaluation_id, entries);
   }
 
-  const latest = runs[0] ?? null;
-  const running = runs.some((run) => run.status === "running");
+
+
   const totalCost = results.reduce(
     (sum, result) =>
       sum + numberValue(result.reported_cost_usd),
@@ -252,12 +218,12 @@ export default async function WorkerEvaluationsPage({ searchParams }: Props) {
     0,
   );
   const configured = isOpenRouterConfigured();
-  const query = await searchParams;
+
   const message = messages[first(query.message) ?? ""];
   const error = errors[first(query.error) ?? ""];
   const promotionStates = ["experimental", "qualified", "assisted", "autonomous"];
 
-  return (<AppShell active="settings" toolDestination="worker-evaluations" context={context}><ConsoleRetainedWorkspace ownerId={context.userId} notice={<p className="coreNotice">Recent loaded records only. Earlier history and complete totals remain pending R06.</p>} header={<><header className="workspaceHeader">
+  return (<AppShell active="settings" toolDestination="worker-evaluations" context={context}><ConsoleRetainedWorkspace ownerId={context.userId} notice={<><HistoryPager page={evaluationPage} name="evaluation" label="Evaluations"/><HistoryPager page={casePage} name="evaluationCase" label="Suite cases"/><HistoryPager page={resultPage} name="evaluationResult" label="Case results"/><HistoryPager page={promotionResult.page} name="promotion" label="Promotions"/><p className="coreNotice">Each history is independently server-paged. Latest score is read independently; amounts and tokens below summarize displayed case results only. Cases outside this result page are not missing results.</p></>} header={<><header className="workspaceHeader">
           <div className="workspaceTitle"><p>Saved qualification</p><h1>Worker evaluations</h1></div>
           <Link className="ghostButton" href="/dashboard">Back</Link>
         </header>

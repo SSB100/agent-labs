@@ -40,13 +40,14 @@ export function rootResearchFixture({ tables = researchTables(), readOptions = {
   const notFound = () => { const error = Error('Fixture not found'); error.code = 'FIXTURE_NOT_FOUND'; throw error; };
   const redirect = href => { const error = Error('Fixture redirect'); error.code = 'FIXTURE_REDIRECT'; error.href = href; throw error; };
   const deniedModule = new Proxy({}, { get: (_target, key) => key === '__esModule' ? true : deny });
+  let routeForHooks = '/dashboard';
   const overrides = {
     '@/lib/core-ui/data': { requireOwnerUiContext: async () => { calls.push({ name: 'ownerGuard' }); return context; }, loadWorkflowCollection: deny },
     '@/accounts/server': { loadAccountSetupInterventions: async () => ({ records: [], unavailable: false }) },
     '@/lib/core-ui/console-data': { loadConsoleObservationTime: async () => Date.parse('2026-10-02T03:00:00Z'), loadConsoleResearchQuote: async ctx => { ancillaryCalls.push({ name: 'quote', businesses: ctx.businesses.map(row => row.id) }); return { one: 100, two: 200, verifiedAt: '2026-10-02T03:00:00Z' }; } },
     '@/products/discovery-v2-data': { loadDiscoveryGoalData: async ctx => { ancillaryCalls.push({ name: 'catalogue', businesses: ctx.businesses.map(row => row.id) }); return { available: true, records: [], errors: [] }; } },
     '@/components/stage7/live-refresh': { LiveRefresh: () => null },
-    'next/navigation': { notFound, redirect, useRouter: () => ({ push: deny, replace: deny, refresh: deny }) },
+    'next/navigation': { usePathname: () => new URL(routeForHooks, 'https://fixture.invalid').pathname, useSearchParams: () => new URL(routeForHooks, 'https://fixture.invalid').searchParams, notFound, redirect, useRouter: () => ({ push: deny, replace: deny, refresh: deny }) },
     'server-only': {},
   };
   const inert = new Set(['./legacy-dashboard', '@/components/console/console-populated-dashboard', '@/components/console/console-library-dashboard', '@/components/console/console-compact-decisions', '@/lib/core-ui/console-decisions-data', '@/components/console/console-overview', '@/components/console/console-motion', './accounts/account-workspace', '@/components/stage13/products-workspace', '@/components/stage13/discovery-goal-workspace']);
@@ -71,6 +72,7 @@ export function rootResearchFixture({ tables = researchTables(), readOptions = {
     cache.set(file, fixtureModule.exports); return fixtureModule.exports;
   }
   async function render(route = '/dashboard?view=research', { evidence = false } = {}) {
+    routeForHooks = route;
     const Page = load('src/app/dashboard/page.tsx').default; let canonicalRoute = route, redirectedFrom = null, tree;
     try { tree = await Page({ searchParams: Promise.resolve(queryFromRoute(route)) }); } catch (error) {
       if (error.code !== 'FIXTURE_REDIRECT') throw error; redirectedFrom = route; canonicalRoute = error.href;

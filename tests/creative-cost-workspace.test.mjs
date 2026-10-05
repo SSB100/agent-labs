@@ -1,3 +1,4 @@
+import { ownerBusiness, historyRead, historyPager, collectionReads } from './helpers/history-fixtures.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -18,7 +19,11 @@ function loadSource(path, dependencies) {
     module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true,
   } }).outputText;
   const fixtureModule = { exports: {} };
-  runInNewContext(`(function(require, module, exports) { ${compiled}\n})`)(name => {
+  runInNewContext(`(function(require, module, exports) { ${compiled}\n})`, { URLSearchParams, URL })(name => {
+    if (name.endsWith('/owner-business')) return ownerBusiness;
+    if (name === '../lib/core-ui/history-read') return historyRead;
+    if (name === '../lib/core-ui/console-collections') return collectionReads;
+    if (name === '@/components/console/history-pager') return historyPager;
     if (name === "@/lib/core-ui/console-retained-feedback") return loadSource("src/lib/core-ui/console-retained-feedback.ts",{});
     if (name === '@/components/console/console-retained-workspace') return retainedUiFixture();
     if (!(name in dependencies)) throw new Error(`Unexpected fixture dependency: ${name}`);
@@ -32,9 +37,9 @@ const { loadCreativeWorkspace } = loadSource('src/creative/data.ts', {
 
 function fixture({ failures = [], empty = false, settled = false, unknown = false } = {}) {
   const time = '2026-09-01T10:00:00.000Z';
-  const approval = { id: 'approval-fixture', business_id: 'business-fixture', candidate_id: 'candidate-fixture', purpose: 'technical_qualification',
+  const approval = { id: 'approval-fixture', business_id: '96060000-0000-4000-8000-000000000001', candidate_id: 'candidate-fixture', purpose: 'technical_qualification',
     snapshot: { concept: 'Synthetic cost fixture', audience: 'Adult fixture audience' }, maximum_microusd: 1_000_000, approved_at: time, expires_at: '2026-09-08T10:00:00.000Z' };
-  const run = { id: 'run-fixture', business_id: 'business-fixture', approval_id: approval.id, workflow_run_id: 'workflow-fixture', created_at: time, capability_expires_at: '2000-01-01T00:00:00.000Z' };
+  const run = { id: 'run-fixture', business_id: '96060000-0000-4000-8000-000000000001', approval_id: approval.id, workflow_run_id: 'workflow-fixture', created_at: time, capability_expires_at: '2000-01-01T00:00:00.000Z' };
   const rows = {
     creative_approvals: [approval], creative_runs: [run], creative_assets: [], creative_reviews: [], creative_phase_outputs: [],
     workflow_runs: [{ id: run.workflow_run_id, status: 'needs_owner', current_stage_key: 'brief:1', state: { productionReady: false } }],
@@ -42,13 +47,13 @@ function fixture({ failures = [], empty = false, settled = false, unknown = fals
     creative_cost_settlements: !settled || empty ? [] : [{ creative_run_id: run.id, call_key: 'brief:1', reported_microusd: unknown ? null : 20_000, provider_request_id: 'mock-receipt', created_at: time }],
   };
   const queries = [];
-  const context = { businesses: [{ id: 'business-fixture', name: 'Fixture Business' }], supabase: {
+  const context = { businesses: [{ id: '96060000-0000-4000-8000-000000000001', name: 'Fixture Business' }], supabase: {
     from(table) {
       assert.ok(table in rows, `Unexpected table ${table}`);
       const query = { table, filters: [] }; queries.push(query);
       const chain = { select() { return this; }, in(column, values) { query.filters.push([column, values]); return this; },
-        order() { return this; }, limit() { return this; }, then(resolve, reject) {
-          return Promise.resolve(failures.includes(table) ? { data: null, error: { message: `${table} unavailable` } } : { data: rows[table], error: null }).then(resolve, reject);
+        eq(column, value) { query.filters.push([column, value]); return this; }, or(value) { query.or = value; return this; }, range(from,to) { query.range = [from,to]; return this; }, order() { return this; }, limit() { return this; }, then(resolve, reject) {
+          return Promise.resolve(failures.includes(table) ? { data: null, error: { message: `${table} unavailable` } } : { data: query.range ? rows[table].slice(query.range[0],query.range[1]+1) : rows[table], count: rows[table].length, error: null }).then(resolve, reject);
         } };
       return chain;
     },
@@ -136,7 +141,7 @@ test('successful empty cost reads alone display no calls recorded', async () => 
 test('derived PNG gallery distinguishes retained provider WebP and its immutable source hash', async () => {
   const { context } = fixture({ empty: true });
   const data = await loadCreativeWorkspace(context);
-  data.assets = [{ id: 'asset-fixture', creative_run_id: 'run-fixture', business_id: 'business-fixture', candidate_id: 'candidate-fixture',
+  data.assets = [{ id: 'asset-fixture', creative_run_id: 'run-fixture', business_id: '96060000-0000-4000-8000-000000000001', candidate_id: 'candidate-fixture',
     version: 1, brief_hash: 'a'.repeat(64), asset_hash: 'b'.repeat(64), storage_path: 'private-fixture/version-1.png',
     inspection: { width: 1024, height: 1024, effectiveDpi: 157.53, colorSpace: 'srgb', failedCriteria: [] },
     prompt: 'Synthetic original instruction fixture', provider: 'openrouter', model: 'recraft/recraft-v4.1-pro', generated_at: '2026-09-01T10:00:00Z',

@@ -18,10 +18,11 @@ export function currentProductionCandidate(candidate: ProductCandidate, decision
   const matching = decisions.filter(d => d.candidate_id === candidate.id && d.business_id === candidate.business_id)
     .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
   const decision = matching[0];
+  if(candidate.current_decision_ambiguous || (candidate.current_decision_id && candidate.current_decision_id!==decision?.id))return null;
   // Select latest before narrowing: an unsupported newer decision must never revive an older TEST.
   if (!decision || matching.some(d => d.id !== decision.id && Date.parse(d.created_at) >= Date.parse(decision.created_at))) return null;
   const experiment = experiments.find(e => e.id === decision.experiment_id && e.candidate_id === candidate.id && e.business_id === candidate.business_id);
-  if(!experiment||experiment.status!=="completed")return null;
+  if(!experiment||experiment.status!=="completed"||experiment.has_competing_completed_v2===true)return null;
   if(experiment.discovery_version==="pod-discovery-2.0"){
     if(!isReviewedDiscoveryTest(decision.assessment,candidate.id)||!experiment.parent_discovery_id)return null;
     const root=experiments.find(e=>e.id===experiment.parent_discovery_id&&e.business_id===candidate.business_id&&e.candidate_id===null&&e.status==="completed");

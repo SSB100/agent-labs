@@ -6,10 +6,11 @@ export function accountReturnHref(businessId: string, options: { returnTo?: stri
   const query = new URLSearchParams({ view: "connections", business: businessId });
   try {
     const prior = new URL(options.returnTo ?? "", "https://agent-labs.invalid");
-    const scopeKeys = ["view", "business", "connectionRun", "provider"];
+    const scopeKeys = ["view", "business", "connectionRun", "provider", "quest", "episode", "step", "agent", "sourceArtifact"];
     if (prior.origin === "https://agent-labs.invalid" && prior.pathname === "/dashboard" &&
       scopeKeys.every(key => prior.searchParams.getAll(key).length <= 1) &&
       prior.searchParams.get("view") === "connections" && prior.searchParams.get("business") === businessId) {
+      for (const key of ["quest", "episode", "step", "agent", "sourceArtifact"]) { const value = prior.searchParams.get(key); if (value && uuid.test(value)) query.set(key, value); }
       const run = prior.searchParams.get("connectionRun"), provider = prior.searchParams.get("provider");
       if (run && uuid.test(run) && (!options.provider || options.provider === provider)) query.set("connectionRun", run);
       if (provider === "printful" || provider === "etsy") query.set("provider", provider);
@@ -40,7 +41,7 @@ export function printfulFailureMessage(code: string) {
 
 export function connectionState(data: AccountWorkspace, provider: AccountProvider) {
   const account = data.accounts.find(item => item.provider === provider);
-  const run = data.runs.filter(item => item.provider === provider).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
+  const run = (data.currentRuns ?? data.runs).filter(item => item.provider === provider).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
   if (data.unavailable) return { label: "Unavailable", account, run };
   const now = Date.parse(data.observedAt);
   const credentialExpired = account?.expiresAt != null && (!Number.isFinite(Date.parse(account.expiresAt)) || Date.parse(account.expiresAt) <= now);

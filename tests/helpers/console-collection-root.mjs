@@ -95,13 +95,14 @@ export function rootCollectionFixture({ tables = fixtureTables(), readOptions = 
   const context = { userId: owner, email: 'owner@example.invalid', displayName: 'Fixture Owner', businesses: ownedBusinesses, businessesUnavailable, needsYouCount: 133, needsYouUnavailable: false, supabase: wire.client };
   const deniedModule = new Proxy({}, { get: (_target, key) => key === '__esModule' ? true : wire.deny });
   const notFound = () => { const error = Error('Fixture record was not found'); error.code = 'FIXTURE_NOT_FOUND'; throw error; };
+  let routeForHooks = '/dashboard';
   const overrides = {
     '@/lib/core-ui/data': { requireOwnerUiContext: async () => context, loadWorkflowCollection: wire.deny, loadWorkflowDetail: wire.deny },
     '@/lib/core-ui/console-data': { loadConsoleObservationTime: async () => Date.parse(time), loadConsoleResearchQuote: async ctx => { ancillaryCalls.push({ name: 'researchQuote', businesses: ctx.businesses.map(row => row.id) }); return { one: 370395, two: 530914, verifiedAt: time }; } },
     '@/accounts/server': { loadAccountSetupInterventions: async () => ({ records: [], unavailable: false }) },
     '@/products/discovery-v2-data': { loadDiscoveryGoalData: async ctx => { ancillaryCalls.push({ name: 'researchCatalog', businesses: ctx.businesses.map(row => row.id) }); return { available: true, analysisAvailable: true, records: [], errors: [] }; } },
     '@/components/stage7/live-refresh': { LiveRefresh: () => null },
-    'next/navigation': { notFound, useRouter: () => ({ push: wire.deny, replace: wire.deny, refresh: wire.deny }) },
+    'next/navigation': { usePathname: () => new URL(routeForHooks, 'https://fixture.invalid').pathname, useSearchParams: () => new URL(routeForHooks, 'https://fixture.invalid').searchParams, notFound, useRouter: () => ({ push: wire.deny, replace: wire.deny, refresh: wire.deny }) },
     'server-only': {},
   };
   const forbidden = /(?:^@\/(?:accounts|creative|products|browser)\/(?:server|data|console-server)$|\/actions$|\/discovery-actions$|\/terminal-review-actions$|\/browser-actions$|legacy-dashboard$|workflow\/api|supabase|openrouter|provider)/;
@@ -121,7 +122,7 @@ export function rootCollectionFixture({ tables = fixtureTables(), readOptions = 
       target = [target, `${target}.ts`, `${target}.tsx`].find(candidate => existsSync(candidate) && /\.tsx?$/.test(candidate));
       assert.ok(target, `Unresolved safe fixture source ${name} in ${file}`);
       target = target.replaceAll('\\', '/');
-      assert.ok(target === 'src/core/quest-intake.ts' || /^src\/(lib\/core-ui|components\/(console|guided|stage7)|browser\/console-view|app\/dashboard\/console-populated-dashboard)/.test(target), `Non-read-only fixture dependency ${target}`);
+      assert.ok(target === 'src/core/quest-intake.ts' || target === 'src/browser/console-watch-client.ts' || /^src\/(lib\/core-ui|components\/(console|guided|stage7)|browser\/console-view|app\/dashboard\/console-populated-dashboard)/.test(target), `Non-read-only fixture dependency ${target}`);
       return load(target);
     }, fixtureModule, exports);
     const tracked = ['loadConsoleWorkPage', 'loadConsoleActivityPage', 'loadConsoleWorkDetail', 'loadRunCostData'];
@@ -131,6 +132,7 @@ export function rootCollectionFixture({ tables = fixtureTables(), readOptions = 
     cache.set(file, fixtureModule.exports); return fixtureModule.exports;
   }
   async function render(route = '/dashboard?view=work') {
+    routeForHooks = route;
     const page = load('src/app/dashboard/page.tsx');
     let tree = await page.default({ searchParams: Promise.resolve(queryFromRoute(route)) });
     // The server root may delegate through an async server component.

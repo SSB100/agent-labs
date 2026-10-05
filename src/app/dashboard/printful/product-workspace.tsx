@@ -65,7 +65,7 @@ export function ProductConfigurationWorkspace({ data }: { data: ProductWorkspace
     </div>
     <div className="printfulProductSources" aria-labelledby="printful-product-sources-title">
       <h3 id="printful-product-sources-title">Exact owner review</h3>
-      {!data.sources.length && !data.unavailable && <p className="printfulNote">No authenticated, current product source is available for this Business. The synthetic catalog and pricing examples below cannot be selected for execution.</p>}
+      {!data.sources.length && !data.unavailable && <p className="printfulNote">No product-source candidates are shown on this server page. Check the independent count and other pages; current eligibility is verified separately. The synthetic catalog and pricing examples below cannot be selected for execution.</p>}
       {data.sources.map(source => <article className="printfulProductCard" key={source.id}>
         <h4>{source.name}</h4>
         <dl className="printfulFacts">
@@ -90,7 +90,7 @@ export function ProductConfigurationWorkspace({ data }: { data: ProductWorkspace
     <div className="printfulProductHistory" id="product-configuration-history" aria-labelledby="printful-product-history-title">
       <h3 id="printful-product-history-title">Product configuration history</h3>
       <p className="printfulNote">A durable pre-dispatch marker means a POST may have been sent. Later checks only reconcile the same saved external identity and never send a second create request. Stop cannot undo a POST already sent to Printful.</p>
-      {!data.runs.length && !data.unavailable && <p className="printfulNote">No product configuration attempts are recorded for this Business.</p>}
+      {!data.runs.length && !data.unavailable && <p className="printfulNote">No configuration attempts are shown on this server page. Check the independent count and other pages.</p>}
       {data.runs.map(run => <article className="printfulProductCard" key={run.id}>
         <h4>{run.name}</h4><p className="printfulProductState">{runLabel(run)}</p>
         <p className="printfulNote">{run.reason ? reasonText(run.reason) : "Review the recorded attempt and its exact source before taking any next step."}</p>

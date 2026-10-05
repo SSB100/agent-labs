@@ -74,13 +74,14 @@ export function rootLibraryFixture({ tables = fixtureTables(), readOptions = {},
   const context = { ...wire.context, email: 'synthetic-owner@example.invalid', displayName: 'Synthetic Owner', businesses: ownedBusinesses ?? wire.context.businesses, businessesUnavailable, needsYouCount: 3, needsYouUnavailable: false };
   const deniedModule = new Proxy({}, { get: (_target, name) => name === '__esModule' ? true : deny });
   const notFound = () => { const error = Error('Synthetic fixture route not found'); error.code = 'FIXTURE_NOT_FOUND'; throw error; };
+  let routeForHooks = '/dashboard';
   const overrides = {
     '@/lib/core-ui/data': { requireOwnerUiContext: async () => context, loadWorkflowCollection: deny, loadWorkflowDetail: deny },
     '@/lib/core-ui/console-data': { loadConsoleObservationTime: async () => Date.parse(stamp), loadConsoleResearchQuote: async ctx => { ancillaryCalls.push({ name: 'researchQuote', businesses: ctx.businesses.map(row => row.id) }); return { one: 370395, two: 530914, verifiedAt: stamp }; } },
     '@/accounts/server': { loadAccountSetupInterventions: async () => ({ records: [], unavailable: false }) },
     '@/products/discovery-v2-data': { loadDiscoveryGoalData: async ctx => { ancillaryCalls.push({ name: 'researchCatalog', businesses: ctx.businesses.map(row => row.id) }); return { available: true, analysisAvailable: true, records: [], errors: [] }; } },
     '@/components/stage7/live-refresh': { LiveRefresh: () => null },
-    'next/navigation': { notFound, useRouter: () => ({ push: deny, replace: deny, refresh: deny }) },
+    'next/navigation': { usePathname: () => new URL(routeForHooks, 'https://fixture.invalid').pathname, useSearchParams: () => new URL(routeForHooks, 'https://fixture.invalid').searchParams, notFound, useRouter: () => ({ push: deny, replace: deny, refresh: deny }) },
     'server-only': {},
   };
   const forbidden = /(?:^@\/(?:accounts|creative|products|browser)\/(?:server|data|console-server)$|\/actions$|\/discovery-actions$|\/terminal-review-actions$|\/browser-actions$|legacy-dashboard$|workflow\/api|supabase|openrouter|provider)/;
@@ -100,7 +101,7 @@ export function rootLibraryFixture({ tables = fixtureTables(), readOptions = {},
       target = [target, `${target}.ts`, `${target}.tsx`].find(candidate => existsSync(candidate) && /\.tsx?$/.test(candidate));
       assert.ok(target, `Unresolved Library fixture source ${name} in ${file}`);
       target = target.replaceAll('\\', '/');
-      assert.ok(target === 'src/core/quest-intake.ts' || /^src\/(lib\/core-ui|components\/(console|guided|stage7)|browser\/console-view|creative\/(cost-display|types)|app\/dashboard\/console-populated-dashboard)/.test(target), `Non-read-only Library dependency ${target}`);
+      assert.ok(target === 'src/core/quest-intake.ts' || target === 'src/browser/console-watch-client.ts' || /^src\/(lib\/core-ui|components\/(console|guided|stage7)|browser\/console-view|creative\/(cost-display|types)|app\/dashboard\/console-populated-dashboard)/.test(target), `Non-read-only Library dependency ${target}`);
       return load(target);
     }, fixtureModule, exports);
     for (const name of ['loadConsoleLibraryPage', 'loadConsoleLibraryRecordsPage', 'loadConsoleLibraryRunDetail']) if (typeof fixtureModule.exports[name] === 'function') {
@@ -109,6 +110,7 @@ export function rootLibraryFixture({ tables = fixtureTables(), readOptions = {},
     cache.set(file, fixtureModule.exports); return fixtureModule.exports;
   }
   async function render(route = '/dashboard?view=library') {
+    routeForHooks = route;
     let tree = await load('src/app/dashboard/page.tsx').default({ searchParams: Promise.resolve(queryFromRoute(route)) });
     if (React.isValidElement(tree) && tree.type?.name === 'ConsoleLibraryDashboard') tree = await tree.type(tree.props);
     const pane = findFixtureElement(tree, 'ConsoleLibraryPane');

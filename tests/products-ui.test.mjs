@@ -1,3 +1,5 @@
+import ts from "typescript";
+import { historyRead, historyResponse } from "./helpers/history-fixtures.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -13,9 +15,18 @@ test("Products workspace exposes requested views and accurate provisional scope"
   assert.match(ui, /getUTC|toISOString/); assert.match(ui, /UTC/);
   assert.match(ui, /ArrowRight/); assert.match(ui, /aria-controls/); assert.match(ui, /useFormStatus/);
 });
-test("Workflow Products preserves experiment scope, and running state is bound before providers", () => {
+test("Workflow Products preserves experiment scope, and running state is bound before providers", async () => {
   const data = read("src/products/data.ts"), runtime = read("src/workflows/installed-pack-runtime-steps.ts");
-  assert.match(data, /decisionQuery\.in\("experiment_id", experiments\.map/);
+  const moduleFixture={exports:{}};
+  new Function('require','module','exports',ts.transpileModule(data,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)(name=>{assert.equal(name,'../lib/core-ui/history-read');return historyRead;},moduleFixture,moduleFixture.exports);
+  const id=n=>`96060000-0000-4000-8000-${String(n).padStart(12,'0')}`;
+  const businessId=id(1),workflowRunId=id(2),candidateId=id(3),experimentId=id(4),decisionId=id(5),calls=[];
+  const rows={product_candidates:[{id:candidateId,candidate:{id:candidateId,business_id:businessId},decisions:[],experiments:[]}],product_experiments:[{id:experimentId,business_id:businessId,workflow_run_id:workflowRunId}],product_decisions:[{id:decisionId,business_id:businessId,candidate_id:candidateId,experiment_id:experimentId}]};
+  const context={businesses:[{id:businessId}],readSearch:`candidate=${candidateId}`,supabase:{from(){assert.fail('Workflow history must use the pure scoped RPC');},async rpc(name,args){calls.push({name,args});assert.equal(name,'r06_read');assert.equal(args.p_business_id,businessId);assert.equal(args.p_query.workflowRunId,workflowRunId);assert.equal(args.p_query.limit,25);assert.equal(args.p_query.offset,0);assert.equal(Object.hasOwn(args,'p_server_key'),false);return historyResponse(args,rows[args.p_dataset]);}}};
+  const result=await moduleFixture.exports.loadProductWorkspace(context,workflowRunId);
+  assert.deepEqual(calls.map(call=>call.args.p_dataset),['product_candidates','product_experiments','product_decisions']);
+  assert.equal(calls[0].args.p_query.selectedId,candidateId);assert.equal(calls[2].args.p_query.candidateId,candidateId);
+  assert.equal(result.errors.length,0);assert.equal(result.candidates[0].id,candidateId);assert.equal(result.experiments[0].id,experimentId);assert.equal(result.decisions[0].experiment_id,experimentId);
   assert.match(runtime, /p_operation: "scope"/);
   assert.match(runtime, /scoped\.data\?\.experimentId!==productScope\.experimentId/);
   assert.match(read("src/components/stage7/app-shell.tsx"), /href: "\/dashboard\/products"/);

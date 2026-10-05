@@ -1,3 +1,5 @@
+import { ConsoleEpisodeEvidence } from "./console-episode-evidence";
+import { copyWorkspace } from "@/lib/core-ui/workspace-navigation";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { OwnerUiContext } from "@/lib/core-ui/data";
@@ -39,7 +41,7 @@ export async function ConsolePopulatedDashboard({ context, query, view }: { cont
     if (Array.isArray(query.sheet) || (query.sheet !== undefined && query.sheet !== "research")) notFound();
   } catch { notFound(); }
   if (q.businessId && !context.businessesUnavailable && !context.businesses.some(business => business.id === q.businessId)) notFound();
-  const params = collectionSearch(view, q);
+  const params = collectionSearch(view, q); copyWorkspace(params, query);
   const baseHref = `/dashboard?${params.toString()}`;
   const fragment = q.artifactId ? `#artifact-${q.artifactId}` : "";
   const returnTo = `${baseHref}${fragment}`;
@@ -54,7 +56,7 @@ export async function ConsolePopulatedDashboard({ context, query, view }: { cont
       page: consoleEmptyPage<WorkflowEventRecord>(q, [unavailable]), selection: { status: q.selectedId ? "unavailable" : "none", item: null }, workflowFilter: null, runs: [], errors: [unavailable],
     } as ConsoleActivityPage : loadConsoleActivityPage(context, options) : null,
     view === "work" && q.selectedId && !context.businessesUnavailable ? loadConsoleWorkDetail(context, q.selectedId, { businessId: q.businessId ?? undefined, artifactId: q.artifactId ?? undefined }) : null,
-    context.businessesUnavailable ? { records: [], unavailable: true } : loadAccountSetupInterventions(context),
+    context.businessesUnavailable ? { records: [], unavailable: true, page: undefined, globalCount:undefined } : loadAccountSetupInterventions(context),
   ]);
   // Browsing an aggregate page must not silently narrow its filter to the selected record.
   const selected = work?.selection.status === "found" ? work.selection.item : activity?.selection.status === "found" ? activity.selection.item : null;
@@ -74,13 +76,13 @@ export async function ConsolePopulatedDashboard({ context, query, view }: { cont
   }, { businessIds: context.businesses.map(business => business.id), observedAt,
     unavailable: context.businessesUnavailable || (detail ? !detail.complete : work ? !work.page.complete : !activity?.page.complete) });
   const motionScope = detail?.run ? `run:${detail.run.id}` : `${view}:${q.businessId ?? "owned"}:page:${q.page}`;
-  const displayContext = { ...context, needsYouCount: context.needsYouCount + accountRequests.records.length, needsYouUnavailable: context.needsYouUnavailable || context.businessesUnavailable || accountRequests.unavailable };
-  return <ConsoleShell active={view} context={displayContext} globalDecisionCount aggregateContext={!q.businessId} navigationBusinessId={q.businessId ?? selected?.business_id ?? verifiedFilterBusinessId ?? undefined} workflowRunId={detail?.run?.id}
+  const displayContext = { ...context, needsYouCount: context.needsYouCount + (context.workspaceQuest ? accountRequests.page?.total ?? 0 : accountRequests.globalCount ?? accountRequests.page?.total ?? accountRequests.records.length), needsYouUnavailable: context.needsYouUnavailable || context.businessesUnavailable || accountRequests.unavailable };
+  return <ConsoleShell active={view} context={displayContext} globalDecisionCount={!context.workspaceQuest} aggregateContext={!q.businessId} navigationBusinessId={q.businessId ?? selected?.business_id ?? verifiedFilterBusinessId ?? undefined} workflowRunId={detail?.run?.id}
     commandBar={<ConsoleCommandBar ownerId={context.userId} businessId={commandBusinessId} businessSelectionAvailable={context.businesses.length > 0} returnTo={returnTo} unavailable={context.businessesUnavailable}/> }>
     <ConsoleMotionBoundary ownerId={context.userId} scopeKey={motionScope} snapshot={motionSnapshot}>
     {work ? <ConsoleWorkCollectionPane ownerId={context.userId} businesses={context.businesses} searchParams={params} data={work}
       headerAction={<Link className="consoleMiniAction" href={researchHref}>New research goal</Link>}>
-      {detail ? <ConsoleWorkDetail detail={detail} searchParams={params}/> : null}
+      {detail ? <ConsoleWorkDetail detail={detail} searchParams={params} episodeEvidence={detail.run && (query.step || query.agent) ? <ConsoleEpisodeEvidence context={context} businessId={detail.run.business_id} runId={detail.run.id} stepId={typeof query.step === "string" ? query.step : undefined} agentId={typeof query.agent === "string" ? query.agent : undefined}/> : null}/> : null}
     </ConsoleWorkCollectionPane> : null}
     {activity ? <ConsoleActivityCollectionPane ownerId={context.userId} businesses={context.businesses} searchParams={params} data={activity}/> : null}
     {researchSheet ? <ConsoleResearchSheet returnTo={returnTo}><QuestKickoff ownerId={context.userId} businesses={commandBusinesses} businessesUnavailable={context.businessesUnavailable} available={catalog?.available === true} quote={quote}/></ConsoleResearchSheet> : null}

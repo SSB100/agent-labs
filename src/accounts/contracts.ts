@@ -83,6 +83,7 @@ export type ConnectedAccount = {
   passwordStored?: boolean; passwordRevision?: string | null;
 };
 export type AccountWorkspace = {
+  runsPage?: import("../lib/core-ui/history-query").HistoryPage; healthPage?: import("../lib/core-ui/history-query").HistoryPage; currentRuns?: AccountSetupRun[];
   businessId: string; configured: boolean; vaultConfigured: boolean; unavailable: boolean;
   observedAt: string;
   registrationAvailable: boolean; registrationReason: string;

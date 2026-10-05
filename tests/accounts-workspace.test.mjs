@@ -1,3 +1,4 @@
+import { historyPager } from './helpers/history-fixtures.mjs';
 import test from 'node:test';
 import { retainedFixture } from './helpers/guided-ui.mjs';
 import assert from 'node:assert/strict';
@@ -9,7 +10,7 @@ const { renderToStaticMarkup } = require('react-dom/server');
 function load(path, dependencies, globals = {}) {
   const code = ts.transpileModule(readFileSync(path, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText;
   const m = { exports: {} };
-  runInNewContext(`(function(require,module,exports){${code}\n})`, { URL, URLSearchParams, ...globals })(name => { assert.ok(name in dependencies, `Unexpected dependency ${name}`); return dependencies[name]; }, m, m.exports);
+  runInNewContext(`(function(require,module,exports){${code}\n})`, { URL, URLSearchParams, ...globals })(name => { if(name==='@/components/console/history-pager')return historyPager; assert.ok(name in dependencies, `Unexpected dependency ${name}`); return dependencies[name]; }, m, m.exports);
   return m.exports;
 }
 const C = load('src/accounts/contracts.ts', { 'node:crypto': require('node:crypto') });
@@ -572,4 +573,9 @@ test('ready-for-verification wording appears only when the saved Printful handof
     assert.doesNotMatch(html, /Ready for secure verification|Next: use Verify Printful/, JSON.stringify(change));
     assert.doesNotMatch(html, /href="\/dashboard\/accounts\/secure/, JSON.stringify(change));
   }
+});
+
+test('out-of-range setup request page retains its count without claiming global absence', () => {
+ const html=render({...base,runsPage:{page:7,pageSize:25,total:127,hasNext:false,available:true}});
+ assert.match(html,/127 total/);assert.match(html,/No setup requests are shown on this server page/);assert.doesNotMatch(html,/No setup requests yet/);
 });

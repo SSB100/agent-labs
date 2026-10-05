@@ -65,12 +65,12 @@ test("explicit Business and run mismatch is rejected even when both Businesses a
   assert.deepEqual(reads, []);
 });
 
-test("console navigation exposes eight same-page destinations and unknown counts", () => {
+test("console navigation exposes eleven same-page destinations and unknown counts", () => {
   const markup = renderUnknownNavigation();
   const nav = markup.match(/<nav class="consoleNavigation"[^>]*>(.*?)<\/nav>/s)?.[1];
   assert.ok(nav);
-  assert.equal((nav.match(/class="consoleNavLink"/g) ?? []).length, 8);
-  for (const view of ["overview", "work", "library", "research", "decisions", "connections", "activity", "advanced"]) assert.ok(nav.includes(`/dashboard?view=${view}`));
+  assert.equal((nav.match(/class="consoleNavLink"/g) ?? []).length, 11);
+  for (const view of ["overview", "work", "library", "research", "products-catalog", "knowledge", "decision-log", "decisions", "connections", "activity", "advanced"]) assert.ok(nav.includes(`/dashboard?view=${view}`));
   assert.match(nav, /Decision count unavailable/);
   assert.doesNotMatch(nav, /0 open decisions/);
   assert.match(markup, /Business records unavailable/);
@@ -168,7 +168,7 @@ test("unknown and stopped creative reviews cannot expose synthetic completion co
 
 test("creative fixture keeps evidence gate, explicit terms and bounded image controls", async () => {
   const markup = await renderCreative();
-  for (const text of ["No current evidence-backed TEST candidates are eligible", "Every image keeps its source and verdict", "No generation until you start the saved approval", "No validated images", "name=\"confirmTerms\"", "name=\"confirmDataUse\"", "name=\"maximumGenerations\"", "Save specific approval"]) assert.ok(markup.includes(text), text);
+  for (const text of ["No candidate in this server page passed the current evidence checks", "Other candidate pages may remain", "Technical approvals below do not waive this gate", "Every image keeps its source and verdict", "No generation until you start the saved approval", "No validated images", "name=\"confirmTerms\"", "name=\"confirmDataUse\"", "name=\"maximumGenerations\"", "Save specific approval"]) assert.ok(markup.includes(text), text);
   assert.doesNotMatch(markup, /name="confirmProductionScope"/);
 });
 
@@ -244,7 +244,7 @@ async function assertFocusedControlVisible(page, label) {
 }
 
 async function assertConsoleDisclosures(page, width) {
-  assert.equal(await page.locator(".consoleNavLink").count(), 8);
+  assert.equal(await page.locator(".consoleNavLink").count(), 11);
   assert.equal(await page.locator(".consoleNavLink[href='/dashboard?view=research']").count(), 1);
   assert.equal(await page.locator(".consoleNavLink[href='/dashboard?view=advanced']").count(), 1);
   await page.locator(".consoleOwnerSummary").focus();
