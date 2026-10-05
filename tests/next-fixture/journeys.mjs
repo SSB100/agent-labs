@@ -1,3 +1,7 @@
+import { runViewerHttp } from './r10-http.mjs';
+import { runViewerJourneys } from './r10-journeys.mjs';
+import { runKnowledgeHttp } from './r09-http.mjs';
+import { runKnowledgeJourneys } from './r09-journeys.mjs';
 import { runWorkspaceHttp } from './r08-http.mjs';
 import { runWorkspaceJourneys } from './r08-journeys.mjs';
 import assert from 'node:assert/strict';
@@ -9,11 +13,43 @@ import { actualZoomBrowser } from './browser-zoom.mjs';
 import { runQuestJourneys } from './quest-journeys.mjs';
 import { runAdmissionJourneys } from './admission-journeys.mjs';
 import { runHistoryJourneys } from './r06-journeys.mjs';
+import { bounded, observe, withReleasedGate, FIXTURE_ACTION_TIMEOUT_MS } from './async-bounds.mjs';
 
-export async function runNextJourneys({origin,boundary,output,httpOnly=false,questsOnly=false,controlsOnly=false,historyOnly=false,workspaceOnly=false}) {
+/** This check owns the page's sole temporary route. Drain it before removing
+ * interception, so the context allowlist cannot continue an already-aborted RSC. */
+export async function interruptBusinessesRsc(page){
+  let interrupted,finishAbort;
+  const abortDone=new Promise(resolve=>{finishAbort=resolve;});
+  const failed=observe(page.waitForEvent('requestfailed',{predicate:request=>request===interrupted,timeout:FIXTURE_ACTION_TIMEOUT_MS}));
+  await page.route('**/dashboard/settings?*panel=businesses*',async route=>{
+    if(route.request().headers().rsc!=='1')return route.fallback();
+    interrupted=route.request();
+    // Deliver abort errors to the awaited check, never discard them in an async listener.
+    const result=await observe(route.abort('aborted'));finishAbort(result);
+  });
+  await withReleasedGate(async()=>{
+    await page.getByRole('link',{name:'Businesses',exact:true}).click({timeout:FIXTURE_ACTION_TIMEOUT_MS});
+    const aborted=await bounded(abortDone,'R03 interrupted RSC abort',FIXTURE_ACTION_TIMEOUT_MS);
+    if(!aborted.ok)throw aborted.error;
+    const failure=await bounded(failed,'R03 exact interrupted RSC failure',FIXTURE_ACTION_TIMEOUT_MS);
+    if(!failure.ok)throw failure.error;
+    assert.equal(failure.value,interrupted);assert.equal(interrupted.failure()?.errorText,'net::ERR_ABORTED');
+  },()=>bounded(page.unrouteAll({behavior:'wait'}),'R03 interrupted route cleanup',FIXTURE_ACTION_TIMEOUT_MS));
+}
+
+export async function runNextJourneys({origin,boundary,output,httpOnly=false,questsOnly=false,controlsOnly=false,historyOnly=false,workspaceOnly=false,knowledgeOnly=false,browserWatchOnly=false}) {
   const results=[];let browserStatus=httpOnly?'unrun (HTTP-only requested)':'unrun';
   const report=()=>writeFile(path.join(output,'acceptance.json'),JSON.stringify({results,browser:browserStatus},null,2));
-  const check=async(name,fn)=>{try{await fn();results.push({name,status:'passed'});console.log('PASS:',name);}catch(error){results.push({name,status:'failed',error:String(error.stack)});console.error('FAIL:',name,String(error.stack));await report();}finally{await fetch(boundary.origin+'/control',{method:'POST',body:JSON.stringify({delayId:null,delayMs:0,failTable:null,actionMode:'success'})});}};
+  const check=async(name,fn)=>{
+    const result={name,status:'running'};results.push(result);console.log('START:',name);await report();
+    try{await fn();result.status='passed';console.log('PASS:',name);}
+    catch(error){result.status='failed';result.error=String(error.stack??error);console.error('FAIL:',name,result.error);}
+    finally{
+      try{await fetch(boundary.origin+'/control',{method:'POST',body:JSON.stringify({delayId:null,delayMs:0,failTable:null,failDataset:null,shortDataset:null,actionDelayMs:0,holdKnowledgeActions:false,actionMode:'success'}),signal:AbortSignal.timeout(10_000)});}
+      catch(error){result.status='failed';result.error=[result.error,`Inert control cleanup failed: ${String(error.stack??error)}`].filter(Boolean).join('\n');console.error('FAIL:',name,result.error);}
+      finally{boundary.releaseKnowledgeActions();await report();}
+    }
+  };
   await check('real Next History redirect selects ended outcomes',async()=>{
     const response=await fetch(origin+`/dashboard/history?business=${id(1)}`,{redirect:'manual'});
     assert.equal(response.status,307);assert.match(response.headers.get('location'),/view=work/);assert.match(response.headers.get('location'),/status=ended/);
@@ -33,7 +69,13 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false,que
     assert.match(first,/Loading exact saved workflow/);assert.ok(chunks>1);assert.ok(Date.now()-start>=900,'No delayed stream boundary observed');assert.match(text,/data-work-detail/);
     await fetch(boundary.origin+'/control',{method:'POST',body:JSON.stringify({delayId:null,delayMs:0})});
   });
+  await check('real Next own-shop read metadata renders with no provider dispatch',async()=>{
+    const before=boundary.effects.length;await fetch(boundary.origin+'/control',{method:'POST',body:JSON.stringify({r11Reads:true,r11ReadState:'ready'})});
+    try{const response=await fetch(origin+`/dashboard/connections?business=${id(1)}`);assert.equal(response.status,200);const html=await response.text();assert.match(html,/Authorized own-shop reads/);assert.match(html,/Read latest draft status/);assert.match(html,/Stop this read window/);assert.match(html,/Observed.*2.*drafts/s);assert.equal(boundary.effects.length,before);}finally{await fetch(boundary.origin+'/control',{method:'POST',body:JSON.stringify({r11Reads:false,r11ReadState:'ready'})});}
+  });
   if(workspaceOnly) await runWorkspaceHttp({origin,boundary,check});
+  if(browserWatchOnly) await runViewerHttp({origin,boundary,check});
+  if(knowledgeOnly) await runKnowledgeHttp({origin,boundary,check});
   if(httpOnly){await report();assert.ok(results.every(result=>result.status==='passed'),'HTTP streaming checks failed; see acceptance.json');return;}
   let browser;
   try { browser=await chromium.launch({headless:true,executablePath:process.env.GUIDED_UI_CHROMIUM_PATH,args:['--no-sandbox']});browserStatus='actual Chromium against production Next'; }
@@ -44,6 +86,20 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false,que
     await context.route('**/*',route=>{const u=new URL(route.request().url());if(['http:','https:'].includes(u.protocol)&&u.origin!==origin){external.push(u.origin);return route.abort('blockedbyclient');}return route.continue();});
     page.on('response',r=>{if(r.headers()['content-type']?.includes('text/x-component'))requests.push({url:r.url(),status:r.status()});if(r.request().method()==='POST'&&r.request().headers()['next-action'])actions.push({url:r.url(),status:r.status(),revalidated:r.headers()['x-action-revalidated']??null,redirect:r.headers()['x-action-redirect']??null});});
     const business=id(1);
+    if(browserWatchOnly){
+      await runViewerJourneys({page,context,origin,boundary,output,check,requests,actions});
+      assert.deepEqual(external,[],'R10 browser attempted an external request');assert.deepEqual(boundary.denied,[],'R10 boundary denied an unreviewed operation');
+      assert.ok(results.every(result=>result.status==='passed'),'R10 actual Next checks failed; see acceptance.json');await context.close();return;
+    }
+    if(knowledgeOnly){
+      await runKnowledgeJourneys({page,context,origin,boundary,output,check,requests,actions});
+      assert.deepEqual(external,[],'R09 browser attempted an external request');
+      assert.deepEqual(boundary.denied,[],'R09 boundary denied an unreviewed operation');
+      await writeFile(path.join(output,'action-responses.json'),JSON.stringify(actions,null,2));
+      await writeFile(path.join(output,'rsc-responses.json'),JSON.stringify(requests,null,2));
+      assert.ok(results.every(result=>result.status==='passed'),'R09 Knowledge Next checks failed; see acceptance.json');
+      await context.close();return;
+    }
     if(workspaceOnly){
       await runWorkspaceJourneys({page,context,origin,boundary,output,check,requests,actions});
       assert.deepEqual(external,[]);assert.deepEqual(boundary.denied,[]);
@@ -89,10 +145,7 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false,que
     });
     await check('interrupted real RSC request permits a subsequent destination',async()=>{
       await page.goto(origin+`/dashboard/settings?business=${business}`);
-      const matcher='**/dashboard/settings?*panel=businesses*';
-      await page.route(matcher,route=>route.abort('aborted'));
-      await page.getByRole('link',{name:'Businesses',exact:true}).click();
-      await page.unroute(matcher);
+      await interruptBusinessesRsc(page);
       await page.getByRole('link',{name:'Events',exact:true}).click();
       await page.waitForURL(/view=work/);await page.getByRole('heading',{name:'Events',exact:true}).waitFor();
     });
@@ -199,6 +252,28 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false,que
         await page.goBack();await page.waitForURL(u=>u.pathname===`/dashboard/accounts/${route}`);await page.reload();await link.waitFor();assert.equal(await page.locator('input[type=password]').count(),0,'Expired/unavailable entry must expose no credential input');
       }
     });
+    await check('R11 renewable-read metadata is inert and Stop survives repeated navigation and reload',async()=>{
+      await control({r11Reads:true,r11ReadState:'ready'});await page.setViewportSize({width:1280,height:720});await page.goto(origin+`/dashboard/connections?business=${business}`);
+      await page.getByRole('heading',{name:'Authorized own-shop reads',exact:true}).waitFor();await page.getByText(/Observed 2 drafts/).waitFor();
+      assert.equal(await page.getByRole('button',{name:'Read latest draft status',exact:true}).isDisabled(),true,'No Production credentials are present in the inert browser fixture');
+      await page.screenshot({path:path.join(output,'r11-read-window-ready-1280x720.png'),fullPage:true});const before=boundary.effects.length;
+      await page.getByRole('button',{name:'Stop this read window',exact:true}).click();await page.waitForFunction(()=>[...document.querySelectorAll('button')].some(b=>b.textContent==='Stop this read window'&&b.disabled));assert.equal(boundary.effects.length,before+1);
+      await page.reload();assert.equal(await page.getByRole('button',{name:'Stop this read window',exact:true}).isDisabled(),true);
+      await page.goto(origin+`/dashboard/connections?business=${id(2)}`);assert.equal(await page.getByRole('button',{name:'Stop this read window',exact:true}).isEnabled(),true);
+      await page.goBack();await page.waitForURL(u=>u.searchParams.get('business')===business);assert.equal(await page.getByRole('button',{name:'Stop this read window',exact:true}).isDisabled(),true);assert.equal(boundary.effects.length,before+1);
+      await control({r11ReadState:'candidate'});await page.reload();await page.getByText(/refresh_unverified/).waitFor();await page.getByText(/An unknown refresh or unverified rotated token needs explicit recovery/).waitFor();assert.equal(await page.getByRole('button',{name:'Read latest draft status',exact:true}).isDisabled(),true);
+      await page.setViewportSize({width:390,height:844});await page.screenshot({path:path.join(output,'r11-read-window-candidate-390x844.png'),fullPage:true});assert.equal(boundary.effects.length,before+1);await control({r11Reads:false,r11ReadState:'ready'});
+    });
+    await check('R11 exact read-only connections preserve Business and local disconnect across real Next actions',async()=>{
+      await page.setViewportSize({width:1280,height:720});await page.goto(origin+`/dashboard/connections?business=${business}`);
+      await page.getByRole('heading',{name:'Read-only store connections',exact:true}).waitFor();
+      await page.getByText(/token_expired/).waitFor();assert.equal(await page.getByRole('button',{name:'Continue to Etsy read-only consent',exact:true}).isDisabled(),true);await page.screenshot({path:path.join(output,'r11-connections-token-expired-1280x720.png'),fullPage:true});
+      const before=boundary.effects.length;await page.getByRole('button',{name:'Disconnect locally',exact:true}).click();await page.getByRole('button',{name:'Disconnect locally',exact:true}).waitFor();
+      await page.waitForFunction(()=>[...document.querySelectorAll('button')].some(b=>b.textContent==='Disconnect locally'&&b.disabled));assert.equal(boundary.effects.length,before+1);
+      await page.reload();assert.equal(await page.getByRole('button',{name:'Disconnect locally',exact:true}).isDisabled(),true);await page.screenshot({path:path.join(output,'r11-connections-revoked-1280x720.png'),fullPage:true});
+      await page.goto(origin+`/dashboard/connections?business=${id(2)}`);await page.getByText(/token_expired/).waitFor();assert.equal(await page.getByRole('button',{name:'Disconnect locally',exact:true}).isEnabled(),true);
+      await page.goBack();await page.waitForURL(u=>u.searchParams.get('business')===business);assert.equal(await page.getByRole('button',{name:'Disconnect locally',exact:true}).isDisabled(),true);
+    });
     const effectCount=boundary.effects.length;
     await check('workflow server error boundary reloads the same exact owned record without a new effect',async()=>{
       await control({failTable:'workflow_runs'});await page.goto(origin+`/dashboard/workflows/${id(1001)}?business=${business}`);
@@ -212,7 +287,7 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false,que
         const response=await page.goto(origin+`/dashboard/${route}?business=${id(999999)}`);assert.equal(response.status(),404,route);assert.equal(await page.locator('form[action]').count(),0);
       }
     });
-    const routes=[['quests','/dashboard/quests?quest='+id(820000)],['overview','/dashboard'],['work','/dashboard?view=work'],['history','/dashboard/history'],['workflows-alias','/dashboard/workflows'],['needs-you','/dashboard/needs-you'],['library','/dashboard?view=library'],['research','/dashboard?view=research'],['activity','/dashboard?view=activity'],['connections','/dashboard?view=connections'],['products','/dashboard/products'],['artifacts','/dashboard/artifacts'],['packs','/dashboard/packs'],['model-router','/dashboard/model-router'],['worker-proof','/dashboard/worker-proof'],['evaluations','/dashboard/worker-evaluations'],['settings','/dashboard/settings'],['diagnostics','/dashboard/accounts?diagnostics=platform'],['printful','/dashboard/printful'],['etsy','/dashboard/etsy'],['workflow','/dashboard/workflows/'+id(1001)],['secure','/dashboard/accounts/secure?run='+id(770000)],['password','/dashboard/accounts/password?account='+id(770000)],['registration','/dashboard/accounts/registration?run='+id(770000)]];
+    const routes=[['quests','/dashboard/quests?quest='+id(820000)],['overview','/dashboard'],['work','/dashboard?view=work'],['history','/dashboard/history'],['workflows-alias','/dashboard/workflows'],['needs-you','/dashboard/needs-you'],['library','/dashboard?view=library'],['research','/dashboard?view=research'],['activity','/dashboard?view=activity'],['connections','/dashboard?view=connections'],['products','/dashboard/products'],['artifacts','/dashboard/artifacts'],['packs','/dashboard/packs'],['model-router','/dashboard/model-router'],['worker-proof','/dashboard/worker-proof'],['evaluations','/dashboard/worker-evaluations'],['settings','/dashboard/settings'],['diagnostics','/dashboard/accounts?diagnostics=platform'],['printful','/dashboard/printful'],['etsy','/dashboard/etsy'],['connection-qualification','/dashboard/connections'],['workflow','/dashboard/workflows/'+id(1001)],['secure','/dashboard/accounts/secure?run='+id(770000)],['password','/dashboard/accounts/password?account='+id(770000)],['registration','/dashboard/accounts/registration?run='+id(770000)]];
     for(const [name,route]of routes)await check(`actual retained route ${name}`,async()=>{
       for(const [width,height]of [[1280,720],[1440,900],[390,844],[320,800],[640,360]]){
         await page.setViewportSize({width,height});const url=new URL(route,origin);url.searchParams.set('business',business);await page.goto(url.href);await page.locator('body').waitFor();if(name==='workflow')await page.locator(`[data-work-detail="${id(1001)}"]`).waitFor();
@@ -228,6 +303,26 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false,que
         }
         if(width===640)results.push({name:`${name} 200 percent desktop reflow equivalent`,status:'passed',viewport:'640x360 CSS pixels corresponds to 1280x720 at 200 percent zoom'});
       }
+    });
+    await check('R11 Etsy purpose hold is explicit, inert and preserves existing connections across navigation',async()=>{
+      const beforeEffects=boundary.effects.length,beforeActions=actions.length;
+      try {
+        for(const connected of [false,true]){
+          if(connected)await context.addCookies([{name:'r03-mode',value:'r11-connected',url:origin}]);
+          else await context.clearCookies({name:'r03-mode'});
+          for(const [width,height]of [[1280,720],[1440,900],[390,844],[320,800]]){
+            await page.setViewportSize({width,height});
+            await page.goto(origin+`/dashboard/etsy?business=${connected?id(2):business}&panel=drafts`);
+            const note=page.getByRole('note').filter({hasText:'legacy write-scope connection flow'});await note.waitFor();
+            if(connected){await page.getByText('Saved exact shop with a long original name retained across Business navigation',{exact:true}).waitFor();assert.equal(await page.getByRole('button',{name:'Disconnect and stop draft work',exact:true}).isEnabled(),true);}
+            else {assert.equal(await page.getByRole('button',{name:'Connect Etsy securely',exact:true}).isDisabled(),true);assert.equal(await page.locator('input[name=accountConsent]').isDisabled(),true);}
+            const nav=page.getByRole('navigation',{name:'Tool sections'});await nav.getByRole('link',{name:'Publication receipts',exact:true}).click();await page.waitForURL(/panel=publication/);await page.goBack();await page.waitForURL(/panel=drafts/);await note.waitFor();await page.reload();await note.waitFor();
+            const m=await page.evaluate(()=>({w:document.documentElement.scrollWidth,h:document.documentElement.scrollHeight}));assert.ok(m.w<=width+1);if(width>=1280)assert.ok(m.h<=height+1);
+            await page.screenshot({path:path.join(output,`r11-etsy-${connected?'connected':'held'}-${width}x${height}.png`),fullPage:true});
+          }
+        }
+      }finally{await context.clearCookies({name:'r03-mode'});}
+      assert.equal(boundary.effects.length,beforeEffects);assert.equal(actions.length,beforeActions);
     });
     const toolSections=[['products',['recovery','candidates','new','capabilities']],['artifacts',['production','technical','gallery','scope']],['packs',['installed','qualification']],['model-router',['routes','models','launch']],['worker-proof',['launch']],['worker-evaluations',['suite','promotions']],['settings',['businesses','boundaries']],['accounts',['requests','etsy','printful']],['printful',['calculator','catalog','connection','qualification']],['etsy',['drafts','publication']],['workflows/'+id(1001),['stages','tasks','workers','outputs','products','browser','activity']]];
     for(const [route,panels]of toolSections)for(const panel of panels)await check(`retained section ${route} ${panel} uses real Next navigation`,async()=>{
@@ -265,8 +360,8 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false,que
     });
     for(const mode of ['empty','unavailable'])await check(`actual retained ${mode} reads remain explicit and inert`,async()=>{
       await context.addCookies([{name:'r03-mode',value:mode,url:origin}]);
-      try {for(const route of ['products','artifacts','packs','model-router','worker-proof','worker-evaluations','settings']){
-        await page.setViewportSize({width:1280,height:720});await page.goto(origin+`/dashboard/${route}`);
+      try {for(const route of ['products','artifacts','packs','model-router','worker-proof','worker-evaluations','settings','connections']){
+        await page.setViewportSize({width:1280,height:720});await page.goto(origin+`/dashboard/${route}${route==='connections'?`?business=${business}`:''}`);
         await page.screenshot({path:path.join(output,`${route}-${mode}-1280x720.png`),fullPage:true,mask:[page.locator('[data-private=true]')],maskColor:'#142b3b'});
         assert.equal(await page.getByText('Application error',{exact:false}).count(),0);
         if(mode==='unavailable'){
@@ -335,6 +430,10 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false,que
     await runWorkspaceJourneys({page,context,origin,boundary,output,check,requests,actions});
     assert.deepEqual(external,[],'Browser attempted external effects');
     assert.equal(boundary.effects.length,effectCount,'Route reads caused an additional mutable effect');
+    await runKnowledgeJourneys({page,context,origin,boundary,output,check,requests,actions});
+    assert.deepEqual(external,[],'R09 browser attempted an external request');assert.deepEqual(boundary.denied,[],'R09 boundary denied an unreviewed operation');
+    await runViewerHttp({origin,boundary,check});await runViewerJourneys({page,context,origin,boundary,output,check,requests,actions});
+    assert.deepEqual(external,[],'R10 browser attempted an external request');assert.deepEqual(boundary.denied,[],'R10 boundary denied an unreviewed operation');
     await writeFile(path.join(output,'action-responses.json'),JSON.stringify(actions,null,2));
     await writeFile(path.join(output,'rsc-responses.json'),JSON.stringify(requests,null,2));assert.ok(results.every(result=>result.status==='passed'), 'Actual Next checks failed; see acceptance.json');await context.close();
   }finally{await browser.close();await report();}

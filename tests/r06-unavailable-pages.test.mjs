@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 import { runInNewContext } from 'node:vm';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { loadSource } from './helpers/guided-ui.mjs';
 
 const require = createRequire(import.meta.url), ts = require('typescript');
 const selected = '96060000-0000-4000-8000-000000000001';
@@ -32,6 +33,7 @@ function fixture(route, businessesUnavailable) {
     'next/navigation': { notFound() { const error = Error('Exact Business selection not found'); error.code = 'FIXTURE_NOT_FOUND'; throw error; } },
     'next/link': ({ href, children }) => React.createElement('a', { href }, children),
     '@/lib/core-ui/data': { requireOwnerUiContext: async () => { auth.push('owner'); return context; } },
+    '@/lib/core-ui/workspace-navigation': loadSource('src/lib/core-ui/workspace-navigation.ts'),
     '@/components/stage7/app-shell': {
       AppShell: ({ children, navigationBusinessId }) => { shellScopes.push(navigationBusinessId); return React.createElement('main', null, children); },
       PageHeader: ({ title, description, actions }) => React.createElement('header', null, React.createElement('h1', null, title), React.createElement('p', null, description), actions),

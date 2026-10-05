@@ -45,8 +45,8 @@ export function discoverySelectionSchemaV2(collection: ResearchCollection): Json
       sourceKey:{type:"string",enum:collection.sources.map((_,index)=>`S${index+1}`)},quote:{type:"string",minLength:20,maxLength:320}}}},
     limitations:{type:"array",maxItems:4,uniqueItems:true,items:{type:"string",enum:["limited_sources","publication_dates_unknown","no_sales_metrics","no_current_prices"]}}}};
 }
-export function assembleDiscoveryEvidenceV2(collection: ResearchCollection, request: ResearchRequest, selection: JsonObject): EvidencePack {
-  validateResearchCollection(collection,request);assertJsonSchemaValue(discoverySelectionSchemaV2(collection),selection,"Exact-span research selection");
+export function assembleDiscoveryEvidenceV2(collection: ResearchCollection, request: ResearchRequest, selection: JsonObject, now = Date.now()): EvidencePack {
+  validateResearchCollection(collection,request,now);assertJsonSchemaValue(discoverySelectionSchemaV2(collection),selection,"Exact-span research selection");
   const selections=selection.selections as {sourceKey:string;quote:string}[];
   const evidence=selections.map(item=>{const source=collection.sources[Number(item.sourceKey.slice(1))-1];
     if(!source || item.quote.trim()!==item.quote || !source.excerpt.includes(item.quote))throw new Error("Researcher quote is not an exact retained source span.");
@@ -54,7 +54,7 @@ export function assembleDiscoveryEvidenceV2(collection: ResearchCollection, requ
   if(new Set(evidence.map(e=>e.id)).size!==evidence.length)throw new Error("Duplicate exact source selection.");
   // The source collection stays unchanged. Only this new Evidence Pack contains
   // the source-verified selected spans, including text after the old prefix.
-  return assembleEvidencePack({...collection,evidence},{selectedEvidenceIds:evidence.map(e=>e.id),limitations:selection.limitations});
+  return assembleEvidencePack({...collection,evidence},{selectedEvidenceIds:evidence.map(e=>e.id),limitations:selection.limitations},now);
 }
 /** Reuse a persisted complete collection; never repeat its search just because selection failed. */
 export async function selectDiscoveryEvidenceV2(options: ExecutionOptions & { collection: ResearchCollection }): Promise<{ evidencePack: EvidencePack; receipt: JsonObject }> {

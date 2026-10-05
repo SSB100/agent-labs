@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -100,8 +100,8 @@ test("every saved status and forged viewable props remain inert metadata with an
     const w = wire({ sessions: [{ ...f.session, status, state: "viewable" }] });
     const data = await w.server.loadConsoleBrowserWorkspace(w.context, { businessId: id(2), workflowRunId: id(3) });
     const forged = { ...data.selectedSession, state: "viewable", savedStatus: status, viewerUrl: "https://app.steel.dev/FIXTURE_PRIVATE_VALUE", debugUrl: "FIXTURE_PRIVATE_VALUE", watchHref: "/api/browser/sessions/private/live" };
-    const markup = render("browser", { ...data, sessions: [forged], selectedSession: forged });
-    assert.match(markup, /Live viewing unavailable: a privacy-safe viewer contract is not yet implemented/);
+    const markup = render("browser", { ...data, sessions: [forged], selectedSession: forged, viewer: { sessionId: forged.id, businessId: forged.businessId, workflowRunId: forged.workflowRunId, questId: id(7), status: "available", expiresAt: "2099-01-01T00:00:00.000Z", policyVersion: "r10-public-v1" } });
+    assert.match(markup, /Live viewing unavailable for this session/);
     assert.match(markup, /Saved status does not confirm current connectivity/);
     assert.match(markup, /Inspect saved workflow record/);
     assert.doesNotMatch(markup, /<iframe|<object|<embed|<video|FIXTURE_PRIVATE_VALUE|viewable|workspace=browser|\/api\/browser|Retry|Approve/);
@@ -109,12 +109,11 @@ test("every saved status and forged viewable props remain inert metadata with an
   }
 });
 
-test("shipping metadata sources contain no viewer, network lease, provider resolver or live route", () => {
-  for (const file of ["src/browser/console-view.ts", "src/browser/console-server.ts", "src/components/console/console-browser-centre.tsx"]) {
+test("saved metadata sources never resolve native endpoints or grant legacy viewing", () => {
+  for (const file of ["src/browser/console-view.ts", "src/components/console/console-browser-centre.tsx"]) {
     const source = readFileSync(file, "utf8");
     assert.doesNotMatch(source, /<iframe|<object|<embed|<video|\bfetch\s*\(|\.rpc\s*\(|get_browser_session_live_view|debugUrl|viewerUrl|WatchHref|ReadOnlyTarget|createConsoleBrowserLease|setInterval|setTimeout|createSession|connectCDP|localStorage|sessionStorage/);
   }
-  assert.equal(existsSync("src/app/api/browser/sessions/[browserSessionId]/watch/route.ts"), false);
   assert.equal(contract.consoleBrowserWatchHref, undefined);
   assert.equal(contract.createConsoleBrowserLease, undefined);
   assert.equal(wire().server.loadConsoleBrowserWatch, undefined);

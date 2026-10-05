@@ -11,7 +11,7 @@ test("console browser fixture bundles real compact metadata UI with synthetic ow
   const html = await consoleBrowserFixtureDocument();
   assert.match(html, /hydrateRoot/); assert.match(html, /__browserHydrationErrors/);
   assert.doesNotMatch(html, /https:\/\/[^"\s]*(?:supabase\.co|api\.steel\.dev|app\.steel\.dev)|STEEL_API_KEY|ACCOUNTS_VAULT_KEY|get_browser_session_live_view|<iframe/);
-  assert.match(html, /privacy-safe viewer contract is not yet implemented/);
+  assert.match(html, /Live viewing unavailable for this session/);
 });
 
 test("metadata-only Browser fits the actual centre and stays inert across URL history, reload and forged states", { skip: !enabled }, async () => {

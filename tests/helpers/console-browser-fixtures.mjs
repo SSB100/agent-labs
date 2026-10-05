@@ -13,8 +13,10 @@ export function loadBrowserSource(file, dependencies = {}) {
     module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true,
   } }).outputText;
   const compiledModule = { exports: {} };
-  runInNewContext(`(function(require,module,exports){${code}\n})`, { URL, URLSearchParams, Response, Request, Date, structuredClone, AbortController })(name => {
+  runInNewContext(`(function(require,module,exports){${code}\n})`, { URL, URLSearchParams, Response, Request, Date, structuredClone, AbortController, TextDecoder, setTimeout, clearTimeout, ReadableStream })(name => {
     if (name === "@/lib/core-ui/workspace-navigation") return loadBrowserSource("src/lib/core-ui/workspace-navigation.ts");
+    if (name === "./console-browser-watch") return loadBrowserSource("src/components/console/console-browser-watch.tsx", { "@/browser/console-watch-client": loadBrowserSource("src/browser/console-watch-client.ts"), "./console-browser-watch.css": {} });
+    if (name === "./watch/contracts") return loadBrowserSource("src/browser/watch/contracts.ts");
     if (name === "react") return React;
     if (name === "react/jsx-runtime") return require(name);
     if (name === "next/link") return FixtureLink;

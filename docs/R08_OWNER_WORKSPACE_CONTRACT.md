@@ -13,7 +13,7 @@ Canonical scope: R08 in `AGENT_LABS_V2_IMPLEMENTATION_PLAN.md`. Baseline is rele
 
 ## Read boundaries
 
-Migration `20261003194244_r08_owner_workspace.sql` is additive:
+Migration `20261003224010_r08_owner_workspace.sql` is additive:
 
 1. `public.r08_workflow_quest(uuid,uuid)` is an authenticated, owner-checked pure read of Core workflow identity plus exact R04 legacy Research links. It resolves only one unambiguous canonical R04 Quest. A legacy Core Goal is not silently promoted into a Quest.
 2. Seven SELECT-only, `security_invoker`/`security_barrier` views expose the same existing public RLS records with this derived Quest ID: workflow runs, Research experiments, artifacts, creative runs, creative assets, owner interventions and raw events. There are no direct private table grants. New-object PUBLIC/anon/service-role privileges are revoked.

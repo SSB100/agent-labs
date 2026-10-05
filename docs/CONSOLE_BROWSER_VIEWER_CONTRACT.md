@@ -1,4 +1,8 @@
-# Centre Browser: saved metadata now, live viewer still open
+# Centre Browser: metadata fallback and scoped R10 viewer
+
+R10 implements a separately enrolled, one-shot controlled-public qualification viewer. Its exact source, privacy boundary, live qualification limits and approval gates are in [R10 privacy-safe viewer](R10_PRIVATE_BROWSER_VIEWER_CONTRACT.md). Existing Stage 8/9 and secure handoff sessions retain the metadata fallback described below; they are not upgraded by this implementation.
+
+The following is the preserved **pre-R10 source audit and fallback contract**. Its “future” and “not implemented” language records the earlier baseline, not the new R10 implementation status. Current fallback copy is “Live viewing unavailable for this session.”
 
 ## Shipping boundary
 

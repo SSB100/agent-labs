@@ -1,25 +1,34 @@
-# Etsy activation remains separately gated
+# Etsy access and application-purpose qualification
 
-Reviewed 2026-10-02 against [Etsy API Terms of Use](https://www.etsy.com/legal/api/), especially section3 and section5(24)–(25).
+Reviewed 2026-10-04 against the [Etsy developer overview](https://developers.etsy.com/documentation/) and [API Terms of Use](https://www.etsy.com/legal/api/) (last updated 2026-08-18). This is a conservative engineering qualification record, not a legal conclusion that all automation is forbidden.
 
-Section3 requires Etsy's approval of the application purpose. Section5 restricts automated access, analysis and scraping of Etsy services/data, and API content collection for analytics or machine-learning purposes, absent Etsy's express written authorization. An issued key, personal-access approval or seller OAuth consent must not be described as blanket permission for autonomous agents or marketplace research. This is the project's conservative operational hold pending written clarification of the exact intended functions, not a legal determination about every possible implementation.
+## Current official scope distinctions
 
-## Owner-reported application status
+The developer overview expressly describes Seller Apps for own-shop tools, automations, reporting and workflows. It describes Personal Apps as reviewed limited-scale uses beyond one's own shop, and Commercial Access as broader multi-seller access. Commercial Access is not automatically required merely because the owner sells products. Do not infer the exact accepted purpose, shops or limits from an access-tier label, or repeat an older numeric shop limit without current evidence.
 
-The owner reported Etsy application status **Personal Access** at **2026-10-02 20:58:56 UTC**. Direct verification was not performed. App-pending is no longer the current owner-reported gate. This is a dated status correction, not a claim that the application's exact automation/research/AI purpose is authorized.
+API Terms section 3 requires approval of the application purpose and updates. Sections 5(24) and 5(25) address automated access/analysis and API-content collection for analytics, machine learning or AI training, with written authorization requirements. Their relationship to ordinary runtime model inference over seller data is not resolved by an access-tier label. Compare the exact application description and matching Etsy approval before deciding whether additional targeted clarification is needed. The overview separately prohibits bypassing the API through screen scraping; a Steel browser is not a substitute permission route.
 
-Keep separate and unresolved/unverified: section 5 automation-purpose/data-use written authorization, callback/vault/server configuration, owner OAuth and operation-specific gates. No provider activation authority follows from this status update, R02 software qualification, an issued key or OAuth consent. Safe UI development and inert qualification can continue independently.
+[OAuth authentication](https://developers.etsy.com/documentation/essentials/authentication/) separately establishes the consenting user and actual granted scopes. It does not establish every downstream purpose or data use. [Creativity Standards](https://www.etsy.com/legal/creativity/) separately address qualifying seller-prompted AI-created products and disclosure; they do not authorize using Etsy content in a research/model pipeline.
+
+## Current evidence status
+
+On 2026-10-04 at 23:41 UTC, a signed-in read-only Developer Portal inspection verified **Personal Access** and the submitted description for the existing private own-shop application. The description permits own-shop shop/listing reads and preparation/update, requires owner review before publication, and excludes other sellers. Its exact description SHA-256 is `de2f364872b136a615667bffef7c521d7eab5418da0c27f268e7d6edc56d6258`. Private account details and keys are not published here.
+
+This is sufficient purpose evidence to prepare a bounded deterministic own-shop read qualification, subject to the actual scoped credential, server enforcement and live checks. A second blanket Etsy inquiry is not required for that narrow lane. It is not written authorization for marketplace-wide collection, Etsy-content model ingestion or publication without actual owner review.
+
+The owner chose to leave the application description unchanged. A fixed, fully specified batch reviewed by the owner before publication may fit the current review promise; that is an implementation interpretation, not a legal determination or permission to treat a blanket allowance as review of unknown future listings. The long-term autonomous operating goal remains in the canonical plan; any material later purpose mismatch must be resolved before enabling it.
+
+## Independent qualification lanes
+
+- Own-shop operational reads: the bounded R11 setup qualification passed on 2026-10-05 for the exact consenting account and StudioKindredStore shop, with only `shops_r listings_r`, one token POST, two fixed GETs, immutable revision/expiry metadata and encrypted token custody. Later operation dispatch and automatic refresh remain separately gated; broader marketplace/AI rights are not inherited
+- Marketplace research: exact sources, collection method, requested content and allowed analysis. Public visibility or a search-provider result does not establish downstream rights
+- Model processing: distinguish inference, third-party model transmission, retained analysis, derived analytics, embeddings and training. Preserve exact source lineage through creative/listing derivatives
+- Mutation: draft creation, upload, publication, fees, renewal, orders and fulfilment retain separate technical, envelope and commercial gates
 
 ## Current implementation boundary
 
-- Do not activate Etsy automated research, browsing, provider actions or execution while this hold is unresolved
-- Continue owner-authorized UI development and synthetic, external-network-blocked tests
-- Keep account configuration, connection state, Etsy application-purpose authorization, seller consent and one-operation approval separate
-- Do not mark a capability enabled solely because a credential exists or a setup form was completed
-- Preserve existing closed qualification gates; no new runtime policy, schema, grant or security setting is introduced by this document
+The [R11 scoped contract](R11_EXTERNAL_ELIGIBILITY_CONTRACT.md) adds a pre-OAuth and lowest-transport denial boundary plus request-bound source-provenance checks. The source includes an additive, empty-by-default own-shop connection grant/custody contract. The exact reviewed Production application, additive schema and one-attempt own-shop activation were separately approved and qualified; see the linked scoped release receipt. Research/model provenance remains closed with no enabling evidence producer. Source-free fixture assertions and pure evidence checks are not operational grants. Existing saved connections and financial receipts are preserved.
 
-## Evidence needed before a separately reviewed activation change
+Safe synthetic tests and public documentation review continue. Own-shop OAuth/custody and the exact setup reads are qualified, with the application description unchanged. No automated Etsy research, scraping, source-model ingestion or provider write is activated. General R05/R07 source/model eligibility and renewable-token execution remain open R11 work. Qualified own-shop access must not inherit broader research/AI permission, or vice versa.
 
-Record the exact approved purpose, operations, data categories and permitted uses from Etsy's written response; reconcile that scope with the intended research/AI pipeline. Then review the application's enforcement, least-privilege access, retention, disclosure, cancellation/reconciliation and acceptance tests before any credential configuration or provider action. Owner permission alone cannot supply Etsy's authorization.
-
-Product evidence, exact asset approval, print placement, Etsy-linked variants, shop-specific fees/currency/tax and Stage22 fulfilment remain independent technical and commercial gates. Resolving the terms question does not implement those missing contracts. Live browser watching also retains its independent privacy-safe delivery blocker.
+Product/source evidence, exact asset review, print placement, Etsy-linked variants, shop-specific fees/taxes/currency, supported fulfilment and each later operation remain separate gates. R10's fixed controlled-public browser proof does not qualify arbitrary sites or secure account registration.

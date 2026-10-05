@@ -1,8 +1,9 @@
 import { carryWorkspace } from "@/lib/core-ui/workspace-navigation";
 import Link from "next/link";
 import { useId, type ReactNode } from "react";
-import { CONSOLE_BROWSER_UNAVAILABLE, consoleBrowserHref, consoleBrowserStatus, consoleBrowserUpdatedAt, consoleBrowserWorkflowHref, type ConsoleBrowserWorkspace, type ConsoleCentreMode } from "@/browser/console-view";
+import { CONSOLE_BROWSER_UUID, CONSOLE_BROWSER_UNAVAILABLE, consoleBrowserHref, consoleBrowserStatus, consoleBrowserUpdatedAt, consoleBrowserWorkflowHref, type ConsoleBrowserWorkspace, type ConsoleCentreMode } from "@/browser/console-view";
 import "./console-browser-centre.css";
+import { ConsoleBrowserWatch } from "./console-browser-watch";
 
 /** Render in the existing core top line, replacing its Owner control label. */
 export function ConsoleCentreTabs({ mode, data }: { mode: ConsoleCentreMode; data: ConsoleBrowserWorkspace }) {
@@ -35,14 +36,17 @@ function BrowserContext({ data }: { data: ConsoleBrowserWorkspace }) {
           {data.sessions.map(session => <option key={session.id} value={session.workflowRunId}>{session.label} · {session.workflowRunId.slice(0, 8)} · {consoleBrowserStatus(session.savedStatus).replaceAll("_", " ")}</option>)}
         </select><button type="submit" disabled={!data.sessions.length}>Choose run</button>
       </form> : null}
-      {data.truncated ? <p>Latest 40 sessions, plus the exact selected run.</p> : null}
-      <p>Only saved session metadata is shown. Page content, screenshots and provider links are not included.</p>
+      {data.truncated ? <p>Saved session list is limited. The exact selected run is read separately.</p> : null}
+      <p>{data.viewer ? "Watching is limited to the dedicated controlled public qualification. Existing workflow sessions show saved metadata only." : "Only saved session metadata is shown. Page content, screenshots and provider links are not included."}</p>
     </div>
   </details>;
 }
 
 function BrowserContent({ data }: { data: ConsoleBrowserWorkspace }) {
   const selected = data.status === "ready" ? data.selectedSession : null;
+  const viewer = data.viewer && [data.viewer.sessionId, data.viewer.businessId, data.viewer.questId, data.viewer.workflowRunId].every(value => typeof value === "string" && CONSOLE_BROWSER_UUID.test(value)) && selected?.label === "Controlled public qualification" && data.viewer.sessionId === selected.id &&
+    data.viewer.businessId === data.selectedBusinessId && data.viewer.businessId === selected.businessId && data.viewer.workflowRunId === data.selectedRunId &&
+    data.viewer.workflowRunId === selected.workflowRunId ? data.viewer : null;
   const record = selected ? consoleBrowserWorkflowHref(selected) : null;
   const recordHref = record ? carryWorkspace(record, data.workspaceSearch) : null;
   const updatedAt = consoleBrowserUpdatedAt(selected?.updatedAt);
@@ -54,31 +58,33 @@ function BrowserContent({ data }: { data: ConsoleBrowserWorkspace }) {
     title = data.businesses.length ? "Choose a Business" : "No Business workspace";
     description = "Open Context to choose whose saved browser activity to inspect.";
   } else if (!data.selectedRunId) {
-    title = data.sessions.length ? "Choose a browser run" : "No browser sessions recorded";
+    title = data.sessions.length ? "Choose a browser run" : data.viewerUnavailable ? "Safe-viewing records unavailable" : data.truncated ? "No sessions in loaded selection" : "No browser sessions recorded";
     description = data.sessions.length ? "Open Context to choose an exact run." : "No browser session is recorded for this Business. This view does not start one.";
+    if (!data.sessions.length && (data.viewerUnavailable || data.truncated)) description = "This limited read does not establish that the selected work has no session. Saved records remain available.";
   } else if (!selected) {
-    title = "No browser session for this run";
-    description = "Other work can run without a browser. This view does not start one.";
+    title = data.viewerUnavailable ? "Safe-viewing records unavailable" : "No browser session for this run";
+    description = data.viewerUnavailable ? "The qualification catalog could not be read. No missing session has been inferred." : "Other work can run without a browser. This view does not start one.";
   }
   return <div className="consoleBrowserContent" data-console-centre="browser">
     <div className="consoleBrowserToolbar">
-      <strong>{selected ? `Recorded session state: ${consoleBrowserStatus(selected.savedStatus).replaceAll("_", " ")}` : "Saved browser activity"}</strong>
+      <strong>{viewer ? "Controlled public qualification" : selected ? `Recorded session state: ${consoleBrowserStatus(selected.savedStatus).replaceAll("_", " ")}` : "Saved browser activity"}</strong>
       <div className="consoleBrowserTools"><BrowserContext key={`${data.selectedBusinessId}:${data.selectedRunId}`} data={data}/>{recordHref ? <Link href={recordHref} prefetch={false} aria-label="Inspect saved workflow record">Record</Link> : null}</div>
     </div>
-    <div className="consoleBrowserEmpty" role="status">
+    {viewer ? <ConsoleBrowserWatch key={`${viewer.sessionId}:${viewer.policyVersion}`} viewer={viewer}/> : <div className="consoleBrowserEmpty" role="status">
       {selected ? <>
         <p>{selected.label} · Run {selected.workflowRunId.slice(0, 8)}</p>
         <p>{updatedAt ? <time dateTime={updatedAt}>Record updated {updatedAt.replace("T", " ").replace(".000Z", " UTC")}</time> : "Record update time unavailable"}</p>
       </> : <><strong>{title}</strong><p>{description}</p></>}
       <strong className="consoleBrowserUnavailable">{CONSOLE_BROWSER_UNAVAILABLE}</strong>
+      {data.viewerUnavailable && selected ? <p>Qualification records are unavailable. Saved session metadata remains visible.</p> : null}
       <p>Saved status does not confirm current connectivity. No provider heartbeat or expiry is available.</p>
-    </div>
+    </div>}
   </div>;
 }
 
 /** Render directly after the existing top line. Overview returns children with
  * no wrapper, preserving its original orb/next-action flex geometry. Browser
- * replaces both with compact saved metadata only. It cannot mount a viewer. */
+ * replaces both with compact metadata, or the dedicated scoped public viewer. */
 export function ConsoleBrowserCentre({ mode, data, children }: { mode: ConsoleCentreMode; data: ConsoleBrowserWorkspace; children: ReactNode }) {
   return mode === "browser" ? <BrowserContent key={`${data.selectedBusinessId}:${data.selectedRunId}`} data={data}/> : <>{children}</>;
 }
