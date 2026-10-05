@@ -1,8 +1,13 @@
+import { safeTablePage, historyRows } from "@/lib/core-ui/history-read";
+import { HistoryPager } from "@/components/console/history-pager";
+import type { HistoryPage } from "@/lib/core-ui/history-query";
+import { AppShell } from "@/components/stage7/app-shell";
+import { ConsoleRetainedWorkspace, ConsoleRecentRows } from "@/components/console/console-retained-workspace";
+import { requireOwnerUiContext } from "@/lib/core-ui/data";
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 
 import { isOpenRouterConfigured } from "../../../models/openrouter";
-import { createClient } from "../../../lib/supabase/server";
 import { MODEL_ROUTER_RUNTIME_WORKFLOW_DEFINITION_ID } from "../../../workflows/model-router-runtime";
 
 import { startModelRouterProof } from "./actions";
@@ -56,6 +61,7 @@ type Invocation = {
   failure_category: string | null;
   input_tokens: number;
   output_tokens: number;
+  provider_request_id: string | null;
   reported_cost_usd: number | string | null;
   estimated_cost_usd: number | string;
   latency_ms: number | null;
@@ -108,70 +114,47 @@ function formatDate(value: string | null) {
 }
 
 export default async function ModelRouterPage({ searchParams }: Props) {
-  const supabase = await createClient();
-  const { data: claimsData, error: claimsError } = await supabase.auth.getClaims();
-  const userId = claimsData?.claims?.sub;
-  if (claimsError || !userId) redirect("/login?error=session-required");
+  const context = await requireOwnerUiContext();
+  const supabase = context.supabase;
+  const query = await searchParams;
+  const selectedBusinessId = first(query.business);
+  if (query.business && (Array.isArray(query.business) || !context.businesses.some(b=>b.id===selectedBusinessId))) notFound();
+  const exactRunId = first(query.run);
+  if (query.run && (Array.isArray(query.run) || !/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(exactRunId ?? ""))) notFound();
 
   const [businessResult, modelResult, routeResult] = await Promise.all([
-    supabase
-      .from("businesses")
-      .select("id, name")
-      .eq("owner_user_id", userId)
-      .order("created_at", { ascending: false }),
-    supabase
-      .from("model_definitions")
-      .select(
-        "id, model_key, display_name, provider_family, provider_model_id, tier, status, context_window_tokens, input_price_per_million_usd, output_price_per_million_usd",
-      )
-      .order("model_key"),
-    supabase
-      .from("model_routes")
-      .select(
-        "id, route_key, name, status, primary_model_definition_id, fallback_model_definition_id, maximum_attempts",
-      )
-      .order("route_key"),
+    Promise.resolve({data:context.businesses,error:context.businessesUnavailable}),
+    safeTablePage<Model>(context,"model_definitions","id,model_key,display_name,provider_family,provider_model_id,tier,status,context_window_tokens,input_price_per_million_usd,output_price_per_million_usd","model",{time:"model_key",searchColumn:"display_name",statusColumn:"status"}),
+    safeTablePage<Route>(context,"model_routes","id,route_key,name,status,primary_model_definition_id,fallback_model_definition_id,maximum_attempts","route",{time:"route_key",searchColumn:"name",statusColumn:"status"}),
   ]);
 
-  const businesses = (businessResult.data ?? []) as Business[];
-  const models = (modelResult.data ?? []) as Model[];
-  const routes = (routeResult.data ?? []) as Route[];
-  const businessIds = businesses.map((business) => business.id);
+  const businesses = ((businessResult.data ?? []) as Business[]).filter(b=>!selectedBusinessId || b.id===selectedBusinessId);
+  const models = historyRows(modelResult);
+  const routes = historyRows(routeResult);
+  let historyPage:HistoryPage|undefined, invocationPage:HistoryPage|undefined;
   let runs: Run[] = [];
   let invocations: Invocation[] = [];
-  let loadError = Boolean(businessResult.error || modelResult.error || routeResult.error);
+  let loadError = Boolean(businessResult.error || !modelResult.page.available || !routeResult.page.available);
 
-  if (businessIds.length) {
-    const runResult = await supabase
-      .from("workflow_runs")
-      .select(
-        "id, business_id, status, current_stage_key, input, state, runtime_run_id, created_at, completed_at",
-      )
-      .eq("workflow_definition_id", MODEL_ROUTER_RUNTIME_WORKFLOW_DEFINITION_ID)
-      .in("business_id", businessIds)
-      .order("created_at", { ascending: false })
-      .limit(30);
-    runs = (runResult.data ?? []) as Run[];
-    loadError ||= Boolean(runResult.error);
+  if (!context.businessesUnavailable) {
+    const runResult=await safeTablePage<Run>(context,"workflow_runs","id,business_id,status,current_stage_key,input,state,runtime_run_id,created_at,completed_at","proof",{businessId:selectedBusinessId,filters:[["workflow_definition_id",MODEL_ROUTER_RUNTIME_WORKFLOW_DEFINITION_ID]],selectedId:exactRunId,statusColumn:"status"});
+    historyPage=runResult.page;
+    if(exactRunId && runResult.page.available && !runResult.selected)notFound();
+    runs=historyRows(runResult); loadError ||= !runResult.page.available;
 
     if (runs.length) {
-      const invocationResult = await supabase
-        .from("model_invocations")
-        .select(
-          "id, workflow_run_id, model_definition_id, attempt, status, provider_model_id, failure_category, input_tokens, output_tokens, reported_cost_usd, estimated_cost_usd, latency_ms",
-        )
-        .in(
-          "workflow_run_id",
-          runs.map((run) => run.id),
-        )
-        .order("attempt");
-      invocations = (invocationResult.data ?? []) as Invocation[];
-      loadError ||= Boolean(invocationResult.error);
+      const invocationResult=await safeTablePage<Invocation>(context,"model_invocations","id,workflow_run_id,model_definition_id,attempt,status,provider_model_id,failure_category,input_tokens,output_tokens,provider_request_id,reported_cost_usd,estimated_cost_usd,latency_ms","invocation",{inFilters:[["workflow_run_id",exactRunId?[exactRunId]:runs.map(r=>r.id)]],time:"created_at"});
+      invocations=historyRows(invocationResult);invocationPage=invocationResult.page;
+      loadError ||= !invocationResult.page.available;
+
     }
   }
 
   const businessById = new Map(businesses.map((business) => [business.id, business]));
-  const modelById = new Map(models.map((model) => [model.id, model]));
+  const referencedIds=[...new Set([...routes.flatMap(r=>[r.primary_model_definition_id,r.fallback_model_definition_id]),...invocations.map(i=>i.model_definition_id)])].filter(id=>id&&!models.some(m=>m.id===id));
+  const relatedModels=referencedIds.length?await supabase.from("model_definitions").select("id,model_key,display_name,provider_family,provider_model_id,tier,status,context_window_tokens,input_price_per_million_usd,output_price_per_million_usd",{count:"exact"}).in("id",referencedIds).limit(79):{data:[],error:null,count:0};
+  if(relatedModels.error || relatedModels.count!==referencedIds.length || relatedModels.data?.length!==referencedIds.length)loadError=true;
+  const modelById = new Map([...models,...(relatedModels.data??[]) as Model[]].map((model) => [model.id, model]));
   const invocationsByRun = new Map<string, Invocation[]>();
   for (const invocation of invocations) {
     const entries = invocationsByRun.get(invocation.workflow_run_id) ?? [];
@@ -181,7 +164,7 @@ export default async function ModelRouterPage({ searchParams }: Props) {
 
   const totalCost = invocations.reduce(
     (sum, invocation) =>
-      sum + numberValue(invocation.reported_cost_usd ?? invocation.estimated_cost_usd),
+      sum + (invocation.provider_request_id ? numberValue(invocation.reported_cost_usd) : 0),
     0,
   );
   const activeCount = runs.filter((run) => ACTIVE.has(run.status)).length;
@@ -189,46 +172,26 @@ export default async function ModelRouterPage({ searchParams }: Props) {
     (run) => numberValue(run.state.routeAttemptCount) > 1,
   ).length;
   const configured = isOpenRouterConfigured();
-  const query = await searchParams;
   const message = messages[first(query.message) ?? ""];
   const error = errors[first(query.error) ?? ""];
 
-  return (
-    <div className="appFrame">
-      <aside className="appSidebar">
-        <Link className="appBrand" href="/dashboard">
-          <span className="brandMark" aria-hidden="true">AL</span>
-          <span><strong>Agent Labs</strong><small>Model Router</small></span>
-        </Link>
-        <nav className="appNav" aria-label="Model Router navigation">
-          <Link className="navItem" href="/dashboard">Control centre</Link>
-          <Link className="navItem" href="/dashboard/worker-proof">Worker proof</Link>
-          <Link className="navItem active" href="/dashboard/model-router">Model router</Link>
-        </nav>
-      </aside>
-
-      <main className="appMain">
-        <header className="workspaceHeader">
-          <div className="workspaceTitle"><p>Stage 5</p><h1>Model Router</h1></div>
-          <Link className="ghostButton" href="/dashboard">Back</Link>
+  return (<AppShell active="settings" toolDestination="model-router" context={context} navigationBusinessId={selectedBusinessId}><ConsoleRetainedWorkspace ownerId={context.userId} notice={<><HistoryPager page={historyPage} name="proof" label="Proof runs"/><HistoryPager page={modelResult.page} name="model" label="Models"/><HistoryPager page={routeResult.page} name="route" label="Routes"/><HistoryPager page={invocationPage} name="invocation" label="Model calls"/><p className="coreNotice">Models, routes, proof runs and model calls have independent server pages. Amounts summarize the displayed call page only. Proof run history is independently server-paged; related execution details are bounded and missing records remain unavailable.</p></>} header={<><header className="workspaceHeader">
+          <div className="workspaceTitle"><p>Model routing</p><h1>Model Router</h1></div>
+          <Link className="ghostButton" href={`/dashboard?view=overview${selectedBusinessId ? `&business=${selectedBusinessId}` : ""}`}>Back</Link>
         </header>
-
-        {message ? <p className="notice success" role="status">{message}</p> : null}
-        {error ? <p className="notice error" role="alert">{error}</p> : null}
-        {!configured ? (
+{message ? <p className="notice success" role="status">{message}</p> : null}
+{error ? <p className="notice error" role="alert">{error}</p> : null}
+{!configured ? (
           <p className="notice error" role="alert">
-            Add the server-only OPENROUTER_API_KEY environment variable to Development,
-            Preview and Production before running live proofs.
+            Live proof launch is unavailable. Provider activation requires a separate authorized configuration gate.
           </p>
         ) : null}
-        {loadError ? <p className="notice error">Some Model Router records could not be loaded.</p> : null}
-
-        <section className="summaryGrid" aria-label="Model Router summary">
+{loadError ? <p className="notice error">Some Model Router records could not be loaded.</p> : null}</>} panels={[{ id: "history", label: "Proof receipts", content: <><section className="summaryGrid" aria-label="Model Router summary">
           {[
             ["Qualified routes", routes.filter((route) => route.status === "qualified").length],
-            ["Registered models", models.length],
-            ["Active proofs", activeCount],
-            ["Fallback proofs", fallbackCount],
+            ["Loaded models", models.length],
+            ["Active in loaded proofs", activeCount],
+            ["Fallback in loaded proofs", fallbackCount],
           ].map(([label, value]) => (
             <article className="summaryCard" key={String(label)}>
               <span className="summaryLabel">{label}</span>
@@ -236,12 +199,110 @@ export default async function ModelRouterPage({ searchParams }: Props) {
             </article>
           ))}
           <article className="summaryCard">
-            <span className="summaryLabel">Recorded model cost</span>
-            <strong style={{ fontSize: "1.3rem" }}>{formatUsd(totalCost)}</strong>
+            <span className="summaryLabel">Loaded reported charges</span><p>{invocations.filter(i=>i.reported_cost_usd==null || !i.provider_request_id).length} unknown charge(s) · estimates separate.</p>
+            <strong style={{ fontSize: "1.3rem" }}>{loadError ? "Unavailable" : formatUsd(totalCost)}</strong>
           </article>
         </section>
-
-        <section className="dashboardGrid">
+<section className="operationsPanel" aria-labelledby="runs-heading">
+          <div className="panelHeading workflowHeading">
+            <div><p className="panelLabel">Durable telemetry</p><h2 id="runs-heading">Model proof history</h2></div>
+            <span className="countBadge">{runs.length}</span>
+          </div>
+          {runs.length ? (
+            <div className="workflowList">
+              <ConsoleRecentRows label="Recent loaded model-router records" rows={runs.map((run) => {
+                const attempts = invocationsByRun.get(run.id) ?? [];
+                const runCost = attempts.reduce(
+                  (sum, attempt) => sum + (attempt.provider_request_id ? numberValue(attempt.reported_cost_usd) : 0),
+                  0,
+                );
+                return (
+                  <details className="workflowCard" id={`model-proof-${run.id}`} key={run.id} open={exactRunId===run.id}><summary><strong>{humanize(String(run.input.proofMode ?? "saved"))} proof · {run.id}</strong><span>{humanize(run.status)} · {loadError ? "Receipts unavailable" : attempts.length ? <>Loaded reported {formatUsd(runCost)} · {attempts.filter(a=>a.reported_cost_usd==null || !a.provider_request_id).length} unknown charge(s)</> : "No receipts returned in this loaded window"}</span></summary><div>
+                    <div className="workflowCardHeader">
+                      <div>
+                        <p className="workflowBusiness">{businessById.get(run.business_id)?.name ?? "Business"}</p>
+                        <h3>{humanize(String(run.input.proofMode ?? "live"))} model proof</h3>
+                        <p>Started {formatDate(run.created_at)} · Stage {humanize(run.current_stage_key)}</p>
+                      </div>
+                      <span className={`workflowStatus status-${run.status}`}>{humanize(run.status)}</span>
+                    </div>
+                    <ol className="stageTimeline" aria-label="Model attempts">
+                      {attempts.map((attempt) => (
+                        <li className={`stageState stage-${attempt.status}`} key={attempt.id}>
+                          <span className="stageMarker" aria-hidden="true" />
+                          <div>
+                            <strong>Attempt {attempt.attempt}: {modelById.get(attempt.model_definition_id)?.display_name ?? attempt.provider_model_id}</strong>
+                            <small>
+                              {humanize(attempt.status)} · {attempt.input_tokens + attempt.output_tokens} tokens · {(attempt.reported_cost_usd == null || !attempt.provider_request_id) ? "Charge unknown" : formatUsd((attempt.provider_request_id ? numberValue(attempt.reported_cost_usd) : 0))} · estimate {formatUsd(numberValue(attempt.estimated_cost_usd))}{!attempt.provider_request_id && attempt.reported_cost_usd!=null ? ` · unverified saved amount ${formatUsd(numberValue(attempt.reported_cost_usd))}, excluded from reported charges` : ""}
+                              {attempt.failure_category ? ` · ${humanize(attempt.failure_category)}` : ""}
+                            </small>
+                          </div>
+                        </li>
+                      ))}
+                    </ol>
+                    <div className="eventHistoryHeader">
+                      <strong>Loaded reported {formatUsd(runCost)}</strong>
+                      <small>{run.runtime_run_id ? `Runtime ${run.runtime_run_id.slice(0, 18)}…` : "Runtime pending"}</small>
+                    </div><Link className="coreButton" href={`/dashboard/model-router?business=${run.business_id}&run=${run.id}&panel=history`}>Open exact proof receipts</Link>
+                  </div></details>
+                );
+              })} />
+            </div>
+          ) : (
+            <div className="operationEmpty">
+              <strong>No model proofs in this loaded window.</strong>
+              <span>Configure OpenRouter, then run a live proof or bounded fallback proof.</span>
+            </div>
+          )}
+        </section></> },
+{ id: "routes", label: "Routes", content: <><section className="operationsPanel">
+          <div className="panelHeading workflowHeading">
+            <div><p className="panelLabel">Logical policy</p><h2>Qualified routes</h2></div>
+            <span className="countBadge">{routes.length}</span>
+          </div>
+          <div className="businessList">
+            <ConsoleRecentRows label="Recent loaded model-router records" rows={routes.map((route) => {
+              const primary = modelById.get(route.primary_model_definition_id);
+              const fallback = modelById.get(route.fallback_model_definition_id);
+              return (
+                <article className="businessCard" key={route.id}>
+                  <div>
+                    <h3>{route.name}</h3>
+                    <p>{route.route_key}</p>
+                    <p>{primary?.display_name ?? "Unavailable"} → {fallback?.display_name ?? "Unavailable"}</p>
+                  </div>
+                  <div className="businessActions">
+                    <span>{humanize(route.status)}</span>
+                    <small>Maximum {route.maximum_attempts} attempts</small>
+                  </div>
+                </article>
+              );
+            })} />
+          </div>
+        </section></> },
+{ id: "models", label: "Models", content: <><section className="operationsPanel">
+          <div className="panelHeading workflowHeading">
+            <div><p className="panelLabel">Capabilities and price metadata</p><h2>Model registry</h2></div>
+            <span className="countBadge">{models.length}</span>
+          </div>
+          <div className="businessList">
+            <ConsoleRecentRows label="Recent loaded model-router records" rows={models.map((model) => (
+              <article className="businessCard" key={model.id}>
+                <div>
+                  <h3>{model.display_name}</h3>
+                  <p>{model.provider_model_id}</p>
+                  <p>{humanize(model.tier)} · {model.context_window_tokens.toLocaleString("en-NZ")} context tokens</p>
+                </div>
+                <div className="businessActions">
+                  <span>{humanize(model.status)}</span>
+                  <small>Input US${numberValue(model.input_price_per_million_usd).toFixed(2)}/M</small>
+                  <small>Output US${numberValue(model.output_price_per_million_usd).toFixed(2)}/M</small>
+                </div>
+              </article>
+            ))} />
+          </div>
+        </section></> },
+{ id: "launch", label: "Launch proof", content: <><section className="dashboardGrid">
           <article className="businessPanel">
             <div className="panelHeading">
               <div><p className="panelLabel">Live execution</p><h2>Run a proof</h2></div>
@@ -278,110 +339,6 @@ export default async function ModelRouterPage({ searchParams }: Props) {
               <p>OpenRouter {configured ? "configured" : "needs configuration"}</p>
             </div>
           </aside>
-        </section>
-
-        <section className="operationsPanel">
-          <div className="panelHeading workflowHeading">
-            <div><p className="panelLabel">Logical policy</p><h2>Qualified routes</h2></div>
-            <span className="countBadge">{routes.length}</span>
-          </div>
-          <div className="businessList">
-            {routes.map((route) => {
-              const primary = modelById.get(route.primary_model_definition_id);
-              const fallback = modelById.get(route.fallback_model_definition_id);
-              return (
-                <article className="businessCard" key={route.id}>
-                  <div>
-                    <h3>{route.name}</h3>
-                    <p>{route.route_key}</p>
-                    <p>{primary?.display_name ?? "Unavailable"} → {fallback?.display_name ?? "Unavailable"}</p>
-                  </div>
-                  <div className="businessActions">
-                    <span>{humanize(route.status)}</span>
-                    <small>Maximum {route.maximum_attempts} attempts</small>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        </section>
-
-        <section className="operationsPanel">
-          <div className="panelHeading workflowHeading">
-            <div><p className="panelLabel">Capabilities and price metadata</p><h2>Model registry</h2></div>
-            <span className="countBadge">{models.length}</span>
-          </div>
-          <div className="businessList">
-            {models.map((model) => (
-              <article className="businessCard" key={model.id}>
-                <div>
-                  <h3>{model.display_name}</h3>
-                  <p>{model.provider_model_id}</p>
-                  <p>{humanize(model.tier)} · {model.context_window_tokens.toLocaleString("en-NZ")} context tokens</p>
-                </div>
-                <div className="businessActions">
-                  <span>{humanize(model.status)}</span>
-                  <small>Input US${numberValue(model.input_price_per_million_usd).toFixed(2)}/M</small>
-                  <small>Output US${numberValue(model.output_price_per_million_usd).toFixed(2)}/M</small>
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <section className="operationsPanel" aria-labelledby="runs-heading">
-          <div className="panelHeading workflowHeading">
-            <div><p className="panelLabel">Durable telemetry</p><h2 id="runs-heading">Model proof history</h2></div>
-            <span className="countBadge">{runs.length}</span>
-          </div>
-          {runs.length ? (
-            <div className="workflowList">
-              {runs.map((run) => {
-                const attempts = invocationsByRun.get(run.id) ?? [];
-                const runCost = attempts.reduce(
-                  (sum, attempt) => sum + numberValue(attempt.reported_cost_usd ?? attempt.estimated_cost_usd),
-                  0,
-                );
-                return (
-                  <article className="workflowCard" key={run.id}>
-                    <div className="workflowCardHeader">
-                      <div>
-                        <p className="workflowBusiness">{businessById.get(run.business_id)?.name ?? "Business"}</p>
-                        <h3>{humanize(String(run.input.proofMode ?? "live"))} model proof</h3>
-                        <p>Started {formatDate(run.created_at)} · Stage {humanize(run.current_stage_key)}</p>
-                      </div>
-                      <span className={`workflowStatus status-${run.status}`}>{humanize(run.status)}</span>
-                    </div>
-                    <ol className="stageTimeline" aria-label="Model attempts">
-                      {attempts.map((attempt) => (
-                        <li className={`stageState stage-${attempt.status}`} key={attempt.id}>
-                          <span className="stageMarker" aria-hidden="true" />
-                          <div>
-                            <strong>Attempt {attempt.attempt}: {modelById.get(attempt.model_definition_id)?.display_name ?? attempt.provider_model_id}</strong>
-                            <small>
-                              {humanize(attempt.status)} · {attempt.input_tokens + attempt.output_tokens} tokens · {formatUsd(numberValue(attempt.reported_cost_usd ?? attempt.estimated_cost_usd))}
-                              {attempt.failure_category ? ` · ${humanize(attempt.failure_category)}` : ""}
-                            </small>
-                          </div>
-                        </li>
-                      ))}
-                    </ol>
-                    <div className="eventHistoryHeader">
-                      <strong>Total {formatUsd(runCost)}</strong>
-                      <small>{run.runtime_run_id ? `Runtime ${run.runtime_run_id.slice(0, 18)}…` : "Runtime pending"}</small>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="operationEmpty">
-              <strong>No model proofs have run yet.</strong>
-              <span>Configure OpenRouter, then run a live proof or bounded fallback proof.</span>
-            </div>
-          )}
-        </section>
-      </main>
-    </div>
+        </section></> }]} /></AppShell>
   );
 }

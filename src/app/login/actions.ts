@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
+import { ownerLoginPath, ownerReturnPath } from "@/core/owner-entry";
 import { createClient } from "@/lib/supabase/server";
 
 type Credentials = {
@@ -30,24 +31,25 @@ function credentialsAreValid({ email, password }: Credentials) {
   );
 }
 
-function goToLogin(code: string): never {
-  redirect(`/login?error=${encodeURIComponent(code)}`);
+function goToLogin(code: string, returnPath: string): never {
+  redirect(ownerLoginPath(code, returnPath));
 }
 
 export async function login(formData: FormData) {
   const credentials = readCredentials(formData);
+  const returnPath = ownerReturnPath(formData.get("returnTo"));
 
   if (!credentialsAreValid(credentials)) {
-    goToLogin("invalid-fields");
+    goToLogin("invalid-fields", returnPath);
   }
 
   const supabase = await createClient();
   const { error } = await supabase.auth.signInWithPassword(credentials);
 
   if (error) {
-    goToLogin("auth-failed");
+    goToLogin("auth-failed", returnPath);
   }
 
   revalidatePath("/", "layout");
-  redirect("/dashboard");
+  redirect(returnPath);
 }

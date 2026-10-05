@@ -1,0 +1,3 @@
+.r11Connections{display:grid;gap:.9rem;min-width:0;padding:1rem}.r11Connections section{min-width:0;border:1px solid var(--border,#ccd5dd);border-radius:.65rem;padding:.85rem}.r11Connections h2,.r11Connections h3{margin:.2rem 0}.r11Connections p{margin:.35rem 0;overflow-wrap:anywhere}.r11Connections label{display:flex;align-items:flex-start;gap:.55rem;min-height:44px;padding:.3rem 0}.r11Connections input[type=checkbox]{flex:0 0 auto;margin-top:.3rem}.r11Connections form{margin-top:.6rem}.r11Connections button{min-height:44px;white-space:normal;max-width:100%}@media(max-width:600px){.r11Connections{padding:.6rem}.r11Connections section{padding:.65rem}}
+
+.r11Connections summary{display:flex;align-items:center;min-height:44px;cursor:pointer}

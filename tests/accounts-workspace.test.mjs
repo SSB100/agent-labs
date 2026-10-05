@@ -1,4 +1,6 @@
+import { historyPager } from './helpers/history-fixtures.mjs';
 import test from 'node:test';
+import { retainedFixture } from './helpers/guided-ui.mjs';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { readFileSync, existsSync } from 'node:fs';
@@ -8,7 +10,7 @@ const { renderToStaticMarkup } = require('react-dom/server');
 function load(path, dependencies, globals = {}) {
   const code = ts.transpileModule(readFileSync(path, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText;
   const m = { exports: {} };
-  runInNewContext(`(function(require,module,exports){${code}\n})`, { URL, URLSearchParams, ...globals })(name => { assert.ok(name in dependencies, `Unexpected dependency ${name}`); return dependencies[name]; }, m, m.exports);
+  runInNewContext(`(function(require,module,exports){${code}\n})`, { URL, URLSearchParams, ...globals })(name => { if(name==='@/components/console/history-pager')return historyPager; assert.ok(name in dependencies, `Unexpected dependency ${name}`); return dependencies[name]; }, m, m.exports);
   return m.exports;
 }
 const C = load('src/accounts/contracts.ts', { 'node:crypto': require('node:crypto') });
@@ -19,9 +21,11 @@ const noop = async () => {};
 const actionNames = ['saveBusinessAccountProfile', 'requestAccountSetup', 'approveReviewedAccountSetup', 'cancelAccountSetup', 'resumeVerifiedAccountSetup', 'disconnectBusinessAccount', 'submitOwnerPrintfulCredential', 'storeOwnerWebsitePassword', 'removeOwnerWebsitePassword', 'startApprovedAccountRegistration', 'finishOwnerRegistrationSession'];
 const actionStubs = Object.fromEntries(actionNames.map(name => [name, noop]));
 const feedbackContract = load('src/accounts/connection-feedback.ts', {});
-const printfulContract = load('src/accounts/printful.ts', { '../printful/account': {}, '../printful/contracts': {}, './vault': {} });
+const printfulContract = load('src/accounts/printful.ts', { '../core/transport-admission':require('../.core-tests/core/transport-admission.js'), '../printful/account': {}, '../printful/contracts': {}, './vault': {} });
 const feedbackUi = load('src/app/dashboard/accounts/connection-feedback.tsx', { 'react': React, 'react/jsx-runtime': require('react/jsx-runtime'), 'next/navigation': { unstable_rethrow() {} } });
 const viewDependencies = {
+  '@/components/console/console-retained-workspace': retainedFixture(),
+  'next/navigation': { notFound: () => { throw new Error('not-found'); } },
   'react': React, 'react-dom': require('react-dom'), '@/accounts/connection-feedback': feedbackContract, './connection-feedback': feedbackUi, '../connection-feedback': feedbackUi,
   'react/jsx-runtime': require('react/jsx-runtime'),
   'next/link': ({ children, href, ...props }) => React.createElement('a', { href, ...props }, children),
@@ -569,4 +573,9 @@ test('ready-for-verification wording appears only when the saved Printful handof
     assert.doesNotMatch(html, /Ready for secure verification|Next: use Verify Printful/, JSON.stringify(change));
     assert.doesNotMatch(html, /href="\/dashboard\/accounts\/secure/, JSON.stringify(change));
   }
+});
+
+test('out-of-range setup request page retains its count without claiming global absence', () => {
+ const html=render({...base,runsPage:{page:7,pageSize:25,total:127,hasNext:false,available:true}});
+ assert.match(html,/127 total/);assert.match(html,/No setup requests are shown on this server page/);assert.doesNotMatch(html,/No setup requests yet/);
 });

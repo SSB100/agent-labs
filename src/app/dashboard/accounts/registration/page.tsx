@@ -1,4 +1,6 @@
+import { ConsoleRetainedWorkspace } from "@/components/console/console-retained-workspace";
 import Link from "next/link";
+import { accountReturnHref } from "@/accounts/connection-feedback";
 import { notFound } from "next/navigation";
 import { AppShell, PageHeader } from "@/components/stage7/app-shell";
 import { requireOwnerUiContext } from "@/lib/core-ui/data";
@@ -15,9 +17,10 @@ export default async function AccountRegistrationPage({ searchParams }: { search
   if (!ACCOUNT_UUID.test(businessId) || !ACCOUNT_UUID.test(runId) || !context.businesses.some(b => b.id === businessId)) notFound();
   let handoff: Awaited<ReturnType<typeof loadOwnerRegistrationHandoff>> | null = null;
   try { handoff = await loadOwnerRegistrationHandoff(context, businessId, runId); } catch { /* Safe owner-facing failure only. */ }
-  return <AppShell active="accounts" context={context} navigationBusinessId={businessId}><PageHeader eyebrow="Exclusive owner control" title="Complete the secure signup step"
+  const returnTo = accountReturnHref(businessId, { returnTo: typeof query.returnTo === "string" ? query.returnTo : undefined, runId, provider: handoff?.provider });
+  return <AppShell active="accounts" context={context} navigationBusinessId={businessId}><ConsoleRetainedWorkspace ownerId={context.userId} secure header={<PageHeader eyebrow="Exclusive owner control" title="Complete the secure signup step"
     description="Automation is disconnected. Enter credentials yourself only for the approved provider. Do not share this live session URL."
-    actions={<Link className="coreButton" href={`/dashboard/accounts?business=${businessId}#business-accounts`}>Back to account setup</Link>} />
+    actions={<Link className="coreButton" href={returnTo}>Back to account setup</Link>} />} panels={[{ id: "secure", label: "Secure owner entry", content: <>
     <section className="accountSecurePanel accountRegistrationPanel" data-agent-labs-secure="true" data-private="true">
       {!handoff ? <p className="accountWarning" role="alert">This owner session is unavailable, stopped or expired. Return to Accounts to inspect the saved request. A new account has not been inferred or automatically retried.</p> : <>
         <h2>{ACCOUNT_PROVIDERS[handoff.provider].name} owner signup</h2>
@@ -27,6 +30,6 @@ export default async function AccountRegistrationPage({ searchParams }: { search
           sandbox="allow-scripts allow-same-origin allow-forms" className="accountRegistrationFrame" />
         <p className="accountHelp">Session access expires at {new Date(handoff.expiresAt).toLocaleString("en", { timeZone: "UTC" })} UTC. Completion here still requires independent provider connection verification.</p>
       </>}
-      <form action={finishOwnerRegistrationSession}><input type="hidden" name="businessId" value={businessId} /><input type="hidden" name="runId" value={runId} /><button className="coreButton coreButton-primary" type="submit">Close owner browser and return to connection</button></form>
-    </section></AppShell>;
+      <form action={finishOwnerRegistrationSession}><input type="hidden" name="returnTo" value={returnTo} /><input type="hidden" name="businessId" value={businessId} /><input type="hidden" name="runId" value={runId} /><button className="coreButton coreButton-primary" type="submit">Close owner browser and return to connection</button></form>
+    </section></> }]} /></AppShell>;
 }

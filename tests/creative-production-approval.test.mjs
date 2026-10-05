@@ -1,8 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
 const require = createRequire(import.meta.url);
-const { currentProductionCandidate, productionCreativeApproval } = require('../.core-tests/creative/production-approval.js');
+// Exercise current preflight source against the existing pure compiled domain
+// dependencies, without a full build or any provider/runtime module.
+const ts = require('typescript'), productionModule = { exports: {} };
+const productionRequire = createRequire(new URL('../.core-tests/creative/production-approval.js', import.meta.url));
+new Function('require','module','exports',ts.transpileModule(readFileSync('src/creative/production-approval.ts','utf8'),{
+  compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022},
+}).outputText)(productionRequire,productionModule,productionModule.exports);
+const { currentProductionCandidate, productionCreativeApproval } = productionModule.exports;
 const { assessProductCandidate, candidateResearchRequest } = require('../.core-tests/products/discovery.js');
 const { DIMENSIONS, DEFAULT_MEASUREMENT_PLAN } = require('../.core-tests/products/types.js');
 const { extractResearchSources, assembleEvidencePack } = require('../.core-tests/research/sources.js');
@@ -99,4 +107,19 @@ test('versioned reviewed TEST preflight retains its qualitative record and separ
   assert.throws(()=>productionCreativeApproval({...choice,maximumGenerations:undefined},{...input,maximumGenerations:2}),/image count/);
   assert.throws(()=>productionCreativeApproval({...choice,maximumGenerations:2},{...input,maximumGenerations:2}),/image count/);
   for(const mutate of [f=>{f.root.status='researching';},f=>{f.root.variables.intent.expiresAt=new Date(Date.now()-1).toISOString();},f=>{f.decision.assessment.outcome='NEEDS_MORE_EVIDENCE';},f=>{f.decision.assessment.dimensions[0].verdict='blocking';},f=>{f.decision.assessment.checks[0].outcome='FAIL';},f=>{f.decision.assessment.execution.modelId='openai/gpt-5.6-luna';},f=>{f.child.evidence_pack={...f.child.evidence_pack,intentId:id(90)};}]){const x=v2Fixture();mutate(x);assert.equal(currentProductionCandidate(x.candidate,[x.decision],[x.root,x.child]),null);}
+});
+
+test('Quest-filtered TEST cannot override a newer global decision or a global latest-timestamp tie',()=>{
+  const f=fixture();
+  assert.ok(currentProductionCandidate({...f.candidate,current_decision_id:f.decision.id,current_decision_ambiguous:false},[f.decision],[f.experiment]));
+  assert.equal(currentProductionCandidate({...f.candidate,current_decision_id:id(999)},[f.decision],[f.experiment]),null);
+  assert.equal(currentProductionCandidate({...f.candidate,current_decision_id:f.decision.id,current_decision_ambiguous:true},[f.decision],[f.experiment]),null);
+});
+
+test('global competing completed-v2 flag blocks production even when Quest-scoped preview omits the competing row',()=>{
+  const f=v2Fixture(),before=structuredClone(f);
+  const candidate={...f.candidate,current_decision_id:f.decision.id,current_decision_ambiguous:false};
+  assert.ok(currentProductionCandidate(candidate,[f.decision],[f.root,{...f.child,has_competing_completed_v2:false}]));
+  assert.equal(currentProductionCandidate(candidate,[f.decision],[f.root,{...f.child,has_competing_completed_v2:true}]),null);
+  assert.deepEqual(f,before);
 });

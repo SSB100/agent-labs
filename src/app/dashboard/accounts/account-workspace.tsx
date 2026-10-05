@@ -1,3 +1,4 @@
+import { HistoryPager } from "@/components/console/history-pager";
 import Link from "next/link";
 import { accountReturnHref, connectionState, connectionWorkspaceKey, accountMessageConfirmation, ACCOUNT_POSITIVE_MESSAGES } from "@/accounts/connection-feedback";
 import { AccountForm, AccountNotice } from "./connection-feedback";
@@ -124,8 +125,8 @@ export function BusinessAccountWorkspace({ data }: { data: AccountWorkspace }) {
           <label>Account state<select name="mode" defaultValue="connect"><option value="connect">Connect an existing account</option><option value="create">I need a new account</option></select></label>
           <button className="coreButton" type="submit" disabled={!data.configured || !data.profile}>Prepare exact review</button></form></article>)}</div>
       {data.accounts.length ? <div className="accountConnections"><h3>Connected account registry</h3>{data.accounts.map(account => <article className="accountRequest" key={account.id}><div className="sectionTitleRow"><h4>{ACCOUNT_PROVIDERS[account.provider].name} · {account.label || account.externalAccountId}</h4><StatusPill status={account.status} /></div><p>Access: {account.scopes.join(", ")}</p><p className="accountHelp">Website password: {account.passwordStored ? "Owner-saved encrypted credential; not provider-verified" : "Not stored"}</p>{account.status === "connected" ? <Link className="coreButton" href={`/dashboard/accounts/password?business=${data.businessId}&account=${account.id}`}>{account.passwordStored ? "Replace saved website password" : "Save unique website password"}</Link> : null}{account.status === "connected" ? <form action={disconnectBusinessAccount} className="accountConsentForm"><input type="hidden" name="businessId" value={data.businessId} /><input type="hidden" name="provider" value={account.provider} /><input type="hidden" name="connectionRevision" value={account.revision} /><label><input type="checkbox" name="disconnectConsent" required /> Stop Agent Labs API access and remove its saved provider token. Any separately saved website password is retained until I remove it below. The provider token/grant may also need revocation at the provider.</label><button className="coreButton" type="submit">Disconnect locally</button></form> : null}{account.passwordStored ? <form action={removeOwnerWebsitePassword} className="accountConsentForm"><input type="hidden" name="businessId" value={data.businessId} /><input type="hidden" name="provider" value={account.provider} /><input type="hidden" name="connectionId" value={account.id} /><input type="hidden" name="passwordRevision" value={account.passwordRevision ?? ""} /><label><input type="checkbox" name="passwordRemovalConsent" required /> Permanently remove this saved Agent Labs password copy. I have my own copy; the provider password will not change.</label><button className="coreButton" type="submit">Remove saved website password</button></form> : null}</article>)}</div> : <p className="accountHelp">No Business account has been verified in this registry yet.</p>}
-      <div className="accountRequests"><h3>Setup requests</h3>{data.runs.length ? data.runs.map(run => <SetupRequest key={run.id} run={run} workspace={data} />) : <p>No setup requests yet.</p>}</div>
-      {data.healthEvents.length ? <div className="accountHealth"><h3>Connection history</h3><ul>{data.healthEvents.map(event => <li key={event.id}>{event.provider}: {event.eventType.replaceAll("_", " ")} · {event.occurredAt}</li>)}</ul></div> : null}
+      <div className="accountRequests"><h3>Setup requests</h3><HistoryPager page={data.runsPage} name="account" label="Account requests"/>{data.runs.length ? data.runs.map(run => <SetupRequest key={run.id} run={run} workspace={data} />) : <p>No setup requests are shown on this server page. Check the request count and other pages.</p>}</div>
+      {data.healthPage || data.healthEvents.length ? <div className="accountHealth"><h3>Connection history</h3><HistoryPager page={data.healthPage} name="accountHealth" label="Connection health events"/><ul>{data.healthEvents.map(event => <li key={event.id}>{event.provider}: {event.eventType.replaceAll("_", " ")} · {event.occurredAt}</li>)}</ul></div> : null}
     </> : null}
   </section>;
 }
@@ -139,7 +140,7 @@ export function CompactConnectionsWorkspace({ data, returnTo, provider = "printf
   const selectedProvider = selectedRun?.provider ?? provider;
   const selected = states.find(item => item.provider === selectedProvider)!;
   const selectedMissing = !!runId && !selectedRun;
-  const historyIncomplete = data.runs.length >= 50;
+  const historyIncomplete = data.currentRuns ? false : data.runs.length >= 50;
   const run = runId ? selectedRun : selected.run;
   const href = (key: string) => accountReturnHref(data.businessId, { returnTo, provider: key });
   const newerActiveRun = selected.run && selected.run.id !== run?.id && ["pending_approval", "approved", "preparation_started", "owner_handoff"].includes(selected.run.status) && (!selected.run.approvalExpiresAt || Date.parse(selected.run.approvalExpiresAt) > Date.parse(data.observedAt)) ? selected.run : undefined;
@@ -148,7 +149,7 @@ export function CompactConnectionsWorkspace({ data, returnTo, provider = "printf
   const secureHref = run ? `/dashboard/accounts/secure?business=${data.businessId}&run=${run.id}&returnTo=${encodeURIComponent(href("printful"))}` : undefined;
   const notice = accountNoticeMessage(data, selectedProvider, runId, message);
   return <section key={connectionWorkspaceKey(data, message, resultId)} className="compactConnections" aria-label="Business connections">
-    <AccountNotice message={notice}><p>Current saved registry: {states.map(item => `${ACCOUNT_PROVIDERS[item.provider].name} · ${item.label}`).join("; ")}</p></AccountNotice>
+    <HistoryPager page={data.runsPage} name="account" label="Account requests"/><AccountNotice message={notice}><p>Current saved registry: {states.map(item => `${ACCOUNT_PROVIDERS[item.provider].name} · ${item.label}`).join("; ")}</p></AccountNotice>
     {data.unavailable ? <p className="accountWarning" role="alert">Account records could not be checked. Existing connections and requests may still exist. Refresh the saved registry before trying again.</p> : <div className="connectionLayout">
       <div className="connectionQuickPanel">
         <div className="connectionRows">{states.map(item => <Link href={href(item.provider)} key={item.provider} className="connectionRow" aria-current={selectedProvider === item.provider ? "true" : undefined}>
@@ -197,7 +198,7 @@ export function CompactConnectionsWorkspace({ data, returnTo, provider = "printf
             </AccountForm>
           </details>
           <details className="connectionDetails"><summary>Request history · {data.runs.filter(item => item.provider === selectedProvider).length} loaded</summary><ul className="connectionHistory">{data.runs.filter(item => item.provider === selectedProvider).map(item => <li key={item.id}><Link title={item.id} aria-label={`Inspect ${ACCOUNT_PROVIDERS[selectedProvider].name} request ${item.id}, ${item.status.replaceAll("_", " ")}`} href={accountReturnHref(data.businessId, { returnTo, provider: selectedProvider, runId: item.id })}>{item.id.slice(0, 8)} · {item.status.replaceAll("_", " ")}</Link><small>{item.createdAt}</small></li>)}</ul>{data.runs.length >= 50 ? <p>Only the latest loaded requests are shown; older requests may exist.</p> : null}</details>
-          <details className="connectionDetails"><summary>Connection history · {data.healthEvents.filter(item => item.provider === selectedProvider).length} loaded</summary><ul className="connectionHistory">{data.healthEvents.filter(item => item.provider === selectedProvider).map(event => <li key={event.id}>{event.eventType.replaceAll("_", " ")}<small>{event.occurredAt}</small></li>)}</ul></details>
+          <details className="connectionDetails"><summary>Connection history · {data.healthEvents.filter(item => item.provider === selectedProvider).length} loaded</summary><HistoryPager page={data.healthPage} name="accountHealth" label="Connection health events"/><ul className="connectionHistory">{data.healthEvents.filter(item => item.provider === selectedProvider).map(event => <li key={event.id}>{event.eventType.replaceAll("_", " ")}<small>{event.occurredAt}</small></li>)}</ul></details>
         </div>
       </section>
     </div>}

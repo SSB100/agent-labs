@@ -1,69 +1,20 @@
+import { HistoryPager } from "@/components/console/history-pager";
 import Link from "next/link";
-
+import { notFound } from "next/navigation";
 import { AppShell, PageHeader } from "@/components/stage7/app-shell";
-import { CoreIcon } from "@/components/stage7/icons";
+import { ConsoleRetainedWorkspace, ConsoleRecentRows } from "@/components/console/console-retained-workspace";
 import { requireOwnerUiContext } from "@/lib/core-ui/data";
-import { formatDateTime } from "@/lib/core-ui/workflows";
-
 export const dynamic = "force-dynamic";
-
-export default async function SettingsPage() {
-  const context = await requireOwnerUiContext();
-
-  return (
-    <AppShell active="settings" context={context}>
-      <PageHeader
-        description="Owner identity, private application boundaries, and current workspace configuration."
-        eyebrow="Private application"
-        title="Settings"
-      />
-
-      <div className="settingsGrid">
-        <section className="dashboardSection settingsPanel">
-          <div className="settingsPanelHeading">
-            <span><CoreIcon name="settings" /></span>
-            <div><p className="coreEyebrow">Owner</p><h2>Account</h2></div>
-          </div>
-          <dl className="detailList">
-            <div><dt>Display name</dt><dd>{context.displayName}</dd></div>
-            <div><dt>Email</dt><dd>{context.email}</dd></div>
-            <div><dt>Access model</dt><dd>Administratively provisioned owner account</dd></div>
-            <div><dt>Public registration</dt><dd>Disabled</dd></div>
-          </dl>
-          <form action="/auth/signout" method="post">
-            <button className="coreButton coreButton-secondary" type="submit">Sign out</button>
-          </form>
-        </section>
-
-        <section className="dashboardSection settingsPanel">
-          <div className="settingsPanelHeading">
-            <span><CoreIcon name="building" /></span>
-            <div><p className="coreEyebrow">Workspaces</p><h2>Businesses</h2></div>
-          </div>
-          <div className="settingsBusinessList">
-            {context.businesses.map((business) => (
-              <article key={business.id}>
-                <div><strong>{business.name}</strong><small>Created {formatDateTime(business.created_at)}</small></div>
-                <code>{business.id.slice(0, 8)}</code>
-              </article>
-            ))}
-          </div>
-          <Link className="coreButton coreButton-secondary" href="/dashboard">Manage from Dashboard</Link>
-        </section>
-
-        <section className="dashboardSection settingsPanel settingsPanel-wide">
-          <div className="settingsPanelHeading">
-            <span><CoreIcon name="activity" /></span>
-            <div><p className="coreEyebrow">Operational boundary</p><h2>Private by design</h2></div>
-          </div>
-          <div className="securityPrinciples">
-            <article><strong>Login first</strong><p>Signed-out visitors see only the private Agent Labs login screen.</p></article>
-            <article><strong>No public onboarding</strong><p>There is no self-service registration, public homepage, or marketing surface.</p></article>
-            <article><strong>Owner-scoped data</strong><p>Business workflow data remains protected by Supabase Row Level Security.</p></article>
-            <article><strong>Server-only credentials</strong><p>Provider credentials are never inserted into browser JavaScript or normal Worker context.</p></article>
-          </div>
-        </section>
-      </div>
-    </AppShell>
-  );
+export default async function SettingsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const context = await requireOwnerUiContext(), query = await searchParams;
+  const requested = query.business;
+  if (requested && (typeof requested !== "string" || !context.businesses.some(b => b.id === requested))) notFound();
+  const selected = context.businesses.find(b => b.id === requested);
+  return <AppShell active="settings" toolDestination="settings" context={context} navigationBusinessId={selected?.id}>
+    <ConsoleRetainedWorkspace ownerId={context.userId} header={<><PageHeader eyebrow="Private owner workspace" title="Profile & Business" description="Your profile is separate from Business rules and execution authority." />{context.businessesUnavailable ? <p role="alert" className="coreNotice coreNotice-danger">Business directory unavailable. No substitute Business was selected. Reload before using Business destinations.</p> : null}</>} panels={[
+      { id: "profile", label: "Profile", content: <section><h2>Owner profile</h2><dl className="detailList"><div><dt>Display name</dt><dd>{context.displayName}</dd></div><div><dt>Email</dt><dd>{context.email}</dd></div><div><dt>Access</dt><dd>Administratively provisioned owner account. Public registration is disabled.</dd></div></dl><form action="/auth/signout" method="post"><button className="coreButton" type="submit">Sign out</button></form></section> },
+      { id: "businesses", label: "Businesses", content: <section><h2>Owned Businesses</h2><HistoryPager page={context.businessDirectory} name="business" label="Businesses"/><p>The owner Business directory is independently counted and paged; exact owned selection works outside the directory page. Open Business rules and Quests to save versioned intent.</p>{context.businessesUnavailable ? <p role="alert">Business records are unavailable. No substitute Business was selected.</p> : <ConsoleRecentRows label="Owned Businesses" rows={(selected ? [selected] : context.businesses).map(b => <article className="businessCard" key={b.id}><div className="consoleBusinessMetadata"><h3>{b.name}</h3><p>Business {b.id}</p></div><div className="consoleBusinessActions"><Link className="coreButton" href={`/dashboard?view=overview&business=${b.id}`}>Open this Business</Link><Link className="coreButton" href={`/dashboard?view=connections&business=${b.id}`}>Connections</Link><Link className="coreButton" href={`/dashboard/quests?business=${b.id}`}>Business rules & Quests</Link></div></article>)} />}</section> },
+      { id: "boundaries", label: "Privacy & access", content: <section><h2>Private by design</h2><p>Signed-out visitors see the private login screen. Business records remain owner scoped. Provider credentials remain server only, separate from worker context.</p><p>Current profile fields are read only. Business rules and Quests use versioned intent records. Saved confirmations do not authorize execution until operating controls are qualified.</p></section> },
+    ]} />
+  </AppShell>;
 }

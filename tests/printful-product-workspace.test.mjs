@@ -1,3 +1,5 @@
+import { ownerBusiness, historyPager } from './helpers/history-fixtures.mjs';
+import { retainedFixture } from './helpers/guided-ui.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
@@ -15,7 +17,7 @@ const noop = async () => {};
 function load(path, dependencies, globals = {}) {
   const code = ts.transpileModule(readFileSync(path, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText;
   const m = { exports: {} };
-  runInNewContext(`(function(require,module,exports){${code}\n})`, globals)(name => { assert.ok(name in dependencies, `Unexpected dependency ${name}`); return dependencies[name]; }, m, m.exports);
+  runInNewContext(`(function(require,module,exports){${code}\n})`, globals)(name => { if(name.endsWith('/owner-business'))return ownerBusiness; if(name==='@/components/console/history-pager')return historyPager; assert.ok(name in dependencies, `Unexpected dependency ${name}`); return dependencies[name]; }, m, m.exports);
   return m.exports;
 }
 const { ProductConfigurationWorkspace, ProductActionFeedback } = load('src/app/dashboard/printful/product-workspace.tsx', {
@@ -56,7 +58,7 @@ test('owner product workspace states the bounded path and absent authority and p
   const html = render(base);
   for (const text of ['one catalog variant', 'front or back DTG', 'Manual/API store', 'current reviewed TEST', 'exact production-asset approval', 'catalog.read',
     'cannot confer product-write permission', 'authenticated uploaded-file binding producer', 'physical-placement evidence producer', 'Native GET',
-    'product/file association evidence only', 'listing-ready mockup', 'Execution remains unavailable', 'No authenticated, current product source']) assert.ok(html.includes(text), text);
+    'product/file association evidence only', 'listing-ready mockup', 'Execution remains unavailable', 'No product-source candidates are shown on this server page']) assert.ok(html.includes(text), text);
   assert.doesNotMatch(html, /name="(?:credential|password|token|source|sourceJson|fileId|printfulFileId|placementEvidence)"/);
 });
 
@@ -86,7 +88,7 @@ test('exact source review shows hash-bound immutable details and disables start 
 test('unavailable state does not pretend there is no history or source', () => {
   const html = render({ ...base, unavailable: true, runs: [attempt], sources: [source] });
   assert.match(html, /role="alert"/); assert.match(html, /Existing attempts may still exist/);
-  assert.doesNotMatch(html, /No product configuration attempts|No authenticated, current product source/);
+  assert.doesNotMatch(html, /No product configuration attempts|No product-source candidates are shown on this server page/);
   assert.match(html, /<button(?=[^>]*disabled="")[^>]*>Stop further work/);
 });
 
@@ -256,6 +258,8 @@ test('compact queue preserves account setup and separate Etsy/Printful request i
 async function printfulPage(query, businesses = [{ id: businessId, name: 'Owner Business' }, { id: foreignBusiness, name: 'Second Business' }]) {
   const calls = [], context = { businesses };
   const { default: Page } = load('src/app/dashboard/printful/page.tsx', {
+    '@/components/console/console-retained-workspace': retainedFixture(),
+    'next/navigation': { notFound: () => { throw new Error('not-found'); } },
     'react/jsx-runtime': require('react/jsx-runtime'), 'next/link': link,
     '@/accounts/server': { loadAccountWorkspace: async () => ({ accounts: [], unavailable: false }) },
     '@/components/stage7/app-shell': { AppShell: wrapper, PageHeader: wrapper, StatusPill: () => null },
@@ -273,10 +277,16 @@ test('Printful deep links pass only a UUID intervention alongside the selected o
   const valid = await printfulPage({ business: foreignBusiness, intervention: interventionId });
   assert.deepEqual(valid.calls[0], [valid.context, foreignBusiness, interventionId]);
   assert.match(valid.html, /id="product-configuration-history"/);
-  for (const value of [undefined, '', 'not-a-uuid', ['50000000-1111-4111-8111-111111111111'], '{"source":1}', '50000000-1111-4111-8111-111111111111&business=foreign']) {
+  for (const value of [undefined, '']) {
     const invalid = await printfulPage({ business: businessId, intervention: value });
     assert.deepEqual(invalid.calls[0], [invalid.context, businessId, undefined]);
   }
-  const noBusiness = await printfulPage({ business: businessId, intervention: interventionId }, []);
-  assert.equal(noBusiness.calls.length, 0);
+  for (const value of ['not-a-uuid', [interventionId], '{"source":1}', interventionId+'&business=foreign']) await assert.rejects(printfulPage({ business: businessId, intervention: value }), /not-found/);
+  await assert.rejects(printfulPage({ business: businessId, intervention: interventionId }, []), /not-found/);
+});
+
+test('out-of-range configuration and source pages retain totals without claiming registry absence', () => {
+ const page={page:7,pageSize:25,total:127,hasNext:false,available:true},html=render({...base,runsPage:page,sourcesPage:page});
+ assert.match(html,/No product-source candidates are shown on this server page/);assert.match(html,/No configuration attempts are shown on this server page/);
+ assert.doesNotMatch(html,/No authenticated, current product source|No product configuration attempts/);
 });

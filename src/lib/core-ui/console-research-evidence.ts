@@ -139,7 +139,7 @@ class EvidenceReader {
   private readonly cache = new Map<string, Promise<unknown>>();
   private readonly entities = new Map<string, unknown>();
   private calls = 0;
-  constructor(private readonly context: OwnerUiContext, private readonly ids: string[]) {}
+  constructor(private readonly context: OwnerUiContext, private readonly ids: string[] | null) {}
   private cached<T>(key: string, work: () => Promise<T>): Promise<T> {
     if (!this.cache.has(key)) this.cache.set(key, work()); return this.cache.get(key)! as Promise<T>;
   }
@@ -151,7 +151,7 @@ class EvidenceReader {
   private async exact<T>(table: string, columns: string, filters: readonly [string, unknown][], guard: (row: T) => boolean, path: string, owned = true): Promise<T> {
     requireThat(++this.calls <= CONSOLE_RESEARCH_EVIDENCE_QUERY_LIMIT, path, "public_read_limit_exceeded", "unavailable");
     let query = this.context.supabase.from(table).select(columns, { count: "exact" });
-    if (owned) query = query.in("business_id", this.ids);
+    if (owned && this.ids !== null) query = query.in("business_id", this.ids);
     for (const [key, value] of filters) query = query.eq(key, value);
     const response = await consoleRead(query.limit(2));
     requireThat(!response.error && Array.isArray(response.data) && consoleValidCount(response.count) && response.count === response.data.length && response.data.length <= 1, path, "exact_read_unavailable", "unavailable");
@@ -162,7 +162,7 @@ class EvidenceReader {
     const row = await this.cached(`experiment:${id}`, async () => {
       const filters: [string, unknown][] = [["id", id]]; if (businessId) filters.push(["business_id", businessId]);
       const item = await this.exact<SavedExperiment>("product_experiments", CONSOLE_RESEARCH_EVIDENCE_EXPERIMENT_SELECT, filters,
-        value => experimentGuard(value) && value.id === id && this.ids.includes(value.business_id) && (!businessId || value.business_id === businessId), `experiment.${id}`);
+        value => experimentGuard(value) && value.id === id && (this.ids === null || this.ids.includes(value.business_id)) && (!businessId || value.business_id === businessId), `experiment.${id}`);
       this.coherence("experiment", id, item); return item;
     });
     requireThat(!businessId || row.business_id === businessId, `experiment.${id}`, "experiment_business_binding"); return row;
@@ -282,7 +282,7 @@ async function evidenceRecord(reader: EvidenceReader, id: string, businessId: st
 
 export async function loadConsoleResearchEvidence(context: OwnerUiContext, options: ConsoleResearchEvidenceOptions): Promise<ConsoleResearchEvidenceResult> {
   if (!options || Object.keys(options).some(key => !["experimentId", "businessId", "observedAt"].includes(key)) || !consoleValidId(options.experimentId) || options.businessId !== undefined && !consoleValidId(options.businessId) || !consoleValidTimestamp(options.observedAt)) throw Error("Invalid exact Research evidence request.");
-  const ids = consoleScopedIds(context, options.businessId?.toLowerCase() ?? null), reader = new EvidenceReader(context, ids), issues: ConsoleResearchEvidenceIssue[] = [];
+  const ids = await consoleScopedIds(context, options.businessId?.toLowerCase() ?? null), reader = new EvidenceReader(context, ids), issues: ConsoleResearchEvidenceIssue[] = [];
   let selection: ConsoleCollectionSelection<ConsoleResearchEvidenceSelection> = { status: "unavailable", item: null }, history: DiscoveryHistoryResult | null = null, workIdentity: ConsoleResearchEvidenceResult["workIdentity"] = null;
   const capture = async <T>(work: () => Promise<T>): Promise<T | null> => {
     try { return await work(); } catch (error) { issues.push(error instanceof ReadFailure ? error.issue : { kind: "unavailable", path: "reader", code: "saved_evidence_unavailable" }); return null; }

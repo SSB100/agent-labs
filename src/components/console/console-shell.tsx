@@ -1,4 +1,6 @@
+import { carryWorkspace } from "@/lib/core-ui/workspace-navigation";
 import Link from "next/link";
+import { HistoryPager } from "./history-pager";
 import type { ReactNode } from "react";
 
 import type { CoreSection } from "@/components/stage7/app-shell";
@@ -8,7 +10,7 @@ import type { OwnerUiContext } from "@/lib/core-ui/data";
 
 import "./console-shell.css";
 
-export type ConsoleView = "overview" | "work" | "library" | "research" | "decisions" | "connections" | "activity" | "advanced";
+export type ConsoleView = "overview" | "work" | "library" | "research" | "decisions" | "connections" | "activity" | "advanced" | "products-catalog" | "knowledge" | "decision-log";
 
 export type ConsoleShellProps = {
   active: CoreSection | ConsoleView;
@@ -20,6 +22,7 @@ export type ConsoleShellProps = {
   globalDecisionCount?: boolean;
   /** An aggregate collection may still scope onward links to its selected record. */
   aggregateContext?: boolean;
+  toolDestination?: string;
 };
 
 type ConsoleDestination = {
@@ -31,17 +34,20 @@ type ConsoleDestination = {
 
 export const consoleNavigation: readonly ConsoleDestination[] = [
   { view: "overview", href: "/dashboard?view=overview", icon: "dashboard", label: "Overview" },
-  { view: "work", href: "/dashboard?view=work", icon: "workflow", label: "Work" },
+  { view: "work", href: "/dashboard?view=work", icon: "workflow", label: "Events" },
   { view: "library", href: "/dashboard?view=library", icon: "artifacts", label: "Library" },
   { view: "research", href: "/dashboard?view=research", icon: "products", label: "Research" },
-  { view: "decisions", href: "/dashboard?view=decisions", icon: "needs-you", label: "Decisions" },
+  { view: "products-catalog", href: "/dashboard?view=products-catalog", icon: "products", label: "Products" },
+  { view: "knowledge", href: "/dashboard?view=knowledge", icon: "lab", label: "Knowledge" },
+  { view: "decision-log", href: "/dashboard?view=decision-log", icon: "history", label: "Decisions" },
+  { view: "decisions", href: "/dashboard?view=decisions", icon: "needs-you", label: "Needs owner" },
   { view: "connections", href: "/dashboard?view=connections", icon: "accounts", label: "Connections" },
-  { view: "activity", href: "/dashboard?view=activity", icon: "activity", label: "Activity" },
-  { view: "advanced", href: "/dashboard?view=advanced", icon: "settings", label: "Advanced" },
+  { view: "activity", href: "/dashboard?view=activity", icon: "activity", label: "Audit events" },
+  { view: "advanced", href: "/dashboard?view=advanced", icon: "settings", label: "Tools" },
 ];
 
 const sectionViews: Record<CoreSection, ConsoleView> = {
-  accounts: "connections", artifacts: "library", dashboard: "overview", history: "activity",
+  accounts: "connections", artifacts: "library", dashboard: "overview", history: "work",
   "needs-you": "decisions", packs: "advanced", products: "work", settings: "advanced", workflows: "work",
 };
 
@@ -55,12 +61,28 @@ export const consoleAdvancedNavigation = [
   { href: "/dashboard/artifacts", label: "Artifact explorer", key: "artifacts" },
   { href: "/dashboard/needs-you", label: "Decision queue", key: "needs-you" },
   { href: "/dashboard/accounts", label: "Account settings", key: "accounts" },
-  { href: "/dashboard/history", label: "Event history", key: "history" },
+  { href: "/dashboard/history", label: "Ended work history", key: "history" },
   { href: "/dashboard/packs", label: "Packs", key: "packs" },
   { href: "/dashboard/worker-proof", label: "Worker proof" },
   { href: "/dashboard/model-router", label: "Model router" },
   { href: "/dashboard/worker-evaluations", label: "Worker evaluations" },
   { href: "/dashboard/settings", label: "Settings & profile", key: "settings" },
+  { href: "/dashboard/printful", label: "Printful operations" },
+  { href: "/dashboard/etsy", label: "Etsy listings" },
+  { href: "/dashboard/accounts?diagnostics=platform", label: "Platform diagnostics" },
+] as const;
+
+export const consoleToolNavigation = [
+  { key: "products", href: "/dashboard/products", label: "Candidate tools" },
+  { key: "artifacts", href: "/dashboard/artifacts", label: "Design approvals" },
+  { key: "printful", href: "/dashboard/printful", label: "Printful" },
+  { key: "etsy", href: "/dashboard/etsy", label: "Etsy listings" },
+  { key: "packs", href: "/dashboard/packs", label: "Packs" },
+  { key: "model-router", href: "/dashboard/model-router", label: "Model router" },
+  { key: "worker-proof", href: "/dashboard/worker-proof", label: "Worker proof" },
+  { key: "worker-evaluations", href: "/dashboard/worker-evaluations", label: "Evaluations" },
+  { key: "settings", href: "/dashboard/settings", label: "Profile & Business" },
+  { key: "diagnostics", href: "/dashboard/accounts?diagnostics=platform", label: "Diagnostics" },
 ] as const;
 
 function DecisionCount({ context, global = false }: { context: OwnerUiContext; global?: boolean }) {
@@ -86,15 +108,16 @@ function WorkspaceContext({ context, selectedBusinessId, aggregate = false }: { 
     ? "Business records unavailable"
     : aggregate ? "All owned Businesses"
     : selected ? selected.name
+    : context.ownerDirectoryPaged ? context.businessDirectory?.total == null ? "Business count unavailable" : context.businessDirectory.total > 0 ? `All ${context.businessDirectory.total} businesses` : "No business yet"
     : context.businesses.length === 1
       ? context.businesses[0].name
       : context.businesses.length > 1
-        ? `All ${context.businesses.length} businesses`
+        ? `All ${context.businessDirectory?.total ?? context.businesses.length} businesses`
         : "No business yet";
   return (
     <div className="consoleWorkspaceContext" role={context.businessesUnavailable ? "status" : undefined}>
       <CoreIcon name="building" />
-      <span className="consoleWorkspaceName">{name}</span>
+      <span className="consoleWorkspaceName" title={context.workspaceQuest ? `${name} · Quest: ${context.workspaceQuest.title} · ${context.workspaceQuest.id}` : undefined}>{name}{context.workspaceQuest ? <small className="consoleQuestContext">Quest: {context.workspaceQuest.title} · {context.workspaceQuest.id.slice(-6)}</small> : null}</span>
     </div>
   );
 }
@@ -118,11 +141,11 @@ function OwnerMenu({ context }: { context: OwnerUiContext }) {
 }
 
 /** Shared frame for both root views and direct detail URLs; URL navigation stays native. */
-export function ConsoleShell({ active, children, commandBar, context, workflowRunId, navigationBusinessId, globalDecisionCount = false, aggregateContext = false }: ConsoleShellProps) {
+export function ConsoleShell({ active, children, commandBar, context, workflowRunId, navigationBusinessId, globalDecisionCount = false, aggregateContext = false, toolDestination }: ConsoleShellProps) {
   const currentView = resolveConsoleView(active);
   const selectedBusinessId = context.businesses.some(business => business.id === navigationBusinessId) ? navigationBusinessId : undefined;
-  const destination = (href: string) => selectedBusinessId ? `${href}&business=${encodeURIComponent(selectedBusinessId)}` : href;
-  const currentLabel = consoleNavigation.find(item => item.view === currentView)?.label ?? "Overview";
+  const destination = (href: string) => carryWorkspace(selectedBusinessId ? `${href}${href.includes("?") ? "&" : "?"}business=${encodeURIComponent(selectedBusinessId)}` : href, context.readSearch);
+  const currentLabel = toolDestination ? consoleToolNavigation.find(item => item.key === toolDestination)?.label ?? "Tools" : consoleNavigation.find(item => item.view === currentView)?.label ?? "Overview";
 
   return (
     <div className="consoleShell" data-console-view={currentView}>
@@ -136,7 +159,7 @@ export function ConsoleShell({ active, children, commandBar, context, workflowRu
 
         <nav className="consoleNavigation" aria-label="Workspace views">
           {consoleNavigation.map(item => (
-            <Link key={item.view} className="consoleNavLink" href={item.view === "decisions" && globalDecisionCount ? item.href : destination(item.href)} aria-label={item.view === "connections" ? "Connections" : undefined} aria-current={item.view === currentView ? "page" : undefined}>
+            <Link key={item.view} className="consoleNavLink" href={item.view === "decisions" && globalDecisionCount && !new URLSearchParams(context.readSearch).has("quest") ? item.href : destination(item.href)} aria-label={item.view === "connections" ? "Connections" : undefined} aria-current={item.view === currentView ? "page" : undefined}>
               <CoreIcon name={item.icon} />
               <span className="consoleNavLabel">{item.view === "connections" ? <><span className="consoleNavFull">Connections</span><span className="consoleNavShort">Connect</span></> : item.label}</span>
               {item.view === "decisions" ? <DecisionCount context={context} global={globalDecisionCount} /> : null}
@@ -144,13 +167,15 @@ export function ConsoleShell({ active, children, commandBar, context, workflowRu
           ))}
         </nav>
 
+        {toolDestination ? <nav className="consoleTechnicalLinks consoleFocusedTools" aria-label="Focused tools">{consoleToolNavigation.map(item => <Link className="consoleTechnicalLink" key={item.key} href={destination(item.href)} aria-current={item.key === toolDestination ? "page" : undefined}>{item.label}</Link>)}</nav> : null}
+
         <div className="consoleRailNote"><CoreIcon name="building" /><span>Private owner workspace</span></div>
-        <OwnerMenu context={context} />
+        <HistoryPager page={context.businessDirectory} name="business" label="Directory" /><OwnerMenu context={context} />
       </aside>
 
       <header className="consoleTopBar consoleFrame">
         <div className="consoleViewHeading"><span>Command centre</span><strong>{currentLabel}</strong></div>
-        <WorkspaceContext context={context} aggregate={aggregateContext} selectedBusinessId={workflowRunId || currentView === "library" || currentView === "research" || currentView === "connections" || currentView === "decisions" || currentView === "work" || currentView === "activity" ? selectedBusinessId : undefined} />
+        <WorkspaceContext context={context} aggregate={aggregateContext} selectedBusinessId={selectedBusinessId} />
         {/* Exactly one subscription, for data updates rather than worker execution. */}
         <div className="consoleLiveStatus" role="status" aria-label="Page update connection">
           <LiveRefresh workflowRunId={workflowRunId} />

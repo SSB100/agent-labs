@@ -1,11 +1,15 @@
+import { safeTablePage, historyRows } from "@/lib/core-ui/history-read";
+import { HistoryPager } from "@/components/console/history-pager";
+import type { HistoryPage } from "@/lib/core-ui/history-query";
+import { AppShell } from "@/components/stage7/app-shell";
+import { ConsoleRetainedWorkspace, ConsoleRecentRows } from "@/components/console/console-retained-workspace";
+import { requireOwnerUiContext } from "@/lib/core-ui/data";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 
 import {
   GENERIC_RESEARCHER_EVALUATION_SUITE_KEY,
   GENERIC_RESEARCHER_EVALUATION_SUITE_VERSION,
 } from "../../../evaluations/generic-researcher-suite";
-import { createClient } from "../../../lib/supabase/server";
 import { isOpenRouterConfigured } from "../../../models/openrouter";
 import { MODEL_RESEARCHER_WORKER_DEFINITION_ID } from "../../../workers/generic-researcher-model";
 
@@ -146,11 +150,9 @@ function formatDate(value: string | null) {
 }
 
 export default async function WorkerEvaluationsPage({ searchParams }: Props) {
-  const supabase = await createClient();
-  const { data: claimsData, error: claimsError } = await supabase.auth.getClaims();
-  const userId = claimsData?.claims?.sub;
-  if (claimsError || !userId) redirect("/login?error=session-required");
-
+  const context = await requireOwnerUiContext();
+  const supabase = context.supabase;
+  const query=await searchParams;
   const [workerResult, suiteResult, modelResult, promotionResult] = await Promise.all([
     supabase
       .from("worker_definitions")
@@ -165,67 +167,34 @@ export default async function WorkerEvaluationsPage({ searchParams }: Props) {
       .eq("suite_key", GENERIC_RESEARCHER_EVALUATION_SUITE_KEY)
       .eq("version", GENERIC_RESEARCHER_EVALUATION_SUITE_VERSION)
       .maybeSingle(),
-    supabase
-      .from("model_definitions")
-      .select("id, model_key, display_name")
-      .order("model_key"),
-    supabase
-      .from("worker_promotions")
-      .select(
-        "id, worker_definition_id, evaluation_id, from_status, to_status, reason, promoted_at",
-      )
-      .eq("worker_definition_id", MODEL_RESEARCHER_WORKER_DEFINITION_ID)
-      .order("promoted_at", { ascending: false })
-      .limit(10),
+    safeTablePage<ModelDefinition>(context,"model_definitions","id,model_key,display_name","evaluationModel",{time:"model_key"}),
+    safeTablePage<Promotion>(context,"worker_promotions","id,worker_definition_id,evaluation_id,from_status,to_status,reason,promoted_at","promotion",{filters:[["worker_definition_id",MODEL_RESEARCHER_WORKER_DEFINITION_ID]],time:"promoted_at"}),
   ]);
 
   const worker = workerResult.data as WorkerDefinition | null;
   const suite = suiteResult.data as EvaluationSuite | null;
-  const models = (modelResult.data ?? []) as ModelDefinition[];
-  const promotions = (promotionResult.data ?? []) as Promotion[];
+  const models = historyRows(modelResult);
+  const promotions = historyRows(promotionResult);
   let cases: EvaluationCase[] = [];
   let runs: EvaluationRun[] = [];
   let results: EvaluationResult[] = [];
   let loadError = Boolean(
-    workerResult.error || suiteResult.error || modelResult.error || promotionResult.error,
+    workerResult.error || suiteResult.error || !modelResult.page.available || !promotionResult.page.available,
   );
 
+  let evaluationPage:HistoryPage|undefined,casePage:HistoryPage|undefined,resultPage:HistoryPage|undefined;
+  let latest:EvaluationRun|null=null; let running=true;
   if (suite) {
-    const [caseResult, runResult] = await Promise.all([
-      supabase
-        .from("worker_evaluation_cases")
-        .select(
-          "id, case_key, name, category, execution_mode, model_target, required, weight",
-        )
-        .eq("suite_id", suite.id)
-        .order("case_key"),
-      supabase
-        .from("worker_evaluations")
-        .select(
-          "id, status, score, passed_case_count, failed_case_count, required_case_count, required_failure_count, source, subject_fingerprint, started_at, completed_at, created_at",
-        )
-        .eq("suite_id", suite.id)
-        .order("created_at", { ascending: false })
-        .limit(20),
+    const [caseResult,runResult,latestResult,openResult]=await Promise.all([
+      safeTablePage<EvaluationCase>(context,"worker_evaluation_cases","id,case_key,name,category,execution_mode,model_target,required,weight","evaluationCase",{filters:[["suite_id",suite.id]],time:"case_key"}),
+      safeTablePage<EvaluationRun>(context,"worker_evaluations","id,status,score,passed_case_count,failed_case_count,required_case_count,required_failure_count,source,subject_fingerprint,started_at,completed_at,created_at","evaluation",{filters:[["suite_id",suite.id]],statusColumn:"status"}),
+      supabase.from("worker_evaluations").select("id,status,score,passed_case_count,failed_case_count,required_case_count,required_failure_count,source,subject_fingerprint,started_at,completed_at,created_at").eq("suite_id",suite.id).order("created_at",{ascending:false}).order("id",{ascending:false}).limit(1),
+      supabase.from("worker_evaluations").select("id",{count:"exact",head:true}).eq("suite_id",suite.id).eq("status","running"),
     ]);
-    cases = (caseResult.data ?? []) as EvaluationCase[];
-    runs = (runResult.data ?? []) as EvaluationRun[];
-    loadError ||= Boolean(caseResult.error || runResult.error);
-
-    if (runs.length) {
-      const resultData = await supabase
-        .from("worker_evaluation_case_results")
-        .select(
-          "id, evaluation_id, case_id, status, score_awarded, model_definition_id, provider, provider_model_id, input_tokens, output_tokens, reported_cost_usd, estimated_cost_usd, latency_ms, failure",
-        )
-        .in(
-          "evaluation_id",
-          runs.map((run) => run.id),
-        )
-        .order("created_at");
-      results = (resultData.data ?? []) as EvaluationResult[];
-      loadError ||= Boolean(resultData.error);
-    }
+    cases=historyRows(caseResult);runs=historyRows(runResult);latest=latestResult.data?.[0] as EvaluationRun??null;
+    evaluationPage=runResult.page;casePage=caseResult.page;running=!!openResult.error || !Number.isSafeInteger(openResult.count) || Number(openResult.count)>0;
+    loadError ||= !caseResult.page.available || !runResult.page.available || !!latestResult.error;
+    if(runs.length){const resultData=await safeTablePage<EvaluationResult>(context,"worker_evaluation_case_results","id,evaluation_id,case_id,status,score_awarded,model_definition_id,provider,provider_model_id,input_tokens,output_tokens,reported_cost_usd,estimated_cost_usd,latency_ms,failure","evaluationResult",{inFilters:[["evaluation_id",runResult.selected?[runResult.selected.id]:runs.map(r=>r.id)]]});results=historyRows(resultData);resultPage=resultData.page;loadError ||= !resultData.page.available;}
   }
 
   const modelById = new Map(models.map((model) => [model.id, model]));
@@ -237,11 +206,11 @@ export default async function WorkerEvaluationsPage({ searchParams }: Props) {
     resultsByRun.set(result.evaluation_id, entries);
   }
 
-  const latest = runs[0] ?? null;
-  const running = runs.some((run) => run.status === "running");
+
+
   const totalCost = results.reduce(
     (sum, result) =>
-      sum + numberValue(result.reported_cost_usd ?? result.estimated_cost_usd),
+      sum + numberValue(result.reported_cost_usd),
     0,
   );
   const totalTokens = results.reduce(
@@ -249,48 +218,27 @@ export default async function WorkerEvaluationsPage({ searchParams }: Props) {
     0,
   );
   const configured = isOpenRouterConfigured();
-  const query = await searchParams;
+
   const message = messages[first(query.message) ?? ""];
   const error = errors[first(query.error) ?? ""];
   const promotionStates = ["experimental", "qualified", "assisted", "autonomous"];
 
-  return (
-    <div className="appFrame">
-      <aside className="appSidebar">
-        <Link className="appBrand" href="/dashboard">
-          <span className="brandMark" aria-hidden="true">AL</span>
-          <span><strong>Agent Labs</strong><small>Worker evaluations</small></span>
-        </Link>
-        <nav className="appNav" aria-label="Worker evaluation navigation">
-          <Link className="navItem" href="/dashboard">Control centre</Link>
-          <Link className="navItem" href="/dashboard/worker-proof">Worker proof</Link>
-          <Link className="navItem" href="/dashboard/model-router">Model router</Link>
-          <Link className="navItem active" href="/dashboard/worker-evaluations">
-            Worker evaluations
-          </Link>
-        </nav>
-      </aside>
-
-      <main className="appMain">
-        <header className="workspaceHeader">
-          <div className="workspaceTitle"><p>Stage 6</p><h1>Worker evaluations</h1></div>
+  return (<AppShell active="settings" toolDestination="worker-evaluations" context={context}><ConsoleRetainedWorkspace ownerId={context.userId} notice={<><HistoryPager page={evaluationPage} name="evaluation" label="Evaluations"/><HistoryPager page={casePage} name="evaluationCase" label="Suite cases"/><HistoryPager page={resultPage} name="evaluationResult" label="Case results"/><HistoryPager page={promotionResult.page} name="promotion" label="Promotions"/><p className="coreNotice">Each history is independently server-paged. Latest score is read independently; amounts and tokens below summarize displayed case results only. Cases outside this result page are not missing results.</p></>} header={<><header className="workspaceHeader">
+          <div className="workspaceTitle"><p>Saved qualification</p><h1>Worker evaluations</h1></div>
           <Link className="ghostButton" href="/dashboard">Back</Link>
         </header>
-
-        {message ? <p className="notice success" role="status">{message}</p> : null}
-        {error ? <p className="notice error" role="alert">{error}</p> : null}
-        {loadError ? (
+{message ? <p className="notice success" role="status">{message}</p> : null}
+{error ? <p className="notice error" role="alert">{error}</p> : null}
+{loadError ? (
           <p className="notice error" role="alert">
             Some Worker evaluation records could not be loaded.
           </p>
         ) : null}
-        {!configured ? (
+{!configured ? (
           <p className="notice error" role="alert">
             OpenRouter must be configured before live Worker evaluations can run.
           </p>
-        ) : null}
-
-        <section className="summaryGrid" aria-label="Worker qualification summary">
+        ) : null}</>} panels={[{ id: "evaluations", label: "Evaluations", content: <><section className="summaryGrid" aria-label="Worker qualification summary">
           <article className="summaryCard">
             <span className="summaryLabel">Worker status</span>
             <strong style={{ fontSize: "1.3rem" }}>{humanize(worker?.status ?? null)}</strong>
@@ -308,16 +256,84 @@ export default async function WorkerEvaluationsPage({ searchParams }: Props) {
             <strong className="summaryValue">{cases.filter((entry) => entry.required).length}</strong>
           </article>
           <article className="summaryCard">
-            <span className="summaryLabel">Recorded tokens</span>
+            <span className="summaryLabel">Loaded recorded tokens</span>
             <strong className="summaryValue">{totalTokens.toLocaleString("en-NZ")}</strong>
           </article>
           <article className="summaryCard">
-            <span className="summaryLabel">Recorded evaluation cost</span>
-            <strong style={{ fontSize: "1.3rem" }}>{formatUsd(totalCost)}</strong>
+            <span className="summaryLabel">Loaded reported charges</span>
+            <strong style={{ fontSize: "1.3rem" }}>{loadError ? "Unavailable" : formatUsd(totalCost)}</strong><p>{results.filter(result=>result.reported_cost_usd==null).length} unknown charge(s). Estimates are separate from reported charges.</p>
           </article>
         </section>
-
-        <section className="dashboardGrid">
+<section className="operationsPanel">
+          <div className="panelHeading workflowHeading">
+            <div><p className="panelLabel">Durable evidence</p><h2>Evaluation history</h2></div>
+            <span className="countBadge">{runs.length}</span>
+          </div>
+          {runs.length ? (
+            <div className="workflowList">
+              <ConsoleRecentRows label="Loaded evaluation runs" rows={runs.map((run) => {
+                const caseResults = resultsByRun.get(run.id) ?? [];
+                const runCost = caseResults.reduce(
+                  (sum, result) =>
+                    sum + numberValue(result.reported_cost_usd),
+                  0,
+                );
+                return (
+                  <details className="workflowCard" id={`evaluation-${run.id}`} key={run.id}><summary><strong>Evaluation {run.id}</strong><span>{humanize(run.status)} · Score {run.score ?? "Unavailable"} · Loaded reported {loadError ? "Unavailable" : formatUsd(runCost)} · {caseResults.filter(r=>r.reported_cost_usd==null).length} unknown charge(s)</span></summary><div>
+                    <div className="workflowCardHeader">
+                      <div>
+                        <p className="workflowBusiness">{humanize(run.source)}</p>
+                        <h3>{suite?.name ?? "Worker evaluation"}</h3>
+                        <p>
+                          Started {formatDate(run.started_at)} · fingerprint {run.subject_fingerprint.slice(0, 12)}…
+                        </p>
+                      </div>
+                      <span className={`workflowStatus status-${run.status}`}>
+                        {humanize(run.status)}
+                      </span>
+                    </div>
+                    <ol className="stageTimeline" aria-label="Evaluation cases">
+                      {caseResults.map((result) => {
+                        const evaluationCase = caseById.get(result.case_id);
+                        const model = result.model_definition_id
+                          ? modelById.get(result.model_definition_id)
+                          : null;
+                        return (
+                          <li className={`stageState stage-${result.status}`} key={result.id}>
+                            <span className="stageMarker" aria-hidden="true" />
+                            <div>
+                              <strong>{evaluationCase?.name ?? "Evaluation case"}</strong>
+                              <small>
+                                {humanize(result.status)}
+                                {model ? ` · ${model.display_name}` : ""}
+                                {result.input_tokens + result.output_tokens > 0
+                                  ? ` · ${(result.input_tokens + result.output_tokens).toLocaleString("en-NZ")} tokens`
+                                  : ""}
+                                {result.provider_model_id ? ` · ${result.provider_model_id}` : ""}
+                              </small>
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ol>
+                    <div className="workflowMeta">
+                      <span>Score {run.score === null ? "pending" : `${numberValue(run.score).toFixed(1)}%`}</span>
+                      <span>{run.passed_case_count} passed</span>
+                      <span>{run.failed_case_count} failed</span>
+                      <span>{formatUsd(runCost)}</span>
+                    </div>
+                  </div></details>
+                );
+              })} />
+            </div>
+          ) : (
+            <div className="emptyState">
+              <h3>No evaluations in this loaded window</h3>
+              <p>Earlier evaluations may exist. Check saved qualification before requesting a separate run.</p>
+            </div>
+          )}
+        </section></> },
+{ id: "suite", label: "Suite & qualification", content: <><section className="dashboardGrid">
           <article className="businessPanel">
             <div className="panelHeading">
               <div><p className="panelLabel">Qualification suite</p><h2>{suite?.name ?? "Unavailable"}</h2></div>
@@ -376,9 +392,8 @@ export default async function WorkerEvaluationsPage({ searchParams }: Props) {
               <p>Live model evaluation {configured ? "ready" : "needs configuration"}</p>
             </div>
           </aside>
-        </section>
-
-        <section className="operationsPanel">
+        </section></> },
+{ id: "promotions", label: "Promotions", content: <><section className="operationsPanel">
           <div className="panelHeading workflowHeading">
             <div><p className="panelLabel">Promotion policy</p><h2>Worker maturity</h2></div>
             <span className="countBadge">{humanize(worker?.status ?? null)}</span>
@@ -417,78 +432,6 @@ export default async function WorkerEvaluationsPage({ searchParams }: Props) {
               </ul>
             </div>
           ) : null}
-        </section>
-
-        <section className="operationsPanel">
-          <div className="panelHeading workflowHeading">
-            <div><p className="panelLabel">Durable evidence</p><h2>Evaluation history</h2></div>
-            <span className="countBadge">{runs.length}</span>
-          </div>
-          {runs.length ? (
-            <div className="workflowList">
-              {runs.map((run) => {
-                const caseResults = resultsByRun.get(run.id) ?? [];
-                const runCost = caseResults.reduce(
-                  (sum, result) =>
-                    sum + numberValue(result.reported_cost_usd ?? result.estimated_cost_usd),
-                  0,
-                );
-                return (
-                  <article className="workflowCard" key={run.id}>
-                    <div className="workflowCardHeader">
-                      <div>
-                        <p className="workflowBusiness">{humanize(run.source)}</p>
-                        <h3>{suite?.name ?? "Worker evaluation"}</h3>
-                        <p>
-                          Started {formatDate(run.started_at)} · fingerprint {run.subject_fingerprint.slice(0, 12)}…
-                        </p>
-                      </div>
-                      <span className={`workflowStatus status-${run.status}`}>
-                        {humanize(run.status)}
-                      </span>
-                    </div>
-                    <ol className="stageTimeline" aria-label="Evaluation cases">
-                      {caseResults.map((result) => {
-                        const evaluationCase = caseById.get(result.case_id);
-                        const model = result.model_definition_id
-                          ? modelById.get(result.model_definition_id)
-                          : null;
-                        return (
-                          <li className={`stageState stage-${result.status}`} key={result.id}>
-                            <span className="stageMarker" aria-hidden="true" />
-                            <div>
-                              <strong>{evaluationCase?.name ?? "Evaluation case"}</strong>
-                              <small>
-                                {humanize(result.status)}
-                                {model ? ` · ${model.display_name}` : ""}
-                                {result.input_tokens + result.output_tokens > 0
-                                  ? ` · ${(result.input_tokens + result.output_tokens).toLocaleString("en-NZ")} tokens`
-                                  : ""}
-                                {result.provider_model_id ? ` · ${result.provider_model_id}` : ""}
-                              </small>
-                            </div>
-                          </li>
-                        );
-                      })}
-                    </ol>
-                    <div className="workflowMeta">
-                      <span>Score {run.score === null ? "pending" : `${numberValue(run.score).toFixed(1)}%`}</span>
-                      <span>{run.passed_case_count} passed</span>
-                      <span>{run.failed_case_count} failed</span>
-                      <span>{formatUsd(runCost)}</span>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="emptyState">
-              <h3>No evaluations yet</h3>
-              <p>Run the qualification suite to create the first durable competence record.</p>
-            </div>
-          )}
-        </section>
-      </main>
-    </div>
+        </section></> }]} /></AppShell>
   );
 }

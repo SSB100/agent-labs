@@ -4,7 +4,7 @@ import { hash, requireEtsy, UUID } from "../etsy/contracts";
 import { OpenRouterAdapter } from "../models/openrouter";
 import { buildWorkerModelMessages } from "../models/prompt";
 import { resolveModelRoute } from "../models/registry";
-import { ModelProviderError, type ModelProviderAdapter, type StructuredModelRequest } from "../models/types";
+import { ModelProviderError, type ModelDispatchAdmission, type ModelProviderAdapter, type StructuredModelRequest } from "../models/types";
 import { validateWorkerInvocationContext } from "../workers/runtime";
 import { workerOutputLimits } from "../workers/output-limits";
 import { assertJsonSchemaValue } from "../workers/schema-validator";
@@ -207,7 +207,8 @@ export interface ListingQualificationRepository {
   finish(): Promise<void>;
   fail(reason: string): Promise<void>;
 }
-export type ListingQualificationOptions = { adapter?: Pick<ModelProviderAdapter, "invokeStructured">; prices?: ListingPriceReader; maximumNewCalls?: 1 };
+export type ListingQualificationOptions = { adapter?: Pick<ModelProviderAdapter, "invokeStructured">; prices?: ListingPriceReader; maximumNewCalls?: 1;
+  admissionFor?(value: {callKey: string; requestHash: string; reservedMicrousd: number; providerModelId: string}): ModelDispatchAdmission };
 type QualificationResult = { status: QualificationState["status"]; reason?: string };
 const active = (s: QualificationState) => s.status === "queued" || s.status === "running";
 class Stop extends Error { constructor(readonly result: QualificationResult) { super(result.reason ?? result.status); } }
@@ -257,7 +258,8 @@ function accounting(value: unknown) {
 export async function executeListingQualification(repository: ListingQualificationRepository, options: ListingQualificationOptions = {}): Promise<QualificationResult> {
   const repo = { load: repository.load.bind(repository), guard: repository.guard.bind(repository), reserve: repository.reserve.bind(repository),
     settle: repository.settle.bind(repository), persist: repository.persist.bind(repository), finish: repository.finish.bind(repository), fail: repository.fail.bind(repository) };
-  const prices = options.prices ?? fetchCreativeModelQuote, adapter = options.adapter ?? new OpenRouterAdapter(), invoke = adapter.invokeStructured.bind(adapter);
+  const prices = options.prices ?? fetchCreativeModelQuote, suppliedAdapter = options.adapter, admissionFor = options.admissionFor;
+  const suppliedInvoke = suppliedAdapter?.invokeStructured.bind(suppliedAdapter);
   const configuredCallLimit = options.maximumNewCalls, maximumNewCalls = configuredCallLimit ?? 5;
   let reason = "listing_qualification_load_failed", state: QualificationState | undefined;
   try {
@@ -291,7 +293,8 @@ export async function executeListingQualification(repository: ListingQualificati
       listingCallReservation(c.role, request, price, phaseApproval(current), current.maximumMicrousd);
       let a: ReturnType<typeof accounting>, output: JsonObject | null = null, completedAt: string | null = null, failure: string | null = null;
       try {
-        const response = await invoke(request); a = accounting(response);
+        const adapter = suppliedAdapter ?? new OpenRouterAdapter({admitDispatch:admissionFor?.({callKey:key,requestHash:p.requestHash,reservedMicrousd:reservation.reservedMicrousd,providerModelId:LISTING_MODELS[c.role]})});
+        const response = await (suppliedInvoke ?? adapter.invokeStructured.bind(adapter))(request); a = accounting(response);
         try {
           const upstream = c.role === "specialist" ? ["openai", "OpenAI"] : ["anthropic", "Anthropic"];
           if (a.providerModelId !== LISTING_MODELS[c.role] || !["openrouter", ...upstream].includes(a.provider ?? "") || (a.upstreamProvider !== null && !upstream.includes(a.upstreamProvider))) stop("listing_qualification_actual_model_mismatch");

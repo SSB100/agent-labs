@@ -1,3 +1,4 @@
+import { ownerBusiness } from './helpers/history-fixtures.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
@@ -10,7 +11,7 @@ function load(path, dependencies = {}) {
   return loaded.exports;
 }
 const query = load('src/lib/core-ui/console-collections-query.ts');
-const api = load('src/lib/core-ui/console-collections.ts', { 'server-only': {}, './console-collections-query': query });
+const api = load('src/lib/core-ui/console-collections.ts', { 'server-only': {}, './owner-business': ownerBusiness, './console-collections-query': query });
 const id = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const a = id(1), b = id(2), foreign = id(3), def = id(4), time = '2026-10-02T01:00:00.000Z';
 const definition = { id: def, workflow_key: 'fixture', name: `Duplicate ${'long-name '.repeat(30)} 50%_\\saved`, version: '1', description: '', status: 'active', stage_definition: {} };
@@ -22,11 +23,13 @@ function fixture(tables = {}, options = {}) {
   const context = { businesses: [{ id: a, name: definition.name }, { id: b, name: definition.name }], userId: id(6), supabase: { from(table) {
     const call = { table, filters: [], orders: [] }; calls.push(call);
     const q = {
+      maybeSingle() { assert.equal(table, 'businesses'); assert.deepEqual(call.filters, [['eq','id',foreign],['eq','owner_user_id',context.userId]]); return Promise.resolve({data:null,error:null}); },
       select(columns, settings) { assert.ok(!columns.includes('*')); call.columns = columns; call.settings = settings; return q; },
       eq(key, expected) { call.filters.push(['eq', key, expected]); return q; },
       in(key, expected) { call.filters.push(['in', key, expected]); return q; },
       is(key, expected) { call.filters.push(['is', key, expected]); return q; },
       not(key, operation, expected) { assert.equal(operation, 'is'); call.filters.push(['not', key, expected]); return q; },
+      or(predicate) { assert.equal(predicate,'status.in.(completed,failed,cancelled),completed_at.not.is.null');call.filters.push(['ended']);return q; },
       ilike(key, expected) { call.filters.push(['ilike', key, expected]); return q; },
       order(key, config) { call.orders.push([key, config.ascending]); return q; },
       range(from, to) { call.range = [from, to]; return q; }, limit(n) { call.limit = n; return q; },
@@ -35,6 +38,7 @@ function fixture(tables = {}, options = {}) {
         assert.ok(call.range || call.limit, `Unbounded ${table}`); assert.equal(call.settings.count, 'exact');
         let rows = structuredClone(tables[table] ?? []);
         if (!options.ignore?.includes(table)) for (const [op, key, expected] of call.filters) rows = rows.filter(row => {
+          if(op==='ended')return ['completed','failed','cancelled'].includes(row.status)||row.completed_at!=null;
           const actual = value(row, key);
           if (op === 'in') return expected.includes(actual);
           if (op === 'is') return actual == null && expected === null;
@@ -163,7 +167,7 @@ test('Business absence/unavailability never substitutes another Business', async
   const h = fixture();
   await assert.rejects(api.loadConsoleWorkPage(h.context, { businessId: foreign }), /Business selection/);
   await assert.rejects(api.loadConsoleActivityPage({ ...h.context, businessesUnavailable: true }), /unavailable/);
-  assert.equal(h.calls.length, 0);
+  assert.deepEqual(h.calls.map(call => call.table), ['businesses']);
   assert.equal((await api.loadConsoleWorkPage({ ...h.context, businesses: [] })).page.total, 0);
 });
 
@@ -257,4 +261,13 @@ test('malformed transported runs produce unavailable presentation without Runnin
   const now = Date.parse(time), snapshot = motion.deriveConsoleMotionSnapshot({ runs: data.page.items, stages: [], tasks: [], workerRuns: [], artifacts: [], interventions: [], errors: data.errors }, { businessIds: [a, b], observedAt: now, unavailable: !data.page.complete });
   const ledger = motion.advanceConsoleMotion(null, snapshot, now);
   for (const target of ['core', 'run', 'worker']) assert.equal(motion.consoleMotionPresentation(ledger, target, run(0).id, now).state, 'unavailable');
+});
+
+
+test('ended History includes failed, cancelled and terminal needs-owner outcomes while preserving unsupported ended states', async()=>{
+  const records=[{...run(1),status:'failed'},{...run(2),status:'cancelled'},{...run(3),status:'needs_owner'},{...run(4),status:'future_ended_state'},{...run(5),status:'running',completed_at:null}];
+  const h=fixture({workflow_runs:records,workflow_definitions:[definition]});
+  const result=await api.loadConsoleWorkPage(h.context,{status:'ended'});
+  assert.equal(result.page.total,4);assert.deepEqual(new Set(result.page.items.map(r=>r.status)),new Set(['failed','cancelled','needs_owner','future_ended_state']));
+  assert.equal(h.calls.some(c=>c.table==='events'),false);bounded(h);
 });

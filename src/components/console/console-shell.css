@@ -192,3 +192,10 @@
 .consoleNavShort{display:none}@media(max-width:900px){.consoleNavFull{display:none}.consoleNavShort{display:inline}.consoleOwnerMenu[open]{grid-row:3}}
 
 @media(max-width:900px){.consoleLiveStatus{min-width:0;max-width:145px}.consoleLiveStatus .liveConnection{white-space:normal}.consoleNavLabel{overflow-wrap:normal}}
+
+@media (max-width:900px), (max-height:540px) {
+  .consoleFocusedTools { grid-column:1 / -1; grid-row:3; }
+  .consoleSidebar:has(.consoleFocusedTools) .consoleOwnerMenu[open] { grid-row:4; }
+}
+
+.consoleQuestContext { display:block; font-size:11px; line-height:1.3; color:var(--console-cyan); overflow:hidden; text-overflow:ellipsis; }

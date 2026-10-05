@@ -74,8 +74,19 @@ test('a selector failure carries its validated kickoff Evidence Packs forward be
  const root={id:base.id,business_id:base.businessId,workflow_run_id:'failed-selector-run',discovery_version:'pod-discovery-2.0',candidate_id:null,parent_discovery_id:null,status:'failed',variables:{intent:goal.buildDiscoveryIntentFromGoal(base),priorArtifactIds:['prior-pack']}};
  const run=async businessId=>{
   const rows={packs:[{data:{status:'experimental'},error:null},{data:{status:'experimental'},error:null}],artifacts:[{data:[],error:null},{data:[{id:'prior-pack',business_id:businessId,workflow_run_id:'earlier-research',artifact_type:'worker.output',content:{evidencePack:{question:'Preserved observed evidence'}},metadata:{stageKey:'research1'}}],error:null}]};
-  const supabase={from(table){const result=rows[table].shift(),q={select(){return q;},eq(){return q;},in(){return q;},maybeSingle(){return q;},then(resolve){return Promise.resolve(result).then(resolve);}};return q;}};
-  return loadDiscoveryGoalData({supabase,businesses:[{id:base.businessId}]},[root]);
+  const reads=[];
+  const supabase={from(table){const result=rows[table].shift(),call={table,filters:[],orders:[]};reads.push(call);const q={
+   select(columns,settings){call.columns=columns;if(table==='artifacts')assert.equal(settings?.count,'exact');return q;},
+   eq(column,value){call.filters.push(['eq',column,value]);return q;},in(column,value){call.filters.push(['in',column,value]);return q;},
+   order(column,settings){call.orders.push([column,settings?.ascending]);return q;},limit(value){call.limit=value;return q;},maybeSingle(){assert.equal(table,'packs');return q;},
+   then(resolve){if(table==='artifacts'){assert.equal(call.limit,301);assert.equal(call.orders.at(-1)[0],'id');}return Promise.resolve({...result,...(Array.isArray(result.data)?{count:result.data.length}:{})}).then(resolve);}
+  };return q;}};
+  const result=await loadDiscoveryGoalData({supabase,businesses:[{id:base.businessId}]},[root]);
+  const artifacts=reads.filter(call=>call.table==='artifacts');assert.equal(artifacts.length,2);
+  for(const call of artifacts)assert.ok(call.filters.some(([op,key,value])=>op==='in'&&key==='business_id'&&value.length===1&&value[0]===base.businessId));
+  assert.ok(artifacts[0].filters.some(([op,key,value])=>op==='in'&&key==='workflow_run_id'&&value.length===1&&value[0]===root.workflow_run_id));
+  assert.ok(artifacts[1].filters.some(([op,key,value])=>op==='in'&&key==='id'&&value.length===1&&value[0]==='prior-pack'));
+  return result;
  };
  const owned=await run(base.businessId);assert.deepEqual(owned.errors,[]);assert.equal(owned.records[0].dossier,null);assert.deepEqual(owned.records[0].sourcePacks.map(p=>p.id),['prior-pack']);
  const foreign=await run('foreign-business');assert.equal(foreign.records[0].sourcePacks.length,0);assert.match(foreign.errors[0],/missing or outside this Business/);

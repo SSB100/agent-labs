@@ -20,7 +20,7 @@ export type ConsoleCollectionPage<T> = {
 export type ConsoleCollectionSelection<T> =
   | { status: "none" | "missing" | "unavailable"; item: null }
   | { status: "found"; item: T };
-const workStatuses = ["all", "active", "stopped", "running", "queued", "waiting", "review", "needs_owner", "completed", "failed", "cancelled"];
+const workStatuses = ["all", "active", "ended", "stopped", "running", "queued", "waiting", "review", "needs_owner", "completed", "failed", "cancelled"];
 export function consoleCollectionQuery(kind: ConsoleCollectionKind, options: ConsoleCollectionOptions = {}): ConsoleCollectionQuery {
   const page = options.page ?? 1, pageSize = options.pageSize ?? CONSOLE_COLLECTION_PAGE_SIZE;
   if (!Number.isSafeInteger(page) || page < 1 || pageSize !== CONSOLE_COLLECTION_PAGE_SIZE || !Number.isSafeInteger(page * pageSize)) throw new Error("Invalid collection page.");
@@ -63,7 +63,7 @@ export function consoleCollectionHref(current: URLSearchParams | Record<string, 
   if (!(current instanceof URLSearchParams)) for (const [key, value] of Object.entries(current)) {
     if (typeof value === "string") params.set(key, value); else if (Array.isArray(value)) for (const item of value) params.append(key, item);
   }
-  if (Object.hasOwn(changes, "selected")) { params.delete("run"); if (!Object.hasOwn(changes, "artifact")) params.delete("artifact"); }
+  if (Object.hasOwn(changes, "selected")) { if (params.get("view") === "work" && params.has("quest")) { if (changes.selected) params.set("episode", String(changes.selected)); else params.delete("episode"); if (!Object.hasOwn(changes, "step")) params.delete("step"); if (!Object.hasOwn(changes, "agent")) params.delete("agent"); if (!Object.hasOwn(changes, "sourceArtifact")) params.delete("sourceArtifact"); } params.delete("run"); if (!Object.hasOwn(changes, "artifact")) params.delete("artifact"); }
   for (const [key, value] of Object.entries(changes)) {
     if (value === null || value === undefined || value === "") params.delete(key); else params.set(key, String(value));
   }

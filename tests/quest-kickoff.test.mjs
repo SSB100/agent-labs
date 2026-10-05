@@ -14,7 +14,8 @@ function load(path, overrides = {}) {
   new Function('require', 'module', 'exports', output)(name => Object.hasOwn(overrides, name) ? overrides[name] : require(name), sourceModule, sourceModule.exports);
   return sourceModule.exports;
 }
-const draft = load('src/lib/core-ui/quest-draft.ts');
+const credentialGuard = load('src/core/quest-intake.ts');
+const draft = load('src/lib/core-ui/quest-draft.ts', { '../../core/quest-intake': credentialGuard });
 const ownerId = 'owner-one';
 const businesses = [{ id: 'business-one', name: 'Nature Works' }];
 const quote = { one: 370395, two: 530914, verifiedAt: '2026-10-02T03:00:00Z' };
@@ -58,7 +59,8 @@ test('browser presentation constants remain aligned with the original geographic
   const server = read('src/products/discovery-v2-goal.ts');
   assert.ok(server.includes(JSON.stringify(draft.QUEST_DEFAULT_GOAL)));
   assert.ok(server.includes(JSON.stringify(draft.QUEST_MARKET_SCOPE)));
-  assert.doesNotMatch(read('src/lib/core-ui/quest-draft.ts'), /\bimport\b|node:crypto/);
+  assert.match(read('src/lib/core-ui/quest-draft.ts'), /from "\.\.\/\.\.\/core\/quest-intake"/);
+  assert.doesNotMatch(read('src/lib/core-ui/quest-draft.ts'), /node:crypto/);
   assert.doesNotMatch(read('src/components/guided/quest-kickoff.tsx'), /from ["'].*(?:discovery-goal-workspace|discovery-v2-goal)["']/);
 });
 
@@ -88,6 +90,26 @@ test('session restore rejects malformed, foreign, obsolete or oversized drafts a
   assert.equal(removedBusiness.draft.businessId, '');
   assert.equal(removedBusiness.step, 0);
   assert.equal(removedBusiness.draft.goal, saved.draft.goal);
+});
+
+test('credential-like goal and audience text cannot be saved, restored or submitted', () => {
+  const clean = stateAt(2);
+  const cases = [
+    { field: 'goal', value: 'Research nature shirts; api_key=sk_test_123456789abcdef' },
+    { field: 'audienceHint', value: 'Bearer synthetic-private-value' },
+  ];
+  for (const { field, value } of cases) {
+    const unsafe = { ...clean, draft: { ...clean.draft, [field]: value } };
+    const serialized = draft.serializeQuestDraft(ownerId, unsafe);
+    assert.equal(serialized, '');
+    assert.equal(serialized.includes(value), false);
+    const tampered = JSON.parse(draft.serializeQuestDraft(ownerId, clean));
+    tampered.draft[field] = value;
+    assert.equal(draft.restoreQuestDraft(JSON.stringify(tampered), ownerId, ['business-one']), null);
+    const issues = draft.validateQuestDraft(unsafe.draft, ['business-one'], 'goal');
+    assert.ok(issues.some(issue => issue.field === field && /secure Connections/.test(issue.message)));
+    assert.equal(issues.some(issue => issue.message.includes(value)), false);
+  }
 });
 
 test('Back, field edits, errors and reload invalidate consent without losing input', () => {

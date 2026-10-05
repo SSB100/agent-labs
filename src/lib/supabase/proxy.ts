@@ -3,12 +3,12 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { getSupabasePublicConfig, isSupabaseConfigured } from "./env";
 
-export async function updateSupabaseSession(request: NextRequest) {
+export async function updateSupabaseSession(request: NextRequest, requestHeaders: Headers) {
   if (!isSupabaseConfigured()) {
-    return NextResponse.next({ request });
+    return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
-  let response = NextResponse.next({ request });
+  let response = NextResponse.next({ request: { headers: requestHeaders } });
   const { publishableKey, url } = getSupabasePublicConfig();
 
   const supabase = createServerClient(url, publishableKey, {
@@ -21,7 +21,8 @@ export async function updateSupabaseSession(request: NextRequest) {
           request.cookies.set(name, value);
         });
 
-        response = NextResponse.next({ request });
+        requestHeaders.set("cookie", request.headers.get("cookie") ?? "");
+        response = NextResponse.next({ request: { headers: requestHeaders } });
 
         cookiesToSet.forEach(({ name, options, value }) => {
           response.cookies.set(name, value, options);

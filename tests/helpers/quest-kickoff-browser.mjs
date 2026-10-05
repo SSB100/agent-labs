@@ -18,7 +18,8 @@ const failServerAction = () => { throw new Error("Server rendering must never in
 
 /** The production TSX and React runtime are bundled; only the paid action is mocked. */
 export async function questFixtureDocument() {
-  const helper = loadSource("src/lib/core-ui/quest-draft.ts");
+  const intake = loadSource("src/core/quest-intake.ts");
+  const helper = loadSource("src/lib/core-ui/quest-draft.ts", { "../../core/quest-intake": intake });
   const { QuestKickoff } = loadSource("src/components/guided/quest-kickoff.tsx", {
     "@/app/dashboard/products/discovery-actions": { startGeographicDiscovery: failServerAction },
     "@/lib/core-ui/quest-draft": helper,

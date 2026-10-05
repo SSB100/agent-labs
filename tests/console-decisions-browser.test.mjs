@@ -23,16 +23,18 @@ test('populated hosted fixture retains mixed types and two Businesses across act
   const typed = fixture.tables.owner_interventions[126], html = await decisionDocument(decisionRoute(typed), { fixture });
   assert.match(html, />Approve and complete demo<\/button>/); assert.match(html, /deniedTypedAction/);
   const selected = fixture.tables.owner_interventions[1];
-  for (const route of [`/dashboard?view=overview&business=${businessId}`, `/dashboard?view=work&business=${businessId}&run=${selected.workflow_run_id}`]) assert.ok((await decisionDocument(route, { fixture })).includes('consoleMain'));
+  for (const route of [`/dashboard?view=work&business=${businessId}&run=${selected.workflow_run_id}`, `/dashboard?view=overview&business=${businessId}`]) assert.ok((await decisionDocument(route, { fixture })).includes('consoleMain'));
   assert.equal(fixture.rpcCalls.length, 0); assert.equal(fixture.hookCalls.length, 0);
 });
 
-test('retained root document has a real hydration island, Suspense boundary and all fifty unavailable-completeness account requests', async () => {
+test('retained root document has a real hydration island, unknown total and all fifty retained account requests', async () => {
   const fixture = createDecisionBrowserFixture({ accountRequests: fiftyAccountRequests() }), route = `/dashboard?view=decisions&decision=${oldNotice.id}`;
   const props = await decisionClientState(route, fixture), html = await decisionDocument(route, { fixture, retained: true });
   assert.equal(props.connectionRequests.records.length, 50); assert.equal(props.connectionRequests.count, null); assert.equal(props.connectionRequests.unavailable, true);
   assert.match(html, /<div id="decision-root-island" style="display:contents"><!--\$--><section class="compactDecisions"/);
-  assert.match(html, /Connection requests could not be checked/); assert.match(html, /Saved connection requests · (?:<!-- -->)?50/);
+  assert.match(html, /Connection requests could not be checked/); assert.match(html, /Saved connection requests · (?:<!-- -->)?Unknown/);
+  assert.doesNotMatch(html, /Saved connection requests · (?:<!-- -->)?50/);
+  assert.equal((html.match(/Review saved setup request<\/a>/g) ?? []).length, 50, "Retained links are not an authoritative total");
   assert.match(html, /window\.__decisionRetained=true/); assert.match(html, /__loadDecisionRootFixture/);
   assert.equal(fixture.rpcCalls.length, 0); assert.equal(fixture.hookCalls.length, 0);
 });

@@ -1,3 +1,4 @@
+import { ownerBusiness, historyRead, historyResponse } from './helpers/history-fixtures.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -6,9 +7,9 @@ import {runInNewContext} from 'node:vm';
 import {publicationFixture} from './etsy-publication-fixtures.mjs';
 const require=createRequire(import.meta.url),ts=require('typescript');
 const C=require('../.core-tests/etsy/contracts.js'),V=require('../.core-tests/etsy/vault.js');
-function harness({rpc=async()=>({data:{drafts:[],runs:[]}}),engine=async()=>({status:'verified'})}={}){
- const calls=[],context={businesses:[],supabase:{rpc:async(name,args)=>{calls.push({name,args});return rpc(name,args);}}};
- const deps={'server-only':{},'node:crypto':require('node:crypto'),'../etsy/server':{etsyConfigured:()=>false,etsyConfig:()=>({serverKey:'synthetic-server-authority',vaultKey:'1'.repeat(64),keystring:'fixture',sharedSecret:'fixture'}),ownerBusiness:(ctx,id)=>C.requireEtsy(ctx.businesses.some(b=>b.id===id),'owner_required'),resolveEtsyConnection:async()=>{throw new Error('unexpected connection lookup');}},'../etsy/contracts':C,'../etsy/vault':V,'../listing/intake':require('../.core-tests/listing/intake.js'),'./adapter':{EtsyPublicationAdapter:class{}},'./engine':{executeEtsyPublication:engine},'./contracts':require('../.core-tests/etsy-publication/contracts.js'),'./policy':require('../.core-tests/etsy-publication/policy.js')};
+function harness({rpc=async(_name,args)=>({data:{drafts:[],runs:args.p_query?.interventionId?[{...publicationFixture().state,title:'Synthetic historical publication'}]:[]}}),engine=async()=>({status:'verified'})}={}){
+ const calls=[],context={businesses:[],supabase:{rpc:async(name,args)=>{calls.push({name,args});const response=await rpc(name,args);if(name==='r06_read'&&response?.data&&!('items' in response.data)){const rows=args.p_dataset==='publication_runs'?response.data.runs:response.data.drafts;return historyResponse(args,rows,{selected:args.p_query?.interventionId?rows?.[0]:null});}return response;}}};
+ const deps={'../lib/core-ui/owner-business':ownerBusiness,'../lib/core-ui/history-read':historyRead,'server-only':{},'../core/existing-effect-read':require('../.core-tests/core/existing-effect-read.js'),'../lib/existing-effect-read-runtime':{requireExistingEffectReadEligibility:async()=>{throw new Error('existing_effect_read_not_authorized');}},'node:crypto':require('node:crypto'),'../etsy/server':{etsyConfigured:()=>false,etsyConfig:()=>({serverKey:'synthetic-server-authority',vaultKey:'1'.repeat(64),keystring:'fixture',sharedSecret:'fixture'}),ownerBusiness:(ctx,id)=>C.requireEtsy(ctx.businesses.some(b=>b.id===id),'owner_required'),resolveEtsyConnection:async()=>{throw new Error('unexpected connection lookup');}},'../etsy/contracts':C,'../etsy/vault':V,'../listing/intake':require('../.core-tests/listing/intake.js'),'./adapter':{EtsyPublicationAdapter:class{}},'./engine':{executeEtsyPublication:engine},'./contracts':require('../.core-tests/etsy-publication/contracts.js'),'./policy':require('../.core-tests/etsy-publication/policy.js')};
  const code=ts.transpileModule(readFileSync('src/etsy-publication/server.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,m={exports:{}};
  runInNewContext(`(function(require,module,exports){${code}\n})`)(name=>{assert.ok(name in deps,`Unexpected dependency ${name}`);return deps[name];},m,m.exports);return{...m.exports,context,calls};
 }
@@ -18,7 +19,7 @@ function sourceFixture(){
  source.artifactContent={etsyDraftEnvelope:source.packageEnvelope,listingReviewEnvelope:source.reviewEnvelope};return{f,source,key};
 }
 test('publication workspace is owner scoped and unavailable records are not fabricated',async()=>{
- const h=harness({rpc:async()=>({error:{message:'private database detail'}})}),f=publicationFixture();h.context.businesses=[{id:f.p.businessId}];const view=await h.loadPublicationWorkspace(h.context,f.p.businessId);assert.equal(view.unavailable,true);assert.equal(view.feeReadiness.available,false);assert.equal(h.calls[0].args.p_server_key,'');await assert.rejects(h.loadPublicationWorkspace(h.context,'foreign'),/owner_required/);assert.equal(h.calls.length,1);
+ const h=harness({rpc:async()=>({error:{message:'private database detail'}})}),f=publicationFixture();h.context.businesses=[{id:f.p.businessId}];const view=await h.loadPublicationWorkspace(h.context,f.p.businessId);assert.equal(view.unavailable,true);assert.equal(view.feeReadiness.available,false);assert.ok(h.calls.every(c=>c.name==='r06_read'&&!('p_server_key' in c.args)));await assert.rejects(h.loadPublicationWorkspace(h.context,'foreign'),/owner_required/);assert.equal(h.calls.length,2);
 });
 test('current fee absence blocks even fully consented, structurally exact approval before any RPC or provider call',async()=>{
  const h=harness(),f=publicationFixture();h.context.businesses=[{id:f.p.businessId}];const bindings=Object.fromEntries(['packageHash','reviewHash','preflightHash','disclosureHash','feeQuoteHash'].map(k=>[k,'a'.repeat(64)]));await assert.rejects(h.beginEtsyPublication(h.context,f.p.businessId,f.draft.runId,bindings,{publication:true,publicData:true,fee:true,renewal:true}),/publication_fee_evidence_required|publication_policy_refresh_required/);assert.equal(h.calls.length,0);
@@ -62,5 +63,5 @@ test('publication Needs You reads remain owner scoped without workflow links and
 });
 
 test('publication history forwards only a valid hidden intervention target for authoritative owner resolution',async()=>{
- const h=harness(),f=publicationFixture();h.context.businesses=[{id:f.p.businessId}];const target=f.draft.receiptId;const view=await h.loadPublicationWorkspace(h.context,f.p.businessId,target);assert.equal(view.unavailable,false);assert.equal(h.calls[0].args.p_payload.interventionId,target);assert.equal(h.calls[0].args.p_server_key,'');const invalid=await h.loadPublicationWorkspace(h.context,f.p.businessId,'arbitrary-path');assert.equal(invalid.unavailable,true);assert.equal(h.calls.length,1);
+ const h=harness(),f=publicationFixture();h.context.businesses=[{id:f.p.businessId}];const target=f.draft.receiptId;const view=await h.loadPublicationWorkspace(h.context,f.p.businessId,target);assert.equal(view.unavailable,false);assert.equal(h.calls[0].args.p_query.interventionId,target);assert.ok(h.calls.every(c=>c.name==='r06_read'&&!('p_server_key' in c.args)));const invalid=await h.loadPublicationWorkspace(h.context,f.p.businessId,'arbitrary-path');assert.equal(invalid.unavailable,true);assert.equal(h.calls.length,2);
 });

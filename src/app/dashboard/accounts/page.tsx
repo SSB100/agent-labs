@@ -1,3 +1,6 @@
+import { safeTablePage, historyRows } from "@/lib/core-ui/history-read";
+import { HistoryPager } from "@/components/console/history-pager";
+import { ConsoleRetainedWorkspace } from "@/components/console/console-retained-workspace";
 import Link from "next/link";
 import { accountReturnHref } from "@/accounts/connection-feedback";
 import { notFound, redirect } from "next/navigation";
@@ -71,9 +74,6 @@ function first(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
 }
 
-function rows<T>(value: unknown): T[] {
-  return Array.isArray(value) ? (value as T[]) : [];
-}
 
 function record<T>(value: unknown): T | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -111,40 +111,20 @@ export default async function AccountsPage({ searchParams }: AccountsPageProps) 
   const accountMessage = accountNoticeMessage(accountWorkspace, messageProvider, selectedRequestId, first(query.accountMessage));
 
   const [providerResult, sessionResult, plannerResult, plannerCaseResult] = await Promise.all([
-    context.supabase
-      .from("browser_provider_definitions")
-      .select(
-        "id, provider_key, name, status, is_default, api_base_url, capabilities, pricing, evaluation, created_at, updated_at",
-      )
-      .order("is_default", { ascending: false }),
-    context.businesses.length
-      ? context.supabase
-          .from("browser_sessions")
-          .select(
-            "id, business_id, workflow_run_id, provider_definition_id, browser_identity_id, provider_session_id, status, control_mode, live_view_status, replay_status, current_url, page_title, region, browser_mode, metadata, failure, started_at, released_at, created_at, updated_at",
-          )
-          .in(
-            "business_id",
-            context.businesses.map((business) => business.id),
-          )
-          .order("created_at", { ascending: false })
-          .limit(12)
-      : Promise.resolve({ data: [], error: null }),
+    safeTablePage<BrowserProviderDefinitionRecord>(context,"browser_provider_definitions","id,provider_key,name,status,is_default,api_base_url,capabilities,pricing,evaluation,created_at,updated_at","browserProvider",{time:"is_default"}),
+    safeTablePage<BrowserSessionRecord>(context,"browser_sessions","id,business_id,workflow_run_id,provider_definition_id,browser_identity_id,provider_session_id,status,control_mode,live_view_status,replay_status,current_url,page_title,region,browser_mode,metadata,failure,started_at,released_at,created_at,updated_at","browserSession",{businessId:selectedBusiness?.id,statusColumn:"status"}),
     context.supabase
       .from("browser_planner_definitions")
       .select("id, planner_key, version, name, status, model_route_key, qualification")
       .eq("planner_key", "browser.planner")
       .eq("version", "1.0.0")
       .maybeSingle(),
-    context.supabase
-      .from("browser_planner_qualification_cases")
-      .select("id, case_key, level, status, score")
-      .order("level"),
+    safeTablePage<BrowserPlannerCaseRecord>(context,"browser_planner_qualification_cases","id,case_key,level,status,score","browserCase",{time:"level"}),
   ]);
-  const providers = rows<BrowserProviderDefinitionRecord>(providerResult.data);
-  const sessions = rows<BrowserSessionRecord>(sessionResult.data);
+  const providers = historyRows(providerResult);
+  const sessions = historyRows(sessionResult);
   const planner = record<BrowserPlannerDefinitionRecord>(plannerResult.data);
-  const plannerCases = rows<BrowserPlannerCaseRecord>(plannerCaseResult.data);
+  const plannerCases = historyRows(plannerCaseResult);
   const plannerPassed = plannerCases.filter((entry) => entry.status === "passed").length;
   const providerById = new Map(providers.map((provider) => [provider.id, provider]));
   const businessById = new Map(context.businesses.map((business) => [business.id, business]));
@@ -173,21 +153,15 @@ export default async function AccountsPage({ searchParams }: AccountsPageProps) 
   ];
 
   return (
-    <AppShell active="accounts" context={context} navigationBusinessId={selectedBusiness?.id}>
-      <PageHeader
-        description="Business accounts, the access you approved, and the exact next setup step."
-        eyebrow="Connections"
-        title="Connections"
+    <AppShell toolDestination="diagnostics" active="accounts" context={context} navigationBusinessId={selectedBusiness?.id}><ConsoleRetainedWorkspace ownerId={context.userId}  header={<><HistoryPager page={providerResult.page} name="browserProvider" label="Browser providers"/><HistoryPager page={sessionResult.page} name="browserSession" label="Browser sessions"/><HistoryPager page={plannerCaseResult.page} name="browserCase" label="Browser cases"/>{!providerResult.page.available||!sessionResult.page.available||!plannerCaseResult.page.available?<p role="alert">Some diagnostics are unavailable; missing records are not empty history.</p>:null}<PageHeader
+        description="Inspect saved provider configuration and bounded operational evidence."
+        eyebrow="System tools"
+        title="Platform diagnostics"
       />
-
-      {message ? <p className="coreNotice coreNotice-success" role="status">{message}</p> : null}
-      {error ? <p className="coreNotice coreNotice-danger" role="alert">{error}</p> : null}
-
-      {accountMessage ? <p className="coreNotice" role="status">{accountMessage}</p> : null}
-      {context.businesses.length > 1 ? <form method="get" className="accountProvider"><label>Business <select name="business" defaultValue={selectedBusiness?.id}>{context.businesses.map(b => <option value={b.id} key={b.id}>{b.name}</option>)}</select></label><button className="coreButton" type="submit">Switch Business</button></form> : null}
-      {accountWorkspace ? <BusinessAccountWorkspace data={accountWorkspace} /> : <p>{context.businessesUnavailable ? "Business records could not be checked. Reload before starting account setup." : "Create a Business before setting up external accounts."}</p>}
-
-      <details className="guidedDisclosure"><summary>Advanced platform diagnostics<span>Configuration, browser providers and qualification tools</span></summary>
+{message ? <p className="coreNotice coreNotice-success" role="status">{message}</p> : null}
+{error ? <p className="coreNotice coreNotice-danger" role="alert">{error}</p> : null}
+{accountMessage ? <p className="coreNotice" role="status">{accountMessage}</p> : null}
+{context.businesses.length > 1 ? <form method="get" className="accountProvider"><input type="hidden" name="diagnostics" value="platform" /><label>Business <select name="business" defaultValue={selectedBusiness?.id}>{context.businesses.map(b => <option value={b.id} key={b.id}>{b.name}</option>)}</select></label><button className="coreButton" type="submit">Switch Business</button></form> : null}</>} panels={[{ id: "diagnostics", label: "Platform diagnostics", content: <><details className="guidedDisclosure" open><summary>Advanced platform diagnostics<span>Configuration, browser providers and qualification tools</span></summary>
       <section className="dashboardSection">
         <div className="sectionTitleRow">
           <div><p className="coreEyebrow">System services</p><h2>Configured services</h2></div>
@@ -277,7 +251,7 @@ export default async function AccountsPage({ searchParams }: AccountsPageProps) 
               decision selects exactly one observed stable element or stops.
             </p>
             <small>
-              {plannerPassed}/{plannerCases.length || 4} required cases passed · Route {planner?.model_route_key ?? "standard.default"}
+              {plannerPassed}/{plannerCases.length} displayed cases passed · Route {planner?.model_route_key ?? "standard.default"}
             </small>
           </div>
           <div className="browserQualificationActions">
@@ -325,17 +299,17 @@ export default async function AccountsPage({ searchParams }: AccountsPageProps) 
             ))}
           </div>
         ) : (
-          <p className="sectionEmptyText">No remote browser session has been launched yet.</p>
+          <p className="sectionEmptyText">No browser sessions are shown on this server page. Check the session count and other pages; an unavailable read does not prove no saved session.</p>
         )}
       </section>
 
-      </details>
-      <section className="dashboardSection" aria-labelledby="etsy-account-title">
+      </details></> },
+{ id: "requests", label: "Account requests", content: <>{accountWorkspace ? <BusinessAccountWorkspace data={accountWorkspace} /> : <p>{context.businessesUnavailable ? "Business records could not be checked. Reload before starting account setup." : "Create a Business before setting up external accounts."}</p>}</> },
+{ id: "etsy", label: "Etsy operations", content: <><section className="dashboardSection" aria-labelledby="etsy-account-title">
         <div className="sectionTitleRow"><div><p className="coreEyebrow">Draft-only capability</p><h2 id="etsy-account-title">Etsy drafts</h2></div><StatusPill status="experimental" /></div>
         <div className="browserQualificationPanel"><div><h3>Prepare listings from approved products</h3><p>Connect your shop securely, approve a qualified product, and track verified draft preparation. Upstream product and artwork checks remain required.</p><small>Public activation, orders and paid actions are unavailable.</small></div><Link className="coreButton coreButton-primary" href={`/dashboard/etsy${selectedBusiness ? `?business=${selectedBusiness.id}` : ""}`}>Open Etsy drafts</Link></div>
-      </section>
-
-      <section className="dashboardSection" aria-labelledby="printful-account-title">
+      </section></> },
+{ id: "printful", label: "Printful operations", content: <><section className="dashboardSection" aria-labelledby="printful-account-title">
         <div className="sectionTitleRow">
           <div><p className="coreEyebrow">Stage 15 foundation</p><h2 id="printful-account-title">Print fulfilment · Printful</h2></div>
           <StatusPill status="experimental" />
@@ -352,8 +326,6 @@ export default async function AccountsPage({ searchParams }: AccountsPageProps) 
             <small>Product execution remains separately gated</small>
           </div>
         </div>
-      </section>
-
-    </AppShell>
+      </section></> }]} /></AppShell>
   );
 }

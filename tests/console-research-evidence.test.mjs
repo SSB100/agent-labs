@@ -58,7 +58,8 @@ test('malformed request, owner scope and explicit Business conflicts fail before
   const { f, db } = make(), h = transport(db);
   for (const change of [{ experimentId: 'bad' }, { observedAt: '2026-02-30T00:00:00Z' }, { observedAt: 1 }, { businessId: 'bad' }, { page: 3 }]) await assert.rejects(h.api.loadConsoleResearchEvidence(h.context, { ...options(f), ...change }), /Invalid/);
   assert.equal(h.calls.length, 0); await assert.rejects(h.api.loadConsoleResearchEvidence(h.context, { ...options(f), businessId: id(3) }), /Business selection/);
-  const result = await h.api.loadConsoleResearchEvidence(h.context, { ...options(f), businessId: id(2) }); assert.equal(result.selection.status, 'missing'); assert.equal(result.history, null); assert.equal(result.workIdentity, null); assert.equal(h.calls.length, 1);
+  const result = await h.api.loadConsoleResearchEvidence(h.context, { ...options(f), businessId: id(2) }); assert.equal(result.selection.status, 'missing'); assert.equal(result.history, null); assert.equal(result.workIdentity, null); assert.deepEqual(h.calls.map(call => call.table), ['businesses','product_experiments']);
+  assert.deepEqual(h.calls[0].filters, [['eq','id',id(3)],['eq','owner_user_id',h.context.userId]]);
   const ignored = transport(db, { ignore: (_, key) => key === 'business_id' }), bad = await ignored.api.loadConsoleResearchEvidence(ignored.context, { ...options(f), businessId: id(2) });
   assert.notEqual(bad.selection.status, 'found'); assert.equal(bad.workIdentity, null); assert.equal(ignored.calls.length, 1);
 });

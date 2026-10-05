@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { requireTransportAdmission, type TransportAdmission } from "../core/transport-admission";
 import { chromium, type Browser } from "playwright-core";
 import { ACCOUNT_PROVIDERS, ACCOUNT_UUID, accountAssert, type AccountProvider } from "./contracts";
 import type { RegistrationTransport } from "./registration";
@@ -26,6 +27,7 @@ export type AccountBrowserbaseHandoff = {
   expiresAt: string;
 };
 type Dependencies = {
+  admitDispatch?: TransportAdmission;
   config?: AccountBrowserbaseConfig;
   fetcher?: typeof fetch;
   connect?: typeof chromium.connectOverCDP;
@@ -147,6 +149,7 @@ export function createAccountBrowserbaseTransport(input: {
   accountAssert(ACCOUNT_UUID.test(input.businessId) && (input.provider === "etsy" || input.provider === "printful"), "account_browserbase_binding_required");
   const now = dependencies.now ?? Date.now;
   const fetcher = dependencies.fetcher ?? fetch;
+  const admitDispatch = dependencies.admitDispatch;
   const connect = dependencies.connect ?? chromium.connectOverCDP.bind(chromium);
   const provider = input.provider;
   const businessId = input.businessId;
@@ -179,6 +182,8 @@ export function createAccountBrowserbaseTransport(input: {
         }
       };
       try {
+        await requireTransportAdmission(admitDispatch, { provider: "browserbase", operation: "account.session.create", method: "POST", endpoint: "https://api.browserbase.com/v1/sessions" });
+        accountAssert(now() < approvalExpires, "account_approval_expired");
         const response = await request(config, fetcher, "/sessions", {
           projectId: config.projectId, timeout, keepAlive: true, proxies: false,
           browserSettings: { recordSession: false, logSession: false, solveCaptchas: false,

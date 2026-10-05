@@ -1,9 +1,22 @@
 import { EtsyError, requireEtsy, record, positiveId, draftBody, sameScope, validatePackage, type EtsyConnection, type EtsyProductPackage, type EtsyProperty } from "./contracts";
+import { requireTransportAdmission, type TransportAdmission } from "../core/transport-admission";
 
 const API = "https://api.etsy.com/v3/application";
 /** Only bounded first-party HTTPS, no redirects, error bodies, automatic retries,
  * activation, orders, deletion or arbitrary request descriptors. */
-export async function etsyJson(fetcher: typeof fetch, url: string, init: RequestInit): Promise<unknown> {
+export async function etsyJson(fetcher: typeof fetch, url: string, init: RequestInit, admission?: { operation: string; admitDispatch?: TransportAdmission }): Promise<unknown> {
+  const target = new URL(url), method = init.method ?? "GET";
+  requireEtsy(target.origin === "https://api.etsy.com" && !target.username && !target.password && !target.hash &&
+    (target.pathname.startsWith("/v3/application/") || target.pathname === "/v3/public/oauth/token"), "invalid_provider_target");
+  // Snapshot headers/body before the asynchronous admission. Secrets never enter
+  // the descriptor, and caller mutation cannot change the admitted request.
+  let body = init.body;
+  if (body instanceof URLSearchParams) body = new URLSearchParams(body);
+  else if (body instanceof FormData) { const copy = new FormData(); body.forEach((value,key) => copy.append(key,value)); body = copy; }
+  else requireEtsy(body === undefined || body === null, "invalid_provider_body");
+  init = { ...init, headers: new Headers(init.headers), body };
+  try { await requireTransportAdmission(admission?.admitDispatch, { provider: "etsy", operation: admission?.operation ?? "", method, endpoint: url }); }
+  catch { throw new EtsyError("account_access_denied"); }
   const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), 15_000);
   try {
     const response = await fetcher(url, { ...init, redirect: "error", cache: "no-store", signal: controller.signal });
@@ -37,12 +50,14 @@ export class EtsyDraftAdapter {
   private readonly apiKey: string;
   private readonly fetcher: typeof fetch;
   private scope: EtsyConnection | null = null;
-  constructor(options: { authorize: () => Promise<EtsyConnection>; apiKey: string; fetcher?: typeof fetch }) {
+  private readonly admitDispatch?: TransportAdmission;
+  constructor(options: { authorize: () => Promise<EtsyConnection>; apiKey: string; fetcher?: typeof fetch; admitDispatch?: TransportAdmission }) {
     this.authorize = options.authorize; this.apiKey = options.apiKey; this.fetcher = options.fetcher ?? fetch;
+    this.admitDispatch = options.admitDispatch;
     requireEtsy(typeof this.apiKey === "string" && /^[^\s:]+:[^\s:]+$/.test(this.apiKey), "etsy_app_not_configured");
   }
   private async request(path: string, method = "GET", body?: URLSearchParams | FormData) {
-    const connection = await this.authorize();
+    const connection = { ...await this.authorize() };
     if (this.scope) {
       sameScope(this.scope, connection);
       requireEtsy(this.scope.revision === connection.revision, "account_access_revoked");
@@ -51,7 +66,11 @@ export class EtsyDraftAdapter {
     requireEtsy(!shopPath || Number(shopPath[1]) === connection.shopId, "account_scope_mismatch");
     requireEtsy(connection.status === "connected" && Date.parse(connection.expiresAt) > Date.now() && typeof connection.accessToken === "string" && !/[\r\n]/.test(connection.accessToken), "account_access_denied");
     positiveId(connection.shopId);
-    return etsyJson(this.fetcher, `${API}${path}`, { method, headers: { "x-api-key": this.apiKey, Authorization: `Bearer ${connection.accessToken}`, Accept: "application/json" }, body });
+    return etsyJson(this.fetcher, `${API}${path}`, { method, headers: { "x-api-key": this.apiKey, Authorization: `Bearer ${connection.accessToken}`, Accept: "application/json" }, body }, { operation: method === "GET" ? "draft.read" : "draft.write", admitDispatch: async descriptor => {
+      await requireTransportAdmission(this.admitDispatch, descriptor);
+      const current = await this.authorize(); sameScope(connection, current);
+      requireEtsy(current.revision === connection.revision && current.status === "connected" && Date.parse(current.expiresAt) > Date.now() && current.accessToken === connection.accessToken, "account_access_revoked");
+    } });
   }
   async shop() {
     const connection = await this.authorize();

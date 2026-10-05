@@ -382,3 +382,19 @@ footer {
     transition-duration: 0.01ms !important;
   }
 }
+
+.questWorkspace { display: grid; gap: 1.25rem; min-width: 0; }
+.questWorkspace section, .questWorkspace details { padding: 1rem; border: 1px solid var(--border, #ddd); border-radius: .5rem; min-width: 0; }
+.questWorkspace form, .questWorkspace label { display: grid; gap: .5rem; }
+.questWorkspace form { gap: 1rem; margin-block: 1rem; }
+.questWorkspace input:not([type=checkbox]), .questWorkspace textarea { width: 100%; min-width: 0; min-height: 44px; padding: .65rem; border: 1px solid var(--border, #bbb); border-radius: .35rem; color: inherit; background: transparent; font-size: 16px; }
+.questWorkspace textarea { min-height: 7rem; resize: vertical; }
+.questWorkspace p, .questWorkspace dd, .questWorkspace li, .questWorkspace label, .questWorkspace span { overflow-wrap: anywhere; min-width: 0; }
+.questWorkspace button { margin: .25rem .4rem .25rem 0; min-height: 44px; font-size: 16px; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.questWorkspace summary { cursor: pointer; font-weight: 600; min-height: 44px; padding-block: 10px; }
+.questWorkspace label:has(input[type=checkbox]) { min-height: 44px; grid-template-columns: auto 1fr; align-items: center; }
+.questWorkspace fieldset { min-width: 0; }
+.consoleMain .questWorkspace .coreButton { min-height: 44px; font-size: 16px; }
+@media (max-width: 900px) {
+  .questWorkspace a { display: inline-flex; align-items: center; min-height: 44px; min-width: 44px; max-width: 100%; padding-block: 8px; }
+}
