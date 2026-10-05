@@ -13,7 +13,7 @@ import {researchV2,repairGuard,repairAdmission,repairSettle,repairWorkspace,repa
 import {THIRTY_MINUTES,sourceWindow,freshPhaseQuote,seedWindowResearch,windowGuard,seedWindowContinuation,seedUnusedThirdPredecessor} from './helpers/r11-public-research-window-fixture.mjs';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),host=process.env.R11_SQL_TEST_HOST;
-const migration='20261005112611_r11_research_thirty_minute_authority.sql';
+const migration='20261005120755_r11_research_thirty_minute_authority.sql';
 const reject=/r11_|r05_|r04_|invalid input syntax|violates check constraint|permission denied/;
 const migrations=()=>readdirSync(path.join(root,'supabase/migrations')).filter(name=>name.endsWith('.sql')).sort();
 const source=name=>readFileSync(path.join(root,'supabase/migrations',name),'utf8');
