@@ -1,0 +1,239 @@
+-- R11 public-research definitions only. No policy, authority key, grant or paid call is seeded.
+-- Historical R05 functions, ACLs and financial ledgers remain unchanged.
+begin;
+create table private.r11_research_policies(
+ id uuid primary key,business_id uuid not null references public.businesses(id),owner_id uuid not null references auth.users(id),
+ workflow_run_id uuid not null,goal_id uuid not null,operating_policy_id uuid not null,
+ policy jsonb not null,policy_canonical text not null,policy_hash text not null check(policy_hash ~ '^[a-f0-9]{64}$'),
+ search_request_hash text not null check(search_request_hash ~ '^[a-f0-9]{64}$'),search_wire_hash text not null check(search_wire_hash ~ '^[a-f0-9]{64}$'),
+ search_wire_bytes integer not null check(search_wire_bytes between 1 and 8192),search_max_tokens integer not null check(search_max_tokens=4000),
+ created_at timestamptz not null default clock_timestamp(),unique(id,business_id),
+ foreign key(workflow_run_id,business_id) references public.workflow_runs(id,business_id),
+ foreign key(goal_id,business_id) references public.goals(id,business_id),
+ foreign key(operating_policy_id,business_id) references private.r05_policies(id,business_id),
+ check(octet_length(policy_canonical)<=65536 and policy_canonical::jsonb=policy),
+ check(encode(extensions.digest(convert_to(policy_canonical,'UTF8'),'sha256'),'hex')=policy_hash)
+);
+create table private.r11_research_revocations(
+ policy_id uuid primary key references private.r11_research_policies(id),created_at timestamptz not null default clock_timestamp()
+);
+create table private.r11_research_collections(
+ id uuid primary key default gen_random_uuid(),business_id uuid not null,policy_id uuid not null,search_request_id uuid not null unique,
+ provider_request_id text not null check(length(provider_request_id) between 3 and 300),
+ collection jsonb not null,collection_canonical text not null,collection_hash text not null check(collection_hash ~ '^[a-f0-9]{64}$'),
+ lineage jsonb not null,lineage_canonical text not null,lineage_hash text not null check(lineage_hash ~ '^[a-f0-9]{64}$'),
+ selector_request_hash text not null check(selector_request_hash ~ '^[a-f0-9]{64}$'),selector_wire_hash text not null check(selector_wire_hash ~ '^[a-f0-9]{64}$'),
+ selector_wire_bytes integer not null check(selector_wire_bytes between 1 and 16384),selector_max_tokens integer not null check(selector_max_tokens=1000),
+ producer_key_hash text not null references private.r05_server_keys(key_hash),created_at timestamptz not null default clock_timestamp(),
+ unique(id,business_id),unique(policy_id),foreign key(policy_id,business_id) references private.r11_research_policies(id,business_id),
+ foreign key(search_request_id,business_id) references private.r05_requests(id,business_id),
+ check(octet_length(collection_canonical)<=65536 and collection_canonical::jsonb=collection),
+ check(octet_length(lineage_canonical)<=8192 and lineage_canonical::jsonb=lineage),
+ check(encode(extensions.digest(convert_to(collection_canonical,'UTF8'),'sha256'),'hex')=collection_hash),
+ check(encode(extensions.digest(convert_to(lineage_canonical,'UTF8'),'sha256'),'hex')=lineage_hash)
+);
+create table private.r11_research_bindings(
+ request_id uuid primary key,business_id uuid not null,policy_id uuid not null,phase text not null check(phase in ('search','select')),
+ collection_id uuid,descriptor_hash text not null check(descriptor_hash ~ '^[a-f0-9]{64}$'),
+ logical_request_hash text not null check(logical_request_hash ~ '^[a-f0-9]{64}$'),wire_hash text not null check(wire_hash ~ '^[a-f0-9]{64}$'),
+ admission_key_hash text not null references private.r05_server_keys(key_hash),created_at timestamptz not null default clock_timestamp(),
+ unique(policy_id,phase),foreign key(request_id,business_id) references private.r05_requests(id,business_id),
+ foreign key(policy_id,business_id) references private.r11_research_policies(id,business_id),
+ foreign key(collection_id,business_id) references private.r11_research_collections(id,business_id),
+ check((phase='search' and collection_id is null) or (phase='select' and collection_id is not null))
+);
+create function private.r11_research_history_guard() returns trigger language plpgsql set search_path='' as $$ begin
+ if current_user in ('anon','authenticated','service_role') then raise exception 'r11_research_guarded_rpc_required' using errcode='42501'; end if;
+ if tg_op<>'INSERT' then raise exception 'r11_research_immutable_history'; end if;return new;
+end $$;
+do $$ declare t text;begin
+ foreach t in array array['r11_research_policies','r11_research_revocations','r11_research_collections','r11_research_bindings'] loop
+ execute format('alter table private.%I enable row level security',t);
+ execute format('revoke all on private.%I from public,anon,authenticated,service_role',t);
+ execute format('create trigger r11_research_guard before insert or update or delete on private.%I for each row execute function private.r11_research_history_guard()',t);
+ end loop;
+end $$;
+create function private.r11_research_policy_validate() returns trigger language plpgsql set search_path='' as $$
+declare p jsonb:=new.policy; d jsonb; x jsonb; k text;begin
+ perform private.r04_keys(p,array['version','id','businessId','ownerId','workflowRunId','goalId','operatingPolicyId','query','allowedDomains','excludedDomains','sourceReviews','queryReviewHash','termsReviewHash','independentReviewHash','approvalHash','modelId','providerEndpoint','recipients','retention','validFrom','validUntil','maximumMicrousd','searchMicrousd','selectorMicrousd','priceLimit','quoteHash','quoteValidUntil']);
+ if p->>'version' is distinct from 'r11.public-research.1' or p->>'id' is distinct from new.id::text or p->>'businessId' is distinct from new.business_id::text or p->>'ownerId' is distinct from new.owner_id::text or p->>'workflowRunId' is distinct from new.workflow_run_id::text or p->>'goalId' is distinct from new.goal_id::text or p->>'operatingPolicyId' is distinct from new.operating_policy_id::text then raise exception 'r11_research_policy_binding';end if;
+ foreach k in array array['query','modelId','providerEndpoint','validFrom','validUntil','quoteValidUntil','queryReviewHash','termsReviewHash','independentReviewHash','approvalHash','quoteHash'] loop
+ if jsonb_typeof(p->k) is distinct from 'string' then raise exception 'r11_research_policy_type';end if;end loop;
+ if length(btrim(p->>'query')) not between 5 and 800 or p->>'modelId' !~ '^[a-z0-9-]+/[a-z0-9][a-z0-9._-]{1,100}$' or p->>'providerEndpoint' !~ '^[a-z0-9][a-z0-9-]{1,59}(/[a-z0-9][a-z0-9-]{0,59})?$' then raise exception 'r11_research_policy_scope';end if;
+ foreach k in array array['queryReviewHash','termsReviewHash','independentReviewHash','approvalHash','quoteHash'] loop if p->>k !~ '^[a-f0-9]{64}$' then raise exception 'r11_research_review_required';end if;end loop;
+ if p->>'queryReviewHash' is distinct from encode(extensions.digest(convert_to('{"classification":"generic_nonpersonal_public_research","query":'||to_jsonb(p->>'query')::text||'}','UTF8'),'sha256'),'hex') then raise exception 'r11_research_query_review_mismatch';end if;
+ foreach k in array array['allowedDomains','excludedDomains'] loop
+ d:=p->k;if jsonb_typeof(d) is distinct from 'array' or jsonb_array_length(d) not between 1 and 32 then raise exception 'r11_research_domains';end if;
+ if exists(select 1 from jsonb_array_elements(d) v where jsonb_typeof(v)<>'string' or length(v#>>'{}')>200 or v#>>'{}' !~ '^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$' or v#>>'{}' ~ '\.(local|internal)$') or (select count(*) from jsonb_array_elements(d))<>(select count(distinct v) from jsonb_array_elements(d) v) then raise exception 'r11_research_domains';end if;
+ end loop;
+ if jsonb_array_length(p->'allowedDomains')>6 or not (p->'excludedDomains' @> '["etsy.com","etsy.me","etsystatic.com"]'::jsonb) or exists(select 1 from jsonb_array_elements_text(p->'allowedDomains') a cross join jsonb_array_elements_text(p->'excludedDomains') e where a=e or right(a,length(e)+1)='.'||e or right(e,length(a)+1)='.'||a) then raise exception 'r11_research_exclusions';end if;
+ if jsonb_typeof(p->'sourceReviews') is distinct from 'array' or jsonb_array_length(p->'sourceReviews')<>jsonb_array_length(p->'allowedDomains') then raise exception 'r11_research_source_reviews';end if;
+ for x in select value from jsonb_array_elements(p->'sourceReviews') loop
+ perform private.r04_keys(x,array['domain','basis','reviewHash']);
+ if not (p->'allowedDomains' ? (x->>'domain')) or x->>'basis' is distinct from 'documented_api_factual_snippets' or coalesce(x->>'reviewHash','') !~ '^[a-f0-9]{64}$' then raise exception 'r11_research_source_reviews';end if;end loop;
+ if (select count(distinct value->>'domain') from jsonb_array_elements(p->'sourceReviews'))<>jsonb_array_length(p->'allowedDomains') then raise exception 'r11_research_source_reviews';end if;
+ perform private.r04_keys(p->'recipients',array['router','search','inferenceEndpoint']);perform private.r04_keys(p->'retention',array['inference','search','application']);perform private.r04_keys(p->'priceLimit',array['prompt','completion','request']);
+ if p->'recipients' is distinct from jsonb_build_object('router','openrouter.ai','search','exa.ai','inferenceEndpoint',p->>'providerEndpoint') or p->'retention' is distinct from '{"inference":"no_training_zdr","search":"query_retention_improvement_training_possible","application":"bounded_attributed_audit_evidence"}'::jsonb or p->'priceLimit'->'request' is distinct from '0'::jsonb then raise exception 'r11_research_privacy_scope';end if;
+ foreach k in array array['prompt','completion'] loop if jsonb_typeof(p->'priceLimit'->k) is distinct from 'number' or (p->'priceLimit'->>k)::numeric<=0 or (p->'priceLimit'->>k)::numeric>1000000 then raise exception 'r11_research_price';end if;end loop;
+ foreach k in array array['validFrom','validUntil','quoteValidUntil'] loop if p->>k !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T' or not isfinite((p->>k)::timestamptz) then raise exception 'r11_research_policy_date';end if;end loop;
+ foreach k in array array['maximumMicrousd','searchMicrousd','selectorMicrousd'] loop if jsonb_typeof(p->k) is distinct from 'number' or p->>k !~ '^[1-9][0-9]{0,5}$' or (p->>k)::bigint>250000 then raise exception 'r11_research_budget';end if;end loop;
+ if (p->>'searchMicrousd')::bigint+(p->>'selectorMicrousd')::bigint>(p->>'maximumMicrousd')::bigint or (p->>'validUntil')::timestamptz<=(p->>'validFrom')::timestamptz or (p->>'validUntil')::timestamptz>(p->>'validFrom')::timestamptz+interval '31 days' or (p->>'validUntil')::timestamptz>(p->>'quoteValidUntil')::timestamptz then raise exception 'r11_research_budget_or_expiry';end if;
+ return new;
+end $$;
+create trigger r11_research_validate before insert on private.r11_research_policies for each row execute function private.r11_research_policy_validate();
+create function private.r11_research_revoke_lock() returns trigger language plpgsql set search_path='' as $$ declare b uuid;begin
+ select business_id into b from private.r11_research_policies where id=new.policy_id;
+ perform 1 from public.businesses where id=b for update;
+ perform 1 from private.r11_research_policies where id=new.policy_id for update;return new;
+end $$;
+create trigger r11_research_revoke_lock before insert on private.r11_research_revocations for each row execute function private.r11_research_revoke_lock();
+create function private.r11_research_key(h text) returns void language plpgsql set search_path='' as $$ begin
+ perform 1 from private.r05_server_keys where key_hash=h for share;
+ if not found or not exists(select 1 from private.r05_server_keys k where k.key_hash=h and k.expires_at>clock_timestamp() and not exists(select 1 from private.r05_server_revocations z where z.key_hash=h)) then raise exception 'r11_research_authority_required' using errcode='42501';end if;
+end $$;
+create function private.r11_research_active(b uuid,pid uuid) returns private.r11_research_policies language plpgsql set search_path='' as $$
+declare p private.r11_research_policies;owner_id uuid;w public.workflow_runs;f private.r05_policies;begin
+ select owner_user_id into owner_id from public.businesses where id=b for update;
+ select * into p from private.r11_research_policies where id=pid and business_id=b for share;
+ if p.id is null or owner_id is distinct from p.owner_id or exists(select 1 from private.r11_research_revocations where policy_id=p.id) or clock_timestamp()<(p.policy->>'validFrom')::timestamptz or clock_timestamp()>=(p.policy->>'validUntil')::timestamptz or clock_timestamp()>=(p.policy->>'quoteValidUntil')::timestamptz then raise exception 'r11_research_policy_inactive';end if;
+ select * into w from public.workflow_runs where id=p.workflow_run_id and business_id=b for share;
+ select * into f from private.r05_policies where id=p.operating_policy_id and business_id=b for share;
+ if w.id is null or w.goal_id is distinct from p.goal_id or w.status not in ('queued','running','waiting','review') or f.actor_id is distinct from p.owner_id or f.goal_id is distinct from p.goal_id or not exists(select 1 from private.r05_confirmations where policy_id=f.id and actor_id=p.owner_id) or exists(select 1 from private.r05_revocations where policy_id=f.id) then raise exception 'r11_research_operating_scope';end if;
+ return p;
+end $$;
+create function private.r11_research_collection_active(p private.r11_research_policies,cid uuid) returns private.r11_research_collections language plpgsql set search_path='' as $$
+declare c private.r11_research_collections;r private.r05_requests;s jsonb;begin
+ select * into c from private.r11_research_collections where id=cid and policy_id=p.id and business_id=p.business_id for share;
+ if c.id is null then raise exception 'r11_research_collection_unavailable';end if;
+ perform private.r11_research_key(c.producer_key_hash);
+ select * into r from private.r05_requests where id=c.search_request_id and business_id=p.business_id;
+ if not exists(select 1 from private.r11_research_bindings v join private.r05_markers m on m.request_id=v.request_id where v.request_id=r.id and v.policy_id=p.id and v.phase='search') or r.workflow_run_id<>p.workflow_run_id or r.policy_id<>p.operating_policy_id or not exists(select 1 from private.r05_settlements z where z.request_id=r.id and z.provider_request_id=c.provider_request_id and z.actual_microunits is not null) or exists(select 1 from private.r05_settlements z where z.request_id=r.id and z.actual_microunits>(p.policy->>'searchMicrousd')::bigint) or not exists(select 1 from private.r05_receipt_claims q where q.provider='openrouter' and q.provider_request_id=c.provider_request_id and q.business_id=p.business_id and q.workflow_run_id=p.workflow_run_id and q.source_key=r.source_key) then raise exception 'r11_research_search_receipt_required';end if;
+ for s in select value from jsonb_array_elements(c.collection->'sources') loop
+ if jsonb_typeof(s->'retrievedAt') is distinct from 'string' or jsonb_typeof(s->'retrievalExpiresAt') is distinct from 'string' or not isfinite((s->>'retrievedAt')::timestamptz) or not isfinite((s->>'retrievalExpiresAt')::timestamptz) or clock_timestamp()>=(s->>'retrievalExpiresAt')::timestamptz or (s->>'retrievedAt')::timestamptz>clock_timestamp()+interval '5 minutes' then raise exception 'r11_research_collection_expired';end if;end loop;
+ return c;
+end $$;
+-- The trusted producer canonicalizes URLs; reject credential/tracker query keys
+-- again in storage, including percent-encoded spellings, before model ingestion.
+create function private.r11_research_url_query_safe(u text) returns boolean language plpgsql immutable set search_path='' as $$
+declare part text;raw_key text;decoded_key text;octets bytea;i integer;ch text;begin
+ if position('?' in u)=0 then return true;end if;
+ for part in select value from regexp_split_to_table(substring(u from position('?' in u)+1),'&') value loop
+ raw_key:=split_part(part,'=',1);octets:=''::bytea;i:=1;
+ while i<=length(raw_key) loop
+ ch:=substring(raw_key from i for 1);
+ if ch='%' then
+ if substring(raw_key from i+1 for 2) !~ '^[a-fA-F0-9]{2}$' then return false;end if;
+ octets:=octets||decode(substring(raw_key from i+1 for 2),'hex');i:=i+3;
+ else octets:=octets||convert_to(case when ch='+' then ' ' else ch end,'UTF8');i:=i+1;end if;
+ end loop;
+ decoded_key:=convert_from(octets,'UTF8');
+ if decoded_key ~* '^(token|access_token|api_key|auth|password|fbclid|gclid)$|^utm_' then return false;end if;
+ end loop;return true;
+end $$;
+create function private.r11_research_descriptor(p private.r11_research_policies,phase text,c private.r11_research_collections,a jsonb) returns void language plpgsql set search_path='' as $$
+declare logical text;wire text;bytes integer;tokens integer;amount bigint;begin
+ if phase='search' then logical:=p.search_request_hash;wire:=p.search_wire_hash;bytes:=p.search_wire_bytes;tokens:=p.search_max_tokens;amount:=(p.policy->>'searchMicrousd')::bigint;
+ elsif phase='select' and c.id is not null then logical:=c.selector_request_hash;wire:=c.selector_wire_hash;bytes:=c.selector_wire_bytes;tokens:=c.selector_max_tokens;amount:=(p.policy->>'selectorMicrousd')::bigint;
+ else raise exception 'r11_research_phase_invalid';end if;
+ if a->>'workflowRunId' is distinct from p.workflow_run_id::text or a->>'operationKey' is distinct from (case when phase='search' then 'research.search' else 'research.model' end) or a->>'requestHash' is distinct from logical or a->>'wireRequestHash' is distinct from wire or a->'wireRequestBytes' is distinct from to_jsonb(bytes) or a->'maximumOutputTokens' is distinct from to_jsonb(tokens) or a->>'providerModelId' is distinct from p.policy->>'modelId' or a->>'idempotencyKey' is distinct from 'r11:'||p.id||':'||phase or a->'accounting' is distinct from '{"kind":"r05"}'::jsonb or a->'sourceDomains' is distinct from p.policy->'allowedDomains' or a->'dataClasses' is distinct from '["generic_public_query","public_evidence"]'::jsonb or a->'accountId' is distinct from 'null'::jsonb or a->'accountRevision' is distinct from 'null'::jsonb or a->>'currency' is distinct from 'USD' or a->'liabilityMicrounits' is distinct from to_jsonb(amount::text) then raise exception 'r11_research_descriptor_mismatch';end if;
+end $$;
+create function private.r11_research_marker() returns trigger language plpgsql set search_path='' as $$
+declare r private.r05_requests;v private.r11_research_bindings;p private.r11_research_policies;c private.r11_research_collections;o private.r05_operations;reason text;begin
+ select * into r from private.r05_requests where id=new.request_id and business_id=new.business_id;
+ select * into o from private.r05_operations where operation_key=r.payload->>'operationKey';
+ if r.payload->>'operationKey' not in ('research.search','research.model') then
+ if coalesce(jsonb_array_length(r.payload->'sourceDomains'),0)>0 or coalesce(jsonb_array_length(o.source_domains),0)>0 or r.payload->'dataClasses' ?| array['public_evidence','product_evidence'] or o.data_classes ?| array['public_evidence','product_evidence'] then raise exception 'r11_research_source_operation_unqualified';end if;
+ return new;
+ end if;
+ perform 1 from public.businesses where id=new.business_id for update;
+ select * into v from private.r11_research_bindings where request_id=r.id and business_id=r.business_id;
+ if v.request_id is null then raise exception 'r11_research_binding_required';end if;
+ perform private.r11_research_key(v.admission_key_hash);p:=private.r11_research_active(r.business_id,v.policy_id);
+ if v.phase='select' then c:=private.r11_research_collection_active(p,v.collection_id);end if;
+ perform private.r11_research_descriptor(p,v.phase,c,r.payload);
+ if r.policy_id is distinct from p.operating_policy_id or r.request_hash is distinct from v.descriptor_hash or private.r04_hash(r.payload) is distinct from v.descriptor_hash or r.payload->>'requestHash' is distinct from v.logical_request_hash or r.payload->>'wireRequestHash' is distinct from v.wire_hash then raise exception 'r11_research_binding_mismatch';end if;
+ -- Recheck after all possible waits, immediately before the irreversible sent marker.
+ perform private.r11_research_key(v.admission_key_hash);perform private.r11_research_active(r.business_id,v.policy_id);
+ -- R05 may have waited on its operation/pack locks after checking financial
+ -- proof expiry. All those locks are now held; reread every original guard.
+ reason:=private.r05_admissible(r);
+ if reason is not null then raise exception 'r11_research_financial_recheck: %',reason;end if;
+ return new;
+end $$;
+create trigger r11_research_source_marker before insert on private.r05_markers for each row execute function private.r11_research_marker();
+create function public.r11_research_revoke(p_business_id uuid,p_policy_id uuid) returns jsonb language plpgsql security definer set search_path='' as $$ begin
+ perform private.r05_owner(p_business_id);
+ perform 1 from private.r11_research_policies where id=p_policy_id and business_id=p_business_id for update;
+ if not found then raise exception 'r11_research_policy_unavailable';end if;
+ insert into private.r11_research_revocations(policy_id) values(p_policy_id) on conflict do nothing;
+ return jsonb_build_object('policyId',p_policy_id,'revoked',true);
+end $$;
+create function public.r11_research_server(p_business_id uuid,p_operation text,p_payload jsonb,p_server_key text) returns jsonb language plpgsql security definer set search_path='' as $$
+declare p private.r11_research_policies;c private.r11_research_collections;r private.r05_requests;v private.r11_research_bindings;key_hash text;result jsonb;a jsonb;phase_name text;k text;s jsonb;e jsonb;url text;host text;found_source boolean;begin
+ if p_server_key is null or length(p_server_key) not between 32 and 200 then raise exception 'r11_research_authority_required' using errcode='42501';end if;
+ if p_operation is null or p_operation not in ('load','guard','collect') then raise exception 'r11_research_operation_unavailable';end if;
+ if jsonb_typeof(p_payload) is distinct from 'object' or octet_length(p_payload::text)>262144 then raise exception 'r11_research_payload_invalid';end if;
+ perform 1 from public.businesses where id=p_business_id for update;if not found then raise exception 'r11_research_business_unavailable';end if;
+ key_hash:=encode(extensions.digest(convert_to(p_server_key,'UTF8'),'sha256'),'hex');perform private.r11_research_key(key_hash);
+ p:=private.r11_research_active(p_business_id,(p_payload->>'policyId')::uuid);
+ if p_operation='load' then
+ perform private.r04_keys(p_payload,array['policyId']);select * into c from private.r11_research_collections where policy_id=p.id;
+ if c.id is not null then c:=private.r11_research_collection_active(p,c.id);end if;
+ perform private.r11_research_key(key_hash);perform private.r11_research_active(p_business_id,p.id);
+ return jsonb_build_object('policy',p.policy,'policyHash',p.policy_hash,'search',jsonb_build_object('requestHash',p.search_request_hash,'wireHash',p.search_wire_hash,'wireBytes',p.search_wire_bytes,'maxTokens',p.search_max_tokens),'collection',case when c.id is null then null else jsonb_build_object('id',c.id,'collection',c.collection,'collectionHash',c.collection_hash,'lineage',c.lineage,'lineageHash',c.lineage_hash,'selector',jsonb_build_object('requestHash',c.selector_request_hash,'wireHash',c.selector_wire_hash,'wireBytes',c.selector_wire_bytes,'maxTokens',c.selector_max_tokens)) end);
+ elsif p_operation='guard' then
+ perform private.r04_keys(p_payload,array['policyId','phase','collectionId','admission']);a:=p_payload->'admission';phase_name:=p_payload->>'phase';
+ if phase_name='search' and p_payload->'collectionId' is distinct from 'null'::jsonb then raise exception 'r11_research_phase_invalid';end if;
+ if phase_name='select' then c:=private.r11_research_collection_active(p,(p_payload->>'collectionId')::uuid);end if;
+ perform private.r11_research_descriptor(p,phase_name,c,a);
+ result:=public.r05_admission_server(p_business_id,'prepare',a,p_server_key);
+ if result->>'decision' is distinct from 'allowed' or result->>'requestId' is null then return result;end if;
+ select * into r from private.r05_requests where id=(result->>'requestId')::uuid and business_id=p_business_id;
+ if r.policy_id is distinct from p.operating_policy_id or r.workflow_run_id<>p.workflow_run_id or r.request_hash is distinct from private.r04_hash(a-'runtimeCapability') then raise exception 'r11_research_financial_policy_mismatch';end if;
+ select * into v from private.r11_research_bindings where policy_id=p.id and phase=phase_name;
+ -- Qualified one-search/one-selector slots cannot be renewed through another call key.
+ if v.request_id is not null then
+ if v.request_id<>r.id or v.collection_id is distinct from c.id or v.descriptor_hash<>r.request_hash or v.logical_request_hash is distinct from a->>'requestHash' or v.wire_hash is distinct from a->>'wireRequestHash' or v.admission_key_hash<>key_hash then raise exception 'r11_research_phase_already_bound';end if;
+ else insert into private.r11_research_bindings(request_id,business_id,policy_id,phase,collection_id,descriptor_hash,logical_request_hash,wire_hash,admission_key_hash) values(r.id,p_business_id,p.id,phase_name,c.id,r.request_hash,a->>'requestHash',a->>'wireRequestHash',key_hash);end if;
+ return public.r05_admission_server(p_business_id,'guard',a,p_server_key);
+ else
+ perform private.r04_keys(p_payload,array['policyId','searchRequestId','providerRequestId','collection','collectionCanonical','collectionHash','lineage','lineageCanonical','lineageHash','selectorRequestHash','selectorWireHash','selectorWireBytes','selectorMaxTokens']);
+ foreach k in array array['policyId','searchRequestId','providerRequestId','collectionCanonical','collectionHash','lineageCanonical','lineageHash','selectorRequestHash','selectorWireHash'] loop if jsonb_typeof(p_payload->k) is distinct from 'string' then raise exception 'r11_research_collection_type';end if;end loop;
+ foreach k in array array['selectorWireBytes','selectorMaxTokens'] loop if jsonb_typeof(p_payload->k) is distinct from 'number' or p_payload->>k !~ '^[1-9][0-9]{0,6}$' then raise exception 'r11_research_collection_type';end if;end loop;
+ select * into r from private.r05_requests where id=(p_payload->>'searchRequestId')::uuid and business_id=p_business_id;
+ if r.id is null or r.policy_id is distinct from p.operating_policy_id or r.workflow_run_id<>p.workflow_run_id or not exists(select 1 from private.r11_research_bindings z join private.r05_markers m on m.request_id=z.request_id where z.policy_id=p.id and z.phase='search' and z.request_id=r.id) or not exists(select 1 from private.r05_settlements z where z.request_id=r.id and z.provider_request_id=p_payload->>'providerRequestId' and z.actual_microunits is not null) or exists(select 1 from private.r05_settlements z where z.request_id=r.id and z.actual_microunits>(p.policy->>'searchMicrousd')::bigint) or not exists(select 1 from private.r05_receipt_claims q where q.provider='openrouter' and q.provider_request_id=p_payload->>'providerRequestId' and q.business_id=p_business_id and q.workflow_run_id=p.workflow_run_id and q.source_key=r.source_key) then raise exception 'r11_research_search_receipt_required';end if;
+ a:=p_payload->'collection';perform private.r04_keys(a,array['collectionVersion','query','sources','evidence','providerMetadata']);
+ if a->>'collectionVersion' is distinct from '1.0' or a->>'query' is distinct from p.policy->>'query' or jsonb_typeof(a->'sources') is distinct from 'array' or jsonb_array_length(a->'sources') not between 1 and 4 or jsonb_typeof(a->'evidence') is distinct from 'array' or jsonb_array_length(a->'evidence') not between 1 and 4 then raise exception 'r11_research_collection_invalid';end if;
+ if a->'providerMetadata' is distinct from jsonb_build_object('providerRequestId',p_payload->>'providerRequestId','policyId',p.id,'policyHash',p.policy_hash,'searchRequestId',r.id,'searchRequests',1,'engine','exa','requestedInferenceEndpoint',p.policy->>'providerEndpoint') then raise exception 'r11_research_collection_metadata';end if;
+ for s in select value from jsonb_array_elements(a->'sources') loop
+ perform private.r04_keys(s,array['id','url','title','retrievedAt','publishedAt','retrievalExpiresAt','contentHash','excerpt','provider']);
+ url:=s->>'url';host:=substring(url from '^https://([^/?#]+)');
+ if jsonb_typeof(s->'url') is distinct from 'string' or host is null or host !~ '^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$' or url ~ '#' or not private.r11_research_url_query_safe(url) or not exists(select 1 from jsonb_array_elements_text(p.policy->'allowedDomains') d where host=d or right(host,length(d)+1)='.'||d) or exists(select 1 from jsonb_array_elements_text(p.policy->'excludedDomains') d where host=d or right(host,length(d)+1)='.'||d) or s->>'provider' is distinct from 'openrouter.exa' or jsonb_typeof(s->'excerpt') is distinct from 'string' or length(s->>'excerpt') not between 30 and 1800 or jsonb_typeof(s->'title') is distinct from 'string' or length(s->>'title') not between 1 and 250 or s->'publishedAt' is distinct from 'null'::jsonb or s->>'contentHash' is distinct from encode(extensions.digest(convert_to(s->>'excerpt','UTF8'),'sha256'),'hex') or s->>'id' is distinct from 'src-'||left(encode(extensions.digest(convert_to(url||':'||(s->>'contentHash'),'UTF8'),'sha256'),'hex'),24) then raise exception 'r11_research_source_invalid';end if;
+ if jsonb_typeof(s->'retrievedAt') is distinct from 'string' or jsonb_typeof(s->'retrievalExpiresAt') is distinct from 'string' or not isfinite((s->>'retrievedAt')::timestamptz) or not isfinite((s->>'retrievalExpiresAt')::timestamptz) or (s->>'retrievedAt')::timestamptz>clock_timestamp()+interval '5 minutes' or (s->>'retrievalExpiresAt')::timestamptz<=clock_timestamp() or (s->>'retrievalExpiresAt')::timestamptz>(s->>'retrievedAt')::timestamptz+interval '1 day' then raise exception 'r11_research_collection_expired';end if;
+ end loop;
+ if (select count(distinct value->>'id') from jsonb_array_elements(a->'sources'))<>jsonb_array_length(a->'sources') or (select count(distinct value->>'url') from jsonb_array_elements(a->'sources'))<>jsonb_array_length(a->'sources') or (select count(distinct value->>'contentHash') from jsonb_array_elements(a->'sources'))<>jsonb_array_length(a->'sources') then raise exception 'r11_research_duplicate_source';end if;
+ for e in select value from jsonb_array_elements(a->'evidence') loop
+ perform private.r04_keys(e,array['id','sourceId','quote']);found_source:=false;
+ for s in select value from jsonb_array_elements(a->'sources') where value->>'id'=e->>'sourceId' loop
+ found_source:=true;if jsonb_typeof(e->'quote') is distinct from 'string' or length(e->>'quote') not between 20 and 320 or position(e->>'quote' in s->>'excerpt')=0 or e->>'id' is distinct from 'evi-'||left(encode(extensions.digest(convert_to((s->>'id')||':'||(e->>'quote'),'UTF8'),'sha256'),'hex'),24) then raise exception 'r11_research_evidence_invalid';end if;end loop;
+ if not found_source then raise exception 'r11_research_evidence_invalid';end if;end loop;
+ if (select count(distinct value->>'id') from jsonb_array_elements(a->'evidence'))<>jsonb_array_length(a->'evidence') or (select count(distinct value->>'sourceId') from jsonb_array_elements(a->'evidence'))<>jsonb_array_length(a->'sources') then raise exception 'r11_research_evidence_invalid';end if;
+ if p_payload->'lineage' is distinct from jsonb_build_object('version','r11.public-research.1','policyId',p.id,'policyHash',p.policy_hash,'collectionHash',p_payload->>'collectionHash','searchRequestId',r.id,'providerRequestId',p_payload->>'providerRequestId','sourceDomains',p.policy->'allowedDomains') then raise exception 'r11_research_lineage_mismatch';end if;
+ select * into c from private.r11_research_collections where policy_id=p.id;
+ if c.id is not null then
+ if c.search_request_id<>r.id or c.provider_request_id is distinct from p_payload->>'providerRequestId' or c.collection is distinct from a or c.collection_canonical is distinct from p_payload->>'collectionCanonical' or c.collection_hash is distinct from p_payload->>'collectionHash' or c.lineage is distinct from p_payload->'lineage' or c.lineage_canonical is distinct from p_payload->>'lineageCanonical' or c.lineage_hash is distinct from p_payload->>'lineageHash' or c.selector_request_hash is distinct from p_payload->>'selectorRequestHash' or c.selector_wire_hash is distinct from p_payload->>'selectorWireHash' or to_jsonb(c.selector_wire_bytes) is distinct from p_payload->'selectorWireBytes' or to_jsonb(c.selector_max_tokens) is distinct from p_payload->'selectorMaxTokens' or c.producer_key_hash<>key_hash then raise exception 'r11_research_collection_conflict';end if;
+ perform private.r11_research_key(key_hash);perform private.r11_research_active(p_business_id,p.id);
+ return jsonb_build_object('collectionId',c.id,'collectionHash',c.collection_hash,'lineageHash',c.lineage_hash,'replayed',true);
+ end if;
+ perform private.r11_research_key(key_hash);perform private.r11_research_active(p_business_id,p.id);
+ insert into private.r11_research_collections(business_id,policy_id,search_request_id,provider_request_id,collection,collection_canonical,collection_hash,lineage,lineage_canonical,lineage_hash,selector_request_hash,selector_wire_hash,selector_wire_bytes,selector_max_tokens,producer_key_hash) values(p_business_id,p.id,r.id,p_payload->>'providerRequestId',a,p_payload->>'collectionCanonical',p_payload->>'collectionHash',p_payload->'lineage',p_payload->>'lineageCanonical',p_payload->>'lineageHash',p_payload->>'selectorRequestHash',p_payload->>'selectorWireHash',(p_payload->>'selectorWireBytes')::integer,(p_payload->>'selectorMaxTokens')::integer,key_hash) returning * into c;
+ return jsonb_build_object('collectionId',c.id,'collectionHash',c.collection_hash,'lineageHash',c.lineage_hash,'replayed',false);
+ end if;
+end $$;
+do $$ declare f record;begin
+ for f in select p.oid::regprocedure signature from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='private' and p.proname like 'r11_research_%' loop execute format('revoke all on function %s from public,anon,authenticated,service_role',f.signature);end loop;
+end $$;
+revoke all on function public.r11_research_server(uuid,text,jsonb,text),public.r11_research_revoke(uuid,uuid) from public,anon,authenticated,service_role;
+grant execute on function public.r11_research_server(uuid,text,jsonb,text) to anon;
+grant execute on function public.r11_research_revoke(uuid,uuid) to authenticated;
+commit;

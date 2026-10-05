@@ -438,6 +438,53 @@ jobs:
           R11_POSTGRES_URL: postgresql://r11_test:r11-isolated-fixture@127.0.0.1:5432/r11_test
         run: node --test tests/r11-connections-sql.test.mjs
 
+  r11-research-sql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: r11_test
+          POSTGRES_DB: r11_research_test
+          POSTGRES_PASSWORD: r11-research-isolated-fixture
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U r11_test -d r11_research_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      postgres-expiry:
+        image: postgres:17
+        env:
+          POSTGRES_USER: r11_test
+          POSTGRES_DB: r11_research_test
+          POSTGRES_PASSWORD: r11-research-isolated-fixture
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U r11_test -d r11_research_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Install repository-pinned dependencies and isolated SQL runtimes
+        run: |
+          npm install --no-audit --no-fund
+          npm install --prefix "$RUNNER_TEMP/r11-sql-host" --no-audit --no-fund --ignore-scripts @electric-sql/pglite@0.5.8 pg@8.16.3
+          npm run pretest
+      - name: Verify source marker ACLs, runtime integration and observed PostgreSQL races
+        env:
+          R11_SQL_TEST_HOST: ${{ runner.temp }}/r11-sql-host
+          R11_PUBLIC_RESEARCH_POSTGRES_URL: postgresql://r11_test:r11-research-isolated-fixture@127.0.0.1:5432/r11_research_test
+          R11_RESEARCH_EXPIRY_POSTGRES_URL: postgresql://r11_test:r11-research-isolated-fixture@127.0.0.1:5433/r11_research_test
+        run: node --test tests/r11-public-research-sql.test.mjs tests/r11-public-research-runtime-sql.test.mjs
+
   r03-next:
     runs-on: ubuntu-latest
     timeout-minutes: 30
