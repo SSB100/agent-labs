@@ -408,6 +408,36 @@ jobs:
           R10_POSTGRES_URL: postgresql://r10_test:r10-isolated-fixture@127.0.0.1:5432/r10_test
         run: node --test tests/r10-viewer-sql.test.mjs
 
+  r11-sql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: r11_test
+          POSTGRES_DB: r11_test
+          POSTGRES_PASSWORD: r11-isolated-fixture
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U r11_test -d r11_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Install pinned isolated SQL runtimes
+        run: npm install --prefix "$RUNNER_TEMP/r11-sql-host" --no-audit --no-fund --ignore-scripts @electric-sql/pglite@0.5.8 pg@8.16.3
+      - name: Verify scoped connection ACLs, custody, rollback and PostgreSQL races
+        env:
+          R11_SQL_TEST_HOST: ${{ runner.temp }}/r11-sql-host
+          R11_POSTGRES_URL: postgresql://r11_test:r11-isolated-fixture@127.0.0.1:5432/r11_test
+        run: node --test tests/r11-connections-sql.test.mjs
+
   r03-next:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -430,6 +460,17 @@ jobs:
         with:
           name: r03-next-${{ github.sha }}
           path: test-results/r03-next/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Preserve scoped R11 connection screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r11-connections-ui-${{ github.sha }}
+          path: |
+            test-results/r03-next/*connection-qualification*.png
+            test-results/r03-next/r11-*.png
           if-no-files-found: error
           retention-days: 14
 

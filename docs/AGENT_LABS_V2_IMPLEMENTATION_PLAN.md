@@ -24,9 +24,9 @@ This document specifies the intended product and future engineering work. It gra
 
 ## Current continuation
 
-The next unstarted stage is **R11**; the remaining stage order is **R11–R19**. Retain accepted R03–R09 implementation rather than restarting from old planning snapshots. R10's controlled-public capability/live exit is qualified within the [explicit source and acceptance limits](R10_PRIVATE_BROWSER_VIEWER_CONTRACT.md#scoped-qualification-status-2026-10-04). The definitions for R03–R10 below remain dependency/acceptance references, not a second active queue or a claim that every broader visual/product obligation is closed. The disclosed compact-640px/200%-capture limits and optional legacy SQL gaps remain visible under the universal gates.
+The active stage is **R11**, with an [inactive boundary slice and external qualification still pending](R11_EXTERNAL_ELIGIBILITY_CONTRACT.md); the remaining stage order is **R11–R19**. Retain accepted R03–R09 implementation rather than restarting from old planning snapshots. R10's controlled-public capability/live exit is qualified within the [explicit source and acceptance limits](R10_PRIVATE_BROWSER_VIEWER_CONTRACT.md#scoped-qualification-status-2026-10-04). The definitions for R03–R10 below remain dependency/acceptance references, not a second active queue or a claim that every broader visual/product obligation is closed. The disclosed compact-640px/200%-capture limits and optional legacy SQL gaps remain visible under the universal gates.
 
-Dependencies are acceptance gates, not permission to execute. A blocked external qualification must not cause unrelated safe UI or contract review to stop; retain its position and dependency explicitly. Backend and activation work must not be folded into an otherwise UI-only release. This source-accuracy update starts no R11 work and grants no new access or spending authority.
+Dependencies are acceptance gates, not permission to execute. A blocked external qualification must not cause unrelated safe UI or contract review to stop; retain its position and dependency explicitly. Backend and activation work must not be folded into an otherwise UI-only release. R11 groundwork grants no new access or spending authority; external qualification remains a separate exit.
 
 ## Retained dependency definitions (R03–R10)
 
@@ -155,7 +155,7 @@ Dependencies are acceptance gates, not permission to execute. A blocked external
 
 - Resolve the Etsy application-purpose/automation/API-content hold and implement the R05 server eligibility gate with written scope covering the intended operations and data uses. Review current applicable terms and permitted research/AI uses. Keep [Etsy activation gates](ETSY_ACTIVATION_GATES.md) closed until that evidence and enforcement are reviewed. Key issuance, personal access and seller OAuth are separate facts.
 - Verify exact account/shop/store identity, credential custody, requested capabilities, expiry, revision and revocation through secure owner paths. Present genuinely new persistent access and platform/legal/KYC steps to the owner where required. Do not use saved connection state as permission to publish or spend.
-- Preserve Printful's current `catalog.read` boundary and exact immutable store binding. Review any product-write or fulfilment capability separately. Qualify the Etsy-linked Printful store topology; a Manual/API store does not establish the selling association.
+- Preserve Printful's current `catalog.read` boundary and exact immutable store binding. Keep stable app credentials/server tokens in server-only environment configuration where appropriate; keep renewable shop OAuth tokens in context-bound encrypted custody. Name each provider/store credential and append revisions on rotation. The current pair does not claim multiple shops per provider. Review any product-write or fulfilment capability separately. Qualify the Etsy-linked Printful store topology; a Manual/API store does not establish the selling association.
 - Close account-registration browser entitlement/budget/retention/release requirements if that path is needed. Do not promise a free or already configured secure browser, reusable auth context or verified connection from an expired request or owner-reported token entry.
 - Resolve the approved external-data collection scope before live research; simulation and UI tests remain available while a provider is blocked.
 
@@ -255,6 +255,8 @@ Dependencies are acceptance gates, not permission to execute. A blocked external
 1. Expand Social Growth into an independent reusable workflow pack and prove a Business can use it without Etsy-specific state or authority.
 2. Implement Shopify Dropshipping with its own supplier, policy, inventory/order/return, margin and fulfilment contracts; do not transplant Etsy's rules or assume account/financial permission.
 3. Implement Website Builder using scoped GitHub, deployment and database capabilities, coding specialists, browser QA and deployment receipts. Prove a different profession can reuse Core Business/Quest/envelope/workflow/Knowledge contracts without rewriting Core.
+
+- Future multi-store support must separately qualify multiple provider accounts per Business, exact immutable store selection, named credential-source revisions, per-store scopes/purposes/budgets, revocation, duplicate prevention and same-owner/cross-owner isolation. Multiple provider connections and key rotation are distinct from multiple stores; an account-level token does not grant execution against every store.
 
 **Exit:** each pack has a separately bounded plan, actual relevant qualification, Business isolation, truthful UI and independent deployment/access authority. Do not begin all packs in parallel merely because pack scaffolding exists.
 

@@ -228,6 +228,16 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false,que
         await page.goBack();await page.waitForURL(u=>u.pathname===`/dashboard/accounts/${route}`);await page.reload();await link.waitFor();assert.equal(await page.locator('input[type=password]').count(),0,'Expired/unavailable entry must expose no credential input');
       }
     });
+    await check('R11 exact read-only connections preserve Business and local disconnect across real Next actions',async()=>{
+      await page.setViewportSize({width:1280,height:720});await page.goto(origin+`/dashboard/connections?business=${business}`);
+      await page.getByRole('heading',{name:'Read-only store connections',exact:true}).waitFor();
+      await page.getByText(/token_expired/).waitFor();assert.equal(await page.getByRole('button',{name:'Continue to Etsy read-only consent',exact:true}).isDisabled(),true);await page.screenshot({path:path.join(output,'r11-connections-token-expired-1280x720.png'),fullPage:true});
+      const before=boundary.effects.length;await page.getByRole('button',{name:'Disconnect locally',exact:true}).click();await page.getByRole('button',{name:'Disconnect locally',exact:true}).waitFor();
+      await page.waitForFunction(()=>[...document.querySelectorAll('button')].some(b=>b.textContent==='Disconnect locally'&&b.disabled));assert.equal(boundary.effects.length,before+1);
+      await page.reload();assert.equal(await page.getByRole('button',{name:'Disconnect locally',exact:true}).isDisabled(),true);await page.screenshot({path:path.join(output,'r11-connections-revoked-1280x720.png'),fullPage:true});
+      await page.goto(origin+`/dashboard/connections?business=${id(2)}`);await page.getByText(/token_expired/).waitFor();assert.equal(await page.getByRole('button',{name:'Disconnect locally',exact:true}).isEnabled(),true);
+      await page.goBack();await page.waitForURL(u=>u.searchParams.get('business')===business);assert.equal(await page.getByRole('button',{name:'Disconnect locally',exact:true}).isDisabled(),true);
+    });
     const effectCount=boundary.effects.length;
     await check('workflow server error boundary reloads the same exact owned record without a new effect',async()=>{
       await control({failTable:'workflow_runs'});await page.goto(origin+`/dashboard/workflows/${id(1001)}?business=${business}`);
@@ -241,7 +251,7 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false,que
         const response=await page.goto(origin+`/dashboard/${route}?business=${id(999999)}`);assert.equal(response.status(),404,route);assert.equal(await page.locator('form[action]').count(),0);
       }
     });
-    const routes=[['quests','/dashboard/quests?quest='+id(820000)],['overview','/dashboard'],['work','/dashboard?view=work'],['history','/dashboard/history'],['workflows-alias','/dashboard/workflows'],['needs-you','/dashboard/needs-you'],['library','/dashboard?view=library'],['research','/dashboard?view=research'],['activity','/dashboard?view=activity'],['connections','/dashboard?view=connections'],['products','/dashboard/products'],['artifacts','/dashboard/artifacts'],['packs','/dashboard/packs'],['model-router','/dashboard/model-router'],['worker-proof','/dashboard/worker-proof'],['evaluations','/dashboard/worker-evaluations'],['settings','/dashboard/settings'],['diagnostics','/dashboard/accounts?diagnostics=platform'],['printful','/dashboard/printful'],['etsy','/dashboard/etsy'],['workflow','/dashboard/workflows/'+id(1001)],['secure','/dashboard/accounts/secure?run='+id(770000)],['password','/dashboard/accounts/password?account='+id(770000)],['registration','/dashboard/accounts/registration?run='+id(770000)]];
+    const routes=[['quests','/dashboard/quests?quest='+id(820000)],['overview','/dashboard'],['work','/dashboard?view=work'],['history','/dashboard/history'],['workflows-alias','/dashboard/workflows'],['needs-you','/dashboard/needs-you'],['library','/dashboard?view=library'],['research','/dashboard?view=research'],['activity','/dashboard?view=activity'],['connections','/dashboard?view=connections'],['products','/dashboard/products'],['artifacts','/dashboard/artifacts'],['packs','/dashboard/packs'],['model-router','/dashboard/model-router'],['worker-proof','/dashboard/worker-proof'],['evaluations','/dashboard/worker-evaluations'],['settings','/dashboard/settings'],['diagnostics','/dashboard/accounts?diagnostics=platform'],['printful','/dashboard/printful'],['etsy','/dashboard/etsy'],['connection-qualification','/dashboard/connections'],['workflow','/dashboard/workflows/'+id(1001)],['secure','/dashboard/accounts/secure?run='+id(770000)],['password','/dashboard/accounts/password?account='+id(770000)],['registration','/dashboard/accounts/registration?run='+id(770000)]];
     for(const [name,route]of routes)await check(`actual retained route ${name}`,async()=>{
       for(const [width,height]of [[1280,720],[1440,900],[390,844],[320,800],[640,360]]){
         await page.setViewportSize({width,height});const url=new URL(route,origin);url.searchParams.set('business',business);await page.goto(url.href);await page.locator('body').waitFor();if(name==='workflow')await page.locator(`[data-work-detail="${id(1001)}"]`).waitFor();
@@ -257,6 +267,26 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false,que
         }
         if(width===640)results.push({name:`${name} 200 percent desktop reflow equivalent`,status:'passed',viewport:'640x360 CSS pixels corresponds to 1280x720 at 200 percent zoom'});
       }
+    });
+    await check('R11 Etsy purpose hold is explicit, inert and preserves existing connections across navigation',async()=>{
+      const beforeEffects=boundary.effects.length,beforeActions=actions.length;
+      try {
+        for(const connected of [false,true]){
+          if(connected)await context.addCookies([{name:'r03-mode',value:'r11-connected',url:origin}]);
+          else await context.clearCookies({name:'r03-mode'});
+          for(const [width,height]of [[1280,720],[1440,900],[390,844],[320,800]]){
+            await page.setViewportSize({width,height});
+            await page.goto(origin+`/dashboard/etsy?business=${connected?id(2):business}&panel=drafts`);
+            const note=page.getByRole('note').filter({hasText:'legacy write-scope connection flow'});await note.waitFor();
+            if(connected){await page.getByText('Saved exact shop with a long original name retained across Business navigation',{exact:true}).waitFor();assert.equal(await page.getByRole('button',{name:'Disconnect and stop draft work',exact:true}).isEnabled(),true);}
+            else {assert.equal(await page.getByRole('button',{name:'Connect Etsy securely',exact:true}).isDisabled(),true);assert.equal(await page.locator('input[name=accountConsent]').isDisabled(),true);}
+            const nav=page.getByRole('navigation',{name:'Tool sections'});await nav.getByRole('link',{name:'Publication receipts',exact:true}).click();await page.waitForURL(/panel=publication/);await page.goBack();await page.waitForURL(/panel=drafts/);await note.waitFor();await page.reload();await note.waitFor();
+            const m=await page.evaluate(()=>({w:document.documentElement.scrollWidth,h:document.documentElement.scrollHeight}));assert.ok(m.w<=width+1);if(width>=1280)assert.ok(m.h<=height+1);
+            await page.screenshot({path:path.join(output,`r11-etsy-${connected?'connected':'held'}-${width}x${height}.png`),fullPage:true});
+          }
+        }
+      }finally{await context.clearCookies({name:'r03-mode'});}
+      assert.equal(boundary.effects.length,beforeEffects);assert.equal(actions.length,beforeActions);
     });
     const toolSections=[['products',['recovery','candidates','new','capabilities']],['artifacts',['production','technical','gallery','scope']],['packs',['installed','qualification']],['model-router',['routes','models','launch']],['worker-proof',['launch']],['worker-evaluations',['suite','promotions']],['settings',['businesses','boundaries']],['accounts',['requests','etsy','printful']],['printful',['calculator','catalog','connection','qualification']],['etsy',['drafts','publication']],['workflows/'+id(1001),['stages','tasks','workers','outputs','products','browser','activity']]];
     for(const [route,panels]of toolSections)for(const panel of panels)await check(`retained section ${route} ${panel} uses real Next navigation`,async()=>{
@@ -294,8 +324,8 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false,que
     });
     for(const mode of ['empty','unavailable'])await check(`actual retained ${mode} reads remain explicit and inert`,async()=>{
       await context.addCookies([{name:'r03-mode',value:mode,url:origin}]);
-      try {for(const route of ['products','artifacts','packs','model-router','worker-proof','worker-evaluations','settings']){
-        await page.setViewportSize({width:1280,height:720});await page.goto(origin+`/dashboard/${route}`);
+      try {for(const route of ['products','artifacts','packs','model-router','worker-proof','worker-evaluations','settings','connections']){
+        await page.setViewportSize({width:1280,height:720});await page.goto(origin+`/dashboard/${route}${route==='connections'?`?business=${business}`:''}`);
         await page.screenshot({path:path.join(output,`${route}-${mode}-1280x720.png`),fullPage:true,mask:[page.locator('[data-private=true]')],maskColor:'#142b3b'});
         assert.equal(await page.getByText('Application error',{exact:false}).count(),0);
         if(mode==='unavailable'){

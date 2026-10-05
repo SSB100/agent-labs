@@ -30,6 +30,7 @@ const messages: Record<string, string> = {
   "listing-stopped":"Further listing-preparation calls are stopped. In-flight costs and existing review records are preserved.",
   "listing-action-unavailable":"The listing action could not be confirmed. Refresh its durable history before continuing.",
   connected: "Etsy shop connected. Draft preparation still requires a qualified product and your approval.", disconnected: "Stored Etsy access removed and unfinished draft work stopped.",
+  "connection-purpose-review-required": "New Etsy access is paused until the approved application purpose is verified. Own-shop operations and marketplace research are reviewed separately. Existing saved connections remain available for review.",
   "connection-consent-required": "Confirm the account connection before continuing to Etsy.", "connection-unavailable": "The connection could not be completed. No new draft was requested.",
   "action-unavailable": "The action could not be confirmed. Check the current records before continuing.", "draft-consent-required": "Approve the exact draft and sharing of its images before continuing.",
   "draft-blocked": "Draft work is blocked by missing authority, an existing run or an upstream qualification check. No automatic retry is performed.",

@@ -59,6 +59,20 @@ export async function startFixtureBoundary() {
     }
     if(req.url==='/rpc'){
       const {name,args}=input;const business=args.p_business_id;
+      if(name==='r11_connection_read'){
+        if(!state.businesses.some(b=>b.id===business))return send({data:null,error:{message:'Inert owner mismatch'}});
+        if(input.mode==='unavailable')return send({data:null,error:{message:'Inert qualification unavailable'}});
+        state.r11Connections??=new Map();
+        if(!state.r11Connections.has(business))state.r11Connections.set(business,[{id:id(business===id(1)?110001:110002),provider:'etsy',externalAccountId:'200',label:'Saved own shop with a deliberately long readable display name',revision:id(110003),status:'token_expired',custody:'encrypted_oauth',verifiedAt:'2026-10-04T23:00:00Z',expiresAt:'2026-11-01T00:00:00Z',permittedOperations:['shop.read','listing.read'],providerExpiryVerified:false,credentialAlias:null,credentialFingerprint:'a'.repeat(64)}]);
+        const connections=input.mode==='empty'?[]:state.r11Connections.get(business);
+        const grants=input.mode==='empty'?[]:[{id:id(110010),provider:'etsy',expectedAccount:'Inert exact shop',applicationId:'inert-app',expiresAt:'2027-01-01T00:00:00Z',purposeHash:'a'.repeat(64),approvedCredentialFingerprint:'b'.repeat(64),state:'available',credentialAlias:null,providerScopeMode:'exact',providerScopes:['shops_r','listings_r']}];
+        log.push({rpc:name,business});return send({data:{businessId:business,grantTotal:grants.length,attemptTotal:0,grants,connections,attempts:[]},error:null});
+      }
+      if(name==='r11_connection_owner'&&args.p_operation==='disconnect'){
+        const connection=state.r11Connections?.get(business)?.find(c=>c.id===args.p_payload.connectionId&&c.revision===args.p_payload.revision);
+        if(!connection)return send({data:null,error:{message:'Inert exact connection mismatch'}});
+        connection.status='revoked';effects.push({kind:'in-memory-r11-disconnect',business,connectionId:connection.id});return send({data:{disconnected:true,providerRevoked:false},error:null});
+      }
       if(['r10_viewer_owner','r10_viewer_catalog'].includes(name)){log.push({rpc:name,args});return send(readViewerFixture(state,name,args,effects,control));}
       if(name==='r09_knowledge_read'){
         const call={rpc:name,business,dataset:args.p_dataset,query:args.p_query};log.push(call);
