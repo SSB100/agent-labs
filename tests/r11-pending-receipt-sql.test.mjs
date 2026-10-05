@@ -14,7 +14,7 @@ import {completionPayload} from './helpers/r11-public-research-owner-proof.mjs';
 import {pendingReceiptPostgresRaces} from './helpers/r11-pending-receipt-races.mjs';
 import {PENDING_MODEL,pendingFixture,stagePending,claimPending,pendingProof,recordPending,seedPastClaims} from './helpers/r11-pending-receipt-fixture.mjs';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),host=process.env.R11_SQL_TEST_HOST;
-const migration='20261005184948_r11_research_pending_receipts.sql';
+const migration='20261005220220_r11_research_pending_receipts.sql';
 const source=name=>readFileSync(path.join(root,'supabase/migrations',name),'utf8');
 const load=(db,s)=>researchV2(db,s,'load',{policyId:s.policy.id});
 async function snapshot(db,pattern){const out={};for(const {tablename} of (await db.query('select tablename from pg_tables where schemaname=\'private\' and tablename like $1 order by 1',[pattern])).rows)out[tablename]=(await db.query(`select to_jsonb(t) row from private.${tablename} t order by to_jsonb(t)::text`)).rows;return out;}

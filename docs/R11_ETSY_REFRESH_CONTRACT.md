@@ -1,6 +1,6 @@
 # R11 operation-bound Etsy token refresh
 
-Status: independently reviewed implementation released in Production, with the separately approved one-refresh/one-read live qualification passed. Exact-head hosted CI passed all ten jobs. The separately approved ongoing window is installed and verified available after an explicitly authorized retry of its initially cancelled activation. R11 remains partial because public-source/model eligibility is still open; R12 has not started.
+Status: independently reviewed implementation released in Production, with the separately approved one-refresh/one-read live qualification passed. Exact-head hosted CI passed all ten jobs. The separately approved ongoing window is installed and verified available after an explicitly authorized retry of its initially cancelled activation. The separate [public-source qualification](R11_RESEARCH_QUALIFICATION_RECEIPT.md) now completes R11’s scoped external-prerequisite exit. R12 planning precedes implementation; this refresh authority does not expand to research or commerce.
 
 ## Minimal useful operation
 
