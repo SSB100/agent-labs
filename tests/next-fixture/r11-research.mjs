@@ -9,7 +9,7 @@ export const R11_CONTINUATION_QUOTE_HASH='52bbd10682da06b0eff537916e0cfdd882c2d0
 export const R11_CANONICAL_MODEL='openai/gpt-5.6-luna-20260709';
 export const R11_RAW_SENTINEL='RAW_R11_PROVIDER_TEXT_MUST_NOT_PERSIST';
 export const r11ContinuationScope={grantId:id(912001),policyId:id(912002),workflowRunId:id(912003),operatingPolicyId:id(912005)};
-export const R11_RESET={r11Research:true,resetResearch:true,r11HoldLoads:false,r11Historical:false,r11Expired:false,r11ReadUnavailable:false,r11CatalogUnavailable:false,r11ProviderFailure:null,r11UnknownCost:false,r11InvalidSelection:false,r11InvalidSources:false,r11InvalidModel:false,r11InvalidProvider:false,r11AliasModel:false,r11CompleteFailure:false,r11CollectFailure:false,r11FailJournalFailure:false,r11StopFailure:false};
+export const R11_RESET={r11Research:true,resetResearch:true,r11HoldLoads:false,r11Historical:false,r11Expired:false,r11ReadUnavailable:false,r11CatalogUnavailable:false,r11ProviderFailure:null,r11GenerationResponses:[],r11UnknownCost:false,r11InvalidSelection:false,r11InvalidSources:false,r11InvalidModel:false,r11InvalidProvider:false,r11AliasModel:false,r11CompleteFailure:false,r11CollectFailure:false,r11FailJournalFailure:false,r11StopFailure:false};
 export const R11_EXCERPT='Adult gardeners often value practical tools and containers suited to the available growing space. This is a bounded public observation from an inert qualification fixture.';
 export const r11Endpoint={name:'Azure | openai/gpt-5.6-luna-20260709',model_id:'openai/gpt-5.6-luna',provider_name:'Azure',tag:'azure/us',status:0,context_length:1050000,max_completion_tokens:128000,supported_parameters:['reasoning','max_completion_tokens','tools','tool_choice','response_format','structured_outputs'],pricing:{prompt:'0.00000022',completion:'0.00000132',input_cache_read:'0.000000022',input_cache_write:'0.000000275',overrides:[{min_prompt_tokens:272000,prompt:'0.00000044',completion:'0.00000198',input_cache_read:'0.000000044',input_cache_write:'0.00000055'}]}};
 const canonical=value=>value===null||typeof value!=='object'?JSON.stringify(value):Array.isArray(value)?'['+value.map(canonical).join(',')+']':'{'+Object.keys(value).sort().map(key=>JSON.stringify(key)+':'+canonical(value[key])).join(',')+'}';
@@ -23,15 +23,21 @@ export function researchCatalogFixture(url,log,control){
  throw Error('Unreviewed inert public catalog');
 }
 /** A read-only synthetic generation record, independently matched to one
- * admitted fixture response. Never accepts a credential or caller-supplied data. */
+ * admitted fixture response. The test-only response queue controls transport,
+ * never the paid request or saved state. No credential or caller data accepted. */
 export function researchGenerationFixture(state,input,log,control){
  if(Object.keys(input??{}).join(',')!=='url'||typeof input.url!=='string')throw Error('Inert generation input unavailable');
  const match=/^https:\/\/openrouter\.ai\/api\/v1\/generation\?id=(gen-[A-Za-z0-9_-]{1,296})$/.exec(input.url);
  const call=match&&state.r11Research?.providerCalls.find(row=>row.receiptId===match[1]);
  if(!call)throw Error('Inert exact generation unavailable');
  log.push({kind:'inert-r11-generation-read',url:input.url,generationId:call.receiptId});
- return{data:{id:call.receiptId,provider_name:control.r11InvalidProvider?R11_RAW_SENTINEL:'Azure',model:R11_CANONICAL_MODEL,
-  provider_responses:[{provider_name:control.r11InvalidProvider?R11_RAW_SENTINEL:'Azure',model_permaslug:R11_CANONICAL_MODEL,status:200}]}};
+ const scenario=control.r11GenerationResponses?.shift()??'success';
+ if(scenario==='not_found'||scenario==='unauthorized')return{status:scenario==='not_found'?404:401,body:R11_RAW_SENTINEL};
+ if(scenario==='invalid_json')return{status:200,body:'{"private":"'+R11_RAW_SENTINEL};
+ if(scenario==='invalid_envelope')return{status:200,body:JSON.stringify({error:R11_RAW_SENTINEL})};
+ if(!['success','wrong_generation'].includes(scenario))throw Error('Unreviewed inert generation response');
+ return{status:200,body:JSON.stringify({data:{id:scenario==='wrong_generation'?'gen-'+R11_RAW_SENTINEL:call.receiptId,provider_name:control.r11InvalidProvider?R11_RAW_SENTINEL:'Azure',model:R11_CANONICAL_MODEL,
+  provider_responses:[{provider_name:control.r11InvalidProvider?R11_RAW_SENTINEL:'Azure',model_permaslug:R11_CANONICAL_MODEL,status:200}]}})};
 }
 export const r11Search={requestHash:'2274c20fe35e47b44fdbb711dbd284d48293cea77a8e1c1088ca8c3fe138421f',wireHash:'4c966df85e61d3cd2666f37a10fe2d3334a90e29f71a3217be4e8b056cca3e19',wireBytes:844,maxTokens:4000};
 export function seedResearchFixture(state,options={}){

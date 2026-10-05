@@ -27,7 +27,7 @@ export async function submitResearchConsentRejection(page,button,origin){
 }
 
 /** Observe the exact action headers and rendered state, never Flight EOF. */
-async function submitSavedRouteCheck(page,route){
+export async function submitSavedRouteCheck(page,route,failure=null){
  const actionUrl=page.url();let actionRequest;
  const capture=request=>{if(!actionRequest&&request.method()==='POST'&&request.url()===actionUrl&&request.headers()['next-action'])actionRequest=request;};
  page.on('request',capture);
@@ -37,7 +37,8 @@ async function submitSavedRouteCheck(page,route){
   const received=await bounded(observed,'R11 exact saved-route action response headers',FIXTURE_ACTION_TIMEOUT_MS);
   if(!received.ok)throw received.error;
   assert.equal(received.value.request(),actionRequest);assert.equal(received.value.status(),200);assert.equal(received.value.headers()['x-action-redirect'],undefined);
-  await route.locator('[data-r11-route-evidence]').waitFor({state:'visible',timeout:FIXTURE_ACTION_TIMEOUT_MS});
+  if(failure)await route.getByRole('alert').filter({hasText:failure}).waitFor({state:'visible',timeout:FIXTURE_ACTION_TIMEOUT_MS});
+  else await route.locator('[data-r11-route-evidence]').waitFor({state:'visible',timeout:FIXTURE_ACTION_TIMEOUT_MS});
   await route.getByRole('button',{name:'Verify saved inference route',exact:true}).waitFor({state:'visible',timeout:FIXTURE_ACTION_TIMEOUT_MS});
  }finally{page.off('request',capture);}
 }
@@ -121,7 +122,7 @@ export async function runResearchQualificationBrowser({page,context,origin,noKey
   assert.ok(actions.some(item=>item.url.includes('/dashboard/research-qualification')&&Number(item.revalidated)>0),'Real server action must revalidate the unchanged page');
   await submitRunEvenIfDisabled();await page.reload();await result(page).waitFor();await page.getByRole('link',{name:'Back to Research',exact:true}).click();await page.waitForURL(/view=research/);await page.goBack();await result(page).waitFor();await page.goForward();await page.waitForURL(/view=research/);await page.goBack();await result(page).waitFor();assert.equal(fixture().providerCalls.length,2);
  });
- await check('R11 explicit saved-route verification reads one documented generation and preserves all paid and financial state',async()=>{
+ await check('R11 explicit saved-route verification shows safe terminal diagnostics and recovers transient metadata reads without paid or financial changes',async()=>{
   const requestId=fixture().markers.find(item=>item.phase==='search').requestId;
   const route=proof(page).locator(`[data-r11-route-check="${requestId}"]`),original=structuredClone(fixture()),effects=boundary.effects.length;
   const reads=()=>boundary.log.filter(item=>item.kind==='inert-r11-generation-read').length,before=reads();
@@ -131,10 +132,17 @@ export async function runResearchQualificationBrowser({page,context,origin,noKey
   assert.equal(boundary.log.filter(item=>item.kind==='inert-r11-generation-read').at(-1).generationId,original.providerCalls.find(item=>item.requestId===requestId).receiptId);
   assert.match(await route.innerText(),/does not qualify prior output or authorize another run/);
   assert.ok(!(await route.innerText()).includes(R11_RAW_SENTINEL));assert.ok(!(await route.innerText()).includes('inert-r11-generation-placeholder'));
+  await control({r11GenerationResponses:['unauthorized']});
+  await submitSavedRouteCheck(page,route,/Receipt metadata check: api_failure; HTTP 401; reads attempted 1/);
+  assert.equal(await route.locator('[data-r11-route-evidence]').count(),0);assert.equal(reads(),before+2);assert.deepEqual(fixture(),original);assert.equal(boundary.effects.length,effects);
+  assert.match(await route.innerText(),/Existing failures and charges remain unchanged; no new run was started/);assert.ok(!(await route.innerText()).includes(R11_RAW_SENTINEL));
+  await control({r11GenerationResponses:['not_found','success']});await submitSavedRouteCheck(page,route);
+  assert.equal(await route.getByRole('alert').count(),0);assert.equal(reads(),before+4);assert.deepEqual(fixture(),original);assert.equal(boundary.effects.length,effects);
+  assert.deepEqual(boundary.log.filter(item=>item.kind==='inert-r11-generation-read').slice(-4).map(item=>item.generationId),Array(4).fill(original.providerCalls.find(item=>item.requestId===requestId).receiptId));
   await page.setViewportSize({width:320,height:800});await route.scrollIntoViewIfNeeded();
   const geometry=await page.evaluate(()=>({width:document.documentElement.scrollWidth,innerWidth}));assert.ok(geometry.width<=geometry.innerWidth+1,JSON.stringify(geometry));
   await page.screenshot({path:path.join(output,'r11-research-route-evidence-320x800.png'),fullPage:true});await page.setViewportSize({width:1280,height:720});
-  await page.reload();await result(page).waitFor();assert.equal(await route.locator('[data-r11-route-evidence]').count(),0);assert.equal(reads(),before+1);assert.deepEqual(fixture(),original);
+  await page.reload();await result(page).waitFor();assert.equal(await route.locator('[data-r11-route-evidence]').count(),0);assert.equal(reads(),before+4);assert.deepEqual(fixture(),original);
  });
  await check('R11 terminal evidence survives expiry and missing server key while Stop remains explicit and usable',async()=>{
   await control({r11Expired:true});await page.reload();await result(page).waitFor();await proof(page).getByText(/Expired: no new dispatch is authorized/).waitFor();assert.equal(await runButton(page).isDisabled(),true);

@@ -28,7 +28,7 @@ async function fixture(options={}){
  const excerpt='Adult gardeners often value practical tools and containers suited to the available growing space. This is a bounded public observation.';
  const runtime={now:()=>clock,model,
   async verifyQuote(p){events.push('quote');if(options.quoteFailure)throw Error('stale quote');assert.equal(p.quoteHash,policy.quoteHash);const quote={providerName:'Azure',acceptedResponseModelIds:[model.providerModelId,'openai/gpt-5.6-luna-20260709'],quoteValidUntil:new Date(clock+300000).toISOString()};options.mutateQuote?.(quote,clock);return quote;},
-  async verifyGenerationRoute(expected){events.push('route');routeQueries.push(structuredClone(expected));if(options.routeError)throw Error('private route lookup failure');if(options.routeNull)return null;
+  async verifyGenerationRoute(expected){events.push('route');routeQueries.push(structuredClone(expected));if(options.routeError)throw options.routeError===true?Error('private route lookup failure'):options.routeError;if(options.routeNull)return null;
    const raw={data:{id:expected.generationId,provider_name:'Azure',model:'openai/gpt-5.6-luna-20260709',provider_responses:null}};options.mutateRoute?.(raw);return route.qualifyGenerationRouteProof(raw,expected);},
   async rpc(operation,payload){events.push(operation);if(operation==='load'){if(revoked)throw Error('policy revoked');return structuredClone(loaded);}
    if(operation==='fail'){if(options.journalFailure)throw Error('journal unavailable');
@@ -192,6 +192,7 @@ test('R11 legacy adapter observation upgrades exact Azure hash while verifying i
  const observation=outcome.observePublicResearchResponse({model:f.policy.modelId,provider:'Azure',choices:[{finish_reason:'length',message:{annotations:[]}}],usage:{server_tool_use:{web_search_requests:1}}},
   {modelId:f.policy.modelId,acceptedResponseModelIds:[f.policy.modelId],allowedDomains:f.policy.allowedDomains,excludedDomains:f.policy.excludedDomains});
  delete observation.responseProviderHash;delete observation.inferenceRouteStatus;delete observation.inferenceRouteProofHash;
+ delete observation.inferenceRouteFailureCode;delete observation.inferenceRouteHttpStatus;delete observation.inferenceRouteAttempts;
  f.runtime.provider=(admit)=>{
   const adapter=original(admit);return{invokeStructured:r=>adapter.invokeStructured(r),async invokeWebSearch(r){
    const response=await adapter.invokeWebSearch(r);
@@ -201,7 +202,7 @@ test('R11 legacy adapter observation upgrades exact Azure hash while verifying i
  };
  const error=await stopped(f,'source_contract_invalid');assert.equal(error.observation.annotationCount,0);assert.equal(error.observation.finishReason,'length');assert.equal(error.observation.searchRequests,1);
  assert.equal(f.settlements.length,2);assert.ok(!JSON.stringify(f.failures).includes('private provider error'));
- assert.equal(Object.keys(error.observation).length,14);assert.equal(error.observation.responseProviderHash,require('node:crypto').createHash('sha256').update('Azure').digest('hex'));
+ assert.equal(Object.keys(error.observation).length,17);assert.equal(error.observation.responseProviderHash,require('node:crypto').createHash('sha256').update('Azure').digest('hex'));
  assert.equal(error.observation.inferenceRouteStatus,'verified');assert.deepEqual(outcome.validateResearchObservation(error.observation,f.policy.allowedDomains,f.policy.modelId),error.observation);
 });
 test('R11 a failed journal never masquerades as a persisted diagnosis or retries payment',async()=>{
@@ -374,4 +375,24 @@ for(const field of ['generationId','acceptedResponseModelIds','requestedEndpoint
  };
  const error=await stopped(f,'response_provider_unqualified');assert.equal(error.observation.inferenceRouteStatus,'invalid');assert.equal(f.sent.length,1);assert.equal(f.settlements.length,1);
  assert.equal(f.settlements[0].receipt.providerRequestId,'gen-inert-search-receipt');assert.ok(!JSON.stringify(f.failures).includes('unreviewed/private-model'));
+});
+
+
+for(const [code,httpStatus,attempts,status] of [['api_failure',404,3,'unavailable'],['api_failure',401,1,'unavailable'],['transport_failure',null,3,'unavailable'],['timeout',null,2,'unavailable'],['json_invalid',200,1,'invalid'],['response_invalid',200,1,'invalid']])test(`R11 receipt ${code}/${httpStatus} records exact safe terminal metadata without another generation`,async()=>{
+ const failure=new route.GenerationRouteProofError(code,httpStatus,attempts);failure.privateBody='private prompt or credential';
+ const f=await fixture({routeError:failure}),error=await stopped(f,'response_provider_unqualified');
+ assert.equal(error.observation.inferenceRouteFailureCode,code);assert.equal(error.observation.inferenceRouteHttpStatus,httpStatus);assert.equal(error.observation.inferenceRouteAttempts,attempts);assert.equal(error.observation.inferenceRouteStatus,status);
+ assert.equal(f.sent.length,1);assert.equal(f.settlements.length,1);assert.equal(error.recorded,true);assert.doesNotMatch(JSON.stringify(f.failures),/private prompt|credential/);
+ assert.deepEqual(outcome.validateResearchObservation(error.observation,f.policy.allowedDomains,f.policy.modelId),error.observation);
+});
+test('R11 holds each paid public response through transient receipt reads and never repeats generation',{timeout:10000},async()=>{
+ const f=await fixture({attemptVersion:2,thirtyMinute:true}),reads=[];
+ f.runtime.verifyGenerationRoute=expected=>route.fetchGenerationRouteProof({...expected,config,fetcher:async(url,init)=>{
+  reads.push({url,method:init.method,id:expected.generationId});
+  if(reads.filter(x=>x.id===expected.generationId).length===1)return new Response('private transient error body',{status:404});
+  return new Response(JSON.stringify({data:{id:expected.generationId,provider_name:'Azure',model:'openai/gpt-5.6-luna-20260709',provider_responses:[]}}),{status:200});
+ }});
+ const result=await rt.runPublicResearchQualification(f.scope,f.policy.id,f.runtime);
+ assert.equal(result.resultId,id(21));assert.equal(f.sent.length,2);assert.equal(f.settlements.length,4);assert.equal(reads.length,4);assert.ok(reads.every(x=>x.method==='GET'));
+ assert.equal(reads.filter(x=>x.id==='gen-inert-search-receipt').length,2);assert.equal(reads.filter(x=>x.id==='gen-inert-select-receipt').length,2);assert.equal(f.failures.length,0);
 });

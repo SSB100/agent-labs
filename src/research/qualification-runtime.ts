@@ -7,7 +7,7 @@ import { ModelProviderError, type ModelDefinition, type ModelDispatchAdmission, 
 import { assembleAdmittedPublicEvidence, canonicalPublicResearchJson, collectQualifiedPublicSources, publicResearchHash, publicResearchSearchRequest, publicResearchSelectorRequest, validatePublicResearchLineage, validatePublicResearchPolicy, type PublicResearchLineage, type PublicResearchPolicy } from "./qualification";
 import type { EvidencePack, ResearchCollection } from "./types";
 import { fetchPublicResearchQuote, validatePublicResearchQuote } from "./qualification-quote";
-import type { ResearchFailureReason, ResearchObservation } from "./qualification-owner-contract";
+import { readResearchRouteFailureDetails, type ResearchFailureReason, type ResearchObservation } from "./qualification-owner-contract";
 import { fetchGenerationRouteProof, GenerationRouteProofError, validateGenerationRouteProof, type GenerationRouteExpectation, type GenerationRouteProof } from "./generation-route";
 import { observePublicResearchResponse, PublicResearchQualificationError, PublicResearchQualificationUnacquiredError, validateResearchObservation, validateResearchResponseModelIds } from "./qualification-outcome";
 
@@ -27,7 +27,7 @@ export type PublicResearchRuntime = {
   rpc: Rpc; settle: Settle; provider: (admit: ModelDispatchAdmission, observeResponse?: (body: unknown, providerError?: string) => JsonObject) => Provider;
   /** Must freshly verify exact catalog/ZDR endpoint, full tier quote and hash. */
   verifyQuote: (policy: PublicResearchPolicy) => Promise<{ providerName: string; acceptedResponseModelIds?: readonly string[]; quoteValidUntil?: string }>;
-  /** One trusted, non-generating lookup of this positively admitted generation. */
+  /** Bounded non-generating lookups of this positively admitted generation. */
   verifyGenerationRoute: (expected: GenerationRouteExpectation) => Promise<GenerationRouteProof>;
   now?: () => number; model?: ModelDefinition;
 };
@@ -127,10 +127,15 @@ export async function runPublicResearchQualification(scope: Scope, policyId: str
       async function verifyRouteAndEnrich(requestId: string, receipt: JsonObject): Promise<{ routeProof: GenerationRouteProof; enrichedReceipt: JsonObject }> {
         failure.reason = "response_provider_unqualified";
         const setRoute = (status: "unavailable" | "invalid" | "verified", proofHash: string | null = null) => {
-          if (failure.observation) { failure.observation.responseProviderHash ??= failure.observation.providerIdentity === "exact" && failure.observation.observedProvider === "Azure" ? digest("Azure") : null; failure.observation.inferenceRouteStatus = status; failure.observation.inferenceRouteProofHash = proofHash; }
+          if (failure.observation) {
+            failure.observation.responseProviderHash ??= failure.observation.providerIdentity === "exact" && failure.observation.observedProvider === "Azure" ? digest("Azure") : null;
+            failure.observation.inferenceRouteStatus = status; failure.observation.inferenceRouteProofHash = proofHash;
+            failure.observation.inferenceRouteFailureCode = null; failure.observation.inferenceRouteHttpStatus = null; failure.observation.inferenceRouteAttempts = null;
+          }
         };
-        // A receipt ID is not permission for another model call. This reader is
-        // a single fixed-origin GET, only for the positively marked generation.
+        // A receipt ID is not permission for another model call. Retain the
+        // bounded public response while this fixed-origin metadata read resolves;
+        // only the reader's finite transient GET retries are allowed.
         if (typeof receipt.providerRequestId !== "string" || !/^gen-[A-Za-z0-9_-]{1,296}$/.test(receipt.providerRequestId) ||
             policy.providerEndpoint !== "azure/us" || acceptedResponseModelIds.length !== 2 || typeof runtime.verifyGenerationRoute !== "function") {
           setRoute("invalid"); return denied();
@@ -140,7 +145,13 @@ export async function runPublicResearchQualification(scope: Scope, policyId: str
         let routeProof: GenerationRouteProof;
         try { routeProof = validateGenerationRouteProof(await runtime.verifyGenerationRoute(structuredClone(expected)), expected); }
         catch (error) {
-          setRoute(error instanceof GenerationRouteProofError && ["invalid_request", "response_invalid", "generation_mismatch", "provider_mismatch", "model_mismatch", "provider_responses_invalid", "redirect_rejected"].includes(error.code) ? "invalid" : "unavailable");
+          setRoute(error instanceof GenerationRouteProofError && ["invalid_request", "json_invalid", "response_invalid", "response_too_large", "generation_mismatch", "provider_mismatch", "model_mismatch", "provider_responses_invalid", "redirect_rejected"].includes(error.code) ? "invalid" : "unavailable");
+          const details = readResearchRouteFailureDetails(error);
+          if (failure.observation && details) {
+            failure.observation.inferenceRouteFailureCode = details.code;
+            failure.observation.inferenceRouteHttpStatus = details.httpStatus;
+            failure.observation.inferenceRouteAttempts = details.attempts;
+          }
           return denied();
         }
         setRoute("verified", routeProof.proofHash);

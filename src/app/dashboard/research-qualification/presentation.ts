@@ -1,3 +1,5 @@
+import { RESEARCH_INFERENCE_ROUTE_FAILURE_CODES } from "../../../research/qualification-owner-contract";
+
 /** UI labels never turn admission markers into validated success. */
 type ProofState = {
   policy: { validFrom: string; validUntil: string; quoteValidUntil: string };
@@ -58,6 +60,12 @@ export function researchOutcomeDisclosure(value: unknown, allowedDomains: string
     if (typeof o.responseProviderHash === "string" && /^[a-f0-9]{64}$/.test(o.responseProviderHash)) observations.push(`Raw response-provider fingerprint: ${o.responseProviderHash}`);
     observations.push(`Generation-route evidence: ${o.inferenceRouteStatus === undefined ? "not recorded for this historical observation" : label(routeLabels, o.inferenceRouteStatus)}`);
     if (o.inferenceRouteStatus === "verified" && typeof o.inferenceRouteProofHash === "string" && /^[a-f0-9]{64}$/.test(o.inferenceRouteProofHash)) observations.push(`Generation-route proof fingerprint: ${o.inferenceRouteProofHash}`);
+    if ((o.inferenceRouteStatus === "unavailable" || o.inferenceRouteStatus === "invalid") &&
+        RESEARCH_INFERENCE_ROUTE_FAILURE_CODES.includes(o.inferenceRouteFailureCode as typeof RESEARCH_INFERENCE_ROUTE_FAILURE_CODES[number])) {
+      observations.push(`Generation receipt failure: ${o.inferenceRouteFailureCode}`);
+      observations.push(`Generation receipt HTTP status: ${typeof o.inferenceRouteHttpStatus === "number" && Number.isSafeInteger(o.inferenceRouteHttpStatus) && o.inferenceRouteHttpStatus >= 100 && o.inferenceRouteHttpStatus <= 599 ? o.inferenceRouteHttpStatus : "not recorded"}`);
+      observations.push(`Generation receipt attempts: ${typeof o.inferenceRouteAttempts === "number" && Number.isSafeInteger(o.inferenceRouteAttempts) && o.inferenceRouteAttempts >= 0 && o.inferenceRouteAttempts <= 3 ? o.inferenceRouteAttempts : "not recorded"}`);
+    }
     observations.push(`Finish reason: ${label(finishLabels, o.finishReason)}`);
     observations.push(`Search requests: ${count(o.searchRequests)}; citation annotations: ${count(o.annotationCount)}`);
     observations.push(`Rejected source domains: ${count(o.rejectedDomainCount)}; malformed annotations: ${count(o.malformedAnnotationCount)}`);

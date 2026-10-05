@@ -35,6 +35,17 @@ test('R11 additive repair preserves R05 and records truthful terminal outcomes',
     assert.deepEqual((await db.query(r05FunctionSnapshot)).rows,oldFunctions);assert.deepEqual(await allR05Rows(db),oldRows);assert.deepEqual((await db.query(tableSnapshot)).rows,beforeTables);
     await db.exec(source);
     newTables=(await db.query(tableSnapshot)).rows.map(row=>row.tablename).filter(name=>!beforeTables.some(row=>row.tablename===name));
+   }else if(name.endsWith('_r11_research_receipt_failure_diagnostics.sql')){
+    const functionSnapshot="select p.oid::regprocedure::text signature,pg_get_functiondef(p.oid) definition,p.proowner owner,p.proacl::text acl from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname in ('private','public') and p.prokind='f' order by 1";
+    const beforeFunctions=(await db.query(functionSnapshot)).rows,beforeTables=(await db.query(tableSnapshot)).rows,rows={};
+    for(const {tablename} of beforeTables)rows[tablename]=(await db.query(`select to_jsonb(t) row from private.${tablename} t order by to_jsonb(t)::text`)).rows;
+    assert.equal((source.match(/create or replace function/gi)??[]).length,1);assert.doesNotMatch(source,/\b(?:grant|revoke|create table|create policy|insert into|delete from|update private)\b/i);
+    await db.exec(source);
+    const afterFunctions=(await db.query(functionSnapshot)).rows;
+    assert.deepEqual(afterFunctions.map(({signature,owner,acl})=>({signature,owner,acl})),beforeFunctions.map(({signature,owner,acl})=>({signature,owner,acl})),'Receipt migration preserves function owners, ACLs and signatures');
+    const changed=afterFunctions.filter((row,index)=>row.definition!==beforeFunctions[index].definition);assert.equal(changed.length,1);assert.match(changed[0].signature,/^private\.r11_research_observation_validate\(/);
+    assert.deepEqual((await db.query(tableSnapshot)).rows,beforeTables);
+    for(const {tablename} of beforeTables)assert.deepEqual((await db.query(`select to_jsonb(t) row from private.${tablename} t order by to_jsonb(t)::text`)).rows,rows[tablename],`Receipt migration preserves ${tablename}`);
    }else await db.exec(source);
   }
   assert.equal(foundRepair,true,'The additive repair migration must exist');
@@ -105,6 +116,32 @@ test('R11 additive repair preserves R05 and records truthful terminal outcomes',
     o=>o.annotationCount=0,o=>o.observedModelId='wrong/model',o=>o.observedProvider='Unknown provider',o=>o.providerError='PRIVATE_ERROR'];
    for(const mutate of mutations){const observation=structuredClone(base);mutate(observation);await assert.rejects(check(observation),reject);}
    for(const key of ['responseProviderHash','inferenceRouteStatus','inferenceRouteProofHash'])await assert.rejects(check({...repairObservation(s),[key]:base[key]}),reject);
+   assert.deepEqual((await repairPolicy(db,s)).outcomes,[]);
+  });
+  await t.test('receipt-failure diagnostics persist exact bounded failures and reject partial or inconsistent fields',async()=>{
+   const failureKeys=['inferenceRouteFailureCode','inferenceRouteHttpStatus','inferenceRouteAttempts'];
+   const codes=['invalid_request','configuration_unavailable','transport_failure','timeout','redirect_rejected','api_failure','response_too_large','json_invalid','response_invalid','generation_mismatch','provider_mismatch','model_mismatch','provider_responses_invalid'];
+   const diagnostic=(s,extra={})=>repairObservation(s,{responseProviderHash:sha('Azure'),inferenceRouteStatus:'unavailable',inferenceRouteProofHash:null,inferenceRouteFailureCode:null,inferenceRouteHttpStatus:null,inferenceRouteAttempts:null,...extra});
+   const saved=[];
+   for(const [inferenceRouteFailureCode,inferenceRouteHttpStatus,inferenceRouteAttempts] of [['api_failure',404,3],['api_failure',401,1],['transport_failure',null,3],['timeout',null,3],['json_invalid',200,1],['response_invalid',200,1]]){
+    const s=await seedResearch(db),observation=diagnostic(s,{inferenceRouteFailureCode,inferenceRouteHttpStatus,inferenceRouteAttempts});assert.equal(Object.keys(observation).length,17);
+    assert.equal((await repairFail(db,s,repairFailure(s,'none',null,{observation}))).recorded,true);
+    const actual=(await repairPolicy(db,s)).outcomes[0].observation;assert.deepEqual(actual,observation);saved.push(actual);
+   }
+   assert.notDeepEqual(saved[0],saved[1]);assert.notDeepEqual(saved[2],saved[3]);assert.notDeepEqual(saved[4],saved[5]);
+   const s=await seedResearch(db),check=observation=>db.query('select private.r11_research_observation_validate(p,$2::jsonb) from private.r11_research_policies p where p.id=$1',[s.policy.id,observation]);
+   for(const inferenceRouteStatus of ['unrequested','unavailable','invalid','verified'])await check(diagnostic(s,{inferenceRouteStatus,inferenceRouteProofHash:inferenceRouteStatus==='verified'?sha('inert-receipt'):null}));
+   for(const inferenceRouteFailureCode of codes)await check(diagnostic(s,{inferenceRouteFailureCode,inferenceRouteAttempts:0}));
+   for(const inferenceRouteHttpStatus of [100,599])await check(diagnostic(s,{inferenceRouteFailureCode:'api_failure',inferenceRouteHttpStatus,inferenceRouteAttempts:3}));
+   const base=diagnostic(s,{inferenceRouteFailureCode:'api_failure',inferenceRouteHttpStatus:404,inferenceRouteAttempts:3});
+   const mutations=[...failureKeys.map(key=>o=>delete o[key]),o=>o.inferenceRouteFailureCode='PRIVATE_BODY',o=>o.inferenceRouteFailureCode=404,o=>o.inferenceRouteFailureCode=null,
+    o=>o.inferenceRouteHttpStatus='404',o=>o.inferenceRouteHttpStatus=99,o=>o.inferenceRouteHttpStatus=600,o=>o.inferenceRouteHttpStatus=404.5,o=>o.inferenceRouteHttpStatus={},
+    o=>o.inferenceRouteAttempts='3',o=>o.inferenceRouteAttempts=null,o=>o.inferenceRouteAttempts=-1,o=>o.inferenceRouteAttempts=4,o=>o.inferenceRouteAttempts=1.5,
+    o=>o.inferenceRouteStatus='unrequested',o=>{o.inferenceRouteStatus='verified';o.inferenceRouteProofHash=sha('inert-proof');},o=>o.rawBody='PRIVATE_BODY',o=>o.rawHeaders='PRIVATE_HEADER'];
+   for(const mutate of mutations){const observation=structuredClone(base);mutate(observation);await noEffects(s,()=>repairFail(db,s,repairFailure(s,'none',null,{observation})));}
+   const historical=structuredClone(base);for(const key of failureKeys)delete historical[key];
+   for(const key of failureKeys){await assert.rejects(check({...historical,[key]:base[key]}),reject);await assert.rejects(check({...repairObservation(s),[key]:base[key]}),reject);}
+   for(const key of failureKeys){const observation=diagnostic(s);observation[key]=base[key];await assert.rejects(check(observation),reject);}
    assert.deepEqual((await repairPolicy(db,s)).outcomes,[]);
   });
   await t.test('fail rejects malformed metadata, unsafe raw content, enum mismatches and unbounded counters atomically',async()=>{

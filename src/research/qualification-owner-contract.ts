@@ -6,6 +6,17 @@ import type { EvidencePack } from "./types";
 export const RESEARCH_FAILURE_REASONS = ["provider_response_invalid", "response_model_unqualified", "response_provider_unqualified", "source_contract_invalid", "collection_persistence_failed", "selector_output_invalid", "result_persistence_failed", "cost_unverified_or_over_cap", "internal_failure"] as const;
 export type ResearchFailureReason = typeof RESEARCH_FAILURE_REASONS[number];
 export type ResearchInferenceRouteStatus = "unrequested" | "verified" | "unavailable" | "invalid";
+export const RESEARCH_INFERENCE_ROUTE_FAILURE_CODES = ["invalid_request", "configuration_unavailable", "transport_failure", "timeout", "redirect_rejected", "api_failure", "response_too_large", "json_invalid", "response_invalid", "generation_mismatch", "provider_mismatch", "model_mismatch", "provider_responses_invalid"] as const;
+export type ResearchRouteFailureDetails = { code: typeof RESEARCH_INFERENCE_ROUTE_FAILURE_CODES[number]; httpStatus: number | null; attempts: number };
+/** Read only bounded receipt diagnostics; never copy an error message or body. */
+export function readResearchRouteFailureDetails(error: unknown): ResearchRouteFailureDetails | null {
+  if (!error || typeof error !== "object" || Array.isArray(error)) return null;
+  const value = error as Record<string, unknown>;
+  if (value.name !== "GenerationRouteProofError" || !RESEARCH_INFERENCE_ROUTE_FAILURE_CODES.includes(value.code as ResearchRouteFailureDetails["code"]) ||
+      !(value.httpStatus === null || (typeof value.httpStatus === "number" && Number.isSafeInteger(value.httpStatus) && value.httpStatus >= 100 && value.httpStatus <= 599)) ||
+      typeof value.attempts !== "number" || !Number.isSafeInteger(value.attempts) || value.attempts < 0 || value.attempts > 3) return null;
+  return { code: value.code as ResearchRouteFailureDetails["code"], httpStatus: value.httpStatus as number | null, attempts: value.attempts };
+}
 export type ResearchObservation = {
   modelIdentity: "request_alias" | "canonical" | "other" | "missing" | "invalid";
   observedModelId: string | null;
@@ -20,6 +31,10 @@ export type ResearchObservation = {
   responseProviderHash?: string | null;
   inferenceRouteStatus?: ResearchInferenceRouteStatus;
   inferenceRouteProofHash?: string | null;
+  /** Failure-only receipt diagnostics; absent together on historical observations. */
+  inferenceRouteFailureCode?: typeof RESEARCH_INFERENCE_ROUTE_FAILURE_CODES[number] | null;
+  inferenceRouteHttpStatus?: number | null;
+  inferenceRouteAttempts?: number | null;
 };
 export type ResearchOutcomeEvent = { outcomeId: string; kind: "failure" | "owner_stopped";
   phase: "none" | "search" | "select"; requestId: string | null;

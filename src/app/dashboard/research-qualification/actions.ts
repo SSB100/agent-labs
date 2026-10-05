@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { requireOwnerUiContext } from "@/lib/core-ui/data";
 import { verifyOwnerBusiness } from "@/lib/core-ui/owner-business";
 import { PublicResearchQualificationError } from "@/research/qualification-outcome";
+import { readResearchRouteFailureDetails } from "@/research/qualification-owner-contract";
 import {
   activateResearchGrant,
   prepareResearchBootstrap,
@@ -119,7 +120,9 @@ export async function verifySavedInferenceRoute(_previous: ResearchRouteState, f
   try {
     const verification = await verifySavedResearchInferenceRoute(context, businessId, policyId, requestId);
     return { status: "verified", message: "Read-only route evidence received. This does not qualify prior output or authorize another run.", verification };
-  } catch {
-    return { status: "unavailable", message: "The saved inference route could not be verified. Existing failures and charges remain unchanged; no new run was started.", verification: null };
+  } catch (error) {
+    const details = readResearchRouteFailureDetails(error);
+    const diagnostic = details ? ` Receipt metadata check: ${details.code}; HTTP ${details.httpStatus ?? "not received"}; reads attempted ${details.attempts}.` : "";
+    return { status: "unavailable", message: `The saved inference route could not be verified.${diagnostic} Existing failures and charges remain unchanged; no new run was started.`, verification: null };
   }
 }

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { MODEL_PROVIDER_FAILURE_CATEGORIES } from "../models/types";
-import type { ResearchFailureReason, ResearchObservation } from "./qualification-owner-contract";
+import { RESEARCH_INFERENCE_ROUTE_FAILURE_CODES, type ResearchFailureReason, type ResearchObservation } from "./qualification-owner-contract";
 
 const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 const fail = (): never => { throw new Error("public_research_observation_invalid"); };
@@ -9,6 +9,7 @@ const count = (value: unknown): number | null => typeof value === "number" && Nu
 const FINISH_REASONS = ["stop", "length", "content_filter", "tool_calls", "error", "other", "missing"] as const;
 const OBSERVATION_KEYS = "modelIdentity,observedModelId,providerIdentity,observedProvider,finishReason,searchRequests,annotationCount,approvedDomainCounts,rejectedDomainCount,malformedAnnotationCount,providerError";
 const DIAGNOSTIC_KEYS = "responseProviderHash,inferenceRouteStatus,inferenceRouteProofHash";
+const RECEIPT_FAILURE_KEYS = "inferenceRouteFailureCode,inferenceRouteHttpStatus,inferenceRouteAttempts";
 const ROUTE_STATUSES = ["unrequested", "verified", "unavailable", "invalid"] as const;
 const hash = (value: unknown): value is string => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
 // Bound work before hashing; use the complete label, never a truncated prefix.
@@ -32,7 +33,7 @@ export function validateResearchResponseModelIds(modelId: string, acceptedRespon
 export function validateResearchObservation(value: unknown, allowedDomains: readonly string[], modelId: string,
   acceptedResponseModelIds: readonly string[] = reviewedModels(modelId)): ResearchObservation {
   const accepted = validateResearchResponseModelIds(modelId, acceptedResponseModelIds);
-  if (!record(value) || !(exactKeys(value, OBSERVATION_KEYS) || exactKeys(value, `${OBSERVATION_KEYS},${DIAGNOSTIC_KEYS}`)) ||
+  if (!record(value) || !(exactKeys(value, OBSERVATION_KEYS) || exactKeys(value, `${OBSERVATION_KEYS},${DIAGNOSTIC_KEYS}`) || exactKeys(value, `${OBSERVATION_KEYS},${DIAGNOSTIC_KEYS},${RECEIPT_FAILURE_KEYS}`)) ||
       !["request_alias", "canonical", "other", "missing", "invalid"].includes(String(value.modelIdentity)) ||
       !["exact", "other", "missing", "invalid"].includes(String(value.providerIdentity)) ||
       !FINISH_REASONS.includes(value.finishReason as ResearchObservation["finishReason"]) ||
@@ -45,6 +46,14 @@ export function validateResearchObservation(value: unknown, allowedDomains: read
         (value.inferenceRouteStatus === "verified" ? !hash(value.inferenceRouteProofHash) : value.inferenceRouteProofHash !== null) ||
         (value.providerIdentity === "missing" && value.responseProviderHash !== null) ||
         (value.providerIdentity === "exact" && value.responseProviderHash !== responseProviderHash("Azure"))) return fail();
+  }
+  if (Object.hasOwn(value, "inferenceRouteFailureCode")) {
+    if (value.inferenceRouteFailureCode === null) {
+      if (value.inferenceRouteHttpStatus !== null || value.inferenceRouteAttempts !== null) return fail();
+    } else if (!RESEARCH_INFERENCE_ROUTE_FAILURE_CODES.includes(value.inferenceRouteFailureCode as typeof RESEARCH_INFERENCE_ROUTE_FAILURE_CODES[number]) ||
+        !["unavailable", "invalid"].includes(String(value.inferenceRouteStatus)) ||
+        !(value.inferenceRouteHttpStatus === null || (typeof value.inferenceRouteHttpStatus === "number" && Number.isSafeInteger(value.inferenceRouteHttpStatus) && value.inferenceRouteHttpStatus >= 100 && value.inferenceRouteHttpStatus <= 599)) ||
+        typeof value.inferenceRouteAttempts !== "number" || !Number.isSafeInteger(value.inferenceRouteAttempts) || value.inferenceRouteAttempts < 0 || value.inferenceRouteAttempts > 3) return fail();
   }
   if (value.modelIdentity === "request_alias" ? value.observedModelId !== modelId : value.modelIdentity === "canonical"
     ? accepted.length !== 2 || value.observedModelId !== accepted[1] : value.observedModelId !== null) return fail();
@@ -86,7 +95,8 @@ export function observePublicResearchResponse(raw: unknown, context: ResearchObs
     searchRequests: count(toolUsage.web_search_requests), annotationCount: annotations === null ? null : count(annotations.length),
     approvedDomainCounts: context.allowedDomains.map(domain => ({ domain, count: 0 })), rejectedDomainCount: 0, malformedAnnotationCount: 0,
     providerError: MODEL_PROVIDER_FAILURE_CATEGORIES.includes(providerError as typeof MODEL_PROVIDER_FAILURE_CATEGORIES[number]) ? String(providerError) : null,
-    responseProviderHash: providerHash, inferenceRouteStatus: "unrequested", inferenceRouteProofHash: null };
+    responseProviderHash: providerHash, inferenceRouteStatus: "unrequested", inferenceRouteProofHash: null,
+    inferenceRouteFailureCode: null, inferenceRouteHttpStatus: null, inferenceRouteAttempts: null };
   for (const annotation of annotations?.slice(0, 1000) ?? []) {
     if (!record(annotation) || annotation.type !== "url_citation" || !record(annotation.url_citation) ||
         typeof annotation.url_citation.url !== "string" || typeof annotation.url_citation.content !== "string" || annotation.url_citation.content.replace(/\s+/g, " ").trim().length < 30) {

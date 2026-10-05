@@ -7,10 +7,12 @@ import ts from 'typescript';
 import { fixtureData } from './next-fixture/data.mjs';
 import { seedResearchFixture, researchGenerationFixture, researchOwnerFixture, researchRuntimeFixture,
  r11Scope, R11_INERT_SERVER_KEY, R11_RAW_SENTINEL } from './next-fixture/r11-research.mjs';
+import { submitSavedRouteCheck } from './next-fixture/r11-journeys.mjs';
+import { FIXTURE_ACTION_TIMEOUT_MS } from './next-fixture/async-bounds.mjs';
 
 const require = createRequire(import.meta.url);
 const alias = 'openai/gpt-5.6-luna', canonical = 'openai/gpt-5.6-luna-20260709';
-const expectation = () => ({ generationId: 'gen-r11-inert-saved-search', providerName: 'Azure',
+const expectation = () => ({ generationId: 'gen-r11-historical-search-receipt', providerName: 'Azure',
  acceptedResponseModelIds: [alias, canonical], requestedEndpoint: 'azure/us' });
 const inertKey = 'inert-r11-generation-placeholder';
 const wire = expected => ({ method: 'GET', headers: { Authorization: `Bearer ${inertKey}`, Accept: 'application/json' },
@@ -35,8 +37,10 @@ function loadSource(path, imports, globals = {}) {
  return compiledModule.exports;
 }
 
-function fixture() {
- const state = { calls: [], fetches: [], runtimeArgs: [], loopbackReads: [] };
+function fixture(generationResponses = []) {
+ const data = fixtureData(); data.r11Research = seedResearchFixture(data, { r11Historical: true });
+ const state = { calls: [], fetches: [], runtimeArgs: [], loopbackReads: [], data, log: [] };
+ const control = { r11GenerationResponses: [...generationResponses] };
  // The production reader owns expectation validation, transport constraints,
  // response parsing, projection and hashing. Only external capabilities differ.
  const route = loadSource('src/research/generation-route.ts', {
@@ -46,7 +50,8 @@ function fixture() {
   state.calls.push(args);
   return route.fetchGenerationRouteProof({ ...args, fetcher: async (url, init) => {
    const response = await args.fetcher(url, init);
-   state.fetches.push({ url, init, raw: await response.clone().json() });
+   const raw = await response.clone().json().catch(() => null);
+   state.fetches.push({ url, init, status: response.status, raw });
    return response;
   } });
  };
@@ -69,10 +74,8 @@ function fixture() {
    assert.equal(init.method, 'POST');
    const body = JSON.parse(init.body);
    assert.deepEqual(Object.keys(body), ['url']);
-   const generationId = new URL(body.url).searchParams.get('id');
    state.loopbackReads.push(body);
-   return Response.json({ data: { id: generationId, provider_name: 'Azure', model: canonical,
-    provider_responses: [{ provider_name: 'Azure', model_permaslug: canonical, status: 200 }] } });
+   return Response.json(researchGenerationFixture(data, body, state.log, control));
   },
  });
  return { state, route, dependencies: exports.researchQualificationDependencies() };
@@ -118,6 +121,64 @@ test('R11 runtime and saved owner route checks share the inert real reader witho
  assert.equal(proof.modelId, canonical);
  assert.equal(f.state.fetches.length, 1);
  assert.doesNotMatch(JSON.stringify(f.state.fetches), /PRIVATE_RUNTIME_AUTHORITY|PRIVATE_ADMISSION_AUTHORITY/);
+});
+
+test('R11 Next transport recovers a transient receipt 404 through the real reader without changing any saved state', async () => {
+ const f = fixture(['not_found', 'success']), original = structuredClone(f.state.data.r11Research);
+ const proof = await f.dependencies.fetchGenerationRoute(expectation());
+ assert.equal(proof.generationId, expectation().generationId);
+ assert.equal(f.state.calls.length, 1, 'One reader invocation, never a repeated paid call');
+ assert.deepEqual(f.state.fetches.map(row => row.status), [404, 200]);
+ assert.deepEqual(f.state.fetches.map(row => row.url), Array(2).fill(`https://openrouter.ai/api/v1/generation?id=${proof.generationId}`));
+ assert.equal(f.state.loopbackReads.length, 2);
+ assert.deepEqual(f.state.data.r11Research, original);
+ assert.doesNotMatch(JSON.stringify(proof), new RegExp(R11_RAW_SENTINEL));
+});
+
+test('R11 Next transport preserves terminal auth, invalid JSON, invalid envelope and identity diagnostics with one GET', async () => {
+ for (const [scenario, code, httpStatus] of [['unauthorized', 'api_failure', 401], ['invalid_json', 'json_invalid', 200],
+  ['invalid_envelope', 'response_invalid', 200], ['wrong_generation', 'generation_mismatch', 200]]) {
+  const f = fixture([scenario]), original = structuredClone(f.state.data.r11Research);
+  await assert.rejects(f.dependencies.fetchGenerationRoute(expectation()), error => {
+   assert.equal(error.name, 'GenerationRouteProofError');assert.equal(error.code, code);
+   assert.equal(error.httpStatus, httpStatus);assert.equal(error.attempts, 1);
+   assert.equal(error.message, 'public_research_generation_route_unverified');
+   assert.doesNotMatch(JSON.stringify(error), new RegExp(R11_RAW_SENTINEL));return true;
+  });
+  assert.equal(f.state.calls.length, 1);assert.equal(f.state.fetches.length, 1);assert.equal(f.state.loopbackReads.length, 1);
+  assert.deepEqual(f.state.data.r11Research, original);
+ }
+});
+
+test('R11 saved-route browser helper bounds exact action headers and success/error DOM without reading Flight EOF', async () => {
+ for (const failure of [null, /Receipt metadata check: api_failure; HTTP 401; reads attempted 1/]) {
+  const events = [], actionUrl = 'http://127.0.0.1:12345/dashboard/research-qualification';
+  const request = { method: () => 'POST', url: () => actionUrl, headers: () => ({ 'next-action': 'inert-action' }) };
+  const response = { request: () => request, status: () => 200, headers: () => ({}),
+   finished: () => assert.fail('Must not wait for Flight EOF'), body: () => assert.fail('Must not consume Flight body') };
+  let capture, sendHeaders;
+  const waitFor = label => async options => { assert.deepEqual(options, { state: 'visible', timeout: FIXTURE_ACTION_TIMEOUT_MS });events.push(label); };
+  const button = { waitFor: waitFor('button'), click: async options => {
+   assert.deepEqual(options, { timeout: FIXTURE_ACTION_TIMEOUT_MS });capture(request);sendHeaders();
+  } };
+  const page = { url: () => actionUrl,
+   on: (event, handler) => { assert.equal(event, 'request');capture = handler; },
+   off: (event, handler) => { assert.equal(event, 'request');assert.equal(handler, capture);events.push('cleanup'); },
+   waitForResponse: (predicate, options) => {
+    assert.deepEqual(options, { timeout: FIXTURE_ACTION_TIMEOUT_MS });
+    return new Promise(resolve => { sendHeaders = () => {
+     assert.equal(predicate({ ...response, request: () => ({ ...request }) }), false, 'Only the captured request identity is accepted');
+     assert.equal(predicate(response), true);events.push('headers');resolve(response);
+    }; });
+   },
+  };
+  const route = { getByRole: (role, options) => {
+   if(role === 'button'){assert.deepEqual(options, { name: 'Verify saved inference route', exact: true });return button;}
+   assert.equal(role, 'alert');return { filter: options => {assert.equal(options.hasText, failure);return { waitFor: waitFor('alert') };} };
+  }, locator: selector => { assert.equal(selector, '[data-r11-route-evidence]');return { waitFor: waitFor('evidence') }; } };
+  await submitSavedRouteCheck(page, route, failure);
+  assert.deepEqual(events, ['headers', failure ? 'alert' : 'evidence', 'button', 'cleanup']);
+ }
 });
 
 test('R11 generation fixture rejects URL, method, request body and transport-policy drift', async () => {
@@ -170,12 +231,12 @@ test('R11 generation boundary resolves only a saved inert receipt and retains pr
  const input = { url: `https://openrouter.ai/api/v1/generation?id=${generationId}` };
  const f = fixture(), expected = { ...expectation(), generationId };
  const response = researchGenerationFixture(state, input, log, {});
- assert.equal(f.route.qualifyGenerationRouteProof(response, expected).providerName, 'Azure');
+ assert.equal(response.status, 200);assert.equal(f.route.qualifyGenerationRouteProof(JSON.parse(response.body), expected).providerName, 'Azure');
  assert.deepEqual(state.r11Research, original);
  assert.deepEqual(log, [{ kind: 'inert-r11-generation-read', url: input.url, generationId }]);
  const invalid = researchGenerationFixture(state, input, log, { r11InvalidProvider: true });
- assert.equal(invalid.data.provider_name, R11_RAW_SENTINEL);
- assert.throws(() => f.route.qualifyGenerationRouteProof(invalid, expected), error => error.code === 'provider_mismatch');
+ assert.equal(JSON.parse(invalid.body).data.provider_name, R11_RAW_SENTINEL);
+ assert.throws(() => f.route.qualifyGenerationRouteProof(JSON.parse(invalid.body), expected), error => error.code === 'provider_mismatch');
  for (const bad of [{ url: input.url + '&other=1' }, { url: input.url + '#private' },
   { url: input.url.replace('https:', 'http:') }, { url: input.url.replace(generationId, 'gen-unknown') },
   { url: input.url, config: { apiKey: 'PRIVATE' } }, {}, null]) {

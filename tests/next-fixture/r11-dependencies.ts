@@ -27,7 +27,7 @@ function fetchFixtureGenerationRoute(expectation: GenerationRouteExpectation) {
        init.credentials !== "omit" || !init.signal || headers.get("Authorization") !== `Bearer ${GENERATION_KEY}` ||
        headers.get("Accept") !== "application/json" || [...headers].length !== 2) throw new Error("inert_exact_generation_wire_required");
    const generation = await post("/r11/generation", { url: String(url) });
-   return new Response(JSON.stringify(generation), { headers: { "content-type": "application/json" } });
+   return new Response(generation.body, { status: generation.status, headers: { "content-type": "application/json" } });
   },
  });
 }

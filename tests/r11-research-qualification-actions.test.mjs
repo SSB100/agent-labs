@@ -6,9 +6,9 @@ import { runInNewContext } from 'node:vm';
 const require=createRequire(import.meta.url),ts=require('typescript');
 const businessId='11000000-0000-4000-8000-000000000001',policyId='11000000-0000-4000-8000-000000000003',grantId='11000000-0000-4000-8000-000000000004',workflowRunId='11000000-0000-4000-8000-000000000005',grantHash='a'.repeat(64);
 class PublicResearchQualificationError extends Error { constructor(recorded){super('private-provider-secret-diagnostic');this.recorded=recorded;this.outcomeId=null;this.reason='private-provider-secret-reason';} }
-function fixture({owned=true,signedIn=true,fail=false,runError=null}={}){
+function fixture({owned=true,signedIn=true,fail=false,runError=null,routeError=null}={}){
  const calls=[],revalidations=[],context={userId:'owner'};let ownershipChecks=0,authCalls=0;
- const deps={'@/research/qualification-outcome':{PublicResearchQualificationError},'next/cache':{revalidatePath:path=>revalidations.push(path)},'next/navigation':{redirect:path=>{throw Error(`REDIRECT:${path}`);}},'@/lib/core-ui/data':{requireOwnerUiContext:async()=>{authCalls++;if(!signedIn)throw Error('REDIRECT:/login');return context;}},'@/lib/core-ui/owner-business':{verifyOwnerBusiness:async(c,b)=>{assert.equal(c,context);assert.equal(b,businessId);ownershipChecks++;return owned;}},'@/research/qualification-server':Object.fromEntries(['prepareResearchBootstrap','activateResearchGrant','runResearchProof','stopResearchProof','reconcileResearchProof','verifySavedResearchInferenceRoute'].map(name=>[name,async(...args)=>{calls.push({name,args});if(name==='runResearchProof'&&runError)throw runError;if(fail)throw Error('private-secret-diagnostic');return{businessId,policyId,workflowRunId,serverKeyHash:grantHash,quote:{maximumMicrousd:250000}};}]))};
+ const deps={'@/research/qualification-owner-contract':require('../.core-tests/research/qualification-owner-contract.js'),'@/research/qualification-outcome':{PublicResearchQualificationError},'next/cache':{revalidatePath:path=>revalidations.push(path)},'next/navigation':{redirect:path=>{throw Error(`REDIRECT:${path}`);}},'@/lib/core-ui/data':{requireOwnerUiContext:async()=>{authCalls++;if(!signedIn)throw Error('REDIRECT:/login');return context;}},'@/lib/core-ui/owner-business':{verifyOwnerBusiness:async(c,b)=>{assert.equal(c,context);assert.equal(b,businessId);ownershipChecks++;return owned;}},'@/research/qualification-server':Object.fromEntries(['prepareResearchBootstrap','activateResearchGrant','runResearchProof','stopResearchProof','reconcileResearchProof','verifySavedResearchInferenceRoute'].map(name=>[name,async(...args)=>{calls.push({name,args});if(name==='runResearchProof'&&runError)throw runError;if(name==='verifySavedResearchInferenceRoute'&&routeError)throw routeError;if(fail)throw Error('private-secret-diagnostic');return{businessId,policyId,workflowRunId,serverKeyHash:grantHash,quote:{maximumMicrousd:250000}};}]))};
  const source=ts.transpileModule(readFileSync('src/app/dashboard/research-qualification/actions.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,m={exports:{}};
  runInNewContext(`(function(require,module,exports){${source}\n})`,{})(name=>{assert.ok(name in deps,name);return deps[name];},m,m.exports);return{...m.exports,calls,revalidations,ownershipChecks:()=>ownershipChecks,authCalls:()=>authCalls};
 }
@@ -80,4 +80,18 @@ test('saved route action rejects supplied generation IDs, URLs, duplicate IDs an
 test('saved route action preserves login recovery and safely reports denied/failed reads without changing records',async()=>{
  const signedOut=fixture({signedIn:false});await assert.rejects(signedOut.verifySavedInferenceRoute({},routeForm()),/^Error: REDIRECT:\/login$/);
  for(const options of [{owned:false},{fail:true}]){const f=fixture(options),state=await f.verifySavedInferenceRoute({},routeForm());assert.equal(state.status,'unavailable');assert.equal(state.verification,null);assert.doesNotMatch(state.message,/private-secret/);assert.equal(f.revalidations.length,0);if(!options.owned&&!options.fail)assert.equal(f.calls.length,0);}
+});
+
+
+test('read-only route failures expose safe code, exact HTTP status and attempts without raw error text',async()=>{
+ const {GenerationRouteProofError}=require('../.core-tests/research/generation-route.js');
+ for(const [code,status,attempts] of [['api_failure',404,3],['api_failure',401,1],['transport_failure',null,2],['json_invalid',200,1]]){
+  const error=new GenerationRouteProofError(code,status,attempts);error.privateBody='never expose this prompt or credential';
+  const f=fixture({routeError:error}),state=await f.verifySavedInferenceRoute({},routeForm());
+  assert.equal(state.status,'unavailable');assert.equal(state.verification,null);assert.ok(state.message.includes(code));assert.ok(state.message.includes(`HTTP ${status??'not received'}`));assert.ok(state.message.includes(`reads attempted ${attempts}`));
+  assert.doesNotMatch(state.message,/privateBody|prompt|credential/);assert.equal(f.calls.length,1);assert.equal(f.revalidations.length,0);
+ }
+ for(const routeError of [{name:'GenerationRouteProofError',code:'private-secret-code',httpStatus:404,attempts:1},{name:'GenerationRouteProofError',code:'api_failure',httpStatus:'private-status',attempts:1}]){
+  const f=fixture({routeError}),state=await f.verifySavedInferenceRoute({},routeForm());assert.doesNotMatch(state.message,/private-|Receipt metadata check/);
+ }
 });

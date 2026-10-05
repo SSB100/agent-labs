@@ -265,10 +265,16 @@ export async function verifySavedResearchInferenceRoute(context: OwnerUiContext,
   const expectation: GenerationRouteExpectation = { generationId: saved.generationId, providerName: "Azure",
     acceptedResponseModelIds: [PUBLIC_RESEARCH_QUOTE_LIMITS.modelId, PUBLIC_RESEARCH_QUOTE_LIMITS.canonicalModelId], requestedEndpoint: "azure/us" };
   // An injected asynchronous reader cannot rewrite what this caller expects.
-  const proof = validateGenerationRouteProof(await researchQualificationDependencies().fetchGenerationRoute(structuredClone(expectation)), expectation);
+  let proof: ReturnType<typeof validateGenerationRouteProof> | undefined, readFailure: unknown;
+  try { proof = validateGenerationRouteProof(await researchQualificationDependencies().fetchGenerationRoute(structuredClone(expectation)), expectation); }
+  catch (error) { readFailure = error; }
   // A changed/expired login or changed receipt cannot leak a stale result.
   // Stop/expiry are deliberately not authority checks for this historical read.
   const after = resolve(await workspace(context, businessId));
   requireValue(after.phase === saved.phase && after.generationId === saved.generationId && after.policyHash === saved.policyHash);
+  // Even safe HTTP/code diagnostics belong only to the still-current owner of
+  // this exact saved receipt. No raw provider error or body is returned.
+  if (readFailure !== undefined) throw readFailure;
+  requireValue(proof);
   return { businessId, policyId, requestId, phase: saved.phase, proof };
 }

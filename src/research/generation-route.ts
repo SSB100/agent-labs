@@ -3,7 +3,9 @@ import { getOpenRouterConfig, type OpenRouterConfig } from "../models/openrouter
 
 const GENERATION_URL = "https://openrouter.ai/api/v1/generation";
 const MAX_RESPONSE_BYTES = 65_536;
-const MAX_TIMEOUT_MS = 10_000;
+const MAX_TIMEOUT_MS = 20_000;
+const MAX_ATTEMPT_MS = 10_000;
+const RETRY_DELAYS_MS = [2_000, 8_000] as const;
 const MODEL_IDS = ["openai/gpt-5.6-luna", "openai/gpt-5.6-luna-20260709"] as const;
 const GENERATION_ID = /^gen-[A-Za-z0-9_-]{1,296}$/;
 
@@ -29,14 +31,18 @@ export type GenerationRouteProof = Readonly<{
   proofHash: string;
 }>;
 export type GenerationRouteFailureCode = "invalid_request" | "configuration_unavailable" | "transport_failure" |
-  "timeout" | "redirect_rejected" | "api_failure" | "response_too_large" | "response_invalid" |
+  "timeout" | "redirect_rejected" | "api_failure" | "response_too_large" | "json_invalid" | "response_invalid" |
   "generation_mismatch" | "provider_mismatch" | "model_mismatch" | "provider_responses_invalid";
 
 /** No response text, credential, opaque upstream ID or transport error escapes. */
 export class GenerationRouteProofError extends Error {
-  constructor(readonly code: GenerationRouteFailureCode) {
+  readonly httpStatus: number | null;
+  readonly attempts: number;
+  constructor(readonly code: GenerationRouteFailureCode, httpStatus: number | null = null, attempts = 0) {
     super("public_research_generation_route_unverified");
     this.name = "GenerationRouteProofError";
+    this.httpStatus = typeof httpStatus === "number" && Number.isInteger(httpStatus) && httpStatus >= 100 && httpStatus <= 599 ? httpStatus : null;
+    this.attempts = Number.isInteger(attempts) && attempts >= 0 && attempts <= 3 ? attempts : 0;
   }
 }
 const fail = (code: GenerationRouteFailureCode): never => { throw new GenerationRouteProofError(code); };
@@ -115,12 +121,31 @@ type FetchGenerationRouteProofArgs = GenerationRouteExpectation & {
   fetcher?: typeof fetch;
   /** Test injection or trusted server config; only the key is used, never baseUrl. */
   config?: Pick<OpenRouterConfig, "apiKey">;
-  /** Tests may shorten, but never extend, the fixed ten-second deadline. */
+  /** Tests may shorten, but never extend, the fixed cumulative twenty seconds. */
   timeoutMs?: number;
 };
 
-/** One bounded, non-generating GET. No polling, retry, redirect, catalog lookup,
- * paid inference, configurable destination, or raw-response persistence. */
+const retryableStatus = (status: number | null) => status === 404 || status === 429 || (status !== null && status >= 500 && status <= 599);
+function retryAfterMs(value: string | null): number {
+  if (value === null) return 0;
+  const header = value.trim();
+  if (/^[0-9]+$/.test(header)) return Number(header) * 1_000;
+  // HTTP-date permits IMF-fixdate and the two obsolete HTTP date formats.
+  if (!/^(?:[A-Za-z]{3}, [0-9]{2} [A-Za-z]{3} [0-9]{4} [0-9:]{8} GMT|[A-Za-z]+, [0-9]{2}-[A-Za-z]{3}-[0-9]{2} [0-9:]{8} GMT|[A-Za-z]{3} [A-Za-z]{3} [ 0-9][0-9] [0-9:]{8} [0-9]{4})$/.test(header)) return 0;
+  const date = Date.parse(header);
+  return Number.isFinite(date) ? Math.max(0, date - Date.now()) : 0;
+}
+function transportCode(error: unknown): "redirect_rejected" | "transport_failure" {
+  // Node/Undici rejects redirect:error before exposing a Response. Preserve
+  // that terminal classification without surfacing its raw Error/cause.
+  return record(error) && (error.message === "unexpected redirect" ||
+    (record(error.cause) && error.cause.message === "unexpected redirect")) ? "redirect_rejected" : "transport_failure";
+}
+
+/** At most three same-generation, fixed-origin, non-generating GETs in twenty
+ * seconds. Only transient metadata availability/transport failures retry;
+ * identity, content, auth and redirect failures are terminal. No fallbacks,
+ * configurable destination, paid inference or raw-response persistence. */
 export async function fetchGenerationRouteProof(args: FetchGenerationRouteProofArgs): Promise<GenerationRouteProof> {
   const expected = ownExpectation(args), timeoutMs = args.timeoutMs === undefined ? MAX_TIMEOUT_MS : args.timeoutMs;
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > MAX_TIMEOUT_MS ||
@@ -130,51 +155,99 @@ export async function fetchGenerationRouteProof(args: FetchGenerationRouteProofA
     apiKey = (args.config === undefined ? getOpenRouterConfig() : args.config).apiKey;
     if (typeof apiKey !== "string" || !apiKey.trim() || apiKey.length > 4096 || /[\r\n]/.test(apiKey)) return fail("configuration_unavailable");
   } catch { return fail("configuration_unavailable"); }
-  const fetcher = args.fetcher ?? fetch, controller = new AbortController();
+  const fetcher = args.fetcher ?? fetch;
   const url = `${GENERATION_URL}?id=${encodeURIComponent(expected.generationId)}`;
-  let response: Response | undefined;
-  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  const startedAt = Date.now();
+  let attempts = 0, stopped = false;
+  let currentStatus: number | null = null;
+  let cancelAttempt = () => {};
+  let waitTimer: ReturnType<typeof setTimeout> | undefined;
+  let totalTimer: ReturnType<typeof setTimeout> | undefined;
+  const remaining = () => Math.max(0, Math.min(timeoutMs, timeoutMs - (Date.now() - startedAt)));
   const deadline = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => {
-      reject(new GenerationRouteProofError("timeout"));
-      controller.abort();
-      void reader?.cancel().catch(() => {});
+    totalTimer = setTimeout(() => {
+      stopped = true;
+      reject(new GenerationRouteProofError("timeout", currentStatus, attempts));
+      cancelAttempt();
     }, timeoutMs);
   });
-  const read = async (): Promise<GenerationRouteProof> => {
-    response = await fetcher(url, { method: "GET", headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
-      redirect: "error", cache: "no-store", credentials: "omit", signal: controller.signal });
-    if (controller.signal.aborted) return fail("timeout");
-    if (response.redirected || response.type === "opaqueredirect" || (response.status >= 300 && response.status < 400) ||
-        (response.url && response.url !== url)) return fail("redirect_rejected");
-    if (!response.ok) return fail("api_failure");
-    const contentLength = response.headers.get("content-length");
-    if (contentLength !== null && (!/^(?:0|[1-9][0-9]*)$/.test(contentLength) || Number(contentLength) > MAX_RESPONSE_BYTES)) return fail("response_too_large");
-    if (!response.body) return fail("response_invalid");
-    reader = response.body.getReader();
-    const chunks: Uint8Array[] = []; let bytes = 0;
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      bytes += value.byteLength;
-      if (bytes > MAX_RESPONSE_BYTES) return fail("response_too_large");
-      chunks.push(value);
+  const run = async (): Promise<GenerationRouteProof> => {
+    while (!stopped && remaining() > 0) {
+      attempts++;
+      currentStatus = null;
+      const controller = new AbortController(), attemptStartedAt = Date.now();
+      const attemptRemaining = () => Math.min(remaining(), MAX_ATTEMPT_MS - (Date.now() - attemptStartedAt));
+      let response: Response | undefined;
+      let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+      let attemptTimer: ReturnType<typeof setTimeout> | undefined;
+      let retryWait = 0;
+      const cancel = () => {
+        controller.abort();
+        // Cancellation is best effort and cannot extend either deadline.
+        if (reader) void reader.cancel().catch(() => {});
+        else void response?.body?.cancel().catch(() => {});
+      };
+      cancelAttempt = cancel;
+      const attemptDeadline = new Promise<never>((_, reject) => {
+        attemptTimer = setTimeout(() => {
+          reject(new GenerationRouteProofError("timeout"));
+          cancel();
+        }, attemptRemaining());
+      });
+      const read = async (): Promise<GenerationRouteProof> => {
+        response = await fetcher(url, { method: "GET", headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
+          redirect: "error", cache: "no-store", credentials: "omit", signal: controller.signal });
+        if (controller.signal.aborted || stopped) { cancel(); return fail("timeout"); }
+        currentStatus = response.status || null;
+        if (attemptRemaining() <= 0) return fail("timeout");
+        if (response.redirected || response.type === "opaqueredirect" || (response.status >= 300 && response.status < 400) ||
+            (response.url && response.url !== url)) return fail("redirect_rejected");
+        const contentLength = response.headers.get("content-length");
+        if (contentLength !== null && (!/^(?:0|[1-9][0-9]*)$/.test(contentLength) || Number(contentLength) > MAX_RESPONSE_BYTES)) return fail("response_too_large");
+        if (!response.ok) {
+          if (retryableStatus(currentStatus)) retryWait = retryAfterMs(response.headers.get("retry-after"));
+          return fail("api_failure");
+        }
+        if (!response.body) return fail("response_invalid");
+        reader = response.body.getReader();
+        const chunks: Uint8Array[] = []; let bytes = 0;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (controller.signal.aborted || stopped || attemptRemaining() <= 0) return fail("timeout");
+          if (done) break;
+          bytes += value.byteLength;
+          if (bytes > MAX_RESPONSE_BYTES) return fail("response_too_large");
+          chunks.push(value);
+        }
+        let raw: unknown;
+        try { raw = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks, bytes))); }
+        catch { return fail("json_invalid"); }
+        const proof = qualifyGenerationRouteProof(raw, expected);
+        if (attemptRemaining() <= 0) return fail("timeout");
+        return proof;
+      };
+      let failure: GenerationRouteProofError;
+      try { return await Promise.race([attemptDeadline, read()]); }
+      catch (error) {
+        const code = error instanceof GenerationRouteProofError ? error.code : transportCode(error);
+        failure = new GenerationRouteProofError(code, currentStatus, attempts);
+      } finally {
+        clearTimeout(attemptTimer);
+        cancel();
+      }
+      const retryable = failure.code === "timeout" || failure.code === "transport_failure" ||
+        (failure.code === "api_failure" && retryableStatus(failure.httpStatus));
+      const waitMs = Math.max(RETRY_DELAYS_MS[attempts - 1] ?? Infinity, retryWait);
+      if (!retryable || stopped || attempts >= 3 || waitMs >= remaining()) throw failure;
+      await new Promise<void>(resolve => { waitTimer = setTimeout(resolve, waitMs); });
     }
-    let raw: unknown;
-    try { raw = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks, bytes))); }
-    catch { return fail("response_invalid"); }
-    return qualifyGenerationRouteProof(raw, expected);
+    throw new GenerationRouteProofError("timeout", currentStatus, attempts);
   };
-  try { return await Promise.race([deadline, read()]); }
-  catch (error) {
-    if (error instanceof GenerationRouteProofError) throw error;
-    return fail("transport_failure");
-  } finally {
-    clearTimeout(timer);
-    controller.abort();
-    // Cancellation is best effort and cannot extend the deadline.
-    if (reader) void reader.cancel().catch(() => {});
-    else void response?.body?.cancel().catch(() => {});
+  try { return await Promise.race([deadline, run()]); }
+  finally {
+    stopped = true;
+    clearTimeout(totalTimer);
+    clearTimeout(waitTimer);
+    cancelAttempt();
   }
 }

@@ -18,7 +18,7 @@ export function VerifySavedRouteForm({ businessId, policyId, requestId }: {
       <input type="hidden" name="requestId" value={requestId} />
       <button type="submit" className="coreButton" disabled={pending} aria-disabled={pending}>{pending ? "Reading saved inference route…" : "Verify saved inference route"}</button>
     </form>
-    <p>Read the documented generation record for this saved receipt. This read-only check makes no paid inference call and does not change the proof or its prior failures.</p>
+    <p>Read the documented generation record for this saved receipt. Transient failures allow at most three metadata reads within twenty seconds. This read-only check makes no paid inference call and does not change the proof or its prior failures.</p>
     {state.message ? <p role={state.status === "unavailable" ? "alert" : "status"}>{state.message}</p> : null}
     {proof ? <div data-r11-route-evidence>
       <p>Documented inference provider: {proof.providerName}. Model: {proof.modelId}.</p>

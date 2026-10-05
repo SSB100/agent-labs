@@ -167,3 +167,14 @@ test('R11 async injected route reader cannot mutate the independent expected rec
  await assert.rejects(h.verifySavedResearchInferenceRoute(h.context,h.businessId,h.policyId,phase.requestId));assert.equal(phase.providerRequestId,'gen-owner-receipt-1');assert.equal(h.effects.length,1);assert.ok(h.calls.every(c=>c.name==='r11_research_workspace_v2'));
  for(const mutate of [e=>e.providerName='Other',e=>e.requestedEndpoint='azure/eu',e=>e.acceptedResponseModelIds.splice(0,2,'other/model','other/model-canonical')]){const x=harness(),p=savedGeneration(x);x.onGeneration(mutate);await assert.rejects(x.verifySavedResearchInferenceRoute(x.context,x.businessId,x.policyId,p.requestId));assert.equal(x.effects.length,1);}
 });
+
+
+test('R11 read-only failure diagnostics still recheck current owner and exact receipt after metadata I/O',async()=>{
+ const error=new generationRoute.GenerationRouteProofError('api_failure',404,3);
+ const h=harness();h.complete();h.onGeneration(()=>{throw error;});
+ await assert.rejects(h.verifySavedResearchInferenceRoute(h.context,h.businessId,h.policyId,id(10)),value=>value===error);
+ assert.equal(h.calls.filter(x=>x.name==='r11_research_workspace_v2').length,2);
+ const changed=harness();changed.complete();changed.onGeneration(()=>{changed.context.userId=id(99);throw error;});
+ await assert.rejects(changed.verifySavedResearchInferenceRoute(changed.context,changed.businessId,changed.policyId,id(10)),value=>{assert.notEqual(value,error);assert.doesNotMatch(value.message,/api_failure|404/);return true;});
+ assert.equal(changed.effects.filter(x=>x.kind==='generation-read').length,1);
+});
