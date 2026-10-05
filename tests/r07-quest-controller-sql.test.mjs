@@ -10,7 +10,7 @@ import {r07FixtureSetup,r07Seed,R07_KEY,R05_KEY,R07_LEASE,R07_OWNER} from './hel
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const host=process.env.R07_SQL_TEST_HOST;
 const digest=x=>createHash('sha256').update(x).digest('hex');
-const migration='20261003133632_r07_quest_controller.sql';
+const migration='20261003184640_r07_quest_controller.sql';
 test('R07 SQL rollback, immutable lineage, qualified R05 admission and crash recovery',{skip:!host},async t=>{
  const require=createRequire(path.resolve(host,'package.json'));
  const {PGlite}=require('@electric-sql/pglite'),{pgcrypto}=require('@electric-sql/pglite/contrib/pgcrypto');

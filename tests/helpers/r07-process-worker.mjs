@@ -20,7 +20,7 @@ const registry=Object.fromEntries(scope.plan.steps.map(step=>[step.adapter,{
  mode:'simulation',qualificationHash:step.qualificationHash,workflowDefinitionId:step.workflowDefinitionId,workerDefinitionId:step.workerDefinitionId,
  async prepare(context){
   const body=JSON.stringify({model:'inert/model',max_tokens:100,stream:false,messages:[{role:'user',content:`${context.step.objective} ${context.attempt.inputHash}`} ]});
-  return {wire:{url:'https://openrouter.ai/api/v1/chat/completions',method:'POST',body},descriptor:{workflowRunId:context.attempt.id,operationKey:'research.model',requestHash:digest(body),idempotencyKey:`r07:${context.attempt.id}`,providerModelId:'inert/model',wireRequestHash:digest(body),wireRequestBytes:Buffer.byteLength(body),maximumOutputTokens:100,accounting:{kind:'r05'},sourceDomains:[],dataClasses:['business_context','public_evidence'],accountId:null,accountRevision:null,currency:'USD',liabilityMicrounits:'60'}};
+  return {wire:{url:'https://openrouter.ai/api/v1/chat/completions',method:'POST',body},descriptor:{workflowRunId:context.attempt.id,operationKey:'browser.planner',requestHash:digest(body),idempotencyKey:`r07:${context.attempt.id}`,providerModelId:'inert/model',wireRequestHash:digest(body),wireRequestBytes:Buffer.byteLength(body),maximumOutputTokens:100,accounting:{kind:'r05'},sourceDomains:[],dataClasses:['business_context'],accountId:null,accountRevision:null,currency:'USD',liabilityMicrounits:'60'}};
  },
  async dispatch(wire,context){
   if(mode==='crash-before-effect'){await db.close();process.exit(70);}

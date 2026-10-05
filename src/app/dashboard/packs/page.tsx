@@ -1,3 +1,4 @@
+import { carryWorkspace } from "@/lib/core-ui/workspace-navigation";
 import { safeTablePage, historyRows } from "@/lib/core-ui/history-read";
 import { HistoryPager } from "@/components/console/history-pager";
 import { retainedFeedbackMessage } from "@/lib/core-ui/console-retained-feedback";
@@ -39,6 +40,7 @@ export default async function PacksPage({searchParams}:{searchParams:Promise<Rec
         <h3>{m.name}</h3><p>{m.ui.summary}</p><small>{m.packKey} · {m.version}</small>
         <div className="packDependencies"><strong>Exact dependencies</strong>{m.dependencies.length?m.dependencies.map(d=><span key={d.packKey}>{d.packKey} @ {d.version}</span>):<span>No dependencies</span>}</div>
         <div className="packCardActions">{scopedBusinesses.map(b=>{
+          if(m.packKey.startsWith("knowledge.learned.")) return <Link key={b.id} href={carryWorkspace(`/dashboard?view=knowledge&type=releases&business=${b.id}&selected=${id}`, context.readSearch)}>Review and deliberately apply this Knowledge version</Link>;
           const active=activeAvailable && activeRead.data?.some(i=>i.root_pack_id===id);
           return <form action={activatePack} key={b.id}><input type="hidden" name="businessId" value={b.id}/><input type="hidden" name="packId" value={id}/>
             <button type="submit" className="coreButton coreButton-primary" disabled={!activeAvailable||active||!["qualified","assisted","autonomous"].includes(status)}>{active?"Active":"Activate"} for {b.name}</button></form>;

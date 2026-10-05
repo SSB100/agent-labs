@@ -1,5 +1,5 @@
 import { etsyJson, formBody } from "../etsy/adapter";
-import { requireTransportAdmission, type TransportAdmission } from "../core/transport-admission";
+import { type TransportAdmission } from "../core/transport-admission";
 import { EtsyError, positiveId, record, requireEtsy, sameScope, type EtsyConnection, type EtsyScope } from "../etsy/contracts";
 
 const API = "https://api.etsy.com/v3/application";
@@ -29,13 +29,11 @@ export class EtsyPublicationAdapter {
   }
   private exact(id: number) { requireEtsy(positiveId(id) === this.listingId, "publication_identity_or_state_changed"); return id; }
   private async request(path: string, activate = false) {
-    const connection = await this.authorize(); sameScope(this.scope, connection);
+    const connection = { ...await this.authorize() }; sameScope(this.scope, connection);
     requireEtsy(connection.status === "connected" && connection.revision === this.revision && Date.parse(connection.expiresAt) > Date.now() && typeof connection.accessToken === "string" && connection.accessToken.length > 0 && !/[\r\n]/.test(connection.accessToken), "account_access_revoked");
     if (activate) { requireEtsy(!this.activated, "publication_already_dispatched"); this.activated = true; }
     const transport: typeof fetch = async (input, init) => {
-      try { await requireTransportAdmission(!activate && this.admitReconciliation ? this.admitReconciliation : this.admitDispatch, { provider: "etsy", operation: activate ? "listing.activate" : "listing.read", method: activate ? "PATCH" : "GET", endpoint: `${API}${path}` }); }
-      catch { throw new EtsyError("account_access_denied"); }
-      if (!activate && this.admitReconciliation) {
+      {
         const current = await this.authorize(); sameScope(this.scope, current);
         requireEtsy(current.status === "connected" && current.revision === this.revision && Date.parse(current.expiresAt) > Date.now() && current.accessToken === connection.accessToken, "account_access_revoked");
       }
@@ -47,7 +45,7 @@ export class EtsyPublicationAdapter {
     };
     return etsyJson(transport, `${API}${path}`, { method: activate ? "PATCH" : "GET",
       headers: { "x-api-key": this.apiKey, Authorization: `Bearer ${connection.accessToken}`, Accept: "application/json", ...(activate ? { "Content-Type": "application/x-www-form-urlencoded" } : {}) },
-      ...(activate ? { body: formBody({ state: "active" }) } : {}) });
+      ...(activate ? { body: formBody({ state: "active" }) } : {}) }, { operation: activate ? "listing.activate" : "listing.read", admitDispatch: !activate && this.admitReconciliation ? this.admitReconciliation : this.admitDispatch });
   }
   async shop() {
     const connection = await this.authorize(); sameScope(this.scope, connection);

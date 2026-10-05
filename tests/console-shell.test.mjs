@@ -1,3 +1,4 @@
+import { loadSource } from "./helpers/guided-ui.mjs";
 import { historyPager } from "./helpers/history-fixtures.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -20,6 +21,7 @@ const owner = {
 function fixture() {
   const liveCalls = [];
   const dependencies = {
+    "@/lib/core-ui/workspace-navigation": loadSource("src/lib/core-ui/workspace-navigation.ts"),
     "react/jsx-runtime": require("react/jsx-runtime"),
     "./history-pager": historyPager,
     "next/link": ({ children, ...props }) => React.createElement("a", props, children),
@@ -34,7 +36,7 @@ function fixture() {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true },
   }).outputText;
   const sourceModule = { exports: {} };
-  runInNewContext(`(function(require,module,exports){${code}\n})`)(name => {
+  runInNewContext(`(function(require,module,exports){${code}\n})`, { URLSearchParams })(name => {
     assert.ok(Object.hasOwn(dependencies, name), `Unexpected console runtime dependency: ${name}`);
     return dependencies[name];
   }, sourceModule, sourceModule.exports);
@@ -57,13 +59,13 @@ function primaryLinks(markup) {
   }));
 }
 
-test("eight views use real root URL links inside one responsive navigation", () => {
+test("canonical R08 views use real root URL links inside one responsive navigation", () => {
   const markup = fixture().render();
   assert.deepEqual(primaryLinks(markup).map(({ href, label }) => [href, label]), [
-    ["/dashboard?view=overview", "Overview"], ["/dashboard?view=work", "Work"],
-    ["/dashboard?view=library", "Library"], ["/dashboard?view=research", "Research"], ["/dashboard?view=decisions", "Decisions"],
-    ["/dashboard?view=connections", "Connections"], ["/dashboard?view=activity", "Activity"],
-    ["/dashboard?view=advanced", "Advanced"],
+    ["/dashboard?view=overview", "Overview"], ["/dashboard?view=work", "Events"],
+    ["/dashboard?view=library", "Library"], ["/dashboard?view=research", "Research"], ["/dashboard?view=products-catalog", "Products"], ["/dashboard?view=knowledge", "Knowledge"], ["/dashboard?view=decision-log", "Decisions"], ["/dashboard?view=decisions", "Needs owner"],
+    ["/dashboard?view=connections", "Connections"], ["/dashboard?view=activity", "Audit events"],
+    ["/dashboard?view=advanced", "Tools"],
   ]);
   assert.equal((markup.match(/class="consoleNavigation"/g) ?? []).length, 1);
   assert.doesNotMatch(source, /onClick|preventDefault|history\.replaceState|useState|usePathname/);
@@ -185,6 +187,6 @@ test("filtered Decisions header stays scoped while the explicitly global badge o
   const markup = fixture().render({ active: "decisions", navigationBusinessId: business.id, globalDecisionCount: true, context: { ...owner, needsYouCount: 143, businesses: [...owner.businesses, business] } });
   assert.match(markup, /143 open decisions across all authorized Businesses/);
   assert.match(markup, /class="consoleWorkspaceName">Selected Business B</);
-  const nav = primaryLinks(markup).find(link => link.label === "Decisions");
+  const nav = primaryLinks(markup).find(link => link.label === "Needs owner");
   assert.equal(nav.href, "/dashboard?view=decisions");
 });

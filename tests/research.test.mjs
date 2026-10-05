@@ -68,14 +68,14 @@ test("OpenRouter research uses one bounded Exa server tool and preserves provide
 });
 test("a provider answer without an executed search cannot pass live research",async()=>{
   const adapter=new models.OpenRouterAdapter({ admitDispatch: async()=>{},config,fetcher:async()=>new Response(JSON.stringify({choices:[{finish_reason:"stop",message:{content:"Unverified guidance"}}],usage:{prompt_tokens:20,completion_tokens:30}}),{status:200})});
-  await assert.rejects(adapter.invokeWebSearch({model:registry.resolveModelRoute("standard.default").candidates[0],...request}),/searches=0, annotations=0/);
+  await assert.rejects(adapter.invokeWebSearch({model:registry.resolveModelRoute("standard.default").candidates[0],...request}),error=>error.category==="malformed_model_output"&&error.details.validationGate==="source_contract"&&!JSON.stringify(error).includes("Unverified guidance"));
 });
 test("search accounting rejects extra calls and accepts the documented legacy receipt",async()=>{
   for (const count of [0,1,2]) {
     const adapter=new models.OpenRouterAdapter({ admitDispatch: async()=>{},config,fetcher:async()=>new Response(JSON.stringify({choices:[{message:{annotations:result.annotations}}],usage:{server_tool_use:{web_search_requests:count}}}),{status:200})});
     const invocation=adapter.invokeWebSearch({model:registry.resolveModelRoute("standard.default").candidates[0],...request});
     if (count===1) assert.equal((await invocation).metadata.searchRequests,1);
-    else await assert.rejects(invocation,/requires one search/);
+    else await assert.rejects(invocation,error=>error.category==="malformed_model_output"&&error.details.validationGate==="source_contract");
   }
 });
 test("research provider has bounded fallback and never treats uncited model text as a source",async()=>{

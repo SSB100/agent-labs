@@ -42,7 +42,7 @@ No production migration or execution follows from simulation acceptance. Before 
 
 ## Reviewed implementation boundary
 
-- Migration: `20261003133632_r07_quest_controller.sql`, generated with the Supabase CLI. It sorts after R06’s actual production history version `20261003133459`; no older history is rewritten by R07.
+- Migration: `20261003184640_r07_quest_controller.sql`, generated with the Supabase CLI. It sorts after R06’s actual production history version `20261003133459`; no older history is rewritten by R07.
 - `src/core/quest-plan.ts`: bounded deterministic compiler and local fingerprints. SQL owns canonical persisted JSONB hashes.
 - `src/core/quest-controller.ts`: one durable transition per wake, exact frozen wire, no automatic resend, finite repair request, readback and independent financial reconciliation. No model timer or production adapter is shipped.
 - `src/lib/quest-controller-runtime.ts`: server-only RPC/lease boundary and deterministic per-attempt runtime capability. Normal process/deployment recovery preserves the approved controller key. Credential rotation is a separate access/recovery procedure; a replacement secret must not silently derive a different capability for an old queued run.

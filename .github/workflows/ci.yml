@@ -64,6 +64,15 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      - name: Preserve bounded actual R10 producer screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r10-producer-ui-${{ github.sha }}
+          path: test-results/guided-ui/r10-confined-producer.png
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Upload final Decisions screenshots
         if: always()
         uses: actions/upload-artifact@v4
@@ -303,6 +312,181 @@ jobs:
           R07_PG_PASSWORD: r07-isolated-fixture
         run: node --test tests/r07-quest-concurrency.test.mjs
 
+  r08-sql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: r08_test
+          POSTGRES_DB: r08_test
+          POSTGRES_PASSWORD: r08-isolated-fixture
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U r08_test -d r08_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Install isolated SQL runtime
+        run: npm install --prefix "$RUNNER_TEMP/r08-sql-host" --no-audit --no-fund --ignore-scripts @electric-sql/pglite@0.5.8 pg@8.16.3
+      - name: Verify R08 read-only projection, prior grants, owner isolation and exact scoped history
+        env:
+          R08_SQL_TEST_HOST: ${{ runner.temp }}/r08-sql-host
+          R08_REQUIRE_POSTGRES: "1"
+          R08_POSTGRES_URL: postgresql://r08_test:r08-isolated-fixture@127.0.0.1:5432/r08_test
+        run: node --test tests/r08-workspace-sql.test.mjs
+
+  r09-sql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: r09_test
+          POSTGRES_DB: r09_test
+          POSTGRES_PASSWORD: r09-isolated-fixture
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U r09_test -d r09_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Install pinned isolated SQL runtime and exact manifest validators
+        run: |
+          npm install --prefix "$RUNNER_TEMP/r09-sql-host" --no-audit --no-fund --ignore-scripts @electric-sql/pglite@0.5.8 pg@8.16.3
+          npm install --no-audit --no-fund
+          npm run pretest
+      - name: Verify reviewed knowledge lifecycle, privacy, immutable usage and actual PostgreSQL races
+        env:
+          R09_SQL_TEST_HOST: ${{ runner.temp }}/r09-sql-host
+          R09_REQUIRE_POSTGRES: "1"
+          R09_POSTGRES_URL: postgresql://r09_test:r09-isolated-fixture@127.0.0.1:5432/r09_test
+        run: node --test tests/r09-knowledge-sql.test.mjs
+
+  r10-sql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: r10_test
+          POSTGRES_DB: r10_test
+          POSTGRES_PASSWORD: r10-isolated-fixture
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U r10_test -d r10_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Install pinned isolated SQL runtimes
+        run: npm install --prefix "$RUNNER_TEMP/r10-sql-host" --no-audit --no-fund --ignore-scripts @electric-sql/pglite@0.5.8 pg@8.16.3
+      - name: Verify viewer ACLs, one-shot epochs, revocation and actual PostgreSQL races
+        env:
+          R10_SQL_TEST_HOST: ${{ runner.temp }}/r10-sql-host
+          R10_REQUIRE_POSTGRES: "1"
+          R10_POSTGRES_URL: postgresql://r10_test:r10-isolated-fixture@127.0.0.1:5432/r10_test
+        run: node --test tests/r10-viewer-sql.test.mjs
+
+  r11-sql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: r11_test
+          POSTGRES_DB: r11_test
+          POSTGRES_PASSWORD: r11-isolated-fixture
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U r11_test -d r11_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Install pinned isolated SQL runtimes
+        run: npm install --prefix "$RUNNER_TEMP/r11-sql-host" --no-audit --no-fund --ignore-scripts @electric-sql/pglite@0.5.8 pg@8.16.3
+      - name: Verify scoped connection ACLs, custody, rollback and PostgreSQL races
+        env:
+          R11_SQL_TEST_HOST: ${{ runner.temp }}/r11-sql-host
+          R11_POSTGRES_URL: postgresql://r11_test:r11-isolated-fixture@127.0.0.1:5432/r11_test
+        run: node --test tests/r11-connections-sql.test.mjs
+
+  r11-research-sql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: r11_test
+          POSTGRES_DB: r11_research_test
+          POSTGRES_PASSWORD: r11-research-isolated-fixture
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U r11_test -d r11_research_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      postgres-expiry:
+        image: postgres:17
+        env:
+          POSTGRES_USER: r11_test
+          POSTGRES_DB: r11_research_test
+          POSTGRES_PASSWORD: r11-research-isolated-fixture
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U r11_test -d r11_research_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Install repository-pinned dependencies and isolated SQL runtimes
+        run: |
+          npm install --no-audit --no-fund
+          npm install --prefix "$RUNNER_TEMP/r11-sql-host" --no-audit --no-fund --ignore-scripts @electric-sql/pglite@0.5.8 pg@8.16.3
+          npm run pretest
+      - name: Verify source marker ACLs, runtime integration and observed PostgreSQL races
+        env:
+          R11_SQL_TEST_HOST: ${{ runner.temp }}/r11-sql-host
+          R11_PUBLIC_RESEARCH_POSTGRES_URL: postgresql://r11_test:r11-research-isolated-fixture@127.0.0.1:5432/r11_research_test
+          R11_RESEARCH_EXPIRY_POSTGRES_URL: postgresql://r11_test:r11-research-isolated-fixture@127.0.0.1:5433/r11_research_test
+        run: |
+          node --test tests/r11-public-research-sql.test.mjs tests/r11-public-research-runtime-sql.test.mjs tests/r11-public-research-owner-sql.test.mjs tests/r11-public-research-repair-sql.test.mjs tests/r11-public-research-window-sql.test.mjs
+          node --test tests/r11-pending-receipt-sql.test.mjs
+
   r03-next:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -316,13 +500,26 @@ jobs:
       - name: Install pinned inert browser
         run: npx playwright-core install --with-deps chromium
       - name: Verify real production Next navigation and actions
-        run: node scripts/verify-r03-next.mjs
+        run: |
+          node tests/next-fixture/knowledge-contracts.mjs
+          node scripts/verify-r03-next.mjs
       - name: Preserve all screenshots and diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: r03-next-${{ github.sha }}
           path: test-results/r03-next/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Preserve scoped R11 connection screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r11-connections-ui-${{ github.sha }}
+          path: |
+            test-results/r03-next/*connection-qualification*.png
+            test-results/r03-next/r11-*.png
           if-no-files-found: error
           retention-days: 14
 
@@ -365,5 +562,14 @@ jobs:
           path: |
             test-results/r03-next/*-640x360.png
             test-results/r03-next/*-zoom200.png
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Preserve bounded R10 viewer screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r10-viewer-ui-${{ github.sha }}
+          path: test-results/r03-next/r10-*.png
           if-no-files-found: warn
           retention-days: 14

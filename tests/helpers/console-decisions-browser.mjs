@@ -118,7 +118,7 @@ async function browserBundle() {
       builder.onResolve({ filter: /^next\/(link|navigation)$/ }, args => ({ path: args.path, namespace: 'fixture' }));
       builder.onLoad({ filter: /.*/, namespace: 'fixture' }, args => ({ loader: 'js', contents: args.path === 'next/navigation' ? 'export const usePathname=()=>location.pathname;export const useSearchParams=()=>new URLSearchParams(location.search);' : 'import React from "react"; export default function Link({children,...props}) { delete props.prefetch; const click=event=>{ const url=new URL(String(props.href),location.origin); if(window.__decisionRetained && url.origin===location.origin && url.pathname==="/dashboard" && url.searchParams.get("view")==="decisions" && !event.metaKey && !event.ctrlKey && !event.shiftKey && event.button===0) { event.preventDefault(); window.__navigateDecisionRetained(url.pathname+url.search); } }; return React.createElement("a",{...props,onClick:click},children); }', resolveDir: process.cwd() }));
       builder.onResolve({ filter: /^@\// }, args => {
-        const allowed = { '@/lib/core-ui/workflows': 'src/lib/core-ui/workflows.ts', '@/lib/core-ui/console-decisions-query': 'src/lib/core-ui/console-decisions-query.ts', '@/lib/core-ui/console-decisions-view': 'src/lib/core-ui/console-decisions-view.ts' };
+        const allowed = { '@/lib/core-ui/workspace-navigation':'src/lib/core-ui/workspace-navigation.ts', '@/lib/core-ui/workflows': 'src/lib/core-ui/workflows.ts', '@/lib/core-ui/console-decisions-query': 'src/lib/core-ui/console-decisions-query.ts', '@/lib/core-ui/console-decisions-view': 'src/lib/core-ui/console-decisions-view.ts' };
         assert.ok(allowed[args.path], `Forbidden browser import: ${args.path}`); return { path: path.resolve(allowed[args.path]) };
       });
     } }] }).then(result => {
@@ -140,7 +140,7 @@ export async function decisionDocument(route, { fixture = defaultFixture, retain
   const props = page.props ? { ...page.props, actions: undefined } : null;
   const markup = renderToString(page.decisions ? insertIsland(page.tree, page.decisions, retained) : page.tree);
   const styles = ['src/app/globals.css','src/app/stage1.css','src/app/stage3.css','src/app/stage7.css','src/app/stage7-mobile.css','src/app/stage8.css',
-    'src/components/console/console-shell.css','src/components/console/console-command.css','src/components/console/console-motion.css','src/components/console/console-panes.css',
+    'src/components/console/console-shell.css','src/components/console/console-workspace.css','src/components/console/console-command.css','src/components/console/console-motion.css','src/components/console/console-panes.css',
     'src/components/console/console-overview.css','src/components/console/console-browser-centre.css','src/components/guided/run-outcome.css','src/components/guided/work-context.css','src/components/console/console-compact-decisions.css'].map(file => readFileSync(file, 'utf8')).join('\n');
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="data:,"><title>Synthetic root Decisions owner fixture</title><style>${styles}</style></head><body>${markup}<script>window.__decisionRetained=${JSON.stringify(retained)};window.__decisionProps=${JSON.stringify(props).replace(/</g,'\\u003c')}</script><script>${await browserBundle()}</script></body></html>`;
 }

@@ -1,6 +1,7 @@
 import "server-only";
 import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import type { QuestSnapshot, QuestStore } from "../core/quest-controller";
+import { readQuestKnowledge } from "../core/reviewed-knowledge";
 import { createRuntimeClient } from "./supabase/runtime";
 
 /** Trusted runtime only. No route, cron, provider or production adapter is enabled
@@ -25,7 +26,15 @@ export function createQuestControllerStore(businessId: string, goalId: string): 
     return result.data as Record<string, unknown> | null;
   };
   return {
-    read: async () => await rpc("read", {}) as QuestSnapshot | null,
+    read: async () => {
+      const result = await rpc("read", {}) as QuestSnapshot | null;
+      if (result) {
+        if (result.businessId !== businessId || result.goalId !== goalId) throw new Error("quest_controller_scope_mismatch");
+        // A missing R09 projection is unavailable, never silently zero knowledge.
+        result.knowledge = readQuestKnowledge(result.knowledge, businessId, result.planId);
+      }
+      return result;
+    },
     command: async (operation, payload, epoch) => {
       const result = await rpc(operation, payload, epoch);
       if (!result) throw new Error("quest_controller_transition_unverified");

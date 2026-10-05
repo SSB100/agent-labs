@@ -87,6 +87,7 @@ export class SteelBrowserAdapter implements BrowserProviderAdapter {
     init: RequestInit = {},
     timeoutMs = DEFAULT_TIMEOUT_MS,
     releaseExistingSession = false,
+    beforeDispatch?: () => void,
   ) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -104,6 +105,7 @@ export class SteelBrowserAdapter implements BrowserProviderAdapter {
         catch { throw new BrowserProviderError("configuration_required", "Operating policy admission is required for this browser operation.", false); }
       }
       if (controller.signal.aborted) throw new BrowserProviderError("provider_timeout", "Browser admission expired before dispatch.", false);
+      beforeDispatch?.();
       const response = await this.fetcher(target, {
         ...init,
         cache: "no-store",
@@ -212,6 +214,44 @@ export class SteelBrowserAdapter implements BrowserProviderAdapter {
       `/v1/sessions/${encodeURIComponent(providerSessionId)}`,
     );
     return this.toSession(parseJsonRecord(await response.text()));
+  }
+
+  /** R10 has a separate one-shot authority and never uses an existing profile.
+   * Native viewer controls are not the security boundary: only our confined
+   * fresh context's screenshots are delivered to the owner. */
+  async createViewerSession(timeoutMs: number, beforeDispatch: () => void): Promise<BrowserProviderSession> {
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 15_000 || timeoutMs > 120_000) {
+      throw new BrowserProviderError("provider_rejected", "Invalid bounded viewer lifetime.", false);
+    }
+    const response = await this.request("/v1/sessions", {
+      method: "POST",
+      redirect: "error",
+      body: JSON.stringify({
+        debugConfig: { interactive: false, systemCursor: false },
+        persistProfile: false,
+        useProxy: false,
+        solveCaptcha: false,
+        timeout: timeoutMs,
+        ...(this.config.region ? { region: this.config.region } : {}),
+      }),
+    }, 45_000, false, beforeDispatch);
+    const record = parseJsonRecord(await response.text()), id = stringValue(record, "id");
+    if (!id || !/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(id)) {
+      throw new BrowserProviderError("provider_rejected", "Invalid viewer session identity.", false);
+    }
+    // The official exact-session CDP origin is fixed. Never append credentials
+    // to a provider-returned URL or omit sessionId (which could create a session).
+    const endpoint = new URL("wss://connect.steel.dev/");
+    endpoint.searchParams.set("apiKey", this.config.apiKey); endpoint.searchParams.set("sessionId", id);
+    return { providerKey: "steel", providerSessionId: id, automationEndpoint: endpoint.href,
+      debugUrl: "", sessionViewerUrl: null, profileId: null, status: "live", releaseReason: null, region: null, browserMode: null };
+  }
+
+  async releaseViewerSession(providerSessionId: string) {
+    if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(providerSessionId)) throw new Error("invalid_viewer_session");
+    const response = await this.request(`/v1/sessions/${providerSessionId}/release`, { method: "POST", redirect: "error" }, 30_000, true);
+    const result = parseJsonRecord(await response.text());
+    if (result.success !== true) throw new Error("viewer_release_unconfirmed");
   }
 
   async releaseSession(providerSessionId: string) {
