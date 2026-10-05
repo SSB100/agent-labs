@@ -23,8 +23,9 @@ test('R11 actual TypeScript runner, adapter wire and SQL source/financial guard 
   await setupResearchFixture(db,{modelId:model.providerModelId});const s=await seedResearch(db,{enroll:false,policyOverrides:{modelId:model.providerModelId}});
   s.search=await rt.inspectPublicResearchWire(q.publicResearchSearchRequest(s.policy,model),'search');await enrollResearch(db,s);
   const sent=[],rpcCalls=[],settlements=[],order=[],routeGets=[],excerpt='Adult gardeners often value practical tools and containers suited to the available growing space.';
-  const runtime={model,verifyQuote:async()=>({providerName:'Azure',acceptedResponseModelIds}),
-   verifyGenerationRoute:expected=>route.fetchGenerationRouteProof({...expected,config:{apiKey:'inert-generation-route'},fetcher:async(url,init)=>{order.push('GET');routeGets.push(url);assert.equal(init.method,'GET');assert.equal(init.redirect,'error');return new Response(JSON.stringify({data:{id:expected.generationId,model:acceptedResponseModelIds[1],provider_name:'Azure',provider_responses:null}}),{status:200});}}),
+  const runtime={model,requireDurableReceipts:true,verifyQuote:async()=>({providerName:'Azure',acceptedResponseModelIds}),
+   verifyGenerationRoute:async()=>{throw Error('durable SQL runtime must not use the legacy multi-read path');},
+   verifyGenerationRouteOnce:expected=>route.fetchGenerationRouteProofOnce({...expected,config:{apiKey:'inert-generation-route'},fetcher:async(url,init)=>{order.push('GET');routeGets.push(url);assert.equal(init.method,'GET');assert.equal(init.redirect,'error');return new Response(JSON.stringify({data:{id:expected.generationId,model:acceptedResponseModelIds[1],provider_name:'Azure',provider_responses:null}}),{status:200});}}),
    rpc:async(operation,payload)=>{rpcCalls.push(operation);return value(db,'select public.r11_research_server_v2($1,$2,$3,$4) result',[s.businessId,operation,payload,RESEARCH_KEY]);},
    settle:async(requestId,receipt)=>{order.push('settle');settlements.push({requestId,receipt:structuredClone(receipt)});const result=await financial(db,s,'settle',{requestId,currency:'USD',actualMicrounits:receipt.reportedMicrousd===null?null:String(receipt.reportedMicrousd),providerRequestId:receipt.providerRequestId,receiptHash:hash(receipt)});assert.equal(result.decision,'allowed');},
    provider:(admit,observeResponse)=>new OpenRouterAdapter({observeResponse,config:{apiKey:'inert-r11-wire',baseUrl:'https://openrouter.ai/api/v1',appUrl:'https://example.invalid',appName:'R11 inert SQL test'},admitDispatch:admit,fetcher:async(url,init)=>{
@@ -38,7 +39,11 @@ test('R11 actual TypeScript runner, adapter wire and SQL source/financial guard 
   assert.deepEqual(order,['settle','GET','settle','settle','GET','settle']);assert.equal(routeGets.length,2);
   for(const offset of [0,2]){assert.equal(settlements[offset].requestId,settlements[offset+1].requestId);assert.equal(settlements[offset].receipt.providerRequestId,settlements[offset+1].receipt.providerRequestId);assert.equal(settlements[offset].receipt.reportedMicrousd,settlements[offset+1].receipt.reportedMicrousd);assert.equal(settlements[offset].receipt.generationRouteProof,undefined);assert.equal(settlements[offset+1].receipt.generationRouteProof.providerName,'Azure');assert.notEqual(hash(settlements[offset].receipt),hash(settlements[offset+1].receipt));}
   assert.equal(JSON.stringify(settlements).includes('undocumented-private-wrapper'),false);
-  assert.equal(result.receipts.length,2);assert.equal(sent.length,2);assert.deepEqual(rpcCalls,['load','guard','collect','guard','complete']);
+  assert.equal(result.status,'completed');assert.equal(result.receipts.length,2);assert.equal(sent.length,2);
+  assert.deepEqual(rpcCalls,['load','guard','stage_receipt','claim_receipt','record_receipt','collect','guard','stage_receipt','claim_receipt','record_receipt','complete']);
+  assert.equal(await value(db,'select count(*)::int result from private.r11_research_receipt_candidates where policy_id=$1',[s.policy.id]),2);
+  assert.equal(await value(db,'select count(*)::int result from private.r11_research_receipt_checks q join private.r11_research_receipt_candidates c on c.request_id=q.request_id where c.policy_id=$1',[s.policy.id]),2);
+  assert.equal(await value(db,'select count(*)::int result from private.r11_research_receipt_observations o join private.r11_research_receipt_checks q on q.id=o.check_id join private.r11_research_receipt_candidates c on c.request_id=q.request_id where c.policy_id=$1 and o.proof is not null',[s.policy.id]),2);
   assert.equal(await value(db,'select count(*)::int result from private.r11_research_results where policy_id=$1',[s.policy.id]),1);
   assert.equal(await value(db,'select count(*)::int result from private.r05_markers where business_id=$1',[s.businessId]),2);
   assert.equal(await value(db,'select count(*)::int result from private.r05_settlements where business_id=$1',[s.businessId]),4);
@@ -46,14 +51,16 @@ test('R11 actual TypeScript runner, adapter wire and SQL source/financial guard 
   const retained=await value(db,'select collection result from private.r11_research_collections where id=$1',[result.collectionId]);
   assert.equal(result.evidencePack.sourceLineage.collectionHash,q.publicResearchHash(retained));
   const payloads=await value(db,'select jsonb_agg(payload) result from private.r05_requests where business_id=$1',[s.businessId]);assert.equal(JSON.stringify(payloads).includes(RESEARCH_CAPABILITY),false);
-  await assert.rejects(rt.runPublicResearchQualification(scope,s.policy.id,runtime));assert.equal(sent.length,2);
+  const replayed=await rt.runPublicResearchQualification(scope,s.policy.id,runtime);assert.equal(replayed.status,'completed');assert.equal(replayed.resultId,result.resultId);
+  assert.equal(sent.length,2);assert.equal(routeGets.length,2);assert.equal(await value(db,'select count(*)::int result from private.r05_settlements where business_id=$1',[s.businessId]),4);
   // A real adapter response failure must settle its charged search and commit
   // only typed observations. Unknown returned identity/text is never retained.
   const failed=await seedResearch(db,{enroll:false,policyOverrides:{modelId:model.providerModelId}});
   failed.search=await rt.inspectPublicResearchWire(q.publicResearchSearchRequest(failed.policy,model),'search');await enrollResearch(db,failed);
   let failedCalls=0;
-  const failureRuntime={model,verifyQuote:async()=>({providerName:'Azure',acceptedResponseModelIds}),
-   verifyGenerationRoute:async()=>{throw Error('unqualified response model must stop before route lookup');},
+  const failureRuntime={model,requireDurableReceipts:true,verifyQuote:async()=>({providerName:'Azure',acceptedResponseModelIds}),
+   verifyGenerationRoute:async()=>{throw Error('durable SQL runtime must not use the legacy multi-read path');},
+   verifyGenerationRouteOnce:async()=>{throw Error('unqualified response model must stop before route lookup');},
    rpc:(operation,payload)=>value(db,'select public.r11_research_server_v2($1,$2,$3,$4) result',[failed.businessId,operation,payload,RESEARCH_KEY]),
    settle:(requestId,receipt)=>financial(db,failed,'settle',{requestId,currency:'USD',actualMicrounits:receipt.reportedMicrousd===null?null:String(receipt.reportedMicrousd),providerRequestId:receipt.providerRequestId,receiptHash:hash(receipt)}),
    provider:(admit,observeResponse)=>new OpenRouterAdapter({config:{apiKey:'inert-r11-diagnostic',baseUrl:'https://openrouter.ai/api/v1',appUrl:'https://example.invalid',appName:'R11 inert diagnostic SQL'},admitDispatch:admit,observeResponse,fetcher:async()=>{

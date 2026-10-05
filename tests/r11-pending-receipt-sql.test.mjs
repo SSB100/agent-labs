@@ -146,9 +146,10 @@ const pgUrl=process.env.R11_PUBLIC_RESEARCH_POSTGRES_URL;
 test('R11 durable receipt physical PostgreSQL claim, Stop and record races',{
  skip:!host||!pgUrl?'Requires the hosted isolated loopback PostgreSQL service; PGlite is not physical concurrency evidence':false,timeout:120000,
 },async t=>{
- // The existing main SQL harness owns r11_research_test and the cluster roles.
- // This fixed additional disposable database avoids concurrent schema bootstrap
- // or fixture/model collisions. Existing databases are never reset or dropped.
+ // CI runs the existing primary SQL group first, then this pending suite in
+ // a separate process on the same isolated service. The primary owns the exact
+ // cluster roles; this fixed fresh database avoids schema/model collisions.
+ // Existing databases and roles are never altered, reset or dropped.
  validateResearchPostgresUrl(pgUrl);
  const req=createRequire(path.resolve(host,'package.json')),{Client}=req('pg');
  const admin=new Client({connectionString:pgUrl,connectionTimeoutMillis:5000,statement_timeout:15000,application_name:'r11-pending-isolated-database'});let db;
@@ -156,11 +157,9 @@ test('R11 durable receipt physical PostgreSQL claim, Stop and record races',{
   await admin.connect();const target=(await admin.query('select current_database() db,current_user actor,inet_server_addr()::text address')).rows[0];
   assert.equal(target.db,'r11_research_test');assert.equal(target.actor,'r11_test');assert.equal(admin.connection.stream.remoteAddress,'127.0.0.1');assert.ok(target.address);
   assert.equal(await value(admin,"select count(*)::int result from pg_database where datname='r11_research_pending_test'"),0,'Require absent fixed disposable pending database; never reset or drop an existing database');
-  // Roles are cluster-wide. The main harness creates these with its unchanged
-  // strict bootstrap; only wait for that commit, never race it by creating roles.
-  const deadline=Date.now()+30000;let rolesReady=false;
-  while(Date.now()<deadline){rolesReady=await value(admin,"select count(*)=3 result from pg_roles where rolname in ('anon','authenticated','service_role')");if(rolesReady)break;await new Promise(r=>setTimeout(r,25));}
-  assert.equal(rolesReady,true,'Run with the existing primary R11 SQL harness so its isolated cluster roles are available');
+  // Assert the workflow prerequisite immediately; polling cannot resolve a
+  // primary test file that the runner has not scheduled yet.
+  assert.equal(await value(admin,"select count(*)::int result from pg_roles where rolname in ('anon','authenticated','service_role')"),3,'Run the existing primary R11 SQL group to completion before this pending suite on the same isolated PostgreSQL service');
   await admin.query('create database r11_research_pending_test template template0');
   const isolated=new URL(pgUrl);isolated.pathname='/r11_research_pending_test';
   db=new Client({connectionString:isolated.href,connectionTimeoutMillis:5000,statement_timeout:15000,application_name:'r11-pending-isolated'});await db.connect();
