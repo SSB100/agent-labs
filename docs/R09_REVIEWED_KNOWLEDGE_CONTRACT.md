@@ -83,7 +83,7 @@ Simulated fixtures establish contract behavior. They do not establish a real ext
 
 ## Source map
 
-- Private lifecycle, exact pins, owner RPCs and read projection: `supabase/migrations/20261004000351_r09_reviewed_knowledge.sql`
+- Private lifecycle, exact pins, owner RPCs and read projection: `supabase/migrations/20261004021754_r09_reviewed_knowledge.sql`
 - Pure review and snapshot contract: `src/core/reviewed-knowledge.ts`
 - Worker delivery of frozen knowledge: `src/core/quest-controller.ts`, `src/lib/quest-controller-runtime.ts`
 - Canonical compact workspace, forms and authenticated actions: `src/components/console/console-knowledge-*`, `src/app/dashboard/knowledge/actions.ts`, `src/lib/core-ui/console-knowledge-*`

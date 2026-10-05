@@ -99,3 +99,18 @@ test('out-of-range draft and package pages describe only this page while retaini
  assert.match(html,/No verified Product Package is shown on this page/);assert.match(html,/No draft runs are shown on this server page/);
  assert.doesNotMatch(html,/No qualified Product Package available|No draft runs are recorded for this Business/);
 });
+
+test('R11 configured-but-unqualified access stays disabled while an existing connection remains visible',()=>{
+ const unconnected=render({...base,configured:true});assert.match(unconnected,/legacy write-scope connection flow/);assert.match(unconnected,/Own-shop operations and marketplace research have separate eligibility checks/);assert.match(unconnected,/disabled="">Connect Etsy securely/);
+ const connected=render({...base,configured:true,connection:{id:'inert',shopName:'Preserved exact shop',status:'connected',currency:'NZD'}});assert.match(connected,/Preserved exact shop/);assert.match(connected,/>Disconnect and stop draft work</);assert.doesNotMatch(connected,/>Connect Etsy securely</);
+});
+test('R11 repeated crafted Connect submissions produce a scoped hold with zero cookie/RPC writes or external redirects',async()=>{
+ const effects=[];const {connectEtsy}=load('src/app/dashboard/etsy/actions.ts',{
+  'next/headers':{cookies:async()=>({set:()=>effects.push('cookie')})},'next/navigation':{redirect:url=>{effects.push(['redirect',url]);throw Error(url);}},'next/cache':{revalidatePath:()=>{}},
+  '@/lib/core-ui/data':{requireOwnerUiContext:async()=>({userId:'owner',businesses:[{id:'11000000-0000-4000-8000-000000000002'}]})},'@/etsy/server':{ownerBusiness:()=>{},etsyConfig:()=>({keystring:'inert',sharedSecret:'inert',redirectUri:'https://example.com/api/etsy/callback'}),etsyRpc:async()=>effects.push('rpc')},
+  '@/etsy/oauth':require('../.core-tests/etsy/oauth.js'),'@/etsy/vault':require('../.core-tests/etsy/vault.js')
+ });
+ const form=new FormData();form.set('businessId','11000000-0000-4000-8000-000000000002');form.set('accountConsent','on');
+ for(let i=0;i<2;i++)await assert.rejects(connectEtsy(form),/business=11000000-0000-4000-8000-000000000002&message=connection-purpose-review-required/);
+ assert.equal(effects.length,2);assert.ok(effects.every(([kind,url])=>kind==='redirect'&&url.startsWith('/dashboard/etsy?')));
+});

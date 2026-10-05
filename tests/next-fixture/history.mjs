@@ -70,7 +70,7 @@ export function readHistoryFixture(state,args,mode='normal') {
   if(!q||Array.isArray(q)||typeof q!=='object'||Buffer.byteLength(JSON.stringify(q))>2048||Object.keys(q).some(k=>!['limit','offset','query','status','selectedId','interventionId','goalId','candidateId','workflowRunId'].includes(k)))throw Error('Unreviewed R06 query');
   if(['account_state','etsy_state','listing_state'].includes(dataset)) {
     if(!businessId||Object.keys(q).length)throw Error('Invalid state read');
-    if(dataset==='etsy_state')return {data:{connection:null},error:null};
+    if(dataset==='etsy_state')return {data:{connection:mode==='r11-connected'?{id:'11000000-0000-4000-8000-000000000003',shopName:'Saved exact shop with a long original name retained across Business navigation',status:'connected',currency:'NZD'}:null},error:null};
     if(dataset==='listing_state')return {data:{qualified:false,activeQualification:false},error:null};
     const current=mode==='empty'?[]:state.history.rows.account_runs.filter(r=>r.businessId===businessId).sort(newest);
     return {data:{observedAt:stamp,profile:null,accounts:[],currentRuns:['etsy','printful'].flatMap(provider=>current.find(r=>r.item.provider===provider)?.item??[])},error:null};

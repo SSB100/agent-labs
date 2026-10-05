@@ -21,13 +21,13 @@ export async function connectEtsy(form: FormData) {
   if (field(form, "accountConsent") !== "on") done("connection-consent-required", businessId);
   let url: string;
   try {
-    const config = etsyConfig(), flow = beginOAuth(config);
+    const config = etsyConfig(), flow = await beginOAuth(config);
     const binding = { businessId, ownerId: context.userId, browserNonceHash: secretHash(flow.browserNonce), verifier: flow.verifier };
     await etsyRpc(context, businessId, "oauth_begin", { stateHash: secretHash(flow.state), envelope: seal(binding, `oauth:${businessId}:${secretHash(flow.state)}`, config.vaultKey) });
     (await cookies()).set("etsy-oauth", seal({ businessId, ownerId: context.userId, state: flow.state, browserNonce: flow.browserNonce }, "oauth-cookie", config.vaultKey),
       { httpOnly: true, secure: true, sameSite: "lax", path: "/api/etsy/callback", maxAge: 600 });
     url = flow.url;
-  } catch { done("connection-unavailable", businessId); }
+  } catch { done("connection-purpose-review-required", businessId); }
   redirect(url);
 }
 export async function disconnectEtsy(form: FormData) {

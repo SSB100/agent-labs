@@ -105,7 +105,8 @@ export function workflowCollection(overrides = {}) {
 }
 export function browserPresentation() {
   const browserView = loadSource("src/browser/console-view.ts");
-  const browserUi = loadSource("src/components/console/console-browser-centre.tsx", { "@/browser/console-view": browserView, "./console-browser-centre.css": {} });
+  const watcher = loadSource("src/components/console/console-browser-watch.tsx", { "@/browser/console-watch-client": loadSource("src/browser/console-watch-client.ts"), "./console-browser-watch.css": {} });
+  const browserUi = loadSource("src/components/console/console-browser-centre.tsx", { "@/browser/console-view": browserView, "./console-browser-centre.css": {}, "./console-browser-watch": watcher });
   return { browserView, browserUi };
 }
 

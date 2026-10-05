@@ -29,7 +29,13 @@ test('R09 actual reviewed proposal, immutable promotion, scoped applications and
  }
  await db.exec(sql);
  }
- assert.deepEqual(await preservedRows(),beforeRows);
+ // Later additive migrations may seed new inert pack definitions. Every
+ // pre-R09 row must still be present byte-for-byte; this does not exempt edits.
+ const preservedAfter=await preservedRows();
+ for(const [table,before] of Object.entries(beforeRows)) {
+  const ids=new Set(before.map(row=>row.id));
+  assert.deepEqual(preservedAfter[table].filter(row=>ids.has(row.id)),before);
+ }
  const after=new Map((await db.query(functions)).rows.map(x=>[x.id,x]));for(const row of oldFunctions){if(row.id==='private.r07_snapshot(uuid,uuid,uuid)')assert.equal(after.get(row.id).acl,row.acl);else if(row.id==='r07_controller(uuid,uuid,text,jsonb,uuid,text,text,bigint,text)'){const changed=after.get(row.id);assert.equal(changed.acl,row.acl);assert.equal(changed.body.replace(" if p_operation='plan' or result->>'status' in ('scheduled','reserved') or result->'shouldDispatch'='true'::jsonb then\n perform private.r09_assert_pins(coalesce((select snapshot from private.r09_run_pins where workflow_run_id=a.id and business_id=p_business_id),(select snapshot from private.r09_plan_pins where plan_id=p.id and business_id=p_business_id)));\n end if;\n",''),row.body);}else assert.deepEqual(after.get(row.id),row);}
  const rels=new Map((await db.query(tables)).rows.map(x=>[x.id,x]));for(const row of oldTables)assert.deepEqual(rels.get(row.id),row);
  const afterLegacy=await controller(db,legacy,'read');assert.deepEqual(afterLegacy.knowledge.pins,[]);delete afterLegacy.knowledge;assert.deepEqual(afterLegacy,legacySnapshot);

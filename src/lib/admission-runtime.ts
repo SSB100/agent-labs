@@ -1,3 +1,5 @@
+import { externalSourceProvenance, type ModelInputProvenance } from "../core/external-eligibility";
+import { requireRuntimeExternalSourceEligibility } from "./external-eligibility-runtime";
 import { createHash } from "node:crypto";
 import type { AdmissionDispatchInput, LegacyAccountingSource } from "../core/admission-contract";
 import type { ModelDispatchAdmission } from "../models/types";
@@ -7,7 +9,7 @@ import { createRuntimeClient } from "./supabase/runtime";
 type RuntimeScope = { businessId: string; coreWorkflowRunId: string; runtimeCapability: string };
 type ModelAdmissionBinding = {
   operationKey: string; requestHash: string; callKey: string; reservedMicrousd: number;
-  providerModelId: string; accounting: LegacyAccountingSource; dataClasses: string[];
+  providerModelId: string; accounting: LegacyAccountingSource; dataClasses: string[]; sourceProvenance?: ModelInputProvenance;
 };
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
 const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
@@ -52,6 +54,8 @@ export function modelDispatchAdmission(scope: RuntimeScope, binding: ModelAdmiss
       }
       sourceDomains = [...tools[0].parameters.allowed_domains] as string[];
     } else if (body.tools !== undefined) throw new Error("operating_policy_tools_not_authorized");
+    const provenance = externalSourceProvenance(owned.dataClasses, sourceDomains, owned.sourceProvenance, owned.requestHash, owned.operationKey);
+    if (provenance) requireRuntimeExternalSourceEligibility(provenance);
     const payload: AdmissionDispatchInput = {
       workflowRunId: ownedScope.coreWorkflowRunId, runtimeCapability: ownedScope.runtimeCapability,
       operationKey: owned.operationKey, requestHash: owned.requestHash, wireRequestHash: digest(wire.body),
