@@ -6,7 +6,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {r04SqlBootstrap} from './helpers/r04-sql-bootstrap.mjs';
 import {sessionBootstrap} from './helpers/r10-sql-fixture.mjs';
-import {RESEARCH_CAPABILITY,setupResearchFixture,seedResearch,enrollResearch,research,financial,value,hash} from './helpers/r11-public-research-fixture.mjs';
+import {RESEARCH_KEY,RESEARCH_CAPABILITY,setupResearchFixture,seedResearch,enrollResearch,financial,value,hash} from './helpers/r11-public-research-fixture.mjs';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),host=process.env.R11_SQL_TEST_HOST;
 test('R11 actual TypeScript runner, adapter wire and SQL source/financial guard agree end to end',{skip:!host,timeout:120000},async()=>{
@@ -23,9 +23,9 @@ test('R11 actual TypeScript runner, adapter wire and SQL source/financial guard 
   s.search=await rt.inspectPublicResearchWire(q.publicResearchSearchRequest(s.policy,model),'search');await enrollResearch(db,s);
   const sent=[],rpcCalls=[],excerpt='Adult gardeners often value practical tools and containers suited to the available growing space.';
   const runtime={model,verifyQuote:async()=>({providerName:'Azure'}),
-   rpc:async(operation,payload)=>{rpcCalls.push(operation);return research(db,s,operation,payload);},
+   rpc:async(operation,payload)=>{rpcCalls.push(operation);return value(db,'select public.r11_research_server_v2($1,$2,$3,$4) result',[s.businessId,operation,payload,RESEARCH_KEY]);},
    settle:async(requestId,receipt)=>{const result=await financial(db,s,'settle',{requestId,currency:'USD',actualMicrounits:receipt.reportedMicrousd===null?null:String(receipt.reportedMicrousd),providerRequestId:receipt.providerRequestId,receiptHash:hash(receipt)});assert.equal(result.decision,'allowed');},
-   provider:admit=>new OpenRouterAdapter({config:{apiKey:'inert-r11-wire',baseUrl:'https://openrouter.ai/api/v1',appUrl:'https://example.invalid',appName:'R11 inert SQL test'},admitDispatch:admit,fetcher:async(url,init)=>{
+   provider:(admit,observeResponse)=>new OpenRouterAdapter({observeResponse,config:{apiKey:'inert-r11-wire',baseUrl:'https://openrouter.ai/api/v1',appUrl:'https://example.invalid',appName:'R11 inert SQL test'},admitDispatch:admit,fetcher:async(url,init)=>{
     const body=JSON.parse(init.body),search=!!body.tools;sent.push({url,body});
     return new Response(JSON.stringify({id:search?'inert-search-receipt':'inert-selector-receipt',provider:'Azure',model:s.policy.modelId,
      choices:[{finish_reason:'stop',message:search?{content:'One factual source',annotations:[{type:'url_citation',url_citation:{url:'https://gardening.example/report',title:'Public report',content:excerpt}}]}:{content:JSON.stringify({selections:[{sourceKey:'S1',quote:excerpt}],limitations:['limited_sources']})}}],
@@ -42,5 +42,25 @@ test('R11 actual TypeScript runner, adapter wire and SQL source/financial guard 
   assert.equal(result.evidencePack.sourceLineage.collectionHash,q.publicResearchHash(retained));
   const payloads=await value(db,'select jsonb_agg(payload) result from private.r05_requests where business_id=$1',[s.businessId]);assert.equal(JSON.stringify(payloads).includes(RESEARCH_CAPABILITY),false);
   await assert.rejects(rt.runPublicResearchQualification(scope,s.policy.id,runtime));assert.equal(sent.length,2);
+  // A real adapter response failure must settle its charged search and commit
+  // only typed observations. Unknown returned identity/text is never retained.
+  const failed=await seedResearch(db,{enroll:false,policyOverrides:{modelId:model.providerModelId}});
+  failed.search=await rt.inspectPublicResearchWire(q.publicResearchSearchRequest(failed.policy,model),'search');await enrollResearch(db,failed);
+  let failedCalls=0;
+  const failureRuntime={model,verifyQuote:async()=>({providerName:'Azure'}),
+   rpc:(operation,payload)=>value(db,'select public.r11_research_server_v2($1,$2,$3,$4) result',[failed.businessId,operation,payload,RESEARCH_KEY]),
+   settle:(requestId,receipt)=>financial(db,failed,'settle',{requestId,currency:'USD',actualMicrounits:receipt.reportedMicrousd===null?null:String(receipt.reportedMicrousd),providerRequestId:receipt.providerRequestId,receiptHash:hash(receipt)}),
+   provider:(admit,observeResponse)=>new OpenRouterAdapter({config:{apiKey:'inert-r11-diagnostic',baseUrl:'https://openrouter.ai/api/v1',appUrl:'https://example.invalid',appName:'R11 inert diagnostic SQL'},admitDispatch:admit,observeResponse,fetcher:async()=>{
+    failedCalls++;return new Response(JSON.stringify({id:'inert-diagnostic-search-receipt',provider:'Azure',model:'unreviewed/response-model',choices:[{finish_reason:'stop',message:{content:'Unretained provider text',annotations:[{type:'url_citation',url_citation:{url:'https://gardening.example/report',title:'Unretained title',content:excerpt}}]}}],usage:{prompt_tokens:10,completion_tokens:10,cost:0.00002,server_tool_use:{web_search_requests:1}}}),{status:200});
+   }})};
+  const failedScope={businessId:failed.businessId,coreWorkflowRunId:failed.workflowRunId,runtimeCapability:RESEARCH_CAPABILITY};
+  await assert.rejects(rt.runPublicResearchQualification(failedScope,failed.policy.id,failureRuntime));assert.equal(failedCalls,1);
+  const failedWorkspace=await value(db,'select public.r11_research_workspace_v2($1) result',[failed.businessId]),failedPolicy=failedWorkspace.policies[0];
+  assert.equal(failedPolicy.status,'needs_owner');assert.equal(failedPolicy.revoked,true);assert.equal(failedPolicy.result,null);assert.equal(failedPolicy.outcomes.length,1);
+  assert.equal(failedPolicy.outcomes[0].kind,'failure');assert.equal(failedPolicy.outcomes[0].phase,'search');assert.equal(failedPolicy.outcomes[0].observation.modelIdentity,'other');assert.equal(failedPolicy.outcomes[0].observation.observedModelId,null);
+  assert.equal(failedWorkspace.exposure.heldMicrounits,'20');assert.equal(failedWorkspace.exposure.hasUnknown,false);
+  assert.equal(JSON.stringify(failedWorkspace).includes('unreviewed/response-model'),false);assert.equal(JSON.stringify(failedWorkspace).includes('Unretained provider text'),false);
+  assert.equal(await value(db,'select count(*)::int result from private.r11_research_collections where policy_id=$1',[failed.policy.id]),0);
+  await assert.rejects(rt.runPublicResearchQualification(failedScope,failed.policy.id,failureRuntime));assert.equal(failedCalls,1);
  }finally{await db.close();}
 });

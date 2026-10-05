@@ -1,9 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import quoteModule from "../.core-tests/research/qualification-quote.js";
 
 const { PUBLIC_RESEARCH_QUOTE_LIMITS: limits, qualifyPublicResearchQuote, validatePublicResearchQuote, fetchPublicResearchQuote } = quoteModule;
 const now = Date.parse("2026-10-05T03:43:00.000Z");
+const canonicalModelId = "openai/gpt-5.6-luna-20260709";
+const canonicalCatalogUrl = `${limits.modelIdentityCatalogUrl}/${canonicalModelId}/endpoints`;
+const catalogNames = ["modelIdentityCatalog", "modelCatalog", "canonicalModelCatalog", "zdrCatalog"];
+const endpointCatalogNames = ["modelCatalog", "canonicalModelCatalog", "zdrCatalog"];
 // Inert snapshot of public endpoint facts. No credential, inference or paid call.
 const endpoint = {
   name: "Azure | openai/gpt-5.6-luna-20260709", model_id: "openai/gpt-5.6-luna", provider_name: "Azure", tag: "azure/us", status: 0,
@@ -13,18 +18,51 @@ const endpoint = {
     overrides: [{ min_prompt_tokens: 272_000, prompt: "0.00000044", completion: "0.00000198", input_cache_read: "0.000000044", input_cache_write: "0.00000055" }] },
 };
 function fixture() {
-  return { now, modelCatalog: { url: limits.modelCatalogUrl, fetchedAt: new Date(now).toISOString(),
-    payload: { data: { id: limits.modelId, name: "GPT-5.6 Luna", endpoints: [structuredClone(endpoint)] } } },
-  zdrCatalog: { url: limits.zdrCatalogUrl, fetchedAt: new Date(now).toISOString(), payload: { data: [structuredClone(endpoint)] } } };
+  const fetchedAt = new Date(now).toISOString();
+  return { now,
+    modelIdentityCatalog: { url: limits.modelIdentityCatalogUrl, fetchedAt, payload: { data: [
+      { id: limits.modelId, canonical_slug: canonicalModelId, links: { details: new URL(canonicalCatalogUrl).pathname } },
+    ] } },
+    modelCatalog: { url: limits.modelCatalogUrl, fetchedAt,
+      payload: { data: { id: limits.modelId, name: "GPT-5.6 Luna", endpoints: [structuredClone(endpoint)] } } },
+    canonicalModelCatalog: { url: canonicalCatalogUrl, fetchedAt,
+      payload: { data: { id: limits.modelId, name: "GPT-5.6 Luna", endpoints: [structuredClone(endpoint)] } } },
+    zdrCatalog: { url: limits.zdrCatalogUrl, fetchedAt, payload: { data: [structuredClone(endpoint)] } } };
+}
+function endpointRows(input, catalog) {
+  return catalog === "zdrCatalog" ? input[catalog].payload.data : input[catalog].payload.data.endpoints;
 }
 function mutateEndpoints(input, mutate) {
-  mutate(input.modelCatalog.payload.data.endpoints[0]); mutate(input.zdrCatalog.payload.data[0]); return input;
+  for (const catalog of endpointCatalogNames) mutate(endpointRows(input, catalog)[0]);
+  return input;
+}
+function changeCanonicalIdentity(input, canonicalId) {
+  const identity = input.modelIdentityCatalog.payload.data[0];
+  identity.canonical_slug = canonicalId;
+  identity.links.details = `/api/v1/models/${canonicalId}/endpoints`;
+  input.canonicalModelCatalog.url = `https://openrouter.ai${identity.links.details}`;
+  return input;
 }
 const reject = value => assert.throws(() => qualifyPublicResearchQuote(value), /public_research_quote_unavailable/);
+function hashValue(value) {
+  const sorted = value => Array.isArray(value) ? value.map(sorted) : value && typeof value === "object"
+    ? Object.fromEntries(Object.keys(value).sort().map(key => [key, sorted(value[key])])) : value;
+  return createHash("sha256").update(JSON.stringify(sorted(value))).digest("hex");
+}
+function rehashQuote(quote) {
+  const body = { ...quote };
+  for (const key of ["verifiedAt", "validUntil", "quoteValidUntil", "quoteHash"]) delete body[key];
+  quote.quoteHash = hashValue(body);
+  return quote;
+}
 
 test("R11 exact Azure regional quote includes conservative worst tiers, cache writes, one Exa fee and bounded selector", () => {
   const result = qualifyPublicResearchQuote(fixture());
+  assert.equal(result.version, "r11.public-research-quote.2");
   assert.equal(result.modelId, "openai/gpt-5.6-luna");
+  assert.equal(limits.canonicalModelId, canonicalModelId);
+  assert.equal(result.canonicalModelId, canonicalModelId);
+  assert.deepEqual(result.acceptedResponseModelIds, [limits.modelId, canonicalModelId]);
   assert.equal(result.providerEndpoint, "azure/us");
   assert.equal(result.providerName, "Azure", "Expected returned provider name is not the routing tag");
   assert.deepEqual(result.priceLimit, { prompt: 0.44, completion: 1.98, request: 0 });
@@ -45,13 +83,17 @@ test("R11 exact Azure regional quote includes conservative worst tiers, cache wr
   assert.equal(result.quoteValidUntil, result.validUntil);
   assert.match(result.quoteHash, /^[a-f0-9]{64}$/);
   assert.equal(result.sourceHashes.modelCatalog, result.sourceHashes.zdrCatalog);
+  assert.equal(result.sourceHashes.modelCatalog, result.sourceHashes.canonicalModelCatalog);
+  assert.match(result.sourceHashes.modelIdentity, /^[a-f0-9]{64}$/);
   validatePublicResearchQuote(result, now);
 });
 
 test("R11 same endpoint facts retain immutable approval hash after fresh retrieval", () => {
   const original = qualifyPublicResearchQuote(fixture());
   const refreshed = fixture(); refreshed.now += 120_000;
-  refreshed.modelCatalog.fetchedAt = refreshed.zdrCatalog.fetchedAt = new Date(refreshed.now).toISOString();
+  for (const catalog of catalogNames) refreshed[catalog].fetchedAt = new Date(refreshed.now).toISOString();
+  refreshed.modelIdentityCatalog.payload.data[0].name = "Volatile display name";
+  refreshed.modelIdentityCatalog.payload.data.push({ id: "unrelated/model", canonical_slug: "unrelated/identity" });
   mutateEndpoints(refreshed, value => { value.uptime_last_5m = 99; value.latency_last_30m = { p50: 0.25 }; value.supported_parameters.reverse(); });
   refreshed.modelCatalog.payload.data.endpoints.unshift({ ...endpoint, tag: "azure", pricing: { prompt: "0.0000002" } });
   refreshed.zdrCatalog.payload.data.push({ model_id: "unrelated/model", tag: "other" });
@@ -59,6 +101,55 @@ test("R11 same endpoint facts retain immutable approval hash after fresh retriev
   assert.equal(result.quoteHash, original.quoteHash);
   assert.notEqual(result.verifiedAt, original.verifiedAt);
   assert.notEqual(result.validUntil, original.validUntil);
+});
+
+test("R11 public models metadata must establish one exact alias-to-canonical identity with a matching details path", () => {
+  for (const mutate of [
+    input => { delete input.modelIdentityCatalog; },
+    input => { delete input.canonicalModelCatalog; },
+    input => { input.modelIdentityCatalog.payload.data = []; },
+    input => { input.modelIdentityCatalog.payload.data.push(structuredClone(input.modelIdentityCatalog.payload.data[0])); },
+    input => { input.modelIdentityCatalog.payload.data[0].id = `${limits.modelId}:online`; },
+    input => { input.modelIdentityCatalog.payload.data[0].id = canonicalModelId; },
+    input => { delete input.modelIdentityCatalog.payload.data[0].canonical_slug; },
+    input => { delete input.modelIdentityCatalog.payload.data[0].links; },
+    input => { input.modelIdentityCatalog.payload.data[0].links.details = canonicalCatalogUrl; },
+    input => { input.modelIdentityCatalog.payload.data[0].links.details += "?redirect=https://example.com"; },
+    input => { input.modelIdentityCatalog.payload.data[0].links.details = `/api/v1/models/${limits.modelId}/endpoints`; },
+    input => { input.modelIdentityCatalog.payload.data[0].canonical_slug = "openai/gpt-5.6-luna-20260710"; },
+    input => { input.modelIdentityCatalog.payload.data = { id: limits.modelId, canonical_slug: canonicalModelId }; },
+  ]) { const input = fixture(); mutate(input); reject(input); }
+  for (const canonicalId of [null, 123, "", limits.modelId, "*", "^openai/.*$", "openai/gpt-5.6-luna:online",
+    "openai/gpt-5.6-luna?x=y", "openai/gpt-5.6-luna#x", "openai/../models", "openai/%2e%2e", "https://example.com/x",
+    "//example.com/x", "openai/model/extra", " openai/model", "openai/model ", `openai/${"a".repeat(301)}`]) {
+    reject(changeCanonicalIdentity(fixture(), canonicalId));
+  }
+});
+
+test("R11 even four mutually consistent catalogs cannot change the reviewed first-proof canonical pair", () => {
+  const original = qualifyPublicResearchQuote(fixture());
+  assert.deepEqual(original.acceptedResponseModelIds, [limits.modelId, canonicalModelId]);
+  for (const unreviewedId of ["openai/gpt-5.6-luna-20260710", "openai/gpt-5.6-luna-20260801", "openai/gpt-5.6-pro-20260709"]) {
+    const changed = changeCanonicalIdentity(fixture(), unreviewedId);
+    mutateEndpoints(changed, value => { value.name = `Azure | ${unreviewedId}`; });
+    assert.deepEqual(endpointRows(changed, "modelCatalog"), endpointRows(changed, "canonicalModelCatalog"));
+    assert.deepEqual(endpointRows(changed, "modelCatalog"), endpointRows(changed, "zdrCatalog"));
+    reject(changed);
+  }
+  const staleBinding = fixture();
+  staleBinding.modelIdentityCatalog.payload.data[0].canonical_slug = "openai/gpt-5.6-luna-20260710";
+  staleBinding.modelIdentityCatalog.payload.data[0].links.details = "/api/v1/models/openai/gpt-5.6-luna-20260710/endpoints";
+  reject(staleBinding);
+});
+
+test("R11 rehashing all quote identity bindings cannot approve an unreviewed canonical model", () => {
+  const changed = qualifyPublicResearchQuote(fixture());
+  changed.canonicalModelId = "openai/gpt-5.6-luna-20260710";
+  changed.acceptedResponseModelIds = [limits.modelId, changed.canonicalModelId];
+  changed.sourceHashes.modelIdentity = hashValue({ modelId: limits.modelId, canonicalModelId: changed.canonicalModelId,
+    canonicalEndpointUrl: `${limits.modelIdentityCatalogUrl}/${changed.canonicalModelId}/endpoints` });
+  rehashQuote(changed);
+  assert.throws(() => validatePublicResearchQuote(changed, now), /public_research_quote_unavailable/);
 });
 
 test("R11 changed exact endpoint price, tier, context, identity or capability changes quote hash", () => {
@@ -75,33 +166,39 @@ test("R11 changed exact endpoint price, tier, context, identity or capability ch
 });
 
 test("R11 catalog URLs are exact public sources and cannot be aliases, injected URLs or stale snapshots", () => {
-  for (const catalog of ["modelCatalog", "zdrCatalog"]) {
-    for (const url of ["https://example.com/catalog", limits[catalog === "modelCatalog" ? "modelCatalogUrl" : "zdrCatalogUrl"] + "?key=x", limits.modelCatalogUrl.replace("azure", "other" ) + "/"]) {
+  for (const catalog of catalogNames) {
+    for (const url of ["https://example.com/catalog", fixture()[catalog].url + "?key=x", fixture()[catalog].url + "/"]) {
       const input = fixture(); input[catalog].url = url; reject(input);
     }
     for (const fetchedAt of ["invalid", new Date(now + 1).toISOString(), new Date(now - 300_000).toISOString(), new Date(now - 300_001).toISOString()]) {
       const input = fixture(); input[catalog].fetchedAt = fetchedAt; reject(input);
     }
   }
-  const input = fixture(); input.modelCatalog.fetchedAt = new Date(now - 299_999).toISOString();
-  const result = qualifyPublicResearchQuote(input);
-  assert.equal(Date.parse(result.validUntil) - now, 1, "Expiry uses older source, never newer source");
-  assert.throws(() => validatePublicResearchQuote(result, now + 1), /public_research_quote_unavailable/);
+  for (const catalog of catalogNames) {
+    const input = fixture(); input[catalog].fetchedAt = new Date(now - 299_999).toISOString();
+    const result = qualifyPublicResearchQuote(input);
+    assert.equal(Date.parse(result.validUntil) - now, 1, "Expiry uses oldest source, including identity/canonical metadata");
+    assert.throws(() => validatePublicResearchQuote(result, now + 1), /public_research_quote_unavailable/);
+  }
 });
 
-test("R11 exact model and endpoint must occur once in both catalogs; model-wide ZDR flags cannot qualify", () => {
-  for (const catalog of ["modelCatalog", "zdrCatalog"]) {
+test("R11 exact model and endpoint must occur once in all three endpoint catalogs; model-wide ZDR flags cannot qualify", () => {
+  for (const catalog of endpointCatalogNames) {
     for (const mutate of [
       value => { value.tag = "azure"; }, value => { value.tag = "azure/eu"; }, value => { value.tag = "azure/us/extra"; },
       value => { value.model_id = "openai/gpt-5.6-luna:online"; }, value => { value.model_id = "openai/gpt-5.6-luna-20260709"; },
-      value => { value.provider_name = "OpenAI"; }, value => { value.provider_name = "azure/us"; },
+      value => { value.provider_name = "OpenAI"; }, value => { value.provider_name = "azure/us"; }, value => { value.provider_name = "azure"; },
     ]) {
-      const input = fixture(); const rows = catalog === "modelCatalog" ? input.modelCatalog.payload.data.endpoints : input.zdrCatalog.payload.data;
+      const input = fixture(); const rows = endpointRows(input, catalog);
       mutate(rows[0]); reject(input);
     }
     const duplicate = fixture();
-    const rows = catalog === "modelCatalog" ? duplicate.modelCatalog.payload.data.endpoints : duplicate.zdrCatalog.payload.data;
+    const rows = endpointRows(duplicate, catalog);
     rows.push(structuredClone(endpoint)); reject(duplicate);
+    const missing = fixture(); endpointRows(missing, catalog).splice(0); reject(missing);
+    if (catalog !== "zdrCatalog") {
+      const wrongTopLevel = fixture(); wrongTopLevel[catalog].payload.data.id = canonicalModelId; reject(wrongTopLevel);
+    }
   }
   const missing = fixture(); missing.zdrCatalog.payload.data = []; missing.modelCatalog.payload.data.endpoints[0].zdr = true; reject(missing);
   const wrongModel = fixture(); wrongModel.modelCatalog.payload.data.id = "openai/gpt-5.6-luna:online"; reject(wrongModel);
@@ -121,7 +218,9 @@ test("R11 endpoint status, exact necessary capabilities and usable token ceiling
 
 test("R11 mismatched catalogs cannot qualify a route with one stale price, context or provider fact", () => {
   for (const mutate of [value => { value.pricing.prompt = "0.00000021"; }, value => { value.context_length += 1; }, value => { value.name += "v2"; }]) {
-    const input = fixture(); mutate(input.zdrCatalog.payload.data[0]); reject(input);
+    for (const catalog of endpointCatalogNames) {
+      const input = fixture(); mutate(endpointRows(input, catalog)[0]); reject(input);
+    }
   }
 });
 
@@ -171,6 +270,11 @@ test("R11 quote is constrained by proposed total cap, never creates approval, an
   for (const maximumMicrousd of [0, -1, 250_001, Infinity, 175_870, "250000", 250_000.1]) reject({ ...fixture(), maximumMicrousd });
   const result = qualifyPublicResearchQuote({ ...fixture(), maximumMicrousd: 175_871 });
   assert.equal(result.totalMicrousd, result.maximumMicrousd);
+  const continuation = qualifyPublicResearchQuote({ ...fixture(), maximumMicrousd: 239_932 });
+  assert.equal(continuation.maximumMicrousd, 239_932);
+  assert.equal(continuation.totalMicrousd, 175_871);
+  assert.notEqual(continuation.quoteHash, qualifyPublicResearchQuote(fixture()).quoteHash);
+  assert.equal(limits.maximumMicrousd, 250_000, "Proposal ceiling does not replace remaining or Business lifetime authority");
   assert.equal(result.approved, undefined);
   assert.equal(result.approvalHash, undefined);
   reject(mutateEndpoints(fixture(), value => { value.pricing.overrides[0].input_cache_write = "0.0000015"; }));
@@ -185,10 +289,58 @@ test("R11 quote integrity validation rejects mutated caps, reservations, sources
     value => { value.maximumMicrousd = 250_001; }, value => { value.providerEndpoint = "azure"; },
     value => { value.providerName = "OpenAI"; }, value => { value.allowances.searchRequests = 2; },
     value => { value.sourceHashes.zdrCatalog = "a".repeat(64); }, value => { value.quoteHash = "a".repeat(64); },
+    value => { value.sourceHashes.canonicalModelCatalog = "a".repeat(64); },
+    value => { value.sourceHashes.modelIdentity = "a".repeat(64); },
+    value => { value.canonicalModelId = "openai/gpt-5.6-luna-20260710"; },
+    value => { value.acceptedResponseModelIds.push("openai/gpt-5.6-pro"); },
+    value => { value.acceptedResponseModelIds.reverse(); },
+    value => { value.acceptedResponseModelIds[1] = "openai/gpt-5.6-luna:online"; },
+    value => { delete value.acceptedResponseModelIds; },
+    value => { value.version = "r11.public-research-quote.1"; },
     value => { value.validUntil = new Date(now + 300_001).toISOString(); },
     value => { value.quoteValidUntil = new Date(now + 300_001).toISOString(); },
     value => { value.verifiedAt = new Date(now + 1).toISOString(); },
   ]) { const result = structuredClone(original); mutate(result); assert.throws(() => validatePublicResearchQuote(result, now), /public_research_quote_unavailable/); }
+});
+
+test("R11 an internally rehashed quote still cannot widen its exact response identity pair or lose identity provenance", () => {
+  const original = qualifyPublicResearchQuote(fixture());
+  for (const mutate of [
+    value => { value.acceptedResponseModelIds.push("openai/gpt-5.6-luna-20260710"); },
+    value => { value.acceptedResponseModelIds = [canonicalModelId, limits.modelId]; },
+    value => { value.acceptedResponseModelIds = [limits.modelId, "openai/gpt-5.6-pro"]; },
+    value => { value.acceptedResponseModelIds = [limits.modelId, `${canonicalModelId}:online`]; },
+    value => { value.acceptedResponseModelIds = [limits.modelId, `${canonicalModelId}:batch`]; },
+    value => { value.acceptedResponseModelIds = [limits.modelId, /^openai\//]; },
+    value => { value.canonicalModelId = "openai/gpt-5.6-luna-20260710"; value.acceptedResponseModelIds[1] = value.canonicalModelId; },
+    value => { delete value.sourceHashes.modelIdentity; },
+    value => { delete value.sourceHashes.canonicalModelCatalog; },
+    value => { value.sourceHashes.canonicalModelCatalog = "f".repeat(64); },
+  ]) {
+    const result = structuredClone(original); mutate(result); rehashQuote(result);
+    assert.throws(() => validatePublicResearchQuote(result, now), /public_research_quote_unavailable/);
+  }
+});
+
+test("R11 historical V1 quotes remain readable but cannot acquire V2 canonical response authority", () => {
+  const legacy = qualifyPublicResearchQuote(fixture());
+  legacy.version = "r11.public-research-quote.1";
+  delete legacy.canonicalModelId; delete legacy.acceptedResponseModelIds;
+  delete legacy.sourceHashes.modelIdentity; delete legacy.sourceHashes.canonicalModelCatalog;
+  rehashQuote(legacy);
+  validatePublicResearchQuote(legacy, now);
+  assert.equal(legacy.canonicalModelId, undefined);
+  assert.equal(legacy.acceptedResponseModelIds, undefined);
+  for (const mutate of [
+    value => { value.canonicalModelId = canonicalModelId; },
+    value => { value.acceptedResponseModelIds = [limits.modelId, canonicalModelId]; },
+    value => { value.sourceHashes.modelIdentity = "a".repeat(64); },
+  ]) {
+    const hybrid = structuredClone(legacy); mutate(hybrid); rehashQuote(hybrid);
+    assert.throws(() => validatePublicResearchQuote(hybrid, now), /public_research_quote_unavailable/);
+  }
+  const oldInput = fixture(); delete oldInput.modelIdentityCatalog; delete oldInput.canonicalModelCatalog;
+  reject(oldInput);
 });
 
 function transport(overrides = {}) {
@@ -196,16 +348,18 @@ function transport(overrides = {}) {
   return { calls, fetch: async (url, init) => {
     calls.push({ url, init });
     if (overrides.handler) return overrides.handler(url, init, calls.length);
-    return new Response(JSON.stringify(url === limits.modelCatalogUrl ? input.modelCatalog.payload : input.zdrCatalog.payload),
+    const catalog = catalogNames.find(name => input[name].url === url);
+    assert.ok(catalog, "Only approved public catalog URLs are fetched");
+    return new Response(JSON.stringify(input[catalog].payload),
       { status: overrides.status ?? 200, headers: overrides.headers });
   } };
 }
 
-test("R11 fresh quote acquisition performs only two unauthenticated GETs on fixed exact public catalogs", async () => {
+test("R11 fresh quote acquisition performs only four unauthenticated GETs on verified exact public catalogs", async () => {
   const seen = transport();
   const result = await fetchPublicResearchQuote({ fetch: seen.fetch, now: () => now });
   assert.deepEqual(result, qualifyPublicResearchQuote(fixture()));
-  assert.deepEqual(seen.calls.map(call => call.url), [limits.modelCatalogUrl, limits.zdrCatalogUrl]);
+  assert.deepEqual(seen.calls.map(call => call.url), [limits.modelIdentityCatalogUrl, limits.modelCatalogUrl, canonicalCatalogUrl, limits.zdrCatalogUrl]);
   for (const { init } of seen.calls) {
     assert.equal(init.method, "GET"); assert.equal(init.body, undefined);
     assert.deepEqual(init.headers, { Accept: "application/json", "Cache-Control": "no-cache" });
@@ -229,7 +383,31 @@ test("R11 failed public catalogs never trigger a credential lookup, qualificatio
     const seen = transport({ handler });
     await assert.rejects(fetchPublicResearchQuote({ fetch: seen.fetch, now: () => now }), /public_research_quote_unavailable/);
     assert.equal(seen.calls.length, 1);
-    assert.equal(seen.calls[0].url, limits.modelCatalogUrl);
+    assert.equal(seen.calls[0].url, limits.modelIdentityCatalogUrl);
+  }
+});
+
+test("R11 invalid identity metadata stops before following any metadata link, and any later catalog failure stops without retry", async () => {
+  for (const mutate of [
+    input => { input.modelIdentityCatalog.payload.data = []; },
+    input => { input.modelIdentityCatalog.payload.data.push(structuredClone(input.modelIdentityCatalog.payload.data[0])); },
+    input => { input.modelIdentityCatalog.payload.data[0].links.details = "https://unreviewed.example.com/endpoints"; },
+    input => { input.modelIdentityCatalog.payload.data[0].canonical_slug = "openai/%2e%2e"; },
+  ]) {
+    const input = fixture(); mutate(input);
+    const seen = transport({ handler: async () => new Response(JSON.stringify(input.modelIdentityCatalog.payload)) });
+    await assert.rejects(fetchPublicResearchQuote({ fetch: seen.fetch, now: () => now }), /public_research_quote_unavailable/);
+    assert.deepEqual(seen.calls.map(call => call.url), [limits.modelIdentityCatalogUrl]);
+  }
+  for (const failAt of [2, 3, 4]) {
+    const input = fixture();
+    const seen = transport({ handler: async (url, _init, count) => {
+      if (count === failAt) return new Response("{}", { status: 503 });
+      const name = catalogNames.find(name => input[name].url === url);
+      return new Response(JSON.stringify(input[name].payload));
+    } });
+    await assert.rejects(fetchPublicResearchQuote({ fetch: seen.fetch, now: () => now }), /public_research_quote_unavailable/);
+    assert.equal(seen.calls.length, failAt);
   }
 });
 
@@ -240,7 +418,7 @@ test("R11 stale cached or delayed responses cannot receive a new full freshness 
   assert.equal(result.validUntil, new Date(now + 180_000).toISOString());
   const delayed = transport(); let reads = 0;
   await assert.rejects(fetchPublicResearchQuote({ fetch: delayed.fetch, now: () => now + (reads++ === 0 ? 0 : 300_000) }), /public_research_quote_unavailable/);
-  assert.equal(delayed.calls.length, 2);
+  assert.equal(delayed.calls.length, 4);
 });
 
 test("R11 redirects and wrong response origins are rejected even with a custom transport", async () => {

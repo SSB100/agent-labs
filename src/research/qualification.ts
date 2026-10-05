@@ -5,6 +5,7 @@ import type { ModelDefinition, ModelProviderResponse, StructuredModelRequest, We
 import { assembleDiscoveryEvidenceV2, discoverySelectionSchemaV2 } from "../products/discovery-v2-research";
 import { extractResearchSources, validateResearchCollection, validateResearchRequest } from "./sources";
 import type { EvidencePack, ResearchCollection } from "./types";
+import { validateResearchResponseModelIds } from "./qualification-outcome";
 
 /** A reviewed public factual-research use basis, not an open-content license or
  * a financial grant. Only trusted immutable storage may supply this policy. */
@@ -87,13 +88,14 @@ export function publicResearchSearchRequest(policy: PublicResearchPolicy, model:
 
 /** Reject forbidden/malformed citation origins rather than hiding them by only
  * filtering retained output. Provider-side domain enforcement remains primary. */
-export function collectQualifiedPublicSources(policy: PublicResearchPolicy, response: ModelProviderResponse, searchRequestId: string, now = Date.now()): { collection: ResearchCollection; lineage: PublicResearchLineage } {
+export function collectQualifiedPublicSources(policy: PublicResearchPolicy, response: ModelProviderResponse, searchRequestId: string, now = Date.now(), acceptedResponseModelIds: readonly string[] = [policy.modelId]): { collection: ResearchCollection; lineage: PublicResearchLineage } {
   validatePublicResearchPolicy(policy, now);
-  if (!UUID.test(searchRequestId) || response.provider !== "openrouter.exa" || response.providerModelId !== policy.modelId || typeof response.providerRequestId !== "string" || response.providerRequestId.length < 3 || response.providerRequestId.length > 300 || response.metadata.searchRequests !== 1 || !Array.isArray(response.output.annotations) || response.output.annotations.length > 4) return fail();
+  const acceptedModels = validateResearchResponseModelIds(policy.modelId, acceptedResponseModelIds);
+  if (!UUID.test(searchRequestId) || response.provider !== "openrouter.exa" || !acceptedModels.includes(response.providerModelId) || response.metadata.actualUpstreamProvider !== "Azure" || typeof response.providerRequestId !== "string" || response.providerRequestId.length < 3 || response.providerRequestId.length > 300 || response.metadata.searchRequests !== 1 || !Array.isArray(response.output.annotations) || response.output.annotations.length > 4) return fail();
   for (const annotation of response.output.annotations) {
-    if (!record(annotation) || annotation.type !== "url_citation" || !record(annotation.url_citation) || typeof annotation.url_citation.url !== "string") return fail();
+    if (!record(annotation) || annotation.type !== "url_citation" || !record(annotation.url_citation) || typeof annotation.url_citation.url !== "string" || typeof annotation.url_citation.content !== "string" || annotation.url_citation.content.replace(/\s+/g, " ").trim().length < 30) return fail();
     let url: URL; try { url = new URL(annotation.url_citation.url); } catch { return fail(); }
-    if (url.protocol !== "https:" || url.username || url.password || url.port || !policy.allowedDomains.some(domain => within(url.hostname, domain)) || policy.excludedDomains.some(domain => within(url.hostname, domain))) fail();
+    if (url.protocol !== "https:" || url.username || url.password || url.port || [...url.searchParams.keys()].some(key => /^(token|access_token|api_key|auth|password)$/i.test(key)) || !policy.allowedDomains.some(domain => within(url.hostname, domain)) || policy.excludedDomains.some(domain => within(url.hostname, domain))) fail();
   }
   const request = { query: policy.query, allowedDomains: policy.allowedDomains };
   const collection = extractResearchSources(request, { annotations: response.output.annotations as JsonObject[], metadata: {

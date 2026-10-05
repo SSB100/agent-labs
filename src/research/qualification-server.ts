@@ -10,13 +10,14 @@ import { inspectPublicResearchWire, runPublicResearchQualification } from "./qua
 import { validatePublicResearchQuote } from "./qualification-quote";
 import { PUBLIC_RESEARCH_PROOF_PROFILE } from "./qualification-profile";
 import { researchQualificationDependencies } from "./qualification-server-dependencies";
-import type { ResearchBootstrapPreparation, ResearchProofGrant, ResearchProofPhase, ResearchProofPolicy, ResearchProofResult, ResearchQualificationWorkspace } from "./qualification-owner-contract";
+import { validateResearchObservation } from "./qualification-outcome";
+import { RESEARCH_FAILURE_REASONS, type ResearchBootstrapPreparation, type ResearchContinuation, type ResearchOutcomeEvent, type ResearchProofGrant, type ResearchProofPhase, type ResearchProofPolicy, type ResearchProofResult, type ResearchQualificationWorkspace } from "./qualification-owner-contract";
 export type { ResearchBootstrapPreparation, ResearchQualificationWorkspace } from "./qualification-owner-contract";
 
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
 const HASH = /^[a-f0-9]{64}$/;
 const MONEY = /^(0|[1-9][0-9]{0,15})$/;
-const STATUSES = new Set(["ready", "collection_ready", "search_recording_pending", "selection_recording_pending", "completed", "revoked", "expired"]);
+const STATUSES = new Set(["ready", "collection_ready", "search_recording_pending", "selection_recording_pending", "completed", "revoked", "expired", "needs_owner", "cancelled", "failed"]);
 const fail = (): never => { throw new Error("research_qualification_unavailable"); };
 const object = (x: unknown): x is Record<string, unknown> => !!x && typeof x === "object" && !Array.isArray(x);
 const sha = (x: string) => createHash("sha256").update(x).digest("hex");
@@ -32,6 +33,9 @@ function serverKey() { requireValue(configured()); return process.env.R05_ADMISS
 function runtimeCapability(key: string, businessId: string, ownerId: string, policyId: string, workflowRunId: string) {
   return createHmac("sha256", key).update(canonicalPublicResearchJson({ version: "r11.owner-runtime.1", businessId, ownerId, policyId, workflowRunId })).digest("base64url");
 }
+function attemptAdmissionKey(key: string, businessId: string, ownerId: string, policyId: string, workflowRunId: string) {
+  return createHmac("sha256", key).update(canonicalPublicResearchJson({ version: "r11.attempt-admission.1", businessId, ownerId, policyId, workflowRunId })).digest("base64url");
+}
 async function owner(context: OwnerUiContext, businessId: string) {
   requireValue(id(businessId) && id(context.userId) && await verifyOwnerBusiness(context, businessId));
   const { data, error } = await context.supabase.auth.getClaims();
@@ -41,9 +45,34 @@ async function workspace(context: OwnerUiContext, businessId: string) {
   await owner(context, businessId);
   // SQL checks the live auth.sessions row, exact owner and Business. The read
   // needs no execution key and never performs catalog, search or model calls.
-  const { data, error } = await context.supabase.rpc("r11_research_workspace", { p_business_id: businessId });
+  const { data, error } = await context.supabase.rpc("r11_research_workspace_v2", { p_business_id: businessId });
   requireValue(!error && object(data) && data.businessId === businessId && data.ownerId === context.userId);
   return data;
+}
+function continuation(value: unknown): ResearchContinuation | null {
+  if (value === null || value === undefined) return null;
+  requireValue(object(value) && Object.keys(value).sort().join(",") === "businessRevision,capRevision,currentOperatingPolicyId,eligible,exposureMicrounits,goalId,goalRevision,lifetimeCapMicrounits,predecessorPolicyId,predecessorWorkflowRunId,reason,remainingMicrounits" &&
+    [value.predecessorPolicyId, value.predecessorWorkflowRunId, value.currentOperatingPolicyId, value.goalId].every(id) &&
+    [value.goalRevision, value.businessRevision, value.capRevision].every(x => Number.isSafeInteger(x) && Number(x) >= 1) &&
+    [value.lifetimeCapMicrounits, value.exposureMicrounits, value.remainingMicrounits].every(money) && typeof value.eligible === "boolean" &&
+    typeof value.reason === "string" && /^[a-z][a-z_]{1,79}$/.test(value.reason));
+  const remaining = BigInt(value.remainingMicrounits as string), held = BigInt(value.exposureMicrounits as string), lifetime = BigInt(value.lifetimeCapMicrounits as string);
+  requireValue(remaining === (lifetime > held ? lifetime - held : BigInt(0)) && (!value.eligible || value.reason === "ready" && remaining > BigInt(0)));
+  return structuredClone(value) as unknown as ResearchContinuation;
+}
+function outcomes(value: unknown, p: PublicResearchPolicy): ResearchOutcomeEvent[] {
+  if (value === undefined) return []; // Historical v1 projection is not a diagnosis.
+  requireValue(Array.isArray(value) && value.length <= 20);
+  return value.map(raw => {
+    requireValue(object(raw) && id(raw.outcomeId) && ["failure", "owner_stopped"].includes(String(raw.kind)) &&
+      ["none", "search", "select"].includes(String(raw.phase)) && (raw.requestId === null || id(raw.requestId)) &&
+      [...RESEARCH_FAILURE_REASONS, "owner_stopped", "legacy_failure_undetermined"].includes(String(raw.reason)) &&
+      typeof raw.createdAt === "string" && Number.isFinite(Date.parse(raw.createdAt)));
+    requireValue(raw.kind !== "owner_stopped" || raw.reason === "owner_stopped");
+    const observation = raw.observation === null ? null : validateResearchObservation(raw.observation, p.allowedDomains, p.modelId);
+    return { outcomeId: raw.outcomeId, kind: raw.kind as ResearchOutcomeEvent["kind"], phase: raw.phase as ResearchOutcomeEvent["phase"],
+      requestId: raw.requestId as string | null, reason: raw.reason as ResearchOutcomeEvent["reason"], observation, createdAt: raw.createdAt };
+  });
 }
 function policy(value: unknown, businessId: string, ownerId: string): ResearchProofPolicy {
   requireValue(object(value) && [value.policyId, value.workflowRunId, value.goalId, value.operatingPolicyId].every(id) && hash(value.policyHash) &&
@@ -76,43 +105,67 @@ function policy(value: unknown, businessId: string, ownerId: string): ResearchPr
       evidencePack, evidencePackHash: r.evidencePackHash, providerRequestId: r.providerRequestId, createdAt: r.createdAt };
   }
   requireValue(value.status !== "completed" || result !== null);
+  requireValue(value.attemptVersion === undefined || value.attemptVersion === 1 || value.attemptVersion === 2);
+  requireValue(value.terminalReconciliationRequired === undefined || typeof value.terminalReconciliationRequired === "boolean");
   return { policyId: value.policyId as string, workflowRunId: value.workflowRunId as string, goalId: value.goalId as string, operatingPolicyId: value.operatingPolicyId as string,
-    policy: p, policyHash: value.policyHash, status: value.status, revoked: value.revoked, expired: value.expired, phases, result };
+    policy: p, policyHash: value.policyHash, status: value.status, revoked: value.revoked, expired: value.expired, phases, result,
+    attemptVersion: value.attemptVersion === 2 ? 2 : 1, outcomeEvents: outcomes(value.outcomes, p), terminalReconciliationRequired: value.terminalReconciliationRequired === true };
 }
 function grant(value: unknown, businessId: string, ownerId: string): ResearchProofGrant {
   requireValue(object(value) && id(value.grantId) && hash(value.grantHash) && object(value.grant) && typeof value.used === "boolean" && typeof value.expired === "boolean" && typeof value.revoked === "boolean");
   const g = value.grant;
-  requireValue(g.version === "r11.owner-proof-grant.1" && g.id === value.grantId && g.businessId === businessId && g.ownerId === ownerId && id(g.policyId) && id(g.workflowRunId) &&
+  requireValue(["r11.owner-proof-grant.1", "r11.owner-continuation-grant.1"].includes(String(g.version)) && g.id === value.grantId && g.businessId === businessId && g.ownerId === ownerId && id(g.policyId) && id(g.workflowRunId) &&
     hash(g.serverKeyHash) && hash(g.runtimeCapabilityHash) && object(g.researchPolicy) && publicResearchHash(g) === value.grantHash);
   const proposed = { ...g.researchPolicy, id: g.policyId, businessId, ownerId, workflowRunId: g.workflowRunId, goalId: g.policyId, operatingPolicyId: g.policyId } as PublicResearchPolicy;
   validatePublicResearchPolicy(proposed, Date.parse(proposed.validFrom));
+  if (g.version === "r11.owner-continuation-grant.1") requireValue(continuation(g.continuation)?.eligible);
   // Ordinary workspace rendering does not expose credential/capability verifier
   // metadata. The separate explicit preparation view provides only new hashes.
   const safe = structuredClone(g) as JsonObject;
   delete safe.serverKeyHash; delete safe.runtimeCapabilityHash;
-  return { grantId: value.grantId, grantHash: value.grantHash, grant: safe as ResearchProofGrant["grant"], used: value.used, expired: value.expired, revoked: value.revoked };
+  return { grantId: value.grantId, grantHash: value.grantHash, grant: safe as ResearchProofGrant["grant"], used: value.used, expired: value.expired, revoked: value.revoked,
+    kind: g.version === "r11.owner-continuation-grant.1" ? "continuation" : "initial" };
 }
 export async function readResearchQualification(context: OwnerUiContext, businessId: string): Promise<ResearchQualificationWorkspace> {
   const empty: ResearchQualificationWorkspace = { businessId, ownerId: context.userId, unavailable: false, configured: configured(),
-    exposure: { currency: "USD", heldMicrounits: "0", hasUnknown: true }, policies: [], grants: [], policyTotal: 0, grantTotal: 0 };
+    exposure: { currency: "USD", heldMicrounits: "0", hasUnknown: true }, policies: [], grants: [], policyTotal: 0, grantTotal: 0, continuation: null };
   try {
     const row = await workspace(context, businessId);
     requireValue(object(row.exposure) && row.exposure.currency === "USD" && money(row.exposure.heldMicrounits) && typeof row.exposure.hasUnknown === "boolean" &&
       Array.isArray(row.policies) && row.policies.length <= 25 && Array.isArray(row.grants) && row.grants.length <= 25 &&
       Number.isSafeInteger(row.policyTotal) && Number(row.policyTotal) >= row.policies.length && Number.isSafeInteger(row.grantTotal) && Number(row.grantTotal) >= row.grants.length);
+    const continued = row.continuationGrants ?? [], continuedTotal = row.continuationGrantTotal ?? 0;
+    requireValue(Array.isArray(continued) && continued.length <= 25 && Number.isSafeInteger(continuedTotal) && Number(continuedTotal) >= continued.length);
+    const grants = [...row.grants, ...continued].map(value => grant(value, businessId, context.userId));
+    requireValue(new Set(grants.map(g => g.grantId)).size === grants.length);
+    grants.sort((a, b) => Date.parse(b.grant.researchPolicy.validFrom) - Date.parse(a.grant.researchPolicy.validFrom));
+    const next = continuation(row.continuation);
+    requireValue(!next?.eligible || !row.exposure.hasUnknown && next.exposureMicrounits === row.exposure.heldMicrounits);
     return { ...empty, exposure: { currency: "USD", heldMicrounits: row.exposure.heldMicrounits, hasUnknown: row.exposure.hasUnknown },
-      policies: row.policies.map(value => policy(value, businessId, context.userId)), grants: row.grants.map(value => grant(value, businessId, context.userId)), policyTotal: Number(row.policyTotal), grantTotal: Number(row.grantTotal) };
+      policies: row.policies.map(value => policy(value, businessId, context.userId)), grants: grants.slice(0, 25), policyTotal: Number(row.policyTotal),
+      grantTotal: Number(row.grantTotal) + Number(continuedTotal), continuation: next };
   } catch { return { ...empty, unavailable: true }; }
 }
 
 /** Explicit preparation reads public pricing and computes verification metadata
  * only. It does not install a grant, create intent, reserve cost or call a model. */
-export async function prepareResearchBootstrap(context: OwnerUiContext, businessId: string, policyId: string, workflowRunId: string): Promise<ResearchBootstrapPreparation> {
+export async function prepareResearchBootstrap(context: OwnerUiContext, businessId: string, policyId: string, workflowRunId: string, predecessorPolicyId?: string): Promise<ResearchBootstrapPreparation> {
   requireValue(id(policyId) && id(workflowRunId) && policyId !== workflowRunId);
-  await workspace(context, businessId);
+  requireValue(predecessorPolicyId === undefined || id(predecessorPolicyId));
+  const before = await workspace(context, businessId), previous = continuation(before.continuation);
+  requireValue(object(before.exposure) && before.exposure.currency === "USD" && money(before.exposure.heldMicrounits) && before.exposure.hasUnknown === false);
+  if (predecessorPolicyId === undefined) requireValue(before.policyTotal === 0);
+  else requireValue(previous?.eligible && previous.predecessorPolicyId === predecessorPolicyId && previous.predecessorPolicyId !== policyId && previous.predecessorWorkflowRunId !== workflowRunId);
+  const continued = predecessorPolicyId === undefined ? null : previous;
+  requireValue(!continued || continued.exposureMicrounits === before.exposure.heldMicrounits);
+  const maximumMicrousd = continued ? Number(BigInt(continued.remainingMicrounits) > BigInt(250000) ? BigInt(250000) : BigInt(continued.remainingMicrounits)) : 250000;
   const key = serverKey(), dependencies = researchQualificationDependencies();
-  const quote = await dependencies.fetchQuote(); validatePublicResearchQuote(quote);
-  await workspace(context, businessId); requireValue(serverKey() === key);
+  const quote = await dependencies.fetchQuote({ maximumMicrousd }); validatePublicResearchQuote(quote);
+  requireValue(quote.version === "r11.public-research-quote.2" && quote.maximumMicrousd === maximumMicrousd);
+  const after = await workspace(context, businessId); requireValue(serverKey() === key);
+  requireValue(canonicalPublicResearchJson(after.exposure) === canonicalPublicResearchJson(before.exposure));
+  if (continued) requireValue(canonicalPublicResearchJson(continuation(after.continuation)) === canonicalPublicResearchJson(continued));
+  else requireValue(after.policyTotal === 0);
   const preparedAt = new Date().toISOString(), expiresAt = quote.validUntil;
   const profile = structuredClone(PUBLIC_RESEARCH_PROOF_PROFILE);
   // Only query/routing fields enter the dry wire. Goal/financial identifiers and
@@ -128,20 +181,26 @@ export async function prepareResearchBootstrap(context: OwnerUiContext, business
     priceLimit: quote.priceLimit, quoteHash: quote.quoteHash, quoteValidUntil: quote.validUntil,
   };
   const search = await inspectPublicResearchWire(publicResearchSearchRequest(proposed, resolveModelRoute("standard.default").primary), "search");
-  return { version: "r11.owner-proof-preparation.1", businessId, ownerId: context.userId, policyId, workflowRunId,
-    serverKeyHash: sha(key), runtimeCapabilityHash: sha(runtimeCapability(key, businessId, context.userId, policyId, workflowRunId)),
+  return { version: "r11.owner-proof-preparation.2", businessId, ownerId: context.userId, policyId, workflowRunId,
+    mode: continued ? "continuation" : "initial", predecessorPolicyId: predecessorPolicyId ?? null, continuation: continued,
+    serverKeyHash: sha(continued ? attemptAdmissionKey(key, businessId, context.userId, policyId, workflowRunId) : key), runtimeCapabilityHash: sha(runtimeCapability(key, businessId, context.userId, policyId, workflowRunId)),
     preparedAt, expiresAt, quote, sourceProfile: profile as unknown as JsonObject, search, authorityCreated: false, paidCalls: 0 };
 }
 export async function activateResearchGrant(context: OwnerUiContext, businessId: string, grantId: string, grantHash: string) {
   requireValue(id(grantId) && hash(grantHash));
   const row = await workspace(context, businessId), key = serverKey();
-  requireValue(Array.isArray(row.grants));
-  const saved = row.grants.find(value => object(value) && value.grantId === grantId);
+  requireValue(Array.isArray(row.grants) && (row.continuationGrants === undefined || Array.isArray(row.continuationGrants)));
+  const matches = [...row.grants, ...(row.continuationGrants as unknown[] ?? [])].filter(value => object(value) && value.grantId === grantId);
+  requireValue(matches.length === 1);
+  const saved = matches[0];
   requireValue(object(saved) && saved.grantHash === grantHash && !saved.expired && !saved.revoked && object(saved.grant));
   const g = saved.grant;
-  requireValue(g.ownerId === context.userId && g.businessId === businessId && id(g.policyId) && id(g.workflowRunId) && g.serverKeyHash === sha(key) &&
+  const continued = g.version === "r11.owner-continuation-grant.1";
+  requireValue(continued || g.version === "r11.owner-proof-grant.1");
+  requireValue(g.ownerId === context.userId && g.businessId === businessId && id(g.policyId) && id(g.workflowRunId));
+  requireValue(g.serverKeyHash === sha(continued ? attemptAdmissionKey(key, businessId, context.userId, g.policyId, g.workflowRunId) : key) &&
     g.runtimeCapabilityHash === sha(runtimeCapability(key, businessId, context.userId, g.policyId, g.workflowRunId)) && publicResearchHash(g) === grantHash);
-  const { data, error } = await context.supabase.rpc("r11_research_bootstrap", { p_business_id: businessId, p_grant_id: grantId, p_grant_hash: grantHash });
+  const { data, error } = await context.supabase.rpc(continued ? "r11_research_continue" : "r11_research_bootstrap", { p_business_id: businessId, p_grant_id: grantId, p_grant_hash: grantHash });
   requireValue(!error && object(data) && data.policyId === g.policyId && data.workflowRunId === g.workflowRunId && typeof data.replayed === "boolean");
   return { policyId: data.policyId, workflowRunId: data.workflowRunId, replayed: data.replayed };
 }
@@ -153,13 +212,14 @@ export async function runResearchProof(context: OwnerUiContext, businessId: stri
   if (selected.result) return { status: "completed", resultId: selected.result.resultId };
   requireValue(!selected.revoked && !selected.expired && ["ready", "collection_ready"].includes(selected.status));
   const key = serverKey(), dependencies = researchQualificationDependencies();
-  const scope = { businessId, coreWorkflowRunId: selected.workflowRunId, runtimeCapability: runtimeCapability(key, businessId, context.userId, policyId, selected.workflowRunId) };
+  const scope = { businessId, coreWorkflowRunId: selected.workflowRunId, runtimeCapability: runtimeCapability(key, businessId, context.userId, policyId, selected.workflowRunId),
+    ...(selected.attemptVersion === 2 ? { admissionKey: attemptAdmissionKey(key, businessId, context.userId, policyId, selected.workflowRunId) } : {}) };
   const verifyQuote = async (p: PublicResearchPolicy) => {
     requireValue(serverKey() === key);
-    const quote = await dependencies.fetchQuote(); validatePublicResearchQuote(quote);
-    requireValue(quote.quoteHash === p.quoteHash && quote.modelId === p.modelId && quote.providerEndpoint === p.providerEndpoint &&
+    const quote = await dependencies.fetchQuote({ maximumMicrousd: p.maximumMicrousd }); validatePublicResearchQuote(quote);
+    requireValue(quote.version === "r11.public-research-quote.2" && quote.quoteHash === p.quoteHash && quote.modelId === p.modelId && quote.providerEndpoint === p.providerEndpoint &&
       quote.searchMicrousd === p.searchMicrousd && quote.selectorMicrousd === p.selectorMicrousd && publicResearchHash(quote.priceLimit) === publicResearchHash(p.priceLimit));
-    requireValue(serverKey() === key); return { providerName: quote.providerName };
+    requireValue(serverKey() === key); return { providerName: quote.providerName, acceptedResponseModelIds: quote.acceptedResponseModelIds };
   };
   await runPublicResearchQualification(scope, policyId, dependencies.makeRuntime(scope, verifyQuote));
   const latest = await readResearchQualification(context, businessId), proof = latest.policies.find(item => item.policyId === policyId);
@@ -168,7 +228,15 @@ export async function runResearchProof(context: OwnerUiContext, businessId: stri
 }
 export async function stopResearchProof(context: OwnerUiContext, businessId: string, policyId: string) {
   requireValue(id(policyId)); await owner(context, businessId);
-  const { data, error } = await context.supabase.rpc("r11_research_revoke", { p_business_id: businessId, p_policy_id: policyId });
+  const { data, error } = await context.supabase.rpc("r11_research_stop_v2", { p_business_id: businessId, p_policy_id: policyId });
   requireValue(!error && object(data) && data.policyId === policyId && data.revoked === true);
   return { policyId, revoked: true };
+}
+/** Explicit key-free projection repair derives only an already saved Stop. */
+export async function reconcileResearchProof(context: OwnerUiContext, businessId: string, policyId: string) {
+  requireValue(id(policyId));
+  const row = await workspace(context, businessId); requireValue(Array.isArray(row.policies));
+  const raw = row.policies.find(value => object(value) && value.policyId === policyId);
+  requireValue(object(raw) && raw.revoked === true && raw.terminalReconciliationRequired === true);
+  return stopResearchProof(context, businessId, policyId);
 }

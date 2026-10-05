@@ -13,7 +13,7 @@ function load(file,deps={}){
 }
 const presentation=load('src/app/dashboard/research-qualification/presentation.ts');
 const policy={query:'What do public adult surveys say about gift uniqueness?',allowedDomains:['example.org'],excludedDomains:['etsy.com','etsy.me','etsystatic.com'],modelId:'openai/gpt-5.6-luna',providerEndpoint:'azure/us',maximumMicrousd:250000,validFrom:'2026-10-05T00:00:00Z',validUntil:'2026-10-05T23:59:00Z',quoteValidUntil:'2026-10-05T23:59:00Z'};
-const proof=()=>({policyId,workflowRunId,policy,policyHash:hash,status:'ready',revoked:false,expired:false,phases:[{phase:'search',marked:false,settled:false,actualMicrounits:null,requestId:null,providerRequestId:null},{phase:'select',marked:false,settled:false,actualMicrounits:null,requestId:null,providerRequestId:null}],result:null});
+const proof=()=>({policyId,workflowRunId,goalId:policyId,operatingPolicyId:policyId,policy,policyHash:hash,status:'ready',revoked:false,expired:false,phases:[{phase:'search',marked:false,settled:false,actualMicrounits:null,requestId:null,providerRequestId:null},{phase:'select',marked:false,settled:false,actualMicrounits:null,requestId:null,providerRequestId:null}],result:null});
 const result=()=>({resultId:grantId,evidencePackHash:hash,collectionId:workflowRunId,providerRequestId:'inert-provider-id',createdAt:'2026-10-05T00:05:00Z',evidencePack:{evidence:[{id:'e1',sourceId:'s1',quote:'A bounded exact attributed public factual quote.'}],sources:[{id:'s1',title:'Public factual source',url:'https://example.org/source',retrievedAt:'2026-10-05T00:04:00Z',publishedAt:null}],limitations:['no_sales_metrics','not_profitability_proof']}});
 const workspace=()=>({businessId:business,unavailable:false,configured:true,exposure:{currency:'USD',heldMicrounits:'0',hasUnknown:false},policyTotal:1,grantTotal:1,policies:[proof()],grants:[{grantId,grantHash:hash,grant:{researchPolicy:policy,businessContent:{brandContext:'Exact existing Business',operatingRules:'One public evidence proof',allowedActivity:'Research planning',restrictions:'No store writes'},goalContent:{title:'One public evidence proof',parsed:{scope:'Research planning',deadline:{date:'2026-10-05',time:'23:59:00',timezone:'UTC'},stopConstraints:['Stop after one search and one selector']}},operatingPolicy:{currency:'USD',expectedExposureMicrounits:'598063',policyLimitMicrounits:'250000',businessLifetimeLimitMicrounits:'848063',maximumDispatches:2}},used:false,expired:false,revoked:false}]});
 function pageFixture({verified=true,unavailableOwnership=false,view=workspace()}={}){
@@ -23,8 +23,8 @@ function pageFixture({verified=true,unavailableOwnership=false,view=workspace()}
  '@/components/console/console-retained-workspace':{ConsoleRetainedWorkspace:({header,notice,panels})=>React.createElement('div',null,header,notice,...panels.map(p=>p.content))},
  '@/lib/core-ui/data':{requireOwnerUiContext:async()=>owned},'@/lib/core-ui/owner-business':{verifyOwnerBusiness:async()=>verified},
  '@/research/qualification-server':{readResearchQualification:async(...args)=>{reads.push(args);return view;}},
- './actions':{activateResearchProof:noop,runResearchProofAction:noop,stopResearchProofAction:noop},
- './prepare-form':load('src/app/dashboard/research-qualification/prepare-form.tsx',{'./actions':{prepareResearchSetup:noop}}),
+ './actions':{activateResearchProof:noop,runResearchProofAction:noop,stopResearchProofAction:noop,reconcileResearchProofAction:noop},
+ './prepare-form':load('src/app/dashboard/research-qualification/prepare-form.tsx',{'./actions':{prepareResearchSetup:noop},'./presentation':presentation}),
  './submit-button':load('src/app/dashboard/research-qualification/submit-button.tsx'),'./presentation':presentation,'./research-qualification.css':{}};
  return{...load('src/app/dashboard/research-qualification/page.tsx',deps),reads};
 }
@@ -44,7 +44,7 @@ test('saved-read unavailability renders recovery without forms or fabricated emp
  const f=pageFixture({view:{businessId:business,unavailable:true,configured:false,policies:[],grants:[]}}),html=await render(f);assert.match(html,/Research records unavailable/);assert.doesNotMatch(html,/<form|No owner-activated/);
 });
 test('missing dedicated configuration disables spending while saved results and Stop remain available',async()=>{
- const view=workspace();view.configured=false;view.policies[0].result=result();view.policies[0].expired=true;view.policies[0].status='expired';const html=await render(pageFixture({view}));for(const label of ['Prepare public quote and setup','Activate reviewed proof','Run public evidence proof'])assert.match(button(html,label),/\sdisabled=/);assert.doesNotMatch(button(html,'Stop this proof'),/\sdisabled=/);assert.match(html,/Saved validated evidence/);assert.match(html,/A bounded exact attributed/);assert.match(html,/Expired: no new dispatch/);assert.match(html,/R05 admission key securely/);assert.match(html,/Existing Accounts keys cannot substitute/);
+ const view=workspace();view.configured=false;view.policies[0].result=result();view.policies[0].expired=true;view.policies[0].status='expired';const html=await render(pageFixture({view}));for(const label of ['Activate reviewed proof','Run public evidence proof'])assert.match(button(html,label),/\sdisabled=/);assert.doesNotMatch(button(html,'Stop this proof'),/\sdisabled=/);assert.match(html,/Saved validated evidence/);assert.match(html,/A bounded exact attributed/);assert.match(html,/Expired: no new dispatch/);assert.match(html,/R05 admission key securely/);assert.match(html,/Existing Accounts keys cannot substitute/);
 });
 test('dispatch markers and known charges never display completed or validated evidence',async()=>{
  const view=workspace();view.policies[0].status='selection_recording_pending';view.policies[0].phases.forEach(p=>{p.marked=true;p.settled=true;p.actualMicrounits='1000';});const html=await render(pageFixture({view}));assert.match(html,/Held · dispatched outcome unverified/);assert.match(html,/reported \$0.001 USD/);assert.doesNotMatch(html,/>Saved validated evidence<|Complete ·/);assert.match(button(html,'Run public evidence proof'),/\sdisabled=/);
@@ -76,4 +76,64 @@ test('activation displays accounted historical charges and exact new scope and f
 });
 test('missing exact financial or intent disclosure disables activation rather than implying confirmation',async()=>{
  for(const field of ['businessContent','goalContent','operatingPolicy']){const view=workspace();delete view.grants[0].grant[field];const html=await render(pageFixture({view}));assert.match(html,/Activation is held until the full reviewed scope and limits can be shown/);assert.match(button(html,'Activate reviewed proof'),/\sdisabled=/);}
+});
+
+const continuation=()=>({predecessorPolicyId:policyId,predecessorWorkflowRunId:workflowRunId,currentOperatingPolicyId:policyId,goalId:policyId,goalRevision:2,businessRevision:2,capRevision:1,lifetimeCapMicrounits:'848063',exposureMicrounits:'608131',remainingMicrounits:'239932',eligible:true,reason:'eligible'});
+const outcome=(overrides={})=>({outcomeId:'11000000-0000-4000-8000-000000000006',kind:'failure',phase:'search',requestId:workflowRunId,reason:'response_model_unqualified',observation:{modelIdentity:'other',observedModelId:null,providerIdentity:'exact',observedProvider:'Azure',finishReason:'stop',searchRequests:1,annotationCount:4,approvedDomainCounts:[{domain:'example.org',count:3}],rejectedDomainCount:1,malformedAnnotationCount:0,providerError:null},createdAt:'2026-10-05T00:05:00Z',...overrides});
+test('saved failure and owner Stop remain independently visible with known historical charges and no selector',async()=>{
+ const view=workspace(),p=view.policies[0];p.revoked=true;p.expired=true;p.status='revoked';p.phases[0]={...p.phases[0],marked:true,settled:true,actualMicrounits:'10068'};
+ p.outcomeEvents=[outcome(),outcome({outcomeId:'11000000-0000-4000-8000-000000000007',kind:'owner_stopped',phase:'none',reason:'owner_stopped',observation:null})];
+ view.configured=false;const html=await render(pageFixture({view}));assert.match(html,/Saved proof failure/);assert.match(html,/returned model identity was not qualified/);assert.match(html,/Saved owner Stop/);assert.match(html,/Stopped · saved revocation/);assert.match(html,/Search: Dispatched; reported \$0.010068 USD/);assert.match(html,/Evidence selection: Pending, not dispatched/);assert.match(html,/Model identity: unqualified identity/);assert.match(html,/Provider identity: exact approved Azure identity/);assert.match(html,/Search requests: 1; citation annotations: 4/);assert.match(html,/Approved source example.org: 3/);assert.doesNotMatch(html,/>Saved validated evidence</);assert.match(button(html,'Run public evidence proof'),/\sdisabled=/);
+});
+test('legacy marked proof never invents a cause and exposes key-free explicit Stop reconciliation',async()=>{
+ const view=workspace(),p=view.policies[0];view.configured=false;p.revoked=true;p.expired=true;p.terminalReconciliationRequired=true;p.phases[0].marked=true;
+ let html=await render(pageFixture({view}));assert.match(html,/Dispatch markers and charges do not establish its result or failure cause/);assert.doesNotMatch(button(html,'Reconcile saved Stop'),/\sdisabled=/);assert.match(html,/does not recover an unknown failure reason or start research/);
+ p.outcomeEvents=[outcome({reason:'legacy_failure_undetermined',observation:null})];p.terminalReconciliationRequired=false;html=await render(pageFixture({view}));assert.match(html,/original stop cause remains undetermined/);assert.equal(button(html,'Reconcile saved Stop'),'');
+});
+test('safe diagnostic display withholds raw response text, unapproved domains and unknown enum values',()=>{
+ const secret='private-provider-secret';const disclosure=presentation.researchOutcomeDisclosure(outcome({reason:secret,observation:{modelIdentity:secret,observedModelId:secret,providerIdentity:secret,observedProvider:secret,finishReason:secret,searchRequests:-1,annotationCount:secret,approvedDomainCounts:[{domain:secret,count:1},{domain:'example.org',count:2}],rejectedDomainCount:0,malformedAnnotationCount:0,providerError:secret,rawError:secret}}),['example.org']);
+ assert.ok(disclosure);assert.doesNotMatch(JSON.stringify(disclosure),/private-provider-secret/);assert.match(JSON.stringify(disclosure),/unavailable/);assert.match(JSON.stringify(disclosure),/Approved source example.org: 2/);
+ assert.equal(presentation.researchOutcomeDisclosure(outcome({kind:secret}),['example.org']),null);
+});
+test('existing history only offers an exact read-only continuation within the unchanged lifetime cap',async()=>{
+ const view=workspace();view.continuation=continuation();view.exposure.heldMicrounits='608131';view.policies[0].revoked=true;const html=await render(pageFixture({view}));
+ assert.match(html,/Prepare reviewed continuation/);assert.match(html,/Remaining allowance: \$0.239932 USD/);assert.match(html,/Unchanged Business lifetime cap: \$0.848063 USD/);assert.match(html,/Preparation is not approval for a retry/);assert.match(html,/name="mode" value="continuation"/);assert.match(html,new RegExp(`name="predecessorPolicyId" value="${policyId}"`));assert.doesNotMatch(button(html,'Prepare continuation quote and setup'),/\sdisabled=/);assert.equal(button(html,'Prepare public quote and setup'),'');
+});
+test('unavailable or ineligible continuation cannot fall back to a replacement Goal bootstrap',async()=>{
+ const view=workspace();let html=await render(pageFixture({view}));assert.match(html,/Continuation preparation unavailable/);assert.equal(button(html,'Prepare public quote and setup'),'');
+ view.continuation={...continuation(),eligible:false,reason:'terminal_reconciliation_required'};html=await render(pageFixture({view}));assert.match(button(html,'Prepare continuation quote and setup'),/\sdisabled=/);assert.match(html,/Reconcile the saved Stop below/);
+ view.continuation.reason='private-secret-reason';html=await render(pageFixture({view}));assert.doesNotMatch(html,/private-secret-reason/);
+});
+test('initial preparation remains explicit and inert when configuration is absent',async()=>{
+ const view=workspace();view.policies=[];view.policyTotal=0;view.configured=false;const html=await render(pageFixture({view}));assert.match(html,/name="mode" value="initial"/);assert.match(button(html,'Prepare public quote and setup'),/\sdisabled=/);assert.doesNotMatch(html,/name="predecessorPolicyId"/);
+});
+test('continuation activation states exact dynamic consent, original Goal and unchanged lifetime cap',async()=>{
+ const view=workspace(),g=view.grants[0];g.kind='continuation';g.grant.continuation=continuation();g.grant.researchPolicy={...policy,maximumMicrousd:239932};g.grant.operatingPolicy={...g.grant.operatingPolicy,expectedExposureMicrounits:'608131',policyLimitMicrounits:'239932'};view.exposure.heldMicrounits='608131';
+ const html=await render(pageFixture({view}));assert.match(html,/up to \$0.239932 USD and two paid calls/);assert.doesNotMatch(html,/up to \$0.25 USD/);assert.match(html,/same Business and Goal/);assert.match(html,/Unchanged Business lifetime cap: \$0.848063 USD/);assert.match(html,new RegExp(`Same Goal ${policyId}`));assert.match(html,/Original attempts and charges remain saved/);assert.doesNotMatch(button(html,'Activate reviewed proof'),/\sdisabled=/);
+ delete g.grant.continuation;const held=await render(pageFixture({view}));assert.match(button(held,'Activate reviewed proof'),/\sdisabled=/);assert.match(held,/full reviewed scope and limits can be shown/);
+});
+test('a typed failure or unreconciled legacy terminal record never enables a replay',()=>{
+ for(const extra of [{outcomeEvents:[outcome()]},{terminalReconciliationRequired:true}])assert.equal(presentation.canRunResearchProof({...proof(),...extra},true,false),false);
+});
+test('inconsistent financial consent and inherited enum names stay fail closed',async()=>{
+ for(const change of [{policyLimitMicrounits:'250001'},{maximumDispatches:3}]){const view=workspace();Object.assign(view.grants[0].grant.operatingPolicy,change);const html=await render(pageFixture({view}));assert.match(button(html,'Activate reviewed proof'),/\sdisabled=/);}
+ for(const inherited of ['constructor','toString','__proto__']){const disclosure=presentation.researchOutcomeDisclosure(outcome({reason:inherited,observation:{...outcome().observation,modelIdentity:inherited,providerIdentity:inherited,finishReason:inherited}}),['example.org']);assert.equal(typeof disclosure.reason,'string');assert.match(disclosure.reason,/classification is unavailable/);assert.doesNotMatch(JSON.stringify(disclosure),/function|\[object Object\]/);assert.match(presentation.researchContinuationReason(inherited),/preparation is held/);}
+});
+test('missing configuration retains exact predecessor without enabling continuation preparation',async()=>{
+ const view=workspace();view.continuation=continuation();view.configured=false;const html=await render(pageFixture({view}));assert.match(button(html,'Prepare continuation quote and setup'),/\sdisabled=/);assert.match(html,new RegExp(`name="predecessorPolicyId" value="${policyId}"`));assert.equal(button(html,'Prepare public quote and setup'),'');
+});
+test('missing exact phase records stay explicit without inventing zero cost or unexecuted history',async()=>{
+ const view=workspace(),p=view.policies[0];p.revoked=true;p.phases=[{...p.phases[0],marked:true,settled:true,actualMicrounits:'10068'}];
+ let html=await render(pageFixture({view}));assert.match(html,/Search: Dispatched; reported \$0.010068 USD/);assert.match(html,/Evidence selection: no dispatch recorded/);assert.doesNotMatch(html,/Evidence selection: (?:Pending|.*\$0\.00|never)/);
+ p.phases=[];html=await render(pageFixture({view}));assert.match(html,/Search: no dispatch recorded/);assert.match(html,/Evidence selection: no dispatch recorded/);
+});
+
+test('unsaved diagnostic feedback names the persistence gap without inventing a saved failure or result',async()=>{
+ const f=pageFixture(),html=renderToStaticMarkup(await f.default({searchParams:Promise.resolve({business,notice:'diagnostic-unavailable'})}));
+ assert.match(html,/failure diagnostic could not be saved/);assert.match(html,/Inspect this exact proof’s phase and accounting records/);assert.match(html,/No automatic retry was made; unresolved charges remain held/);assert.match(html,/No saved failure or owner Stop outcome is recorded/);assert.doesNotMatch(html,/>Saved proof failure<|>Saved validated evidence</);assert.equal(f.reads.length,1);
+});
+test('owner Stop alone cannot hide missing failure diagnostics after a marked phase',async()=>{
+ const view=workspace(),p=view.policies[0];p.revoked=true;p.phases=[{...p.phases[0],marked:true,settled:true,actualMicrounits:'10068'}];p.outcomeEvents=[outcome({kind:'owner_stopped',reason:'owner_stopped',phase:'none',observation:null})];
+ let html=await render(pageFixture({view}));assert.match(html,/Saved owner Stop/);assert.match(html,/No typed validation outcome is saved for this attempt/);assert.match(html,/Dispatch markers and charges do not establish its result or failure cause/);assert.match(html,/Search: Dispatched; reported \$0.010068 USD/);assert.doesNotMatch(html,/>Saved proof failure</);
+ p.result=result();html=await render(pageFixture({view}));assert.match(html,/Saved validated evidence/);assert.doesNotMatch(html,/No typed validation outcome is saved for this attempt/);
 });

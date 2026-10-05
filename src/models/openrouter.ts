@@ -46,12 +46,15 @@ type OpenRouterAdapterOptions = {
   fetcher?: typeof fetch;
   timeoutMs?: number;
   admitDispatch?: ModelDispatchAdmission;
+  /** Trusted server projection; never serialized into the provider request. */
+  observeResponse?: (body: unknown, providerError?: string) => JsonObject;
 };
 
 type ProviderEnvelope = {
   body: Record<string, unknown>;
   latencyMs: number;
   requestId: string | null;
+  observation?: JsonObject;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -271,11 +274,8 @@ function readUsage(model: ModelDefinition, body: Record<string, unknown>): Model
   };
 }
 
-function classifyStatus(status: number, message: string): ModelProviderError {
-  const details = {
-    httpStatus: status,
-    providerMessage: message.slice(0, 500),
-  };
+function classifyStatus(status: number): ModelProviderError {
+  const details = { httpStatus: status };
 
   if (status === 401 || status === 403) {
     return new ModelProviderError(
@@ -318,18 +318,6 @@ function classifyStatus(status: number, message: string): ModelProviderError {
   );
 }
 
-function errorMessage(body: unknown, fallback: string): string {
-  if (isRecord(body)) {
-    if (isRecord(body.error) && typeof body.error.message === "string") {
-      return body.error.message;
-    }
-    if (typeof body.message === "string") {
-      return body.message;
-    }
-  }
-  return fallback;
-}
-
 export function isOpenRouterConfigured(): boolean {
   return Boolean(process.env.OPENROUTER_API_KEY?.trim());
 }
@@ -360,12 +348,14 @@ export class OpenRouterAdapter implements ModelProviderAdapter {
   private readonly fetcher: typeof fetch;
   private readonly timeoutMs: number;
   private readonly admitDispatch?: ModelDispatchAdmission;
+  private readonly observeResponse?: OpenRouterAdapterOptions["observeResponse"];
 
   constructor(options: OpenRouterAdapterOptions = {}) {
     this.config = options.config ?? getOpenRouterConfig();
     this.fetcher = options.fetcher ?? fetch;
     this.timeoutMs = options.timeoutMs ?? REQUEST_TIMEOUT_MS;
     this.admitDispatch = options.admitDispatch;
+    this.observeResponse = options.observeResponse;
   }
 
   private async post(body: JsonObject): Promise<ProviderEnvelope> {
@@ -401,12 +391,15 @@ export class OpenRouterAdapter implements ModelProviderAdapter {
         try {
           parsedBody = JSON.parse(rawText);
         } catch {
-          parsedBody = { message: rawText.slice(0, 500) };
+          parsedBody = null;
         }
       }
 
+      // Project before envelope, model, content or annotation validation can
+      // discard the original shape. The callback may retain bounded enums only.
+      const observation = this.observeResponse?.(parsedBody);
       if (!response.ok) {
-        const failure = classifyStatus(response.status, errorMessage(parsedBody, response.statusText));
+        const failure = classifyStatus(response.status);
         const value = isRecord(parsedBody) ? parsedBody : {};
         const usage = isRecord(value.usage) ? value.usage : {};
         const requestId = typeof value.id === "string" ? value.id : response.headers.get("x-request-id") || response.headers.get("x-openrouter-request-id");
@@ -418,7 +411,8 @@ export class OpenRouterAdapter implements ModelProviderAdapter {
             outputTokens: nonNegativeInteger(usage.completion_tokens), totalTokens: nonNegativeInteger(usage.total_tokens),
             reportedCostUsd: optionalNumber(usage.cost) } };
         throw new ModelProviderError(failure.category, failure.message, failure.retryable, { ...failure.details,
-          requestedModel: typeof body.model === "string" ? body.model : null, providerReceipt });
+          requestedModel: typeof body.model === "string" ? body.model : null, providerReceipt,
+          ...(observation ? { researchObservation: this.observeResponse?.(parsedBody, failure.category) ?? observation } : {}) });
       }
 
       if (!isRecord(parsedBody)) {
@@ -426,11 +420,13 @@ export class OpenRouterAdapter implements ModelProviderAdapter {
           "malformed_model_output",
           "OpenRouter returned an invalid response envelope.",
           true,
+          { validationGate: "provider_envelope", ...(observation ? { researchObservation: observation } : {}) },
         );
       }
 
       return {
         body: parsedBody,
+        ...(observation ? { observation } : {}),
         latencyMs: Date.now() - startedAt,
         requestId:
           response.headers.get("x-request-id") ||
@@ -449,7 +445,7 @@ export class OpenRouterAdapter implements ModelProviderAdapter {
       }
       throw new ModelProviderError(
         "provider_unavailable",
-        error instanceof Error ? error.message : "OpenRouter request failed.",
+        "OpenRouter request failed.",
         true,
       );
     } finally {
@@ -522,10 +518,11 @@ export class OpenRouterAdapter implements ModelProviderAdapter {
       ["stop", "length", "content_filter", "tool_calls", "error"].includes(returnedChoice.finish_reason) ? returnedChoice.finish_reason : null;
     receivedReceipt.finishReason = finishReason;
     try {
-    if (request.requireReturnedModel && typeof response.body.model !== "string") throw new ModelProviderError("malformed_model_output", "The provider did not return a verifiable model identity.", false);
-    const choices = Array.isArray(response.body.choices)
-      ? response.body.choices
-      : [];
+    if (request.requireReturnedModel && typeof response.body.model !== "string") throw new ModelProviderError("malformed_model_output", "The provider did not return a verifiable model identity.", false, { validationGate: "response_model" });
+    if (!Array.isArray(response.body.choices) || !isRecord(response.body.choices[0]) || !isRecord(response.body.choices[0].message)) {
+      throw new ModelProviderError("malformed_model_output", "The provider returned an invalid choice envelope.", false, { validationGate: "provider_envelope" });
+    }
+    const choices = response.body.choices;
     const firstChoice = isRecord(choices[0]) ? choices[0] : {};
     const message = isRecord(firstChoice.message) ? firstChoice.message : {};
     const content = contentText(message.content);
@@ -535,7 +532,7 @@ export class OpenRouterAdapter implements ModelProviderAdapter {
         "malformed_model_output",
         "OpenRouter returned no structured model content.",
         true,
-        { finishReason: String(firstChoice.finish_reason ?? "unknown") },
+        { finishReason },
       );
     }
 
@@ -556,18 +553,17 @@ export class OpenRouterAdapter implements ModelProviderAdapter {
       latencyMs: response.latencyMs,
       usage: readUsage(request.model, response.body),
       metadata: {
-        finishReason:
-          typeof firstChoice.finish_reason === "string"
-            ? firstChoice.finish_reason
-            : null,
+        finishReason,
         requestedModel: request.model.providerModelId,
         modelKey: request.model.modelKey,
         providerSchemaProjected: true,
         routeMetadata: request.requestMetadata,
+        ...(response.observation ? { researchObservation: response.observation } : {}),
       },
     };
     } catch (error) {
-      if (error instanceof ModelProviderError) throw new ModelProviderError(error.category, error.message, error.retryable, { ...error.details, finishReason, providerReceipt: receivedReceipt });
+      if (error instanceof ModelProviderError) throw new ModelProviderError(error.category, error.message, error.retryable, { ...error.details, validationGate: error.details.validationGate ?? "structured_output", finishReason, providerReceipt: receivedReceipt,
+        ...(response.observation ? { researchObservation: response.observation } : {}) });
       throw error;
     }
   }
@@ -593,22 +589,29 @@ export class OpenRouterAdapter implements ModelProviderAdapter {
       latencyMs: response.latencyMs, usage: { ...readUsage(request.model, response.body) },
     };
     try {
-      if (request.requireReturnedModel && typeof response.body.model !== "string") throw new ModelProviderError("malformed_model_output", "The search provider did not return a verifiable model identity.", false);
-      const choices=Array.isArray(response.body.choices)?response.body.choices:[];
+      if (request.requireReturnedModel && typeof response.body.model !== "string") throw new ModelProviderError("malformed_model_output", "The search provider did not return a verifiable model identity.", false, { validationGate: "response_model" });
+      if (!Array.isArray(response.body.choices) || !isRecord(response.body.choices[0]) || !isRecord(response.body.choices[0].message)) {
+        throw new ModelProviderError("malformed_model_output", "The search provider returned an invalid choice envelope.", false, { validationGate: "provider_envelope" });
+      }
+      const choices=response.body.choices;
       const choice=isRecord(choices[0])?choices[0]:{},message=isRecord(choice.message)?choice.message:{};
-      const annotations=(Array.isArray(message.annotations)?message.annotations:[]).filter(jsonObject);
+      const rawAnnotations=Array.isArray(message.annotations)?message.annotations:[];
+      const annotations=rawAnnotations.filter(jsonObject);
       const usage=isRecord(response.body.usage)?response.body.usage:{};
       // ChatUsage accepts either documented server-search receipt spelling.
       const tools=isRecord(usage.server_tool_use_details)?usage.server_tool_use_details:isRecord(usage.server_tool_use)?usage.server_tool_use:{};
       const searches=nonNegativeInteger(tools.web_search_requests);
-      if (searches!==1||!annotations.length) throw new ModelProviderError("malformed_model_output",`Web Research requires one search and source annotations (searches=${searches}, annotations=${annotations.length}, finish=${String(choice.finish_reason)}, usageFields=${Object.keys(usage).join(",")}).`,true);
+      if (searches!==1||!annotations.length||annotations.length!==rawAnnotations.length) throw new ModelProviderError("malformed_model_output", "Web research requires one verified search and complete source annotations.", true, { validationGate: "source_contract" });
       return {output:{annotations},provider:"openrouter.exa",providerModelId:typeof response.body.model === "string" ? response.body.model : request.model.providerModelId,
         providerRequestId:typeof response.body.id==="string"?response.body.id:response.requestId,
         latencyMs:response.latencyMs,usage:readUsage(request.model,response.body),
         metadata:{modelKey:request.model.modelKey,searchRequests:searches,engine:"exa",maximumSearchRequests:1,
-          actualUpstreamProvider:typeof response.body.provider === "string" ? response.body.provider : null}};
+          actualUpstreamProvider:typeof response.body.provider === "string" ? response.body.provider : null,
+          finishReason: typeof choice.finish_reason === "string" && ["stop", "length", "content_filter", "tool_calls", "error"].includes(choice.finish_reason) ? choice.finish_reason : null,
+          ...(response.observation ? { researchObservation: response.observation } : {})}};
     } catch (error) {
-      if (error instanceof ModelProviderError) throw new ModelProviderError(error.category,error.message,error.retryable,{...error.details,providerReceipt:receivedReceipt});
+      if (error instanceof ModelProviderError) throw new ModelProviderError(error.category,error.message,error.retryable,{...error.details,providerReceipt:receivedReceipt,
+        ...(response.observation ? { researchObservation: response.observation } : {})});
       throw error;
     }
   }

@@ -1,4 +1,4 @@
-import {seedResearchFixture,researchCatalogFixture,researchProviderFixture,researchOwnerFixture,researchRuntimeFixture} from './r11-research.mjs';
+import {seedResearchFixture,installResearchContinuationFixture,researchCatalogFixture,researchProviderFixture,researchOwnerFixture,researchRuntimeFixture} from './r11-research.mjs';
 import sharp from 'sharp';
 import {seedViewerFixture,readViewerFixture,viewerAuthorityFixture,R10_FIXTURE_SVG} from './r10.mjs';
 import {knowledgeSeed,readKnowledgeFixture,saveKnowledgeFixture} from './knowledge.mjs';
@@ -12,15 +12,16 @@ import { filterFixtureOr } from './query-predicates.mjs';
 export async function startFixtureBoundary() {
   const viewerJpeg=await sharp(Buffer.from(R10_FIXTURE_SVG)).jpeg({quality:65}).toBuffer();
   let state = fixtureData(), control = { delayId: null, delayMs: 0, failTable: null, actionMode: 'success' };
-  const log = [], effects = [], denied = [], heldKnowledgeActions = [];
+  const log = [], effects = [], denied = [], heldKnowledgeActions = [], heldResearchLoads = [];
   const releaseKnowledgeActions=()=>{control.holdKnowledgeActions=false;for(const release of heldKnowledgeActions.splice(0))release();};
+  const releaseResearchLoads=()=>{control.r11HoldLoads=false;for(const release of heldResearchLoads.splice(0))release();};
   const valueAt = (row,path) => path.replace(/->>?/g,'.').split('.').reduce((v,k) => v?.[k],row);
   const server = createServer(async(req,res) => {
     try {
     let body='';for await(const chunk of req)body+=chunk;
     const input=body?JSON.parse(body):{};
     const send = data => { res.setHeader('content-type','application/json');res.end(JSON.stringify(data)); };
-    if(req.url==='/control'){if(input.r11Research===true&&!state.r11Research)state.r11Research=seedResearchFixture(state);if(input.resetResearch===true)state.r11Research=seedResearchFixture(state);if(input.knowledge===true&&!state.knowledge)state.knowledge=knowledgeSeed(state);if(input.resetKnowledge===true)state.knowledge=knowledgeSeed(state);if(input.workspace===true&&!state.workspace)state.workspace=workspaceSeed(state,id,time);if(typeof input.history==='boolean'&&input.history!==state.history.enabled)state=fixtureData({history:input.history});if(input.viewer===true&&!state.viewer)state.viewer=seedViewerFixture(state);if(input.resetViewer===true)state.viewer=seedViewerFixture(state);if(input.viewerExpiresInMs&&state.viewer)state.viewer.expiresAt=new Date(Date.now()+input.viewerExpiresInMs).toISOString();control={...control,...input};if(input.holdKnowledgeActions===false)releaseKnowledgeActions();return send({ok:true});}
+    if(req.url==='/control'){if(input.r11Research===true&&!state.r11Research)state.r11Research=seedResearchFixture(state,input);if(input.resetResearch===true)state.r11Research=seedResearchFixture(state,input);if(input.r11InstallContinuation===true)installResearchContinuationFixture(state,input);if(input.knowledge===true&&!state.knowledge)state.knowledge=knowledgeSeed(state);if(input.resetKnowledge===true)state.knowledge=knowledgeSeed(state);if(input.workspace===true&&!state.workspace)state.workspace=workspaceSeed(state,id,time);if(typeof input.history==='boolean'&&input.history!==state.history.enabled)state=fixtureData({history:input.history});if(input.viewer===true&&!state.viewer)state.viewer=seedViewerFixture(state);if(input.resetViewer===true)state.viewer=seedViewerFixture(state);if(input.viewerExpiresInMs&&state.viewer)state.viewer.expiresAt=new Date(Date.now()+input.viewerExpiresInMs).toISOString();control={...control,...input};if(input.holdKnowledgeActions===false)releaseKnowledgeActions();if(input.r11HoldLoads===false)releaseResearchLoads();return send({ok:true});}
     if(req.url==='/snapshot')return send({log,effects,denied,control});
     if(req.url==='/reset'){state=fixtureData();log.length=effects.length=denied.length=0;control={delayId:null,delayMs:0,failTable:null,actionMode:'success'};return send({ok:true});}
     if(req.url==='/claims')return send(input.session==='off'?{data:null,error:null}:{data:{claims:{sub:state.owner,session_id:id(910003),email:'inert-owner@example.invalid'}},error:null});
@@ -29,10 +30,11 @@ export async function startFixtureBoundary() {
     if(req.url==='/r10/capture'){log.push({kind:'inert-viewer-frame'});res.setHeader('content-type','image/jpeg');return res.end(control.viewerCorruptFrame?Buffer.from([255,216,255,217]):viewerJpeg);}
     if(req.url==='/r11/catalog')return send(researchCatalogFixture(input.url,log,control));
     if(req.url==='/r11/provider')return send(researchProviderFixture(state,input,effects,control));
-    if(['/rest/v1/rpc/r11_research_server','/rest/v1/rpc/r05_admission_server'].includes(req.url)){
+    if(['/rest/v1/rpc/r11_research_server_v2','/rest/v1/rpc/r05_admission_server'].includes(req.url)){
       const name=req.url.split('/').at(-1);log.push({kind:'inert-r11-runtime',rpc:name,business:input.p_business_id,operation:input.p_operation});
       const result=researchRuntimeFixture(state,name,input,effects,control);
       if(result.error){res.statusCode=400;return send({code:'42501',message:result.error.message});}
+      if(name==='r11_research_server_v2'&&input.p_operation==='load'&&control.r11HoldLoads)await new Promise(resolve=>heldResearchLoads.push(resolve));
       return send(result.data);
     }
     if(input.session==='off')return send({data:null,error:{code:'42501',message:'inert owner absent'}});
@@ -68,7 +70,7 @@ export async function startFixtureBoundary() {
     }
     if(req.url==='/rpc'){
       const {name,args}=input;const business=args.p_business_id;
-      if(['r11_research_workspace','r11_research_bootstrap','r11_research_revoke'].includes(name)){log.push({rpc:name,business});return send(researchOwnerFixture(state,name,args,effects,control,input.mode));}
+      if(['r11_research_workspace_v2','r11_research_bootstrap','r11_research_stop_v2','r11_research_continue'].includes(name)){log.push({rpc:name,business});return send(researchOwnerFixture(state,name,args,effects,control,input.mode));}
       if(name==='r11_connection_read'||name==='r11_etsy_read_workspace'){
         if(!state.businesses.some(b=>b.id===business))return send({data:null,error:{message:'Inert owner mismatch'}});
         if(input.mode==='unavailable')return send({data:null,error:{message:'Inert qualification unavailable'}});
@@ -165,5 +167,5 @@ export async function startFixtureBoundary() {
   });
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
   const origin=`http://127.0.0.1:${server.address().port}`;
-  return {origin,state:()=>state,log,effects,denied,releaseKnowledgeActions,close:()=>{releaseKnowledgeActions();return new Promise(resolve=>server.close(resolve));}};
+  return {origin,state:()=>state,log,effects,denied,releaseKnowledgeActions,heldResearchLoads:()=>heldResearchLoads.length,releaseResearchLoads,close:()=>{releaseKnowledgeActions();releaseResearchLoads();return new Promise(resolve=>server.close(resolve));}};
 }

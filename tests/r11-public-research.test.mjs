@@ -55,7 +55,7 @@ test('R11 immutable source lineage retains exact query, citation hashes and poli
  const output=q.qualifiedPublicEvidence(policy,collection,lineage,{selections:[{sourceKey:'S1',quote:'Adult gardeners often value practical tools and containers suited to the available growing space.'}],limitations:['limited_sources']},now);
  assert.equal(output.sourceLineage.collectionHash,lineage.collectionHash);assert.ok(output.limitations.includes('no_sales_metrics'));assert.ok(output.limitations.includes('not_profitability_proof'));
 });
-for(const url of ['https://etsy.com/listing/1','https://www.etsy.com/listing/1','https://api.etsy.com/listing/1','https://evil.example/report','http://gardening.example/report','https://user:pass@gardening.example/report','https://gardening.example:444/report','not-a-url'])test(`R11 malformed/restricted origin ${url} is not silently discarded`,()=>{
+for(const url of ['https://etsy.com/listing/1','https://www.etsy.com/listing/1','https://api.etsy.com/listing/1','https://evil.example/report','http://gardening.example/report','https://user:pass@gardening.example/report','https://gardening.example:444/report','https://gardening.example/report?token=private','not-a-url'])test(`R11 malformed/restricted origin ${url} is not silently discarded`,()=>{
  const {policy,now,response}=fixture();response.output.annotations.push({type:'url_citation',url_citation:{url,content:'A prohibited source must invalidate the collection, even alongside a permitted result.'}});
  assert.throws(()=>q.collectQualifiedPublicSources(policy,response,id(10),now));
 });
@@ -74,4 +74,16 @@ test('R11 tampered derivative, foreign owner/policy, stale evidence and forged r
 test('R11 deterministic hashes ignore object order but retain every content/array difference',()=>{
  assert.equal(q.publicResearchHash({b:1,a:[2,3]}),q.publicResearchHash({a:[2,3],b:1}));assert.notEqual(q.publicResearchHash({a:[2,3]}),q.publicResearchHash({a:[3,2]}));
  assert.throws(()=>q.publicResearchHash({bad:undefined}));assert.throws(()=>q.publicResearchHash(Infinity));
+});
+
+test('R11 pure source model gate accepts an exact canonical identity only with a trusted verified mapping',()=>{
+ const {policy,now,response}=fixture();response.providerModelId='openai/gpt-5.6-luna-20260709';
+ assert.throws(()=>q.collectQualifiedPublicSources(policy,response,id(10),now));
+ const accepted=[policy.modelId,'openai/gpt-5.6-luna-20260709'];
+ assert.equal(q.collectQualifiedPublicSources(policy,response,id(10),now,accepted).collection.sources.length,1);
+ for(const model of ['openai/gpt-5.6-luna-20260710','openai/gpt-5.6-luna-20260709-extra','unknown/model']){
+  response.providerModelId=model;assert.throws(()=>q.collectQualifiedPublicSources(policy,response,id(10),now,accepted));
+ }
+ response.providerModelId=accepted[1];response.metadata.actualUpstreamProvider='Azure EU';
+ assert.throws(()=>q.collectQualifiedPublicSources(policy,response,id(10),now,accepted));
 });

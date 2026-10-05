@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {setTimeout as pause} from 'node:timers/promises';
-import {RESEARCH_KEY,sha,value,RESEARCH_OWNER,RESEARCH_OTHER,authenticate,seedResearch,admission,revoke,counts,guard,settle,collectionPayload,recanonicalizeCollection,research} from './r11-public-research-fixture.mjs';
+import {RESEARCH_KEY,RESEARCH_SESSION,sha,value,RESEARCH_OWNER,RESEARCH_OTHER,authenticate,seedResearch,admission,revoke,counts,guard,settle,collectionPayload,recanonicalizeCollection,research} from './r11-public-research-fixture.mjs';
 import {completionPayload} from './r11-public-research-owner-proof.mjs';
 
 /** Requires actual independent PostgreSQL sessions and an observed blocking PID.
@@ -68,6 +68,50 @@ export async function researchPostgresRaces(t,{db,Client,pgUrl}){
    assert.equal(await value(db,'select status result from public.workflow_runs where id=$1',[s.workflowRunId]),statusBefore);
    assert.deepEqual(await counts(db,s),before,'Existing two marked/settled calls remain recorded without a new attempt');
   }finally{await locker.query('rollback').catch(()=>{});if(pending)await pending;await Promise.all([locker.end(),runner.end()]);}
+ });
+ await t.test('actual concurrent guards cannot let the unacquired caller terminalize the one marked search',async()=>{
+  const s=await seedResearch(db),left=await client(),right=await client();
+  try{
+   const replies=await Promise.all([guard(left,s),guard(right,s)]);assert.equal(replies.filter(r=>r.shouldDispatch===true).length,1);assert.equal(replies.filter(r=>r.shouldDispatch===false).length,1);assert.equal(replies[0].requestId,replies[1].requestId);
+   const before=await counts(db,s),loser=replies[0].shouldDispatch?right:left;
+   await assert.rejects(value(loser,'select public.r11_research_server_v2($1,$2,$3,$4) result',[s.businessId,'fail',{policyId:s.policy.id,phase:'search',requestId:null,reason:'internal_failure',observation:null},RESEARCH_KEY]),/r11_research_outcome_request/);
+   assert.deepEqual(await counts(db,s),before);assert.equal(await value(db,'select count(*)::int result from private.r11_research_outcomes where policy_id=$1',[s.policy.id]),0);assert.equal(await value(db,'select count(*)::int result from private.r11_research_revocations where policy_id=$1',[s.policy.id]),0);assert.equal(await value(db,'select status result from public.workflow_runs where id=$1',[s.workflowRunId]),'running');
+  }finally{await Promise.all([left.end(),right.end()]);}
+ });
+ await t.test('observed lost-collect reply race cannot revoke the separately acquired selector',async()=>{
+  const s=await seedResearch(db),searched=await guard(db,s),searchReceipt=`inert-lost-collect-${s.policy.id}`;await settle(db,s,searched.requestId,searchReceipt);
+  const collection=collectionPayload(s,searched.requestId,searchReceipt);await research(db,s,'collect',collection); // Commit succeeded; simulate its reply being discarded by the search caller.
+  s.lineage=collection.lineage;const selector=await client(),searchCaller=await client();let pending;
+  try{
+   const loaded=await research(selector,s,'load',{policyId:s.policy.id});s.collectionId=loaded.collection.id;
+   await selector.query('begin');const selected=await guard(selector,s,'select');assert.equal(selected.shouldDispatch,true);
+   pending=value(searchCaller,'select public.r11_research_server_v2($1,$2,$3,$4) result',[s.businessId,'fail',{policyId:s.policy.id,phase:'search',requestId:searched.requestId,reason:'collection_persistence_failed',observation:null},RESEARCH_KEY]).then(result=>({result}),error=>({error}));
+   await observedLock(searchCaller,selector);await selector.query('commit');const outcome=await pending;assert.equal(outcome.error,undefined);assert.equal(outcome.result.recorded,false);assert.equal(outcome.result.superseded,true);assert.equal(outcome.result.reason,'phase_progressed');
+   assert.equal(await value(db,'select count(*)::int result from private.r11_research_outcomes where policy_id=$1',[s.policy.id]),0);assert.equal(await value(db,'select count(*)::int result from private.r11_research_revocations where policy_id=$1',[s.policy.id]),0);assert.equal(await value(db,'select status result from public.workflow_runs where id=$1',[s.workflowRunId]),'running');
+   const receipt=`inert-owned-selector-${s.policy.id}`;await settle(selector,s,selected.requestId,receipt);const completed=await research(selector,s,'complete',completionPayload(s,collection.collection,selected.requestId,receipt));assert.ok(completed.resultId);assert.equal(await value(db,'select status result from public.workflow_runs where id=$1',[s.workflowRunId]),'completed');assert.equal((await counts(db,s)).markers,2);
+  }finally{await selector.query('rollback').catch(()=>{});if(pending)await pending;await Promise.all([selector.end(),searchCaller.end()]);}
+ });
+ await t.test('observed failure projection lock wait cannot commit an outcome after key grace expires',async()=>{
+  const s=await seedResearch(db),key=`inert-outcome-grace-${s.policy.id}`,expires=Date.now()+3000;
+  await db.query('insert into private.r05_server_keys values($1,$2)',[sha(key),new Date(expires).toISOString()]);
+  const marked=await research(db,s,'guard',{policyId:s.policy.id,phase:'search',collectionId:null,admission:admission(s)},key);await settle(db,s,marked.requestId,`inert-outcome-${s.policy.id}`);
+  const before=await counts(db,s),locker=await client(),runner=await client();let pending;
+  try{
+   await locker.query('begin');await locker.query('select id from public.workflow_runs where id=$1 for update',[s.workflowRunId]);
+   pending=value(runner,'select public.r11_research_server_v2($1,$2,$3,$4) result',[s.businessId,'fail',{policyId:s.policy.id,phase:'search',requestId:marked.requestId,reason:'source_contract_invalid',observation:null},key]).then(result=>({result}),error=>({error}));
+   await observedLock(runner,locker);assert.ok(Date.now()<expires);await pause(Math.max(0,expires-Date.now()+150));await locker.query('commit');assert.match((await pending).error?.message??'',/r11_research_authority_required/);
+   assert.deepEqual(await counts(db,s),before);assert.equal(await value(db,'select count(*)::int result from private.r11_research_outcomes where policy_id=$1',[s.policy.id]),0);assert.equal(await value(db,'select count(*)::int result from private.r11_research_revocations where policy_id=$1',[s.policy.id]),0);assert.equal(await value(db,'select status result from public.workflow_runs where id=$1',[s.workflowRunId]),'running');
+  }finally{await locker.query('rollback').catch(()=>{});if(pending)await pending;await Promise.all([locker.end(),runner.end()]);}
+ });
+ await t.test('observed Stop projection lock wait rechecks owner session expiry and rolls back',async()=>{
+  const s=await seedResearch(db),expires=Date.now()+3000,locker=await client(),runner=await client();let pending;
+  await db.query('update auth.sessions set not_after=$2 where id=$1',[RESEARCH_SESSION,new Date(expires).toISOString()]);
+  try{
+   await locker.query('begin');await locker.query('select id from public.workflow_runs where id=$1 for update',[s.workflowRunId]);
+   pending=value(runner,'select public.r11_research_stop_v2($1,$2) result',[s.businessId,s.policy.id]).then(result=>({result}),error=>({error}));
+   await observedLock(runner,locker);assert.ok(Date.now()<expires);await pause(Math.max(0,expires-Date.now()+150));await locker.query('commit');assert.match((await pending).error?.message??'',/r11_research_owner_session_required/);
+   assert.equal(await value(db,'select count(*)::int result from private.r11_research_outcomes where policy_id=$1',[s.policy.id]),0);assert.equal(await value(db,'select count(*)::int result from private.r11_research_revocations where policy_id=$1',[s.policy.id]),0);assert.equal(await value(db,'select status result from public.workflow_runs where id=$1',[s.workflowRunId]),'running');
+  }finally{await locker.query('rollback').catch(()=>{});if(pending)await pending;await Promise.all([locker.end(),runner.end()]);await db.query('update auth.sessions set not_after=null where id=$1',[RESEARCH_SESSION]);}
  });
  await t.test('observed owner-transfer-before-dispatch race cannot inherit prior owner research authority',async()=>{
   const s=await seedResearch(db),before=await counts(db,s);

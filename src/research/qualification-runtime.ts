@@ -7,20 +7,25 @@ import { ModelProviderError, type ModelDefinition, type ModelDispatchAdmission, 
 import { assembleAdmittedPublicEvidence, canonicalPublicResearchJson, collectQualifiedPublicSources, publicResearchHash, publicResearchSearchRequest, publicResearchSelectorRequest, validatePublicResearchLineage, validatePublicResearchPolicy, type PublicResearchLineage, type PublicResearchPolicy } from "./qualification";
 import type { EvidencePack, ResearchCollection } from "./types";
 import { fetchPublicResearchQuote, validatePublicResearchQuote } from "./qualification-quote";
+import type { ResearchFailureReason, ResearchObservation } from "./qualification-owner-contract";
+import { observePublicResearchResponse, PublicResearchQualificationError, PublicResearchQualificationUnacquiredError, validateResearchObservation, validateResearchResponseModelIds } from "./qualification-outcome";
 
 type Phase = "search" | "select";
-export type ResearchRuntimeScope = { businessId: string; coreWorkflowRunId: string; runtimeCapability: string };
+export type ResearchRuntimeScope = { businessId: string; coreWorkflowRunId: string; runtimeCapability: string;
+  /** Trusted per-attempt server credential. Never a model, UI or fixture input. */
+  admissionKey?: string };
 type Scope = ResearchRuntimeScope;
 type Wire = { requestHash: string; wireHash: string; wireBytes: number; maxTokens: number };
 type SavedCollection = { id: string; collection: ResearchCollection; collectionHash: string; lineage: PublicResearchLineage; lineageHash: string; selector: Wire };
-type Loaded = { policy: PublicResearchPolicy; policyHash: string; search: Wire; collection: SavedCollection | null };
-type Rpc = (operation: "load" | "guard" | "collect" | "complete", payload: JsonObject) => Promise<unknown>;
+type Loaded = { policy: PublicResearchPolicy; policyHash: string; search: Wire; collection: SavedCollection | null;
+  attemptVersion: 1 | 2; operationKeys: { search: string; select: string } };
+type Rpc = (operation: "load" | "guard" | "collect" | "complete" | "fail", payload: JsonObject) => Promise<unknown>;
 type Settle = (requestId: string, receipt: JsonObject) => Promise<void>;
 type Provider = Pick<OpenRouterAdapter, "invokeWebSearch" | "invokeStructured">;
 export type PublicResearchRuntime = {
-  rpc: Rpc; settle: Settle; provider: (admit: ModelDispatchAdmission) => Provider;
+  rpc: Rpc; settle: Settle; provider: (admit: ModelDispatchAdmission, observeResponse?: (body: unknown, providerError?: string) => JsonObject) => Provider;
   /** Must freshly verify exact catalog/ZDR endpoint, full tier quote and hash. */
-  verifyQuote: (policy: PublicResearchPolicy) => Promise<{ providerName: string }>;
+  verifyQuote: (policy: PublicResearchPolicy) => Promise<{ providerName: string; acceptedResponseModelIds?: readonly string[] }>;
   now?: () => number; model?: ModelDefinition;
 };
 const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
@@ -53,114 +58,198 @@ function wireEquals(a: Wire, b: Wire) {
   return !!a && !!b && HASH.test(a.requestHash) && HASH.test(a.wireHash) && a.requestHash === b.requestHash && a.wireHash === b.wireHash && a.wireBytes === b.wireBytes && a.maxTokens === b.maxTokens;
 }
 
-function safeReceipt(response: ModelProviderResponse): JsonObject {
-  const reported = response.usage.reportedCostUsd;
-  return { provider: response.provider, providerModelId: response.providerModelId, providerRequestId: response.providerRequestId,
-    actualUpstreamProvider: typeof response.metadata.actualUpstreamProvider === "string" ? response.metadata.actualUpstreamProvider : null,
-    reportedMicrousd: typeof reported === "number" && Number.isFinite(reported) && reported >= 0 && Number.isSafeInteger(Math.ceil(reported * 1e6)) ? Math.ceil(reported * 1e6) : null };
+const costMicrousd = (reported: unknown): number | null => typeof reported === "number" && Number.isFinite(reported) && reported >= 0 && Number.isSafeInteger(Math.ceil(reported * 1e6)) ? Math.ceil(reported * 1e6) : null;
+const providerRequestId = (value: unknown): value is string => typeof value === "string" && value.length >= 1 && value.length <= 300;
+function safeReceipt(response: ModelProviderResponse, observation: ResearchObservation, phase: Phase): JsonObject {
+  return { provider: phase === "search" ? "openrouter.exa" : observation.observedProvider,
+    providerModelId: observation.observedModelId, providerRequestId: providerRequestId(response.providerRequestId) ? response.providerRequestId : null,
+    actualUpstreamProvider: observation.observedProvider, reportedMicrousd: costMicrousd(response.usage?.reportedCostUsd) };
 }
 
-/** This runner is deliberately not wired into R12 or an owner Start control.
- * A separately reviewed SQL policy and confirmed R05 operating envelope are
- * necessary, and the final marker rechecks them atomically on every dispatch. */
+/** No fallback or paid retry exists. A separately committed fail RPC makes the
+ * exact bounded gate visible without rolling back its accounting or outcome. */
 export async function runPublicResearchQualification(scope: Scope, policyId: string, runtime: PublicResearchRuntime): Promise<{ evidencePack: EvidencePack; evidencePackHash: string; resultId: string; policyId: string; collectionId: string; receipts: JsonObject[] }> {
   const ownedScope = structuredClone(scope), now = runtime.now ?? Date.now;
-  if (!UUID.test(policyId) || !UUID.test(ownedScope.businessId) || !UUID.test(ownedScope.coreWorkflowRunId) || !ownedScope.runtimeCapability) return denied();
-  const loadedValue = await runtime.rpc("load", { policyId });
-  if (!record(loadedValue) || !record(loadedValue.policy) || typeof loadedValue.policyHash !== "string" || !record(loadedValue.search) || !(loadedValue.collection === null || record(loadedValue.collection))) return denied();
-  const loaded = structuredClone(loadedValue) as unknown as Loaded, policy = loaded.policy;
-  validatePublicResearchPolicy(policy, now());
-  if (policy.id !== policyId || policy.businessId !== ownedScope.businessId || policy.workflowRunId !== ownedScope.coreWorkflowRunId || publicResearchHash(policy) !== loaded.policyHash) return denied();
-  const model = structuredClone(runtime.model ?? resolveModelRoute("standard.default").primary);
-  const receipts: JsonObject[] = [];
-  async function call(phase: Phase, request: WebSearchModelRequest | StructuredModelRequest, expected: Wire, collectionId: string | null): Promise<{ response: ModelProviderResponse; requestId: string }> {
+  const failure: { reason: ResearchFailureReason; phase: "none" | Phase; requestId: string | null; observation: ResearchObservation | null } = {
+    reason: "internal_failure", phase: "none", requestId: null, observation: null,
+  };
+  let journalEligible = false;
+  try {
+    if (!UUID.test(policyId) || !UUID.test(ownedScope.businessId) || !UUID.test(ownedScope.coreWorkflowRunId) || !ownedScope.runtimeCapability) return denied();
+    const loadedValue = await runtime.rpc("load", { policyId });
+    if (!record(loadedValue) || !record(loadedValue.policy) || typeof loadedValue.policyHash !== "string" || !record(loadedValue.search) || !(loadedValue.collection === null || record(loadedValue.collection))) return denied();
+    const loaded = structuredClone(loadedValue) as unknown as Loaded, policy = loaded.policy;
+    if (policy.id !== policyId || policy.businessId !== ownedScope.businessId || policy.workflowRunId !== ownedScope.coreWorkflowRunId || publicResearchHash(policy) !== loaded.policyHash) return denied();
+    journalEligible = true;
     validatePublicResearchPolicy(policy, now());
-    const freshQuote = await runtime.verifyQuote(structuredClone(policy));
-    if (!freshQuote || typeof freshQuote.providerName !== "string" || freshQuote.providerName.length < 2) return denied();
-    validatePublicResearchPolicy(policy, now());
-    const inspected = await inspectPublicResearchWire(request, phase);
-    if (!wireEquals(inspected, expected)) return denied();
-    let admittedRequestId: string | null = null;
-    const admit: ModelDispatchAdmission = async wire => {
-      if (admittedRequestId !== null || wire.url !== "https://openrouter.ai/api/v1/chat/completions" || wire.method !== "POST" || digest(wire.body) !== inspected.wireHash || Buffer.byteLength(wire.body, "utf8") !== inspected.wireBytes) return denied();
-      const result = await runtime.rpc("guard", { policyId, phase, collectionId,
-        admission: { workflowRunId: ownedScope.coreWorkflowRunId, runtimeCapability: ownedScope.runtimeCapability,
-          operationKey: phase === "search" ? "research.search" : "research.model", requestHash: inspected.requestHash,
-          wireRequestHash: inspected.wireHash, wireRequestBytes: inspected.wireBytes, maximumOutputTokens: inspected.maxTokens,
-          providerModelId: policy.modelId, idempotencyKey: `r11:${policy.id}:${phase}`, accounting: { kind: "r05" },
-          sourceDomains: [...policy.allowedDomains], dataClasses: ["generic_public_query", "public_evidence"], accountId: null, accountRevision: null,
-          currency: "USD", liabilityMicrounits: String(phase === "search" ? policy.searchMicrousd : policy.selectorMicrousd) } });
-      if (!record(result) || result.decision !== "allowed" || result.shouldDispatch !== true || typeof result.requestId !== "string" || !UUID.test(result.requestId)) return denied();
-      admittedRequestId = result.requestId;
-    };
-    let response: ModelProviderResponse;
-    try {
-      const provider = runtime.provider(admit);
-      response = phase === "search" ? await provider.invokeWebSearch(request as WebSearchModelRequest) : await provider.invokeStructured(request as StructuredModelRequest);
-    } catch (error) {
-      // A received cost/identity is preserved even when output/transport fails.
-      // No receipt or null cost leaves the original marker's liability unknown.
-      if (admittedRequestId && error instanceof ModelProviderError && record(error.details.providerReceipt)) {
-        const received = error.details.providerReceipt, usage = record(received.usage) ? received.usage : {};
-        const cost = usage.reportedCostUsd;
-        const amount = typeof cost === "number" && Number.isFinite(cost) && cost >= 0 && Number.isSafeInteger(Math.ceil(cost * 1e6)) ? Math.ceil(cost * 1e6) : null;
-        if (typeof received.providerRequestId === "string") {
-          try { await runtime.settle(admittedRequestId, { providerRequestId: received.providerRequestId, reportedMicrousd: amount }); } catch { /* Keep held liability. */ }
+    if (![1, 2].includes(loaded.attemptVersion) || !record(loaded.operationKeys) || Object.keys(loaded.operationKeys).sort().join(",") !== "search,select" ||
+        loaded.operationKeys.search !== (loaded.attemptVersion === 2 ? `research.search.r11v2.${policy.id}` : "research.search") ||
+        loaded.operationKeys.select !== (loaded.attemptVersion === 2 ? `research.model.r11v2.${policy.id}` : "research.model")) return denied();
+    const model = structuredClone(runtime.model ?? resolveModelRoute("standard.default").primary);
+    const receipts: JsonObject[] = [];
+    async function call(phase: Phase, request: WebSearchModelRequest | StructuredModelRequest, expected: Wire, collectionId: string | null): Promise<{ response: ModelProviderResponse; requestId: string; acceptedResponseModelIds: readonly string[] }> {
+      failure.reason = "internal_failure"; failure.phase = phase; failure.requestId = null; failure.observation = null;
+      validatePublicResearchPolicy(policy, now());
+      const freshQuote = await runtime.verifyQuote(structuredClone(policy));
+      if (!freshQuote || freshQuote.providerName !== "Azure") return denied();
+      // Historical V1 injection remains strict-alias only. V2 must carry the
+      // freshly hash-verified catalog alias/canonical pair.
+      if (loaded.attemptVersion === 2 && freshQuote.acceptedResponseModelIds?.length !== 2) return denied();
+      const acceptedResponseModelIds = validateResearchResponseModelIds(policy.modelId, freshQuote.acceptedResponseModelIds ?? [policy.modelId]);
+      validatePublicResearchPolicy(policy, now());
+      const inspected = await inspectPublicResearchWire(request, phase);
+      if (!wireEquals(inspected, expected)) return denied();
+      const observationContext = { modelId: policy.modelId, acceptedResponseModelIds, allowedDomains: policy.allowedDomains, excludedDomains: policy.excludedDomains };
+      let admittedRequestId: string | null = null;
+      const observeResponse = (body: unknown, providerError?: string): JsonObject => {
+        failure.observation = observePublicResearchResponse(body, observationContext, providerError);
+        return failure.observation as unknown as JsonObject;
+      };
+      const acceptObservation = (value: unknown, fallback: unknown, providerError?: string): ResearchObservation => {
+        const observation = value === undefined ? observePublicResearchResponse(fallback, observationContext, providerError)
+          : validateResearchObservation(value, policy.allowedDomains, policy.modelId, acceptedResponseModelIds);
+        if (providerError) observation.providerError = observePublicResearchResponse({}, observationContext, providerError).providerError;
+        return observation;
+      };
+      const admit: ModelDispatchAdmission = async wire => {
+        if (admittedRequestId !== null || wire.url !== "https://openrouter.ai/api/v1/chat/completions" || wire.method !== "POST" || digest(wire.body) !== inspected.wireHash || Buffer.byteLength(wire.body, "utf8") !== inspected.wireBytes) return denied();
+        // A lost/denied guard reply can belong to another invocation. Only a
+        // positive dispatch grant gives this invocation failure-write ownership.
+        failure.phase = phase; failure.requestId = null; failure.observation = null;
+        const result = await runtime.rpc("guard", { policyId, phase, collectionId,
+          admission: { workflowRunId: ownedScope.coreWorkflowRunId, runtimeCapability: ownedScope.runtimeCapability,
+            operationKey: loaded.operationKeys[phase], requestHash: inspected.requestHash,
+            wireRequestHash: inspected.wireHash, wireRequestBytes: inspected.wireBytes, maximumOutputTokens: inspected.maxTokens,
+            providerModelId: policy.modelId, idempotencyKey: `r11:${policy.id}:${phase}`, accounting: { kind: "r05" },
+            sourceDomains: [...policy.allowedDomains], dataClasses: ["generic_public_query", "public_evidence"], accountId: null, accountRevision: null,
+            currency: "USD", liabilityMicrounits: String(phase === "search" ? policy.searchMicrousd : policy.selectorMicrousd) } });
+        if (!record(result) || result.decision !== "allowed" || result.shouldDispatch !== true || typeof result.requestId !== "string" || !UUID.test(result.requestId)) return denied();
+        admittedRequestId = result.requestId; failure.requestId = result.requestId;
+      };
+      let response: ModelProviderResponse;
+      try {
+        const provider = runtime.provider(admit, observeResponse);
+        response = phase === "search" ? await provider.invokeWebSearch(request as WebSearchModelRequest) : await provider.invokeStructured(request as StructuredModelRequest);
+      } catch (error) {
+        if (!admittedRequestId) return denied();
+        failure.reason = "provider_response_invalid";
+        if (error instanceof ModelProviderError) {
+          const received = record(error.details.providerReceipt) ? error.details.providerReceipt : {}, usage = record(received.usage) ? received.usage : {};
+          // Settlement precedes every diagnostic gate, including projection
+          // validation. Missing cost remains unknown; no estimate is substituted.
+          let settlementFailed = false;
+          if (providerRequestId(received.providerRequestId)) {
+            try { await runtime.settle(admittedRequestId, { providerRequestId: received.providerRequestId, reportedMicrousd: costMicrousd(usage.reportedCostUsd) }); }
+            catch { settlementFailed = true; }
+          }
+          const fallback = { model: received.providerModelId, provider: phase === "search" ? received.upstreamProvider : received.provider,
+            choices: [{ finish_reason: received.finishReason, message: {} }] };
+          failure.observation = acceptObservation(error.details.researchObservation ?? failure.observation ?? undefined, fallback, error.category);
+          if (settlementFailed || (providerRequestId(received.providerRequestId) && costMicrousd(usage.reportedCostUsd) === null) || (costMicrousd(usage.reportedCostUsd) ?? 0) > (phase === "search" ? policy.searchMicrousd : policy.selectorMicrousd)) failure.reason = "cost_unverified_or_over_cap";
+          else if (failure.observation.modelIdentity === "other" || error.details.validationGate === "response_model") failure.reason = "response_model_unqualified";
+          else if (failure.observation.providerIdentity === "other") failure.reason = "response_provider_unqualified";
+          else if (error.details.validationGate === "source_contract") failure.reason = "source_contract_invalid";
+          else if (error.details.validationGate === "structured_output") failure.reason = "selector_output_invalid";
         }
+        return denied();
       }
-      return denied();
+      if (!admittedRequestId) return denied();
+      failure.reason = "provider_response_invalid";
+      response = structuredClone(response);
+      const metadata = record(response.metadata) ? response.metadata : {}, output = record(response.output) ? response.output : {};
+      // A custom trusted adapter can omit the callback; use only its bounded
+      // diagnostic projection or project its returned shape before validators.
+      const fallback = { model: response.providerModelId, provider: phase === "search" ? metadata.actualUpstreamProvider : response.provider,
+        choices: [{ finish_reason: metadata.finishReason, message: { annotations: output.annotations } }],
+        usage: { server_tool_use: { web_search_requests: metadata.searchRequests } } };
+      const observed = failure.observation ?? observePublicResearchResponse(fallback, observationContext);
+      failure.observation = observed;
+      const receipt = safeReceipt(response, observed, phase);
+      failure.reason = "cost_unverified_or_over_cap";
+      await runtime.settle(admittedRequestId, receipt);
+      receipts.push(receipt);
+      failure.reason = "provider_response_invalid";
+      failure.observation = acceptObservation(metadata.researchObservation ?? failure.observation ?? undefined, fallback);
+      if (!acceptedResponseModelIds.includes(response.providerModelId) || !["request_alias", "canonical"].includes(failure.observation.modelIdentity)) { failure.reason = "response_model_unqualified"; return denied(); }
+      const observedProvider = phase === "search" ? metadata.actualUpstreamProvider : response.provider;
+      if (observedProvider !== freshQuote.providerName || failure.observation.providerIdentity !== "exact") { failure.reason = "response_provider_unqualified"; return denied(); }
+      if (!providerRequestId(response.providerRequestId) || receipt.reportedMicrousd === null || Number(receipt.reportedMicrousd) > (phase === "search" ? policy.searchMicrousd : policy.selectorMicrousd)) { failure.reason = "cost_unverified_or_over_cap"; return denied(); }
+      return { response, requestId: admittedRequestId, acceptedResponseModelIds };
     }
-    if (!admittedRequestId) return denied();
-    response = structuredClone(response);
-    const receipt = safeReceipt(response);
-    await runtime.settle(admittedRequestId, receipt);
-    receipts.push(receipt);
-    const observedProvider = phase === "search" ? response.metadata.actualUpstreamProvider : response.provider;
-    if (response.providerModelId !== policy.modelId || observedProvider !== freshQuote.providerName || typeof response.providerRequestId !== "string" || receipt.reportedMicrousd === null || Number(receipt.reportedMicrousd) > (phase === "search" ? policy.searchMicrousd : policy.selectorMicrousd)) return denied();
-    return { response, requestId: admittedRequestId };
+    let saved = loaded.collection;
+    if (saved === null) {
+      const request = publicResearchSearchRequest(policy, model, now());
+      const searched = await call("search", request, loaded.search, null);
+      failure.reason = "source_contract_invalid";
+      if (failure.observation && (failure.observation.searchRequests !== 1 || failure.observation.annotationCount === null || failure.observation.annotationCount < 1 || failure.observation.annotationCount > 4 || failure.observation.malformedAnnotationCount > 0 || failure.observation.rejectedDomainCount > 0)) return denied();
+      const { collection, lineage } = collectQualifiedPublicSources(policy, searched.response, searched.requestId, now(), searched.acceptedResponseModelIds);
+      const selector = publicResearchSelectorRequest(policy, model, collection, lineage, now());
+      const selectorWire = await inspectPublicResearchWire(selector, "select");
+      const lineageHash = publicResearchHash(lineage);
+      failure.reason = "collection_persistence_failed";
+      const recorded = await runtime.rpc("collect", { policyId, searchRequestId: searched.requestId, providerRequestId: searched.response.providerRequestId,
+        collection, collectionCanonical: canonicalPublicResearchJson(collection), collectionHash: publicResearchHash(collection),
+        lineage: lineage as unknown as JsonObject, lineageCanonical: canonicalPublicResearchJson(lineage), lineageHash,
+        selectorRequestHash: selectorWire.requestHash, selectorWireHash: selectorWire.wireHash, selectorWireBytes: selectorWire.wireBytes, selectorMaxTokens: selectorWire.maxTokens });
+      if (!record(recorded) || typeof recorded.collectionId !== "string" || !UUID.test(recorded.collectionId) || recorded.collectionHash !== publicResearchHash(collection) || recorded.lineageHash !== lineageHash) return denied();
+      saved = { id: recorded.collectionId, collection, collectionHash: publicResearchHash(collection), lineage, lineageHash, selector: selectorWire };
+      // The search is durably complete. Its marker cannot authorize a later
+      // preflight failure to stop a selector already owned by another caller.
+      failure.requestId = null; failure.observation = null;
+    }
+    failure.reason = "source_contract_invalid";
+    if (!UUID.test(saved.id) || saved.collectionHash !== publicResearchHash(saved.collection) || saved.lineageHash !== publicResearchHash(saved.lineage)) return denied();
+    validatePublicResearchLineage(policy, saved.collection, saved.lineage, now());
+    const selected = await call("select", publicResearchSelectorRequest(policy, model, saved.collection, saved.lineage, now()), saved.selector, saved.id);
+    failure.reason = "selector_output_invalid";
+    const evidencePack = assembleAdmittedPublicEvidence(policy, saved.collection, saved.lineage, selected.response.output, now()), evidencePackHash = publicResearchHash(evidencePack);
+    failure.reason = "result_persistence_failed";
+    const completed = await runtime.rpc("complete", { policyId, collectionId: saved.id, selectorRequestId: selected.requestId,
+      providerRequestId: selected.response.providerRequestId, selection: selected.response.output, evidencePack,
+      evidencePackCanonical: canonicalPublicResearchJson(evidencePack), evidencePackHash });
+    if (!record(completed) || typeof completed.resultId !== "string" || !UUID.test(completed.resultId) || completed.evidencePackHash !== evidencePackHash || typeof completed.replayed !== "boolean") return denied();
+    return { evidencePack, evidencePackHash, resultId: completed.resultId, policyId, collectionId: saved.id, receipts };
+  } catch {
+    // Never borrow a durable marker on denied, duplicate or uncertain admission.
+    // The positively admitted caller may still finish; this caller only reads
+    // back durable state and must not journal/revoke or claim a write failure.
+    if (failure.requestId === null) throw new PublicResearchQualificationUnacquiredError();
+    let outcomeId: string | null = null, recorded = false, superseded = false;
+    if (journalEligible) {
+      try {
+        const outcome = await runtime.rpc("fail", { policyId, phase: failure.phase, requestId: failure.requestId, reason: failure.reason,
+          observation: failure.observation as unknown as JsonObject | null });
+        if (record(outcome) && typeof outcome.outcomeId === "string" && UUID.test(outcome.outcomeId) && outcome.recorded === true && typeof outcome.replayed === "boolean" && typeof outcome.workflowStatus === "string") {
+          outcomeId = outcome.outcomeId; recorded = true;
+        } else if (record(outcome) && outcome.recorded === false && outcome.superseded === true && outcome.reason === "phase_progressed" && typeof outcome.workflowStatus === "string") {
+          // A committed collect/complete reply can be lost. The database alone
+          // can establish that this phase already progressed; no failure write
+          // or revocation occurred, so read back the surviving durable state.
+          superseded = true;
+        }
+      } catch { /* Never claim durable diagnosis if the independent write failed. */ }
+    }
+    if (superseded) throw new PublicResearchQualificationUnacquiredError();
+    throw new PublicResearchQualificationError(failure.reason, failure.phase, failure.requestId, failure.observation, outcomeId, recorded);
   }
-  let saved = loaded.collection;
-  if (saved === null) {
-    const request = publicResearchSearchRequest(policy, model, now());
-    const searched = await call("search", request, loaded.search, null);
-    const { collection, lineage } = collectQualifiedPublicSources(policy, searched.response, searched.requestId, now());
-    const selector = publicResearchSelectorRequest(policy, model, collection, lineage, now());
-    const selectorWire = await inspectPublicResearchWire(selector, "select");
-    const lineageHash = publicResearchHash(lineage);
-    const recorded = await runtime.rpc("collect", { policyId, searchRequestId: searched.requestId, providerRequestId: searched.response.providerRequestId,
-      collection, collectionCanonical: canonicalPublicResearchJson(collection), collectionHash: publicResearchHash(collection),
-      lineage: lineage as unknown as JsonObject, lineageCanonical: canonicalPublicResearchJson(lineage), lineageHash,
-      selectorRequestHash: selectorWire.requestHash, selectorWireHash: selectorWire.wireHash, selectorWireBytes: selectorWire.wireBytes, selectorMaxTokens: selectorWire.maxTokens });
-    if (!record(recorded) || typeof recorded.collectionId !== "string" || !UUID.test(recorded.collectionId) || recorded.collectionHash !== publicResearchHash(collection) || recorded.lineageHash !== lineageHash) return denied();
-    saved = { id: recorded.collectionId, collection, collectionHash: publicResearchHash(collection), lineage, lineageHash, selector: selectorWire };
-  }
-  if (!UUID.test(saved.id) || saved.collectionHash !== publicResearchHash(saved.collection) || saved.lineageHash !== publicResearchHash(saved.lineage)) return denied();
-  validatePublicResearchLineage(policy, saved.collection, saved.lineage, now());
-  const selected = await call("select", publicResearchSelectorRequest(policy, model, saved.collection, saved.lineage, now()), saved.selector, saved.id);
-  const evidencePack = assembleAdmittedPublicEvidence(policy, saved.collection, saved.lineage, selected.response.output, now()), evidencePackHash = publicResearchHash(evidencePack);
-  const completed = await runtime.rpc("complete", { policyId, collectionId: saved.id, selectorRequestId: selected.requestId,
-    providerRequestId: selected.response.providerRequestId, selection: selected.response.output, evidencePack,
-    evidencePackCanonical: canonicalPublicResearchJson(evidencePack), evidencePackHash });
-  if (!record(completed) || typeof completed.resultId !== "string" || !UUID.test(completed.resultId) || completed.evidencePackHash !== evidencePackHash || typeof completed.replayed !== "boolean") return denied();
-  return { evidencePack, evidencePackHash, resultId: completed.resultId, policyId, collectionId: saved.id, receipts };
 }
 
-export async function verifyPublicResearchPolicyQuote(policy: PublicResearchPolicy): Promise<{ providerName: string }> {
+export async function verifyPublicResearchPolicyQuote(policy: PublicResearchPolicy): Promise<{ providerName: string; acceptedResponseModelIds: readonly string[] }> {
   validatePublicResearchPolicy(policy);
   const quote = await fetchPublicResearchQuote({ maximumMicrousd: policy.maximumMicrousd });
   validatePublicResearchQuote(quote);
   if (quote.quoteHash !== policy.quoteHash || quote.modelId !== policy.modelId || quote.providerEndpoint !== policy.providerEndpoint || quote.searchMicrousd !== policy.searchMicrousd || quote.selectorMicrousd !== policy.selectorMicrousd || publicResearchHash(quote.priceLimit) !== publicResearchHash(policy.priceLimit)) return denied();
-  return { providerName: quote.providerName };
+  return { providerName: quote.providerName, acceptedResponseModelIds: quote.version === "r11.public-research-quote.2" ? quote.acceptedResponseModelIds : [quote.modelId] };
 }
 
 /** Default trusted database adapter; model credentials never enter its saved
  * policies, database payloads, citation artifacts or returned receipts. */
 export function publicResearchRuntime(scope: Scope, verifyQuote: PublicResearchRuntime["verifyQuote"] = verifyPublicResearchPolicyQuote): PublicResearchRuntime {
   const ownedScope = structuredClone(scope);
-  const key = () => { const value = process.env.R05_ADMISSION_SERVER_KEY?.trim(); if (!value) return denied(); return value; };
-  return { verifyQuote, provider: admit => new OpenRouterAdapter({ admitDispatch: admit }),
+  const key = () => { const value = ownedScope.admissionKey ?? process.env.R05_ADMISSION_SERVER_KEY?.trim(); if (!value) return denied(); return value; };
+  return { verifyQuote, provider: (admit, observeResponse) => new OpenRouterAdapter({ admitDispatch: admit, observeResponse }),
     async rpc(operation, payload) {
-      const result = await createRuntimeClient().rpc("r11_research_server", { p_business_id: ownedScope.businessId, p_operation: operation, p_payload: payload, p_server_key: key() });
+      const result = await createRuntimeClient().rpc("r11_research_server_v2", { p_business_id: ownedScope.businessId, p_operation: operation, p_payload: payload, p_server_key: key() });
       if (result.error) return denied(); return result.data;
     },
     async settle(requestId, receipt) {

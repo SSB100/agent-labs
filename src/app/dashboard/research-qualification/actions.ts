@@ -4,9 +4,11 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireOwnerUiContext } from "@/lib/core-ui/data";
 import { verifyOwnerBusiness } from "@/lib/core-ui/owner-business";
+import { PublicResearchQualificationError } from "@/research/qualification-outcome";
 import {
   activateResearchGrant,
   prepareResearchBootstrap,
+  reconcileResearchProof,
   runResearchProof,
   stopResearchProof,
 } from "@/research/qualification-server";
@@ -22,7 +24,11 @@ const field = (form: FormData, name: string) => {
 
 export async function prepareResearchSetup(_previous: ResearchSetupState, form: FormData): Promise<ResearchSetupState> {
   const businessId = field(form, "businessId"), policyId = field(form, "policyId"), workflowRunId = field(form, "workflowRunId");
-  if (![businessId, policyId, workflowRunId].every(value => UUID.test(value))) {
+  const mode = form.getAll("mode").length === 0 ? "initial" : field(form, "mode");
+  const predecessorPolicyId = field(form, "predecessorPolicyId");
+  const validMode = mode === "initial" ? form.getAll("predecessorPolicyId").length === 0 :
+    mode === "continuation" && UUID.test(predecessorPolicyId) && predecessorPolicyId !== policyId;
+  if (![businessId, policyId, workflowRunId].every(value => UUID.test(value)) || !validMode) {
     return { status: "unavailable", message: "The exact setup request is unavailable. Reload this Business.", preparation: null };
   }
   const context = await requireOwnerUiContext();
@@ -30,10 +36,14 @@ export async function prepareResearchSetup(_previous: ResearchSetupState, form: 
     return { status: "unavailable", message: "Business ownership could not be verified. No setup was prepared.", preparation: null };
   }
   try {
-    const preparation = await prepareResearchBootstrap(context, businessId, policyId, workflowRunId);
+    const preparation = mode === "continuation"
+      ? await prepareResearchBootstrap(context, businessId, policyId, workflowRunId, predecessorPolicyId)
+      : await prepareResearchBootstrap(context, businessId, policyId, workflowRunId);
     return { status: "prepared", message: "Setup metadata prepared. No grant was installed and no paid research was started.", preparation };
   } catch {
-    return { status: "unavailable", message: "Setup could not be verified. Check server configuration and try preparing a fresh public quote.", preparation: null };
+    return { status: "unavailable", message: mode === "continuation"
+      ? "Continuation setup could not be verified. Reload this exact Business to review saved Stop, charges and remaining allowance before preparing a fresh public quote."
+      : "Setup could not be verified. Check server configuration and try preparing a fresh public quote.", preparation: null };
   }
 }
 
@@ -60,11 +70,15 @@ export async function runResearchProofAction(form: FormData) {
   const businessId = field(form, "businessId"), policyId = field(form, "policyId");
   if (!UUID.test(businessId)) throw new Error("Exact Business unavailable");
   const context = await requireOwnerUiContext();
+  let notice = "review-proof";
   try {
     if (UUID.test(policyId) && await verifyOwnerBusiness(context, businessId)) await runResearchProof(context, businessId, policyId);
-  } catch { /* Unknown outcomes remain held. Never retry or invent a result. */ }
+  } catch (error) {
+    // This is action feedback only; a recorded outcome must still be read back.
+    if (error instanceof PublicResearchQualificationError && error.recorded === false) notice = "diagnostic-unavailable";
+  }
   revalidatePath(route);
-  redirect(`${route}?business=${businessId}&notice=review-proof`);
+  redirect(`${route}?business=${businessId}&notice=${notice}`);
 }
 
 export async function stopResearchProofAction(form: FormData) {
@@ -76,4 +90,16 @@ export async function stopResearchProofAction(form: FormData) {
   } catch { /* Saved revocation must be read back before claiming Stop succeeded. */ }
   revalidatePath(route);
   redirect(`${route}?business=${businessId}&notice=review-stop`);
+}
+
+/** Explicit legacy audit reconciliation never authorizes or retries research. */
+export async function reconcileResearchProofAction(form: FormData) {
+  const businessId = field(form, "businessId"), policyId = field(form, "policyId");
+  if (!UUID.test(businessId)) throw new Error("Exact Business unavailable");
+  const context = await requireOwnerUiContext();
+  try {
+    if (UUID.test(policyId) && await verifyOwnerBusiness(context, businessId)) await reconcileResearchProof(context, businessId, policyId);
+  } catch { /* Only saved reconciliation records establish an outcome. */ }
+  revalidatePath(route);
+  redirect(`${route}?business=${businessId}&notice=review-reconciliation`);
 }

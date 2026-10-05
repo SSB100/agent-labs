@@ -4,10 +4,12 @@ import { createHash } from "node:crypto";
  * payment grant. Only independently approved immutable policy permits dispatch. */
 export const PUBLIC_RESEARCH_QUOTE_LIMITS = Object.freeze({
   modelId: "openai/gpt-5.6-luna", providerEndpoint: "azure/us", providerName: "Azure",
+  canonicalModelId: "openai/gpt-5.6-luna-20260709",
   maximumMicrousd: 250_000, freshnessMs: 300_000,
   searchInputTokens: 128_000, searchOutputTokens: 8_000,
   maximumSelectorRequestBytes: 16_384, selectorFormattingTokens: 8_192, selectorOutputTokens: 1_000,
   searchRequests: 1, exaFastSearchFeeMicrousd: 7_000,
+  modelIdentityCatalogUrl: "https://openrouter.ai/api/v1/models",
   modelCatalogUrl: "https://openrouter.ai/api/v1/models/openai/gpt-5.6-luna/endpoints",
   zdrCatalogUrl: "https://openrouter.ai/api/v1/endpoints/zdr",
   toolPricingSource: "https://openrouter.ai/docs/guides/features/server-tools/web-search",
@@ -15,17 +17,27 @@ export const PUBLIC_RESEARCH_QUOTE_LIMITS = Object.freeze({
 
 export type PublicResearchCatalogSnapshot = { url: string; fetchedAt: string; payload: unknown };
 type TokenRates = { prompt: string; completion: string; cacheRead: string; cacheWrite: string; reasoning: string };
-export type PublicResearchQuote = {
-  version: "r11.public-research-quote.1";
+type PublicResearchQuoteCommon = {
   modelId: string; providerEndpoint: string; providerName: string;
   priceLimit: { prompt: number; completion: number; request: 0 };
   tokenPricesUsd: TokenRates;
   allowances: { searchInputTokens: number; searchOutputTokens: number; maximumSelectorRequestBytes: number;
     selectorFormattingTokens: number; selectorOutputTokens: number; searchRequests: 1; exaFastSearchFeeMicrousd: number };
   maximumMicrousd: number; searchMicrousd: number; selectorMicrousd: number; totalMicrousd: number;
-  sourceHashes: { modelCatalog: string; zdrCatalog: string };
   verifiedAt: string; validUntil: string; quoteValidUntil: string; quoteHash: string;
 };
+/** Retained for reading historical records; newly prepared quotes are always V2. */
+export type PublicResearchQuoteV1 = PublicResearchQuoteCommon & {
+  version: "r11.public-research-quote.1";
+  sourceHashes: { modelCatalog: string; zdrCatalog: string };
+};
+export type PublicResearchResponseModelIds = readonly [string, string];
+export type PublicResearchQuoteV2 = PublicResearchQuoteCommon & {
+  version: "r11.public-research-quote.2";
+  canonicalModelId: string; acceptedResponseModelIds: PublicResearchResponseModelIds;
+  sourceHashes: { modelIdentity: string; modelCatalog: string; canonicalModelCatalog: string; zdrCatalog: string };
+};
+export type PublicResearchQuote = PublicResearchQuoteV1 | PublicResearchQuoteV2;
 
 const LIMITS = PUBLIC_RESEARCH_QUOTE_LIMITS;
 const ZERO = BigInt(0), ONE = BigInt(1), SCALE = BigInt("1000000000000000000"), MICRO_SCALE = BigInt("1000000000000");
@@ -67,6 +79,23 @@ function decimalString(value: bigint): string {
 }
 // Round upward to six decimals in the API's USD/million-token price-cap unit.
 const perMillion = (value: bigint) => Number(ceil(value, BigInt(1_000_000))) / 1_000_000;
+
+function modelIdentity(canonicalModelId: unknown) {
+  // This first-proof path is pinned to the reviewed pair. Even a mutually
+  // consistent catalog remapping needs a new review before it can qualify.
+  if (canonicalModelId !== LIMITS.canonicalModelId) return fail();
+  return { modelId: LIMITS.modelId, canonicalModelId,
+    canonicalEndpointUrl: `${LIMITS.modelIdentityCatalogUrl}/${canonicalModelId}/endpoints` };
+}
+function selectModelIdentity(catalog: unknown) {
+  if (!record(catalog) || !Array.isArray(catalog.data) || catalog.data.length > 20_000) return fail();
+  const matches = catalog.data.filter(row => record(row) && row.id === LIMITS.modelId);
+  if (matches.length !== 1 || !record(matches[0])) return fail();
+  const row = matches[0], identity = modelIdentity(row.canonical_slug);
+  // Do not follow arbitrary catalog-provided URLs, query strings or redirects.
+  if (!record(row.links) || row.links.details !== new URL(identity.canonicalEndpointUrl).pathname) return fail();
+  return identity;
+}
 
 function pricing(value: unknown) {
   if (!record(value)) return fail();
@@ -148,26 +177,32 @@ function quoteBody(quote: PublicResearchQuote) {
 }
 
 export function qualifyPublicResearchQuote(input: {
-  modelCatalog: PublicResearchCatalogSnapshot; zdrCatalog: PublicResearchCatalogSnapshot; now?: number; maximumMicrousd?: number;
-}): PublicResearchQuote {
+  modelIdentityCatalog: PublicResearchCatalogSnapshot; modelCatalog: PublicResearchCatalogSnapshot;
+  canonicalModelCatalog: PublicResearchCatalogSnapshot; zdrCatalog: PublicResearchCatalogSnapshot; now?: number; maximumMicrousd?: number;
+}): PublicResearchQuoteV2 {
   const now = input.now ?? Date.now(), maximumMicrousd = input.maximumMicrousd ?? LIMITS.maximumMicrousd;
-  if (!record(input.modelCatalog) || !record(input.zdrCatalog) || input.modelCatalog.url !== LIMITS.modelCatalogUrl || input.zdrCatalog.url !== LIMITS.zdrCatalogUrl ||
+  if (!record(input.modelIdentityCatalog) || !record(input.modelCatalog) || !record(input.canonicalModelCatalog) || !record(input.zdrCatalog) ||
+      input.modelIdentityCatalog.url !== LIMITS.modelIdentityCatalogUrl || input.modelCatalog.url !== LIMITS.modelCatalogUrl || input.zdrCatalog.url !== LIMITS.zdrCatalogUrl ||
       !positiveInteger(maximumMicrousd) || maximumMicrousd > LIMITS.maximumMicrousd) return fail();
-  const verified = Math.min(fresh(input.modelCatalog.fetchedAt, now), fresh(input.zdrCatalog.fetchedAt, now));
-  const model = select(input.modelCatalog.payload, "model"), zdr = select(input.zdrCatalog.payload, "zdr");
+  const identity = selectModelIdentity(input.modelIdentityCatalog.payload);
+  if (input.canonicalModelCatalog.url !== identity.canonicalEndpointUrl) return fail();
+  const verified = Math.min(...[input.modelIdentityCatalog, input.modelCatalog, input.canonicalModelCatalog, input.zdrCatalog].map(snapshot => fresh(snapshot.fetchedAt, now)));
+  const model = select(input.modelCatalog.payload, "model"), canonicalModel = select(input.canonicalModelCatalog.payload, "model"), zdr = select(input.zdrCatalog.payload, "zdr");
   // Membership must be for this exact route, with mutually consistent current
   // facts. A model-wide ZDR badge or provider's base route is insufficient.
-  const modelHash = hash(model), zdrHash = hash(zdr);
-  if (modelHash !== zdrHash) return fail();
+  const modelHash = hash(model), canonicalModelHash = hash(canonicalModel), zdrHash = hash(zdr);
+  if (modelHash !== canonicalModelHash || modelHash !== zdrHash) return fail();
   const rates = model.pricing.tokenPricesUsd;
   const searchMicrousd = cost(rates, LIMITS.searchInputTokens, LIMITS.searchOutputTokens) + LIMITS.exaFastSearchFeeMicrousd;
   const selectorMicrousd = cost(rates, LIMITS.maximumSelectorRequestBytes + LIMITS.selectorFormattingTokens, LIMITS.selectorOutputTokens);
   const expiry = new Date(verified + LIMITS.freshnessMs).toISOString();
-  const quote: PublicResearchQuote = { version: "r11.public-research-quote.1", modelId: LIMITS.modelId,
+  const quote: PublicResearchQuoteV2 = { version: "r11.public-research-quote.2", modelId: LIMITS.modelId,
+    canonicalModelId: identity.canonicalModelId, acceptedResponseModelIds: [LIMITS.modelId, identity.canonicalModelId],
     providerEndpoint: LIMITS.providerEndpoint, providerName: model.providerName,
     priceLimit: { prompt: perMillion(decimal(rates.prompt)), completion: perMillion(max(decimal(rates.completion), decimal(rates.reasoning))), request: 0 },
     tokenPricesUsd: rates, allowances: allowances(), maximumMicrousd, searchMicrousd, selectorMicrousd, totalMicrousd: searchMicrousd + selectorMicrousd,
-    sourceHashes: { modelCatalog: modelHash, zdrCatalog: zdrHash }, verifiedAt: new Date(verified).toISOString(), validUntil: expiry, quoteValidUntil: expiry, quoteHash: "" };
+    sourceHashes: { modelIdentity: hash(identity), modelCatalog: modelHash, canonicalModelCatalog: canonicalModelHash, zdrCatalog: zdrHash },
+    verifiedAt: new Date(verified).toISOString(), validUntil: expiry, quoteValidUntil: expiry, quoteHash: "" };
   quote.quoteHash = hash(quoteBody(quote));
   validatePublicResearchQuote(quote, now);
   return quote;
@@ -176,9 +211,16 @@ export function qualifyPublicResearchQuote(input: {
 /** Integrity/freshness validation, not authentication: callers must obtain the
  * quote through trusted catalog acquisition, never from owner/worker input. */
 export function validatePublicResearchQuote(quote: PublicResearchQuote, now = Date.now()): void {
-  if (!record(quote) || quote.version !== "r11.public-research-quote.1" || quote.modelId !== LIMITS.modelId || quote.providerEndpoint !== LIMITS.providerEndpoint || quote.providerName !== LIMITS.providerName ||
+  if (!record(quote) || !["r11.public-research-quote.1", "r11.public-research-quote.2"].includes(quote.version) || quote.modelId !== LIMITS.modelId || quote.providerEndpoint !== LIMITS.providerEndpoint || quote.providerName !== LIMITS.providerName ||
       !record(quote.priceLimit) || !record(quote.sourceHashes) || !record(quote.tokenPricesUsd) ||
       !HASH.test(quote.sourceHashes.modelCatalog) || quote.sourceHashes.modelCatalog !== quote.sourceHashes.zdrCatalog || !HASH.test(quote.quoteHash)) fail();
+  if (quote.version === "r11.public-research-quote.2") {
+    const identity = modelIdentity(quote.canonicalModelId);
+    if (canonical(quote.acceptedResponseModelIds) !== canonical([LIMITS.modelId, identity.canonicalModelId]) ||
+        quote.sourceHashes.modelIdentity !== hash(identity) || quote.sourceHashes.canonicalModelCatalog !== quote.sourceHashes.modelCatalog ||
+        Object.keys(quote.sourceHashes).sort().join(",") !== "canonicalModelCatalog,modelCatalog,modelIdentity,zdrCatalog") fail();
+  } else if (Object.hasOwn(quote, "canonicalModelId") || Object.hasOwn(quote, "acceptedResponseModelIds") ||
+      Object.keys(quote.sourceHashes).sort().join(",") !== "modelCatalog,zdrCatalog") fail();
   const verified = fresh(quote.verifiedAt, now);
   if (timestamp(quote.validUntil) !== verified + LIMITS.freshnessMs || quote.quoteValidUntil !== quote.validUntil || timestamp(quote.validUntil) <= now ||
       canonical(quote.allowances) !== canonical(allowances()) || !positiveInteger(quote.maximumMicrousd) || quote.maximumMicrousd > LIMITS.maximumMicrousd) fail();
@@ -190,11 +232,12 @@ export function validatePublicResearchQuote(quote: PublicResearchQuote, now = Da
   if (quote.searchMicrousd !== search || quote.selectorMicrousd !== selector || quote.totalMicrousd !== search + selector || quote.totalMicrousd > quote.maximumMicrousd || quote.quoteHash !== hash(quoteBody(quote))) fail();
 }
 
-/** Only two fixed public GETs. No key lookup, paid model probe, redirects, retry,
- * alternative endpoint, or fallback. Failure leaves qualification closed. */
+/** Only four public GETs: fixed identity/alias/ZDR catalogs and the exact
+ * canonical catalog established by the identity row. No key lookup, paid model
+ * probe, redirects, retry, alternative endpoint or fallback. Fail closed. */
 export async function fetchPublicResearchQuote(options: {
   fetch?: typeof fetch; now?: () => number; maximumMicrousd?: number;
-} = {}): Promise<PublicResearchQuote> {
+} = {}): Promise<PublicResearchQuoteV2> {
   const fetcher = options.fetch ?? fetch, now = options.now ?? Date.now;
   async function read(url: string): Promise<PublicResearchCatalogSnapshot> {
     const startedAt = now();
@@ -215,7 +258,9 @@ export async function fetchPublicResearchQuote(options: {
     return { url, fetchedAt: new Date(startedAt - ageMs).toISOString(), payload: JSON.parse(Buffer.concat(parts).toString("utf8")) as unknown };
   }
   try {
-    const modelCatalog = await read(LIMITS.modelCatalogUrl), zdrCatalog = await read(LIMITS.zdrCatalogUrl);
-    return qualifyPublicResearchQuote({ modelCatalog, zdrCatalog, now: now(), maximumMicrousd: options.maximumMicrousd });
+    const modelIdentityCatalog = await read(LIMITS.modelIdentityCatalogUrl);
+    const identity = selectModelIdentity(modelIdentityCatalog.payload);
+    const modelCatalog = await read(LIMITS.modelCatalogUrl), canonicalModelCatalog = await read(identity.canonicalEndpointUrl), zdrCatalog = await read(LIMITS.zdrCatalogUrl);
+    return qualifyPublicResearchQuote({ modelIdentityCatalog, modelCatalog, canonicalModelCatalog, zdrCatalog, now: now(), maximumMicrousd: options.maximumMicrousd });
   } catch { return fail(); }
 }
