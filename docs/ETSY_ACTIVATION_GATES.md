@@ -20,15 +20,15 @@ The owner chose to leave the application description unchanged. A fixed, fully s
 
 ## Independent qualification lanes
 
-- Own-shop operational reads: exact app purpose, consenting account, shop, fields, scopes, revision, expiry and retention. These may be supported without broader marketplace/AI rights; they remain unqualified here until evidence and enforcement are checked
+- Own-shop operational reads: the bounded R11 setup qualification passed on 2026-10-05 for the exact consenting account and StudioKindredStore shop, with only `shops_r listings_r`, one token POST, two fixed GETs, immutable revision/expiry metadata and encrypted token custody. Later operation dispatch and automatic refresh remain separately gated; broader marketplace/AI rights are not inherited
 - Marketplace research: exact sources, collection method, requested content and allowed analysis. Public visibility or a search-provider result does not establish downstream rights
 - Model processing: distinguish inference, third-party model transmission, retained analysis, derived analytics, embeddings and training. Preserve exact source lineage through creative/listing derivatives
 - Mutation: draft creation, upload, publication, fees, renewal, orders and fulfilment retain separate technical, envelope and commercial gates
 
 ## Current implementation boundary
 
-The [R11 inactive contract](R11_EXTERNAL_ELIGIBILITY_CONTRACT.md) adds a pre-OAuth and lowest-transport denial boundary plus request-bound source-provenance checks. The source includes an additive, empty-by-default own-shop connection grant/custody contract. Production application and activation require separate reviewed approval. Research/model provenance remains closed with no enabling evidence producer. Source-free fixture assertions and pure evidence checks are not operational grants. Existing saved connections and financial receipts are preserved.
+The [R11 scoped contract](R11_EXTERNAL_ELIGIBILITY_CONTRACT.md) adds a pre-OAuth and lowest-transport denial boundary plus request-bound source-provenance checks. The source includes an additive, empty-by-default own-shop connection grant/custody contract. The exact reviewed Production application, additive schema and one-attempt own-shop activation were separately approved and qualified; see the linked scoped release receipt. Research/model provenance remains closed with no enabling evidence producer. Source-free fixture assertions and pure evidence checks are not operational grants. Existing saved connections and financial receipts are preserved.
 
-Safe synthetic tests and public documentation review continue. No automated Etsy research, scraping, source-model ingestion, OAuth grant, credential setup or provider write is activated. General R05/R07 source/model eligibility and separately authorized live read-only qualification remain open. A later approved own-shop lane must not inherit broader research/AI permission, or vice versa.
+Safe synthetic tests and public documentation review continue. Own-shop OAuth/custody and the exact setup reads are qualified, with the application description unchanged. No automated Etsy research, scraping, source-model ingestion or provider write is activated. General R05/R07 source/model eligibility and renewable-token execution remain open R11 work. Qualified own-shop access must not inherit broader research/AI permission, or vice versa.
 
 Product/source evidence, exact asset review, print placement, Etsy-linked variants, shop-specific fees/taxes/currency, supported fulfilment and each later operation remain separate gates. R10's fixed controlled-public browser proof does not qualify arbitrary sites or secure account registration.
