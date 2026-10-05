@@ -1,4 +1,5 @@
 import "server-only";
+import { fetchGenerationRouteProof } from "./generation-route";
 import { fetchPublicResearchQuote } from "./qualification-quote";
 import { publicResearchRuntime, type PublicResearchRuntime, type ResearchRuntimeScope } from "./qualification-runtime";
 
@@ -7,6 +8,7 @@ import { publicResearchRuntime, type PublicResearchRuntime, type ResearchRuntime
 export function researchQualificationDependencies() {
   return {
     fetchQuote: fetchPublicResearchQuote,
+    fetchGenerationRoute: fetchGenerationRouteProof,
     makeRuntime: (scope: ResearchRuntimeScope, verifyQuote: PublicResearchRuntime["verifyQuote"]): PublicResearchRuntime => publicResearchRuntime(scope, verifyQuote),
   };
 }

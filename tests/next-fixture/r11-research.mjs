@@ -22,6 +22,17 @@ export function researchCatalogFixture(url,log,control){
  if(url==='https://openrouter.ai/api/v1/endpoints/zdr')return{data:[structuredClone(r11Endpoint)]};
  throw Error('Unreviewed inert public catalog');
 }
+/** A read-only synthetic generation record, independently matched to one
+ * admitted fixture response. Never accepts a credential or caller-supplied data. */
+export function researchGenerationFixture(state,input,log,control){
+ if(Object.keys(input??{}).join(',')!=='url'||typeof input.url!=='string')throw Error('Inert generation input unavailable');
+ const match=/^https:\/\/openrouter\.ai\/api\/v1\/generation\?id=(gen-[A-Za-z0-9_-]{1,296})$/.exec(input.url);
+ const call=match&&state.r11Research?.providerCalls.find(row=>row.receiptId===match[1]);
+ if(!call)throw Error('Inert exact generation unavailable');
+ log.push({kind:'inert-r11-generation-read',url:input.url,generationId:call.receiptId});
+ return{data:{id:call.receiptId,provider_name:control.r11InvalidProvider?R11_RAW_SENTINEL:'Azure',model:R11_CANONICAL_MODEL,
+  provider_responses:[{provider_name:control.r11InvalidProvider?R11_RAW_SENTINEL:'Azure',model_permaslug:R11_CANONICAL_MODEL,status:200}]}};
+}
 export const r11Search={requestHash:'2274c20fe35e47b44fdbb711dbd284d48293cea77a8e1c1088ca8c3fe138421f',wireHash:'4c966df85e61d3cd2666f37a10fe2d3334a90e29f71a3217be4e8b056cca3e19',wireBytes:844,maxTokens:4000};
 export function seedResearchFixture(state,options={}){
  const now=Date.now(),policy={version:'r11.public-research.1',id:r11Scope.policyId,businessId:r11Scope.businessId,ownerId:state.owner,workflowRunId:r11Scope.workflowRunId,goalId:r11Scope.goalId,operatingPolicyId:r11Scope.operatingPolicyId,query:R11_QUERY,
@@ -54,8 +65,8 @@ function seedHistoricalResearch(research){
  entry.grant.operatingPolicy.expectedExposureMicrounits='598063';entry.grant.operatingPolicy.businessLifetimeLimitMicrounits='848063';entry.grantHash=r11Hash(entry.grant);
  const proof=activateFixtureGrant(research,entry);proof.revoked=true;proof.terminalReconciliationRequired=true;proof.workflowStatus='running';
  const marker={business:research.businessId,policyId:proof.policyId,phase:'search',requestId:id(911010),wireHash:r11Search.wireHash};
- research.markers.push(marker);research.providerCalls.push({kind:'inert-r11-provider',business:research.businessId,policyId:proof.policyId,phase:'search',requestId:marker.requestId,receiptId:'inert-r11-historical-search-receipt',historical:true});
- research.settlements.push({requestId:marker.requestId,currency:'USD',actualMicrounits:'10068',providerRequestId:'inert-r11-historical-search-receipt'});
+ research.markers.push(marker);research.providerCalls.push({kind:'inert-r11-provider',business:research.businessId,policyId:proof.policyId,phase:'search',requestId:marker.requestId,receiptId:'gen-r11-historical-search-receipt',historical:true});
+ research.settlements.push({requestId:marker.requestId,currency:'USD',actualMicrounits:'10068',providerRequestId:'gen-r11-historical-search-receipt',receiptHash:r11Hash({fixture:'historical-search-receipt'})});
  research.revocations.push({policyId:proof.policyId,historical:true});
 }
 function continuationProjection(research,policies,exposure){
@@ -67,7 +78,11 @@ function continuationProjection(research,policies,exposure){
 function projection(state,business,control,empty=false){
  const research=state.r11Research;
  const policies=empty?[]:(research?.policies??[]).filter(item=>item.policy.businessId===business).map(item=>{
-  const phases=research.markers.filter(marker=>marker.policyId===item.policyId).map(marker=>{const settlement=research.settlements.find(row=>row.requestId===marker.requestId);return{phase:marker.phase,requestId:marker.requestId,marked:true,settled:!!settlement,actualMicrounits:settlement?.actualMicrounits??null,providerRequestId:settlement?.providerRequestId??null};});
+  const phases=research.markers.filter(marker=>marker.policyId===item.policyId).map(marker=>{
+   const settlements=research.settlements.filter(row=>row.requestId===marker.requestId),known=settlements.filter(row=>row.actualMicrounits!==null);
+   const actualMicrounits=known.length?String(known.reduce((maximum,row)=>BigInt(row.actualMicrounits)>maximum?BigInt(row.actualMicrounits):maximum,0n)):null;
+   return{phase:marker.phase,requestId:marker.requestId,marked:true,settled:!!settlements.length,actualMicrounits,providerRequestId:settlements[0]?.providerRequestId??null};
+  });
   const collection=research.collections.find(row=>row.policyId===item.policyId),result=research.results.find(row=>row.policyId===item.policyId)??null;
   const expired=!!control.r11Expired||Date.parse(item.policy.validUntil)<=Date.now();
   return{...item,phases,result,expired,outcomes:research.outcomes.filter(row=>row.policyId===item.policyId),operations:item.operationKeys,status:result?'completed':item.revoked?'revoked':expired?'expired':phases.some(row=>row.phase==='select')?'selection_recording_pending':collection?'collection_ready':phases.some(row=>row.phase==='search')?'search_recording_pending':'ready'};
@@ -142,7 +157,7 @@ export function researchProviderFixture(state,input,effects,control){
  if(!marker||marker.wireHash!==createHash('sha256').update(JSON.stringify(input.body)).digest('hex')||research.providerCalls.some(row=>row.requestId===marker.requestId))throw Error('Inert provider unmarked or replayed request');
  const wire=JSON.stringify(input.body);
  if([proof.policy.businessId,proof.policy.ownerId,R11_INERT_SERVER_KEY,authority(research,proof.policyId,proof.workflowRunId,proof.attemptVersion)].some(value=>wire.includes(value)))throw Error('Inert provider wire contains private scope');
- const receiptId=`inert-r11-${proof.policyId}-${input.phase}-receipt`;
+ const receiptId=`gen-r11-${proof.policyId}-${input.phase}-receipt`;
  const call={kind:'inert-r11-provider',business:proof.policy.businessId,policyId:proof.policyId,phase:input.phase,requestId:marker.requestId,receiptId};
  research.providerCalls.push(call);effects.push(call);
  return{receiptId,fail:control.r11ProviderFailure===input.phase,unknownCost:!!control.r11UnknownCost,invalidSelection:!!control.r11InvalidSelection,invalidSources:!!control.r11InvalidSources,invalidModel:!!control.r11InvalidModel,invalidProvider:!!control.r11InvalidProvider,aliasModel:!!control.r11AliasModel};
@@ -157,8 +172,11 @@ export function researchRuntimeFixture(state,name,args,effects,control){
   if(name==='r05_admission_server'){
    if(args.p_operation!=='settle')return error('Inert financial operation unavailable');
    const call=research.providerCalls.find(row=>row.requestId===payload.requestId);
-   if(!marker||!call||call.receiptId!==payload.providerRequestId||payload.currency!=='USD')return error('Inert exact settlement unavailable');
-   if(!research.settlements.some(row=>row.requestId===payload.requestId)){research.settlements.push({...payload});effects.push({kind:'in-memory-r11-settlement',business,requestId:payload.requestId,actualMicrounits:payload.actualMicrounits});}
+   if(!marker||!call||call.receiptId!==payload.providerRequestId||payload.currency!=='USD'||!/^[a-f0-9]{64}$/.test(payload.receiptHash??'')||
+      !(payload.actualMicrounits===null||typeof payload.actualMicrounits==='string'&&/^(0|[1-9][0-9]*)$/.test(payload.actualMicrounits)&&BigInt(payload.actualMicrounits)<=9007199254740991n))return error('Inert exact settlement unavailable');
+   const existing=research.settlements.find(row=>row.requestId===payload.requestId&&row.receiptHash===payload.receiptHash);
+   if(existing&&(existing.currency!==payload.currency||existing.actualMicrounits!==payload.actualMicrounits||existing.providerRequestId!==payload.providerRequestId))return error('Inert settlement conflict');
+   if(!existing){research.settlements.push({...payload});effects.push({kind:'in-memory-r11-settlement',business,requestId:payload.requestId,actualMicrounits:payload.actualMicrounits,receiptHash:payload.receiptHash});}
    return ok({decision:'allowed'});
   }
   if(name!=='r11_research_server_v2')return error('Inert runtime version unavailable');

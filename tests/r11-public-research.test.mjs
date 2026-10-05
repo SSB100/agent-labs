@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 const require=createRequire(import.meta.url);
 const q=require('../.core-tests/research/qualification.js');
+const route=require('../.core-tests/research/generation-route.js');
+const accepted=['openai/gpt-5.6-luna','openai/gpt-5.6-luna-20260709'];
+const proof=response=>route.qualifyGenerationRouteProof({data:{id:response.providerRequestId,provider_name:'Azure',model:response.providerModelId,provider_responses:null}},{generationId:response.providerRequestId,providerName:'Azure',acceptedResponseModelIds:accepted,requestedEndpoint:'azure/us'});
 const {resolveModelRoute}=require('../.core-tests/models/registry.js');
 const id=n=>`11000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
 const model=()=>structuredClone(resolveModelRoute('standard.default').primary);
@@ -16,7 +19,7 @@ function fixture(){
   retention:{inference:'no_training_zdr',search:'query_retention_improvement_training_possible',application:'bounded_attributed_audit_evidence'},
   validFrom:new Date(now-60000).toISOString(),validUntil:new Date(now+240000).toISOString(),maximumMicrousd:250000,searchMicrousd:180000,selectorMicrousd:20000,
   priceLimit:{prompt:0.44,completion:1.98,request:0},quoteHash:'5'.repeat(64),quoteValidUntil:new Date(now+240000).toISOString()};
- const response={provider:'openrouter.exa',providerModelId:policy.modelId,providerRequestId:'inert-provider-request',output:{annotations:[{type:'url_citation',url_citation:{url:'https://gardening.example/report',title:'Independent gardening report',content:'Adult gardeners often value practical tools and containers suited to the available growing space. This observation does not establish sales or profitability.'}}]},metadata:{searchRequests:1,actualUpstreamProvider:'Azure'},latencyMs:1,usage:{reportedCostUsd:0.001}};
+ const response={provider:'openrouter.exa',providerModelId:policy.modelId,providerRequestId:'gen-inert-provider-request',output:{annotations:[{type:'url_citation',url_citation:{url:'https://gardening.example/report',title:'Independent gardening report',content:'Adult gardeners often value practical tools and containers suited to the available growing space. This observation does not establish sales or profitability.'}}]},metadata:{searchRequests:1,actualUpstreamProvider:'Azure'},latencyMs:1,usage:{reportedCostUsd:0.001}};
  return{policy,now,response};
 }
 test('R11 useful public snippet policy supports task-selected topics without an open-license assertion',()=>{
@@ -46,7 +49,7 @@ for(const mutation of [
  p=>p.validUntil=p.validFrom,p=>p.quoteValidUntil=p.validFrom,p=>p.providerEndpoint='azure/us?key=bad',p=>p.ownerId='not-a-uuid',
 ])test('R11 altered/unreviewed policy fails closed',()=>{const {policy,now}=fixture();mutation(policy);assert.throws(()=>q.validatePublicResearchPolicy(policy,now));});
 test('R11 immutable source lineage retains exact query, citation hashes and policy version',()=>{
- const {policy,now,response}=fixture(),{collection,lineage}=q.collectQualifiedPublicSources(policy,response,id(10),now);
+ const {policy,now,response}=fixture(),{collection,lineage}=q.collectQualifiedPublicSources(policy,response,id(10),now,accepted,proof(response));
  q.validatePublicResearchLineage(policy,collection,lineage,now);assert.equal(lineage.collectionHash,q.publicResearchHash(collection));
  assert.deepEqual(lineage.sourceDomains,policy.allowedDomains);assert.equal(collection.providerMetadata.policyHash,q.publicResearchHash(policy));
  const request=q.publicResearchSelectorRequest(policy,model(),collection,lineage,now);
@@ -57,10 +60,10 @@ test('R11 immutable source lineage retains exact query, citation hashes and poli
 });
 for(const url of ['https://etsy.com/listing/1','https://www.etsy.com/listing/1','https://api.etsy.com/listing/1','https://evil.example/report','http://gardening.example/report','https://user:pass@gardening.example/report','https://gardening.example:444/report','https://gardening.example/report?token=private','not-a-url'])test(`R11 malformed/restricted origin ${url} is not silently discarded`,()=>{
  const {policy,now,response}=fixture();response.output.annotations.push({type:'url_citation',url_citation:{url,content:'A prohibited source must invalidate the collection, even alongside a permitted result.'}});
- assert.throws(()=>q.collectQualifiedPublicSources(policy,response,id(10),now));
+ assert.throws(()=>q.collectQualifiedPublicSources(policy,response,id(10),now,accepted,proof(response)));
 });
 test('R11 tampered derivative, foreign owner/policy, stale evidence and forged request identity cannot inherit lineage',()=>{
- const {policy,now,response}=fixture(),{collection,lineage}=q.collectQualifiedPublicSources(policy,response,id(10),now);
+ const {policy,now,response}=fixture(),{collection,lineage}=q.collectQualifiedPublicSources(policy,response,id(10),now,accepted,proof(response));
  for(const mutation of [c=>c.sources[0].excerpt+=' Extra copied text',c=>c.query+=' changed',c=>c.providerMetadata.searchRequestId=id(40),c=>c.providerMetadata.policyId=id(40)]){
   const changed=structuredClone(collection);mutation(changed);assert.throws(()=>q.validatePublicResearchLineage(policy,changed,lineage,now));
  }
@@ -79,11 +82,21 @@ test('R11 deterministic hashes ignore object order but retain every content/arra
 test('R11 pure source model gate accepts an exact canonical identity only with a trusted verified mapping',()=>{
  const {policy,now,response}=fixture();response.providerModelId='openai/gpt-5.6-luna-20260709';
  assert.throws(()=>q.collectQualifiedPublicSources(policy,response,id(10),now));
- const accepted=[policy.modelId,'openai/gpt-5.6-luna-20260709'];
- assert.equal(q.collectQualifiedPublicSources(policy,response,id(10),now,accepted).collection.sources.length,1);
+ assert.equal(q.collectQualifiedPublicSources(policy,response,id(10),now,accepted,proof(response)).collection.sources.length,1);
  for(const model of ['openai/gpt-5.6-luna-20260710','openai/gpt-5.6-luna-20260709-extra','unknown/model']){
-  response.providerModelId=model;assert.throws(()=>q.collectQualifiedPublicSources(policy,response,id(10),now,accepted));
+  response.providerModelId=model;assert.throws(()=>q.collectQualifiedPublicSources(policy,response,id(10),now,accepted,proof(response)));
  }
- response.providerModelId=accepted[1];response.metadata.actualUpstreamProvider='Azure EU';
- assert.throws(()=>q.collectQualifiedPublicSources(policy,response,id(10),now,accepted));
+ response.providerModelId=accepted[1];response.metadata.actualUpstreamProvider='unknown wrapper';
+ assert.equal(q.collectQualifiedPublicSources(policy,response,id(10),now,accepted,proof(response)).collection.sources.length,1);
+});
+
+test('R11 pure source producer requires a matching, fully validated documented generation route proof',()=>{
+ const {policy,now,response}=fixture(),verified=proof(response);
+ for(const change of [undefined,null,{...verified,proofHash:'0'.repeat(64)},{...verified,generationId:'gen-other-request'},
+  {...verified,providerName:'private-wrapper'},{...verified,modelId:'other/private-model'},{...verified,requestedEndpoint:'azure/eu'},
+  {...verified,providerResponses:[{providerName:'Azure',modelId:policy.modelId,status:503}]}]){
+  assert.throws(()=>q.collectQualifiedPublicSources(policy,response,id(10),now,accepted,change));
+ }
+ delete response.metadata.actualUpstreamProvider;
+ assert.equal(q.collectQualifiedPublicSources(policy,response,id(10),now,accepted,verified).collection.sources.length,1);
 });

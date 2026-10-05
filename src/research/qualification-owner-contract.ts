@@ -5,6 +5,7 @@ import type { EvidencePack } from "./types";
 
 export const RESEARCH_FAILURE_REASONS = ["provider_response_invalid", "response_model_unqualified", "response_provider_unqualified", "source_contract_invalid", "collection_persistence_failed", "selector_output_invalid", "result_persistence_failed", "cost_unverified_or_over_cap", "internal_failure"] as const;
 export type ResearchFailureReason = typeof RESEARCH_FAILURE_REASONS[number];
+export type ResearchInferenceRouteStatus = "unrequested" | "verified" | "unavailable" | "invalid";
 export type ResearchObservation = {
   modelIdentity: "request_alias" | "canonical" | "other" | "missing" | "invalid";
   observedModelId: string | null;
@@ -15,6 +16,10 @@ export type ResearchObservation = {
   approvedDomainCounts: { domain: string; count: number }[];
   rejectedDomainCount: number; malformedAnnotationCount: number;
   providerError: string | null;
+  /** Absent together only on historical observations. Never retain an unknown label. */
+  responseProviderHash?: string | null;
+  inferenceRouteStatus?: ResearchInferenceRouteStatus;
+  inferenceRouteProofHash?: string | null;
 };
 export type ResearchOutcomeEvent = { outcomeId: string; kind: "failure" | "owner_stopped";
   phase: "none" | "search" | "select"; requestId: string | null;

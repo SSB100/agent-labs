@@ -8,7 +8,7 @@ const businessId='11000000-0000-4000-8000-000000000001',policyId='11000000-0000-
 class PublicResearchQualificationError extends Error { constructor(recorded){super('private-provider-secret-diagnostic');this.recorded=recorded;this.outcomeId=null;this.reason='private-provider-secret-reason';} }
 function fixture({owned=true,signedIn=true,fail=false,runError=null}={}){
  const calls=[],revalidations=[],context={userId:'owner'};let ownershipChecks=0,authCalls=0;
- const deps={'@/research/qualification-outcome':{PublicResearchQualificationError},'next/cache':{revalidatePath:path=>revalidations.push(path)},'next/navigation':{redirect:path=>{throw Error(`REDIRECT:${path}`);}},'@/lib/core-ui/data':{requireOwnerUiContext:async()=>{authCalls++;if(!signedIn)throw Error('REDIRECT:/login');return context;}},'@/lib/core-ui/owner-business':{verifyOwnerBusiness:async(c,b)=>{assert.equal(c,context);assert.equal(b,businessId);ownershipChecks++;return owned;}},'@/research/qualification-server':Object.fromEntries(['prepareResearchBootstrap','activateResearchGrant','runResearchProof','stopResearchProof','reconcileResearchProof'].map(name=>[name,async(...args)=>{calls.push({name,args});if(name==='runResearchProof'&&runError)throw runError;if(fail)throw Error('private-secret-diagnostic');return{businessId,policyId,workflowRunId,serverKeyHash:grantHash,quote:{maximumMicrousd:250000}};}]))};
+ const deps={'@/research/qualification-outcome':{PublicResearchQualificationError},'next/cache':{revalidatePath:path=>revalidations.push(path)},'next/navigation':{redirect:path=>{throw Error(`REDIRECT:${path}`);}},'@/lib/core-ui/data':{requireOwnerUiContext:async()=>{authCalls++;if(!signedIn)throw Error('REDIRECT:/login');return context;}},'@/lib/core-ui/owner-business':{verifyOwnerBusiness:async(c,b)=>{assert.equal(c,context);assert.equal(b,businessId);ownershipChecks++;return owned;}},'@/research/qualification-server':Object.fromEntries(['prepareResearchBootstrap','activateResearchGrant','runResearchProof','stopResearchProof','reconcileResearchProof','verifySavedResearchInferenceRoute'].map(name=>[name,async(...args)=>{calls.push({name,args});if(name==='runResearchProof'&&runError)throw runError;if(fail)throw Error('private-secret-diagnostic');return{businessId,policyId,workflowRunId,serverKeyHash:grantHash,quote:{maximumMicrousd:250000}};}]))};
  const source=ts.transpileModule(readFileSync('src/app/dashboard/research-qualification/actions.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,m={exports:{}};
  runInNewContext(`(function(require,module,exports){${source}\n})`,{})(name=>{assert.ok(name in deps,name);return deps[name];},m,m.exports);return{...m.exports,calls,revalidations,ownershipChecks:()=>ownershipChecks,authCalls:()=>authCalls};
 }
@@ -67,4 +67,17 @@ test('saved typed failures and generic lookalikes require durable outcome readba
  for(const runError of [new PublicResearchQualificationError(true),Object.assign(Error('private-provider-secret'),{recorded:false,outcomeId:null}),{recorded:false,reason:'private-provider-secret'}]){
   const f=fixture({runError});await assert.rejects(f.runResearchProofAction(form()),/notice=review-proof$/);assert.equal(f.calls.length,1);
  }
+});
+
+function routeForm(overrides={}){const data=new FormData();for(const [key,value]of Object.entries({businessId,policyId,requestId:workflowRunId,...overrides}))data.set(key,value);return data;}
+test('saved route action accepts only exact scope IDs and returns read-only state without redirect or revalidation',async()=>{
+ const f=fixture(),result=await f.verifySavedInferenceRoute({status:'idle',verification:null,message:''},routeForm());assert.equal(result.status,'verified');assert.match(result.message,/does not qualify prior output or authorize another run/);assert.equal(f.calls.length,1);assert.equal(f.calls[0].name,'verifySavedResearchInferenceRoute');assert.deepEqual(f.calls[0].args.slice(1),[businessId,policyId,workflowRunId]);assert.equal(f.revalidations.length,0);
+});
+test('saved route action rejects supplied generation IDs, URLs, duplicate IDs and malformed scope before auth',async()=>{
+ for(const extra of [{generationId:'gen-injected'},{providerRequestId:'gen-injected'},{url:'https://evil.test'},{requestId:'gen-injected'}]){const f=fixture(),state=await f.verifySavedInferenceRoute({},routeForm(extra));assert.equal(state.status,'unavailable');assert.equal(state.verification,null);assert.equal(f.authCalls(),0);assert.equal(f.calls.length,0);}
+ const f=fixture(),data=routeForm();data.append('requestId',workflowRunId);assert.equal((await f.verifySavedInferenceRoute({},data)).status,'unavailable');assert.equal(f.authCalls(),0);
+});
+test('saved route action preserves login recovery and safely reports denied/failed reads without changing records',async()=>{
+ const signedOut=fixture({signedIn:false});await assert.rejects(signedOut.verifySavedInferenceRoute({},routeForm()),/^Error: REDIRECT:\/login$/);
+ for(const options of [{owned:false},{fail:true}]){const f=fixture(options),state=await f.verifySavedInferenceRoute({},routeForm());assert.equal(state.status,'unavailable');assert.equal(state.verification,null);assert.doesNotMatch(state.message,/private-secret/);assert.equal(f.revalidations.length,0);if(!options.owned&&!options.fail)assert.equal(f.calls.length,0);}
 });

@@ -7,7 +7,8 @@ import { resolveModelRoute } from "../models/registry";
 import { canonicalResearchUrl, validateEvidencePack } from "./sources";
 import { canonicalPublicResearchJson, publicResearchHash, publicResearchSearchRequest, validatePublicResearchPolicy, type PublicResearchPolicy } from "./qualification";
 import { inspectPublicResearchWire, runPublicResearchQualification } from "./qualification-runtime";
-import { validatePublicResearchQuote } from "./qualification-quote";
+import { validateGenerationRouteProof, type GenerationRouteExpectation } from "./generation-route";
+import { PUBLIC_RESEARCH_QUOTE_LIMITS, validatePublicResearchQuote } from "./qualification-quote";
 import { PUBLIC_RESEARCH_PROOF_PROFILE } from "./qualification-profile";
 import { researchQualificationDependencies } from "./qualification-server-dependencies";
 import { validateResearchObservation } from "./qualification-outcome";
@@ -239,4 +240,32 @@ export async function reconcileResearchProof(context: OwnerUiContext, businessId
   const raw = row.policies.find(value => object(value) && value.policyId === policyId);
   requireValue(object(raw) && raw.revoked === true && raw.terminalReconciliationRequired === true);
   return stopResearchProof(context, businessId, policyId);
+}
+
+/** An explicit authenticated receipt read, independent of expired/revoked R05
+ * authority. No supplied generation ID, quote, admission, write or replay. */
+export async function verifySavedResearchInferenceRoute(context: OwnerUiContext, businessId: string, policyId: string, requestId: string) {
+  requireValue(id(policyId) && id(requestId));
+  const resolve = (row: Record<string, unknown>) => {
+    requireValue(Array.isArray(row.policies));
+    const matches = row.policies.filter(value => object(value) && value.policyId === policyId);
+    requireValue(matches.length === 1);
+    const selected = policy(matches[0], businessId, context.userId);
+    requireValue(selected.policy.modelId === PUBLIC_RESEARCH_QUOTE_LIMITS.modelId && selected.policy.providerEndpoint === PUBLIC_RESEARCH_QUOTE_LIMITS.providerEndpoint);
+    const phases = selected.phases.filter(phase => phase.requestId === requestId);
+    requireValue(phases.length === 1);
+    const phase = phases[0];
+    requireValue(phase.marked && phase.settled && typeof phase.providerRequestId === "string" && /^gen-[A-Za-z0-9_-]{1,296}$/.test(phase.providerRequestId));
+    return { phase: phase.phase, generationId: phase.providerRequestId, policyHash: selected.policyHash };
+  };
+  const saved = resolve(await workspace(context, businessId));
+  const expectation: GenerationRouteExpectation = { generationId: saved.generationId, providerName: "Azure",
+    acceptedResponseModelIds: [PUBLIC_RESEARCH_QUOTE_LIMITS.modelId, PUBLIC_RESEARCH_QUOTE_LIMITS.canonicalModelId], requestedEndpoint: "azure/us" };
+  // An injected asynchronous reader cannot rewrite what this caller expects.
+  const proof = validateGenerationRouteProof(await researchQualificationDependencies().fetchGenerationRoute(structuredClone(expectation)), expectation);
+  // A changed/expired login or changed receipt cannot leak a stale result.
+  // Stop/expiry are deliberately not authority checks for this historical read.
+  const after = resolve(await workspace(context, businessId));
+  requireValue(after.phase === saved.phase && after.generationId === saved.generationId && after.policyHash === saved.policyHash);
+  return { businessId, policyId, requestId, phase: saved.phase, proof };
 }

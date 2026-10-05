@@ -81,6 +81,32 @@ test('R11 additive repair preserves R05 and records truthful terminal outcomes',
    for(const finishReason of ['stop','length','content_filter','tool_calls','error','other','missing']){const s=await seedResearch(db);assert.equal((await repairFail(db,s,repairFailure(s,'none',null,{observation:repairObservation(s,{finishReason})}))).recorded,true);}
    const absent=await seedResearch(db);assert.equal((await repairFail(db,absent,repairFailure(absent,'none',null,{observation:null}))).recorded,true);
   });
+  await t.test('route diagnostics preserve legacy shape and reject partial, incoherent or raw observations',async()=>{
+   const legacy=await seedResearch(db),legacyObservation=repairObservation(legacy);
+   assert.equal(Object.keys(legacyObservation).length,11);
+   assert.equal((await repairFail(db,legacy,repairFailure(legacy,'none',null,{observation:legacyObservation}))).recorded,true);
+   assert.deepEqual((await repairPolicy(db,legacy)).outcomes[0].observation,legacyObservation);
+   for(const inferenceRouteStatus of ['unrequested','verified','unavailable','invalid']){
+    const s=await seedResearch(db),observation=repairObservation(s,{providerIdentity:'other',observedProvider:null,responseProviderHash:sha('PRIVATE_PROVIDER_LABEL_SENTINEL'),inferenceRouteStatus,inferenceRouteProofHash:inferenceRouteStatus==='verified'?sha('inert-normalized-route-proof'):null});
+    assert.equal(Object.keys(observation).length,14);
+    assert.equal((await repairFail(db,s,repairFailure(s,'none',null,{observation}))).recorded,true);
+    const saved=(await repairPolicy(db,s)).outcomes[0].observation;assert.deepEqual(saved,observation);assert.doesNotMatch(JSON.stringify(saved),/PRIVATE_PROVIDER_LABEL_SENTINEL/);
+   }
+   const s=await seedResearch(db),base=repairObservation(s,{responseProviderHash:sha('Azure'),inferenceRouteStatus:'verified',inferenceRouteProofHash:sha('inert-normalized-route-proof')});
+   const check=observation=>db.query('select private.r11_research_observation_validate(p,$2::jsonb) from private.r11_research_policies p where p.id=$1',[s.policy.id,observation]);
+   await check(base);
+   await check({...base,providerIdentity:'missing',observedProvider:null,responseProviderHash:null});
+   await check({...base,providerIdentity:'other',observedProvider:null,responseProviderHash:null});
+   const mutations=[o=>delete o.responseProviderHash,o=>delete o.inferenceRouteStatus,o=>delete o.inferenceRouteProofHash,
+    o=>o.responseProviderHash='raw provider',o=>o.responseProviderHash=42,o=>o.responseProviderHash='A'.repeat(64),o=>o.responseProviderHash='a'.repeat(65),o=>o.responseProviderHash=null,
+    o=>o.inferenceRouteStatus='unknown',o=>o.inferenceRouteStatus=null,o=>o.inferenceRouteStatus='unrequested',o=>o.inferenceRouteStatus='invalid',o=>o.inferenceRouteStatus='unavailable',
+    o=>o.inferenceRouteProofHash=null,o=>o.inferenceRouteProofHash=42,o=>o.inferenceRouteProofHash='A'.repeat(64),o=>o.inferenceRouteProofHash='a'.repeat(63),
+    o=>{o.providerIdentity='missing';o.observedProvider=null;},o=>o.rawProvider='PRIVATE',o=>o.routeProof={provider_name:'PRIVATE'},
+    o=>o.annotationCount=0,o=>o.observedModelId='wrong/model',o=>o.observedProvider='Unknown provider',o=>o.providerError='PRIVATE_ERROR'];
+   for(const mutate of mutations){const observation=structuredClone(base);mutate(observation);await assert.rejects(check(observation),reject);}
+   for(const key of ['responseProviderHash','inferenceRouteStatus','inferenceRouteProofHash'])await assert.rejects(check({...repairObservation(s),[key]:base[key]}),reject);
+   assert.deepEqual((await repairPolicy(db,s)).outcomes,[]);
+  });
   await t.test('fail rejects malformed metadata, unsafe raw content, enum mismatches and unbounded counters atomically',async()=>{
    const s=await seedResearch(db),marked=await repairGuard(db,s),exact=repairFailure(s,'search',marked.requestId,{observation:repairObservation(s)});
    const mutations=[p=>p.extra='raw response',p=>p.reason='provider timed out with SECRET',p=>p.phase='selector',p=>p.observation=false,p=>p.observation.rawResponse='private',p=>p.observation.errorMessage='private',p=>p.observation.modelIdentity='canonical-but-unreviewed',p=>p.observation.observedModelId='other/model',p=>p.observation.providerIdentity='canonical',p=>p.observation.observedProvider='Other provider',p=>p.observation.finishReason='unsafe text',p=>p.observation.providerError='unsafe provider error',p=>p.observation.searchRequests=-1,p=>p.observation.searchRequests=1001,p=>p.observation.searchRequests=1.5,p=>p.observation.searchRequests='1',p=>p.observation.annotationCount=1001,p=>p.observation.rejectedDomainCount=-1,p=>p.observation.malformedAnnotationCount=1001,p=>p.observation.approvedDomainCounts=[{domain:'private.example',count:1}],p=>p.observation.approvedDomainCounts=[{domain:s.policy.allowedDomains[0],count:1001}],p=>p.observation.approvedDomainCounts=[{domain:s.policy.allowedDomains[0],count:1,url:'https://private.example/?token=private'}],p=>p.observation.approvedDomainCounts=[{domain:s.policy.allowedDomains[0],count:1},{domain:s.policy.allowedDomains[0],count:1}],p=>delete p.observation.finishReason];

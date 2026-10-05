@@ -12,7 +12,8 @@ const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),host=
 test('R11 actual TypeScript runner, adapter wire and SQL source/financial guard agree end to end',{skip:!host,timeout:120000},async()=>{
  const require=createRequire(import.meta.url),sqlRequire=createRequire(path.resolve(host,'package.json'));
  const {PGlite}=sqlRequire('@electric-sql/pglite'),{pgcrypto}=sqlRequire('@electric-sql/pglite/contrib/pgcrypto');
- const q=require('../.core-tests/research/qualification.js'),rt=require('../.core-tests/research/qualification-runtime.js');
+ const q=require('../.core-tests/research/qualification.js'),rt=require('../.core-tests/research/qualification-runtime.js'),route=require('../.core-tests/research/generation-route.js');
+ const acceptedResponseModelIds=['openai/gpt-5.6-luna','openai/gpt-5.6-luna-20260709'];
  const {OpenRouterAdapter}=require('../.core-tests/models/openrouter.js'),{resolveModelRoute}=require('../.core-tests/models/registry.js');
  const db=new PGlite({extensions:{pgcrypto}});
  try{
@@ -21,22 +22,26 @@ test('R11 actual TypeScript runner, adapter wire and SQL source/financial guard 
   const model=structuredClone(resolveModelRoute('standard.default').primary);
   await setupResearchFixture(db,{modelId:model.providerModelId});const s=await seedResearch(db,{enroll:false,policyOverrides:{modelId:model.providerModelId}});
   s.search=await rt.inspectPublicResearchWire(q.publicResearchSearchRequest(s.policy,model),'search');await enrollResearch(db,s);
-  const sent=[],rpcCalls=[],excerpt='Adult gardeners often value practical tools and containers suited to the available growing space.';
-  const runtime={model,verifyQuote:async()=>({providerName:'Azure'}),
+  const sent=[],rpcCalls=[],settlements=[],order=[],routeGets=[],excerpt='Adult gardeners often value practical tools and containers suited to the available growing space.';
+  const runtime={model,verifyQuote:async()=>({providerName:'Azure',acceptedResponseModelIds}),
+   verifyGenerationRoute:expected=>route.fetchGenerationRouteProof({...expected,config:{apiKey:'inert-generation-route'},fetcher:async(url,init)=>{order.push('GET');routeGets.push(url);assert.equal(init.method,'GET');assert.equal(init.redirect,'error');return new Response(JSON.stringify({data:{id:expected.generationId,model:acceptedResponseModelIds[1],provider_name:'Azure',provider_responses:null}}),{status:200});}}),
    rpc:async(operation,payload)=>{rpcCalls.push(operation);return value(db,'select public.r11_research_server_v2($1,$2,$3,$4) result',[s.businessId,operation,payload,RESEARCH_KEY]);},
-   settle:async(requestId,receipt)=>{const result=await financial(db,s,'settle',{requestId,currency:'USD',actualMicrounits:receipt.reportedMicrousd===null?null:String(receipt.reportedMicrousd),providerRequestId:receipt.providerRequestId,receiptHash:hash(receipt)});assert.equal(result.decision,'allowed');},
+   settle:async(requestId,receipt)=>{order.push('settle');settlements.push({requestId,receipt:structuredClone(receipt)});const result=await financial(db,s,'settle',{requestId,currency:'USD',actualMicrounits:receipt.reportedMicrousd===null?null:String(receipt.reportedMicrousd),providerRequestId:receipt.providerRequestId,receiptHash:hash(receipt)});assert.equal(result.decision,'allowed');},
    provider:(admit,observeResponse)=>new OpenRouterAdapter({observeResponse,config:{apiKey:'inert-r11-wire',baseUrl:'https://openrouter.ai/api/v1',appUrl:'https://example.invalid',appName:'R11 inert SQL test'},admitDispatch:admit,fetcher:async(url,init)=>{
     const body=JSON.parse(init.body),search=!!body.tools;sent.push({url,body});
-    return new Response(JSON.stringify({id:search?'inert-search-receipt':'inert-selector-receipt',provider:'Azure',model:s.policy.modelId,
+    return new Response(JSON.stringify({id:search?'gen-inert-search-receipt':'gen-inert-selector-receipt',provider:'undocumented-private-wrapper',model:s.policy.modelId,
      choices:[{finish_reason:'stop',message:search?{content:'One factual source',annotations:[{type:'url_citation',url_citation:{url:'https://gardening.example/report',title:'Public report',content:excerpt}}]}:{content:JSON.stringify({selections:[{sourceKey:'S1',quote:excerpt}],limitations:['limited_sources']})}}],
      usage:{prompt_tokens:10,completion_tokens:10,cost:0.00002,...(search?{server_tool_use:{web_search_requests:1}}:{})}}),{status:200});
    }})};
   const scope={businessId:s.businessId,coreWorkflowRunId:s.workflowRunId,runtimeCapability:RESEARCH_CAPABILITY};
   const result=await rt.runPublicResearchQualification(scope,s.policy.id,runtime);
+  assert.deepEqual(order,['settle','GET','settle','settle','GET','settle']);assert.equal(routeGets.length,2);
+  for(const offset of [0,2]){assert.equal(settlements[offset].requestId,settlements[offset+1].requestId);assert.equal(settlements[offset].receipt.providerRequestId,settlements[offset+1].receipt.providerRequestId);assert.equal(settlements[offset].receipt.reportedMicrousd,settlements[offset+1].receipt.reportedMicrousd);assert.equal(settlements[offset].receipt.generationRouteProof,undefined);assert.equal(settlements[offset+1].receipt.generationRouteProof.providerName,'Azure');assert.notEqual(hash(settlements[offset].receipt),hash(settlements[offset+1].receipt));}
+  assert.equal(JSON.stringify(settlements).includes('undocumented-private-wrapper'),false);
   assert.equal(result.receipts.length,2);assert.equal(sent.length,2);assert.deepEqual(rpcCalls,['load','guard','collect','guard','complete']);
   assert.equal(await value(db,'select count(*)::int result from private.r11_research_results where policy_id=$1',[s.policy.id]),1);
   assert.equal(await value(db,'select count(*)::int result from private.r05_markers where business_id=$1',[s.businessId]),2);
-  assert.equal(await value(db,'select count(*)::int result from private.r05_settlements where business_id=$1',[s.businessId]),2);
+  assert.equal(await value(db,'select count(*)::int result from private.r05_settlements where business_id=$1',[s.businessId]),4);
   assert.equal(await value(db,'select coalesce(sum(held),0)::text result from private.r05_exposure($1)',[s.businessId]),'40');
   const retained=await value(db,'select collection result from private.r11_research_collections where id=$1',[result.collectionId]);
   assert.equal(result.evidencePack.sourceLineage.collectionHash,q.publicResearchHash(retained));
@@ -47,11 +52,12 @@ test('R11 actual TypeScript runner, adapter wire and SQL source/financial guard 
   const failed=await seedResearch(db,{enroll:false,policyOverrides:{modelId:model.providerModelId}});
   failed.search=await rt.inspectPublicResearchWire(q.publicResearchSearchRequest(failed.policy,model),'search');await enrollResearch(db,failed);
   let failedCalls=0;
-  const failureRuntime={model,verifyQuote:async()=>({providerName:'Azure'}),
+  const failureRuntime={model,verifyQuote:async()=>({providerName:'Azure',acceptedResponseModelIds}),
+   verifyGenerationRoute:async()=>{throw Error('unqualified response model must stop before route lookup');},
    rpc:(operation,payload)=>value(db,'select public.r11_research_server_v2($1,$2,$3,$4) result',[failed.businessId,operation,payload,RESEARCH_KEY]),
    settle:(requestId,receipt)=>financial(db,failed,'settle',{requestId,currency:'USD',actualMicrounits:receipt.reportedMicrousd===null?null:String(receipt.reportedMicrousd),providerRequestId:receipt.providerRequestId,receiptHash:hash(receipt)}),
    provider:(admit,observeResponse)=>new OpenRouterAdapter({config:{apiKey:'inert-r11-diagnostic',baseUrl:'https://openrouter.ai/api/v1',appUrl:'https://example.invalid',appName:'R11 inert diagnostic SQL'},admitDispatch:admit,observeResponse,fetcher:async()=>{
-    failedCalls++;return new Response(JSON.stringify({id:'inert-diagnostic-search-receipt',provider:'Azure',model:'unreviewed/response-model',choices:[{finish_reason:'stop',message:{content:'Unretained provider text',annotations:[{type:'url_citation',url_citation:{url:'https://gardening.example/report',title:'Unretained title',content:excerpt}}]}}],usage:{prompt_tokens:10,completion_tokens:10,cost:0.00002,server_tool_use:{web_search_requests:1}}}),{status:200});
+    failedCalls++;return new Response(JSON.stringify({id:'gen-inert-diagnostic-search-receipt',provider:'Azure',model:'unreviewed/response-model',choices:[{finish_reason:'stop',message:{content:'Unretained provider text',annotations:[{type:'url_citation',url_citation:{url:'https://gardening.example/report',title:'Unretained title',content:excerpt}}]}}],usage:{prompt_tokens:10,completion_tokens:10,cost:0.00002,server_tool_use:{web_search_requests:1}}}),{status:200});
    }})};
   const failedScope={businessId:failed.businessId,coreWorkflowRunId:failed.workflowRunId,runtimeCapability:RESEARCH_CAPABILITY};
   await assert.rejects(rt.runPublicResearchQualification(failedScope,failed.policy.id,failureRuntime));assert.equal(failedCalls,1);

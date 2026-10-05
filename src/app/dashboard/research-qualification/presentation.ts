@@ -29,7 +29,7 @@ export function canRunResearchProof(entry: ProofState, configured: boolean, hasU
 const outcomeReasons: Record<string, string> = {
   provider_response_invalid: "The provider response did not meet the required response format.",
   response_model_unqualified: "The returned model identity was not qualified by the reviewed quote.",
-  response_provider_unqualified: "The returned inference provider identity did not match the approved route.",
+  response_provider_unqualified: "The recorded provider-identity check did not pass.",
   source_contract_invalid: "The returned sources did not pass the reviewed source checks.",
   collection_persistence_failed: "The validated source collection could not be confirmed in saved records.",
   selector_output_invalid: "The evidence-selection output did not pass validation.",
@@ -40,7 +40,8 @@ const outcomeReasons: Record<string, string> = {
   legacy_failure_undetermined: "This historical attempt has no saved typed failure reason. Its original stop cause remains undetermined.",
 };
 const modelLabels: Record<string, string> = { request_alias: "approved request alias", canonical: "approved canonical model", other: "unqualified identity", missing: "not reported", invalid: "invalid identity" };
-const providerLabels: Record<string, string> = { exact: "exact approved Azure identity", other: "unqualified identity", missing: "not reported", invalid: "invalid identity" };
+const providerLabels: Record<string, string> = { exact: "Azure label observed", other: "other label observed", missing: "not reported", invalid: "invalid label" };
+const routeLabels: Record<string, string> = { unrequested: "not requested", verified: "verified generation-record provider/model", unavailable: "generation-record evidence unavailable", invalid: "generation-record evidence invalid" };
 const finishLabels: Record<string, string> = { stop: "normal stop", length: "output limit", content_filter: "content filter", tool_calls: "tool calls", error: "provider error", other: "other finish reason", missing: "not reported" };
 const label = (labels: Record<string, string>, value: unknown, fallback = "unavailable"): string => typeof value === "string" && Object.hasOwn(labels, value) ? labels[value] : fallback;
 const record = (item: unknown): item is Record<string, unknown> => !!item && typeof item === "object" && !Array.isArray(item);
@@ -53,7 +54,10 @@ export function researchOutcomeDisclosure(value: unknown, allowedDomains: string
   if (record(value.observation)) {
     const o = value.observation;
     observations.push(`Model identity: ${label(modelLabels, o.modelIdentity)}`);
-    observations.push(`Provider identity: ${label(providerLabels, o.providerIdentity)}`);
+    observations.push(`Raw response-provider observation: ${label(providerLabels, o.providerIdentity)}`);
+    if (typeof o.responseProviderHash === "string" && /^[a-f0-9]{64}$/.test(o.responseProviderHash)) observations.push(`Raw response-provider fingerprint: ${o.responseProviderHash}`);
+    observations.push(`Generation-route evidence: ${o.inferenceRouteStatus === undefined ? "not recorded for this historical observation" : label(routeLabels, o.inferenceRouteStatus)}`);
+    if (o.inferenceRouteStatus === "verified" && typeof o.inferenceRouteProofHash === "string" && /^[a-f0-9]{64}$/.test(o.inferenceRouteProofHash)) observations.push(`Generation-route proof fingerprint: ${o.inferenceRouteProofHash}`);
     observations.push(`Finish reason: ${label(finishLabels, o.finishReason)}`);
     observations.push(`Search requests: ${count(o.searchRequests)}; citation annotations: ${count(o.annotationCount)}`);
     observations.push(`Rejected source domains: ${count(o.rejectedDomainCount)}; malformed annotations: ${count(o.malformedAnnotationCount)}`);
@@ -121,4 +125,10 @@ export function researchGrantDisclosure(value: unknown, kind: "initial" | "conti
   return { businessContent: value.businessContent, goalContent: value.goalContent, operatingPolicy: operating,
     continuation: record(continuation) ? continuation : null,
     expectedExposureMicrounits: operating.expectedExposureMicrounits as string, policyLimitMicrounits: operating.policyLimitMicrounits as string, businessLifetimeLimitMicrounits: operating.businessLifetimeLimitMicrounits as string };
+}
+
+/** A historical metadata read needs the saved settled receipt, not live authority. */
+export function canVerifySavedInferenceRoute(phase: { requestId: string; marked: boolean; settled: boolean; providerRequestId: string | null }): boolean {
+  return phase.marked && phase.settled && /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(phase.requestId) &&
+    typeof phase.providerRequestId === "string" && /^gen-[A-Za-z0-9_-]{1,296}$/.test(phase.providerRequestId);
 }

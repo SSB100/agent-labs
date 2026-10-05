@@ -11,8 +11,9 @@ import {
   reconcileResearchProof,
   runResearchProof,
   stopResearchProof,
+  verifySavedResearchInferenceRoute,
 } from "@/research/qualification-server";
-import type { ResearchSetupState } from "./form-state";
+import type { ResearchRouteState, ResearchSetupState } from "./form-state";
 
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
 const HASH = /^[a-f0-9]{64}$/;
@@ -102,4 +103,23 @@ export async function reconcileResearchProofAction(form: FormData) {
   } catch { /* Only saved reconciliation records establish an outcome. */ }
   revalidatePath(route);
   redirect(`${route}?business=${businessId}&notice=review-reconciliation`);
+}
+
+/** Fresh read-only generation metadata for a saved owned dispatch; never a run. */
+export async function verifySavedInferenceRoute(_previous: ResearchRouteState, form: FormData): Promise<ResearchRouteState> {
+  const businessId = field(form, "businessId"), policyId = field(form, "policyId"), requestId = field(form, "requestId");
+  const allowed = new Set(["businessId", "policyId", "requestId"]);
+  if (![businessId, policyId, requestId].every(value => UUID.test(value)) || [...form.keys()].some(key => !allowed.has(key) && !key.startsWith("$ACTION_"))) {
+    return { status: "unavailable", message: "The exact saved receipt request is unavailable. Reload this Business.", verification: null };
+  }
+  const context = await requireOwnerUiContext();
+  if (!await verifyOwnerBusiness(context, businessId)) {
+    return { status: "unavailable", message: "Business ownership could not be verified. No inference-route read was requested.", verification: null };
+  }
+  try {
+    const verification = await verifySavedResearchInferenceRoute(context, businessId, policyId, requestId);
+    return { status: "verified", message: "Read-only route evidence received. This does not qualify prior output or authorize another run.", verification };
+  } catch {
+    return { status: "unavailable", message: "The saved inference route could not be verified. Existing failures and charges remain unchanged; no new run was started.", verification: null };
+  }
 }

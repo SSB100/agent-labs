@@ -8,6 +8,7 @@ import { assembleAdmittedPublicEvidence, canonicalPublicResearchJson, collectQua
 import type { EvidencePack, ResearchCollection } from "./types";
 import { fetchPublicResearchQuote, validatePublicResearchQuote } from "./qualification-quote";
 import type { ResearchFailureReason, ResearchObservation } from "./qualification-owner-contract";
+import { fetchGenerationRouteProof, GenerationRouteProofError, validateGenerationRouteProof, type GenerationRouteExpectation, type GenerationRouteProof } from "./generation-route";
 import { observePublicResearchResponse, PublicResearchQualificationError, PublicResearchQualificationUnacquiredError, validateResearchObservation, validateResearchResponseModelIds } from "./qualification-outcome";
 
 type Phase = "search" | "select";
@@ -26,6 +27,8 @@ export type PublicResearchRuntime = {
   rpc: Rpc; settle: Settle; provider: (admit: ModelDispatchAdmission, observeResponse?: (body: unknown, providerError?: string) => JsonObject) => Provider;
   /** Must freshly verify exact catalog/ZDR endpoint, full tier quote and hash. */
   verifyQuote: (policy: PublicResearchPolicy) => Promise<{ providerName: string; acceptedResponseModelIds?: readonly string[] }>;
+  /** One trusted, non-generating lookup of this positively admitted generation. */
+  verifyGenerationRoute: (expected: GenerationRouteExpectation) => Promise<GenerationRouteProof>;
   now?: () => number; model?: ModelDefinition;
 };
 const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
@@ -61,9 +64,10 @@ function wireEquals(a: Wire, b: Wire) {
 const costMicrousd = (reported: unknown): number | null => typeof reported === "number" && Number.isFinite(reported) && reported >= 0 && Number.isSafeInteger(Math.ceil(reported * 1e6)) ? Math.ceil(reported * 1e6) : null;
 const providerRequestId = (value: unknown): value is string => typeof value === "string" && value.length >= 1 && value.length <= 300;
 function safeReceipt(response: ModelProviderResponse, observation: ResearchObservation, phase: Phase): JsonObject {
-  return { provider: phase === "search" ? "openrouter.exa" : observation.observedProvider,
+  return { provider: phase === "search" ? "openrouter.exa" : "openrouter",
     providerModelId: observation.observedModelId, providerRequestId: providerRequestId(response.providerRequestId) ? response.providerRequestId : null,
-    actualUpstreamProvider: observation.observedProvider, reportedMicrousd: costMicrousd(response.usage?.reportedCostUsd) };
+    responseProviderIdentity: observation.providerIdentity, observedResponseProvider: observation.observedProvider,
+    responseProviderHash: observation.responseProviderHash ?? null, reportedMicrousd: costMicrousd(response.usage?.reportedCostUsd) };
 }
 
 /** No fallback or paid retry exists. A separately committed fail RPC makes the
@@ -87,7 +91,7 @@ export async function runPublicResearchQualification(scope: Scope, policyId: str
         loaded.operationKeys.select !== (loaded.attemptVersion === 2 ? `research.model.r11v2.${policy.id}` : "research.model")) return denied();
     const model = structuredClone(runtime.model ?? resolveModelRoute("standard.default").primary);
     const receipts: JsonObject[] = [];
-    async function call(phase: Phase, request: WebSearchModelRequest | StructuredModelRequest, expected: Wire, collectionId: string | null): Promise<{ response: ModelProviderResponse; requestId: string; acceptedResponseModelIds: readonly string[] }> {
+    async function call(phase: Phase, request: WebSearchModelRequest | StructuredModelRequest, expected: Wire, collectionId: string | null): Promise<{ response: ModelProviderResponse; requestId: string; acceptedResponseModelIds: readonly string[]; routeProof: GenerationRouteProof }> {
       failure.reason = "internal_failure"; failure.phase = phase; failure.requestId = null; failure.observation = null;
       validatePublicResearchPolicy(policy, now());
       const freshQuote = await runtime.verifyQuote(structuredClone(policy));
@@ -111,6 +115,33 @@ export async function runPublicResearchQualification(scope: Scope, policyId: str
         if (providerError) observation.providerError = observePublicResearchResponse({}, observationContext, providerError).providerError;
         return observation;
       };
+      async function verifyRouteAndEnrich(requestId: string, receipt: JsonObject): Promise<{ routeProof: GenerationRouteProof; enrichedReceipt: JsonObject }> {
+        failure.reason = "response_provider_unqualified";
+        const setRoute = (status: "unavailable" | "invalid" | "verified", proofHash: string | null = null) => {
+          if (failure.observation) { failure.observation.responseProviderHash ??= failure.observation.providerIdentity === "exact" && failure.observation.observedProvider === "Azure" ? digest("Azure") : null; failure.observation.inferenceRouteStatus = status; failure.observation.inferenceRouteProofHash = proofHash; }
+        };
+        // A receipt ID is not permission for another model call. This reader is
+        // a single fixed-origin GET, only for the positively marked generation.
+        if (typeof receipt.providerRequestId !== "string" || !/^gen-[A-Za-z0-9_-]{1,296}$/.test(receipt.providerRequestId) ||
+            policy.providerEndpoint !== "azure/us" || acceptedResponseModelIds.length !== 2 || typeof runtime.verifyGenerationRoute !== "function") {
+          setRoute("invalid"); return denied();
+        }
+        const expected: GenerationRouteExpectation = { generationId: receipt.providerRequestId, providerName: "Azure", acceptedResponseModelIds,
+          requestedEndpoint: "azure/us" };
+        let routeProof: GenerationRouteProof;
+        try { routeProof = validateGenerationRouteProof(await runtime.verifyGenerationRoute(structuredClone(expected)), expected); }
+        catch (error) {
+          setRoute(error instanceof GenerationRouteProofError && ["invalid_request", "response_invalid", "generation_mismatch", "provider_mismatch", "model_mismatch", "provider_responses_invalid", "redirect_rejected"].includes(error.code) ? "invalid" : "unavailable");
+          return denied();
+        }
+        setRoute("verified", routeProof.proofHash);
+        const enrichedReceipt = { ...receipt, generationRouteProof: routeProof as unknown as JsonObject };
+        // Keep the original financial receipt unchanged. R05 retains each hash
+        // and takes maximum exposure per request, never the sum of enrichment.
+        failure.reason = "cost_unverified_or_over_cap";
+        await runtime.settle(requestId, enrichedReceipt);
+        return { routeProof, enrichedReceipt };
+      }
       const admit: ModelDispatchAdmission = async wire => {
         if (admittedRequestId !== null || wire.url !== "https://openrouter.ai/api/v1/chat/completions" || wire.method !== "POST" || digest(wire.body) !== inspected.wireHash || Buffer.byteLength(wire.body, "utf8") !== inspected.wireBytes) return denied();
         // A lost/denied guard reply can belong to another invocation. Only a
@@ -147,9 +178,15 @@ export async function runPublicResearchQualification(scope: Scope, policyId: str
           failure.observation = acceptObservation(error.details.researchObservation ?? failure.observation ?? undefined, fallback, error.category);
           if (settlementFailed || (providerRequestId(received.providerRequestId) && costMicrousd(usage.reportedCostUsd) === null) || (costMicrousd(usage.reportedCostUsd) ?? 0) > (phase === "search" ? policy.searchMicrousd : policy.selectorMicrousd)) failure.reason = "cost_unverified_or_over_cap";
           else if (failure.observation.modelIdentity === "other" || error.details.validationGate === "response_model") failure.reason = "response_model_unqualified";
-          else if (failure.observation.providerIdentity === "other") failure.reason = "response_provider_unqualified";
-          else if (error.details.validationGate === "source_contract") failure.reason = "source_contract_invalid";
-          else if (error.details.validationGate === "structured_output") failure.reason = "selector_output_invalid";
+          else {
+            const outputFailureReason = error.details.validationGate === "source_contract" ? "source_contract_invalid"
+              : error.details.validationGate === "structured_output" ? "selector_output_invalid" : "provider_response_invalid";
+            if (providerRequestId(received.providerRequestId) && costMicrousd(usage.reportedCostUsd) !== null &&
+                ["request_alias", "canonical"].includes(failure.observation.modelIdentity)) {
+              await verifyRouteAndEnrich(admittedRequestId, { providerRequestId: received.providerRequestId, reportedMicrousd: costMicrousd(usage.reportedCostUsd) });
+            }
+            failure.reason = outputFailureReason;
+          }
         }
         return denied();
       }
@@ -167,14 +204,13 @@ export async function runPublicResearchQualification(scope: Scope, policyId: str
       const receipt = safeReceipt(response, observed, phase);
       failure.reason = "cost_unverified_or_over_cap";
       await runtime.settle(admittedRequestId, receipt);
-      receipts.push(receipt);
       failure.reason = "provider_response_invalid";
       failure.observation = acceptObservation(metadata.researchObservation ?? failure.observation ?? undefined, fallback);
       if (!acceptedResponseModelIds.includes(response.providerModelId) || !["request_alias", "canonical"].includes(failure.observation.modelIdentity)) { failure.reason = "response_model_unqualified"; return denied(); }
-      const observedProvider = phase === "search" ? metadata.actualUpstreamProvider : response.provider;
-      if (observedProvider !== freshQuote.providerName || failure.observation.providerIdentity !== "exact") { failure.reason = "response_provider_unqualified"; return denied(); }
       if (!providerRequestId(response.providerRequestId) || receipt.reportedMicrousd === null || Number(receipt.reportedMicrousd) > (phase === "search" ? policy.searchMicrousd : policy.selectorMicrousd)) { failure.reason = "cost_unverified_or_over_cap"; return denied(); }
-      return { response, requestId: admittedRequestId, acceptedResponseModelIds };
+      const { routeProof, enrichedReceipt } = await verifyRouteAndEnrich(admittedRequestId, receipt);
+      receipts.push(enrichedReceipt);
+      return { response, requestId: admittedRequestId, acceptedResponseModelIds, routeProof };
     }
     let saved = loaded.collection;
     if (saved === null) {
@@ -182,7 +218,7 @@ export async function runPublicResearchQualification(scope: Scope, policyId: str
       const searched = await call("search", request, loaded.search, null);
       failure.reason = "source_contract_invalid";
       if (failure.observation && (failure.observation.searchRequests !== 1 || failure.observation.annotationCount === null || failure.observation.annotationCount < 1 || failure.observation.annotationCount > 4 || failure.observation.malformedAnnotationCount > 0 || failure.observation.rejectedDomainCount > 0)) return denied();
-      const { collection, lineage } = collectQualifiedPublicSources(policy, searched.response, searched.requestId, now(), searched.acceptedResponseModelIds);
+      const { collection, lineage } = collectQualifiedPublicSources(policy, searched.response, searched.requestId, now(), searched.acceptedResponseModelIds, searched.routeProof);
       const selector = publicResearchSelectorRequest(policy, model, collection, lineage, now());
       const selectorWire = await inspectPublicResearchWire(selector, "select");
       const lineageHash = publicResearchHash(lineage);
@@ -247,7 +283,7 @@ export async function verifyPublicResearchPolicyQuote(policy: PublicResearchPoli
 export function publicResearchRuntime(scope: Scope, verifyQuote: PublicResearchRuntime["verifyQuote"] = verifyPublicResearchPolicyQuote): PublicResearchRuntime {
   const ownedScope = structuredClone(scope);
   const key = () => { const value = ownedScope.admissionKey ?? process.env.R05_ADMISSION_SERVER_KEY?.trim(); if (!value) return denied(); return value; };
-  return { verifyQuote, provider: (admit, observeResponse) => new OpenRouterAdapter({ admitDispatch: admit, observeResponse }),
+  return { verifyQuote, verifyGenerationRoute: fetchGenerationRouteProof, provider: (admit, observeResponse) => new OpenRouterAdapter({ admitDispatch: admit, observeResponse }),
     async rpc(operation, payload) {
       const result = await createRuntimeClient().rpc("r11_research_server_v2", { p_business_id: ownedScope.businessId, p_operation: operation, p_payload: payload, p_server_key: key() });
       if (result.error) return denied(); return result.data;

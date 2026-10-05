@@ -1,4 +1,4 @@
-import {seedResearchFixture,installResearchContinuationFixture,researchCatalogFixture,researchProviderFixture,researchOwnerFixture,researchRuntimeFixture} from './r11-research.mjs';
+import {seedResearchFixture,installResearchContinuationFixture,researchCatalogFixture,researchGenerationFixture,researchProviderFixture,researchOwnerFixture,researchRuntimeFixture} from './r11-research.mjs';
 import sharp from 'sharp';
 import {seedViewerFixture,readViewerFixture,viewerAuthorityFixture,R10_FIXTURE_SVG} from './r10.mjs';
 import {knowledgeSeed,readKnowledgeFixture,saveKnowledgeFixture} from './knowledge.mjs';
@@ -29,6 +29,7 @@ export async function startFixtureBoundary() {
     if(req.url==='/r10/authority'){if(input.scope?.ownerId!==state.owner||input.scope?.authSessionId!==id(910003))return send({error:'Inert identity rejected'});try{return send({data:viewerAuthorityFixture(state,input,effects,control)});}catch{return send({error:'Inert authority rejected'});}}
     if(req.url==='/r10/capture'){log.push({kind:'inert-viewer-frame'});res.setHeader('content-type','image/jpeg');return res.end(control.viewerCorruptFrame?Buffer.from([255,216,255,217]):viewerJpeg);}
     if(req.url==='/r11/catalog')return send(researchCatalogFixture(input.url,log,control));
+    if(req.url==='/r11/generation'){if(req.method!=='POST')throw Error('Inert generation boundary method rejected');return send(researchGenerationFixture(state,input,log,control));}
     if(req.url==='/r11/provider')return send(researchProviderFixture(state,input,effects,control));
     if(['/rest/v1/rpc/r11_research_server_v2','/rest/v1/rpc/r05_admission_server'].includes(req.url)){
       const name=req.url.split('/').at(-1);log.push({kind:'inert-r11-runtime',rpc:name,business:input.p_business_id,operation:input.p_operation});

@@ -26,6 +26,22 @@ export async function submitResearchConsentRejection(page,button,origin){
  }finally{page.off('request',capture);}
 }
 
+/** Observe the exact action headers and rendered state, never Flight EOF. */
+async function submitSavedRouteCheck(page,route){
+ const actionUrl=page.url();let actionRequest;
+ const capture=request=>{if(!actionRequest&&request.method()==='POST'&&request.url()===actionUrl&&request.headers()['next-action'])actionRequest=request;};
+ page.on('request',capture);
+ const observed=observe(page.waitForResponse(response=>!!actionRequest&&response.request()===actionRequest,{timeout:FIXTURE_ACTION_TIMEOUT_MS}));
+ try{
+  await route.getByRole('button',{name:'Verify saved inference route',exact:true}).click({timeout:FIXTURE_ACTION_TIMEOUT_MS});
+  const received=await bounded(observed,'R11 exact saved-route action response headers',FIXTURE_ACTION_TIMEOUT_MS);
+  if(!received.ok)throw received.error;
+  assert.equal(received.value.request(),actionRequest);assert.equal(received.value.status(),200);assert.equal(received.value.headers()['x-action-redirect'],undefined);
+  await route.locator('[data-r11-route-evidence]').waitFor({state:'visible',timeout:FIXTURE_ACTION_TIMEOUT_MS});
+  await route.getByRole('button',{name:'Verify saved inference route',exact:true}).waitFor({state:'visible',timeout:FIXTURE_ACTION_TIMEOUT_MS});
+ }finally{page.off('request',capture);}
+}
+
 export async function runResearchQualificationBrowser({page,context,origin,noKeyOrigin,boundary,output,check,actions}) {
  const control=values=>researchControl(boundary,values);
  const fixture=()=>boundary.state().r11Research;
@@ -84,7 +100,7 @@ export async function runResearchQualificationBrowser({page,context,origin,noKey
  await check('R11 safe response diagnostics survive reload without raw provider text or false result success',async()=>{
   for(const scenario of [{r11InvalidSources:true},{r11InvalidModel:true},{r11InvalidSelection:true},{r11CompleteFailure:true}]){
    await reset();await activate();await control(scenario);await runButton(page).click();await page.waitForURL(/notice=review-proof/);await proof(page).getByRole('heading',{name:'Saved proof failure',exact:true}).waitFor();
-   const calls=scenario.r11InvalidSources||scenario.r11InvalidModel?1:2;assert.equal(fixture().providerCalls.length,calls);assert.equal(fixture().settlements.length,calls);assert.equal(fixture().results.length,0);assert.equal(await result(page).count(),0);assert.equal(await runButton(page).isDisabled(),true);assert.equal(fixture().policies[0].workflowStatus,'needs_owner');assert.ok(!JSON.stringify(fixture().outcomes).includes(R11_RAW_SENTINEL));
+   const calls=scenario.r11InvalidSources||scenario.r11InvalidModel?1:2;assert.equal(fixture().providerCalls.length,calls);assert.equal(fixture().settlements.length,scenario.r11InvalidModel?1:calls*2);assert.equal(fixture().results.length,0);assert.equal(await result(page).count(),0);assert.equal(await runButton(page).isDisabled(),true);assert.equal(fixture().policies[0].workflowStatus,'needs_owner');assert.ok(!JSON.stringify(fixture().outcomes).includes(R11_RAW_SENTINEL));
    await proof(page).getByText('Safe observed response details',{exact:true}).click();assert.ok(!(await proof(page).innerText()).includes(R11_RAW_SENTINEL));
    if(scenario.r11InvalidSources){await proof(page).getByText('Model identity: approved canonical model',{exact:true}).waitFor();await proof(page).getByText('Rejected source domains: 1; malformed annotations: 1',{exact:true}).waitFor();await page.setViewportSize({width:320,height:800});await page.screenshot({path:path.join(output,'r11-research-safe-failure-320x800.png'),fullPage:true});await page.setViewportSize({width:1280,height:720});}
    await submitRunEvenIfDisabled();await page.reload();assert.equal(fixture().providerCalls.length,calls);assert.equal(await result(page).count(),0);
@@ -99,11 +115,26 @@ export async function runResearchQualificationBrowser({page,context,origin,noKey
   await reset();await activate();const second=await context.newPage();try{
    await second.goto(origin+researchRoute());await Promise.all([runButton(page).click(),runButton(second).click()]);await Promise.any([result(page).waitFor(),result(second).waitFor()]);await Promise.all([page.reload(),second.reload()]);await Promise.all([result(page).waitFor(),result(second).waitFor()]);
   }finally{await second.close();}
-  assert.equal(fixture().providerCalls.length,2);assert.deepEqual(fixture().providerCalls.map(item=>item.phase),['search','select']);assert.equal(fixture().settlements.length,2);assert.equal(fixture().collections.length,1);assert.equal(fixture().results.length,1);
+  assert.equal(fixture().providerCalls.length,2);assert.deepEqual(fixture().providerCalls.map(item=>item.phase),['search','select']);assert.equal(fixture().settlements.length,4);assert.equal(fixture().collections.length,1);assert.equal(fixture().results.length,1);
   await proof(page).getByRole('heading',{name:'Complete · saved validated evidence',exact:true}).waitFor();await proof(page).getByRole('heading',{name:'Saved validated evidence',exact:true}).waitFor();
   assert.equal(await result(page).getByRole('link',{name:'Synthetic public gardening report',exact:true}).getAttribute('href'),'https://gardening.example/report');assert.match(await result(page).innerText(),/Adult gardeners often value practical tools/);assert.equal(await runButton(page).isDisabled(),true);
   assert.ok(actions.some(item=>item.url.includes('/dashboard/research-qualification')&&Number(item.revalidated)>0),'Real server action must revalidate the unchanged page');
   await submitRunEvenIfDisabled();await page.reload();await result(page).waitFor();await page.getByRole('link',{name:'Back to Research',exact:true}).click();await page.waitForURL(/view=research/);await page.goBack();await result(page).waitFor();await page.goForward();await page.waitForURL(/view=research/);await page.goBack();await result(page).waitFor();assert.equal(fixture().providerCalls.length,2);
+ });
+ await check('R11 explicit saved-route verification reads one documented generation and preserves all paid and financial state',async()=>{
+  const requestId=fixture().markers.find(item=>item.phase==='search').requestId;
+  const route=proof(page).locator(`[data-r11-route-check="${requestId}"]`),original=structuredClone(fixture()),effects=boundary.effects.length;
+  const reads=()=>boundary.log.filter(item=>item.kind==='inert-r11-generation-read').length,before=reads();
+  await submitSavedRouteCheck(page,route);
+  await route.getByText(/Documented inference provider: Azure/).waitFor();await route.getByText(/does not independently establish the regional endpoint or enumerate every inner call/).waitFor();
+  assert.equal(reads(),before+1);assert.deepEqual(fixture(),original);assert.equal(boundary.effects.length,effects);assert.equal(fixture().settlements.length,4);
+  assert.equal(boundary.log.filter(item=>item.kind==='inert-r11-generation-read').at(-1).generationId,original.providerCalls.find(item=>item.requestId===requestId).receiptId);
+  assert.match(await route.innerText(),/does not qualify prior output or authorize another run/);
+  assert.ok(!(await route.innerText()).includes(R11_RAW_SENTINEL));assert.ok(!(await route.innerText()).includes('inert-r11-generation-placeholder'));
+  await page.setViewportSize({width:320,height:800});await route.scrollIntoViewIfNeeded();
+  const geometry=await page.evaluate(()=>({width:document.documentElement.scrollWidth,innerWidth}));assert.ok(geometry.width<=geometry.innerWidth+1,JSON.stringify(geometry));
+  await page.screenshot({path:path.join(output,'r11-research-route-evidence-320x800.png'),fullPage:true});await page.setViewportSize({width:1280,height:720});
+  await page.reload();await result(page).waitFor();assert.equal(await route.locator('[data-r11-route-evidence]').count(),0);assert.equal(reads(),before+1);assert.deepEqual(fixture(),original);
  });
  await check('R11 terminal evidence survives expiry and missing server key while Stop remains explicit and usable',async()=>{
   await control({r11Expired:true});await page.reload();await result(page).waitFor();await proof(page).getByText(/Expired: no new dispatch is authorized/).waitFor();assert.equal(await runButton(page).isDisabled(),true);

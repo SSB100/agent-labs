@@ -6,6 +6,7 @@ const q=require('../.core-tests/research/qualification.js');
 const rt=require('../.core-tests/research/qualification-runtime.js');
 const {ModelProviderError}=require('../.core-tests/models/types.js');
 const outcome=require('../.core-tests/research/qualification-outcome.js');
+const route=require('../.core-tests/research/generation-route.js');
 const {OpenRouterAdapter}=require('../.core-tests/models/openrouter.js');
 const {resolveModelRoute}=require('../.core-tests/models/registry.js');
 const id=n=>`11000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
@@ -22,10 +23,12 @@ async function fixture(options={}){
  const search=await rt.inspectPublicResearchWire(q.publicResearchSearchRequest(policy,model,now),'search');
  const attemptVersion=options.attemptVersion??1;
  const loaded={policy,policyHash:q.publicResearchHash(policy),search,collection:null,attemptVersion,operationKeys:attemptVersion===2?{search:`research.search.r11v2.${policy.id}`,select:`research.model.r11v2.${policy.id}`}:{search:'research.search',select:'research.model'}};
- const events=[],sent=[],settlements=[],failures=[],marked=new Set();let revoked=false,resultCommitted=false;
+ const events=[],sent=[],settlements=[],routeQueries=[],failures=[],marked=new Set();let revoked=false,resultCommitted=false;
  const excerpt='Adult gardeners often value practical tools and containers suited to the available growing space. This is a bounded public observation.';
  const runtime={now:()=>clock,model,
-  async verifyQuote(p){events.push('quote');if(options.quoteFailure)throw Error('stale quote');assert.equal(p.quoteHash,policy.quoteHash);return{providerName:'Azure',...(options.canonicalModel||attemptVersion===2?{acceptedResponseModelIds:[model.providerModelId,'openai/gpt-5.6-luna-20260709']}:{})};},
+  async verifyQuote(p){events.push('quote');if(options.quoteFailure)throw Error('stale quote');assert.equal(p.quoteHash,policy.quoteHash);return{providerName:'Azure',acceptedResponseModelIds:[model.providerModelId,'openai/gpt-5.6-luna-20260709']};},
+  async verifyGenerationRoute(expected){events.push('route');routeQueries.push(structuredClone(expected));if(options.routeError)throw Error('private route lookup failure');if(options.routeNull)return null;
+   const raw={data:{id:expected.generationId,provider_name:'Azure',model:'openai/gpt-5.6-luna-20260709',provider_responses:null}};options.mutateRoute?.(raw);return route.qualifyGenerationRouteProof(raw,expected);},
   async rpc(operation,payload){events.push(operation);if(operation==='load'){if(revoked)throw Error('policy revoked');return structuredClone(loaded);}
    if(operation==='fail'){if(options.journalFailure)throw Error('journal unavailable');
     if(options.supersedeProgressedPhase&&((payload.phase==='search'&&loaded.collection)||(payload.phase==='select'&&resultCommitted)))return{recorded:false,superseded:true,reason:'phase_progressed',workflowStatus:resultCommitted?'completed':'running'};
@@ -50,23 +53,23 @@ async function fixture(options={}){
    }
    throw Error('unexpected operation');
   },
-  async settle(requestId,receipt){events.push('settle');settlements.push({requestId,receipt});if(options.settleFailure)throw Error('settlement unavailable');},
+  async settle(requestId,receipt){events.push('settle');settlements.push({requestId,receipt});if(options.settleFailure||(options.enrichmentFailure&&receipt.generationRouteProof))throw Error('settlement unavailable');},
   provider:(admit,observeResponse)=>new OpenRouterAdapter({config,admitDispatch:admit,...(options.omitObserver?{}:{observeResponse}),fetcher:async(url,init)=>{
    const body=JSON.parse(init.body),phase=body.tools?'search':'select';events.push(`send:${phase}`);sent.push({url,body,redirect:init.redirect});
    await options.beforeResponse?.(phase);
    if(options.transportFailure===phase)throw Error('uncertain transport failure');
    if(phase==='select'&&options.lateSelector)clock=Date.parse(policy.validUntil)+1000;
    const content=phase==='search'?{content:'Search result',annotations:[{type:'url_citation',url_citation:{url:options.badOrigin?'https://etsy.com/listing/1':'https://gardening.example/report',title:'Public report',content:excerpt}}]}:{content:JSON.stringify({selections:[{sourceKey:'S1',quote:options.badSelection?'This invented quote is not present in the source excerpt.':excerpt.slice(0,98).trim()}],limitations:['limited_sources']})};
-   const response={id:`inert-${phase}-receipt`,provider:options.wrongProvider?'private-provider-secret':'Azure',model:options.wrongModel?'private/model-secret':options.canonicalModel?'openai/gpt-5.6-luna-20260709':model.providerModelId,
+   const response={id:`gen-inert-${phase}-receipt`,provider:options.wrongProvider?'private-provider-secret':'Azure',model:options.wrongModel?'private/model-secret':options.canonicalModel?'openai/gpt-5.6-luna-20260709':model.providerModelId,
     choices:[{finish_reason:'stop',message:content}],usage:{prompt_tokens:10,completion_tokens:10,...(options.unknownCost?{}:{cost:Object.hasOwn(options,'rawCost')?options.rawCost:options.overage?0.26:0.001}),...(phase==='search'?{server_tool_use:{web_search_requests:1}}:{})}};
    options.mutateResponse?.(response,phase);
    return new Response(JSON.stringify(response),{status:options.httpError?400:200});
   }})};
- return{now,policy,scope,runtime,loaded,events,sent,settlements,failures,marked};
+ return{now,policy,scope,runtime,loaded,events,sent,settlements,routeQueries,failures,marked};
 }
 test('R11 bounded runner makes exactly one search plus selector with durable lineage and original R05 authority',async()=>{
  const f=await fixture(),result=await rt.runPublicResearchQualification(f.scope,f.policy.id,f.runtime);
- assert.equal(f.sent.length,2);assert.equal(f.settlements.length,2);assert.deepEqual(f.events,['load','quote','guard','send:search','settle','collect','quote','guard','send:select','settle','complete']);
+ assert.equal(f.sent.length,2);assert.equal(f.settlements.length,4);assert.deepEqual(f.events,['load','quote','guard','send:search','settle','route','settle','collect','quote','guard','send:select','settle','route','settle','complete']);
  assert.equal(result.collectionId,id(20));assert.equal(result.receipts.length,2);assert.equal(result.evidencePack.sourceLineage.policyId,f.policy.id);
  assert.ok(f.sent.every(x=>x.redirect==='error'));assert.deepEqual(f.sent[0].body.provider.only,['azure/us']);assert.equal(f.sent[1].body.tools,undefined);
  assert.ok(!JSON.stringify(f.sent).includes(f.scope.runtimeCapability));assert.ok(!JSON.stringify(f.sent).includes(f.scope.businessId));
@@ -80,20 +83,20 @@ test('R11 completed collection resumes selection without repeating the search',a
 for(const options of [{quoteFailure:true},{deny:'search'},{guardLoss:'search'}])test('R11 missing/denied/uncertain authority sends zero provider calls',async()=>{
  const f=await fixture(options);await assert.rejects(rt.runPublicResearchQualification(f.scope,f.policy.id,f.runtime));assert.equal(f.sent.length,0);assert.equal(f.settlements.length,0);
 });
-for(const options of [{collectFailure:true},{settleFailure:true},{badOrigin:true},{unknownCost:true},{overage:true},{wrongProvider:true},{wrongModel:true},{transportFailure:'search'}])test('R11 failed search proof or uncertain liability never proceeds to selector or retries',async()=>{
+for(const options of [{collectFailure:true},{settleFailure:true},{badOrigin:true},{unknownCost:true},{overage:true},{routeError:true},{wrongModel:true},{transportFailure:'search'}])test('R11 failed search proof or uncertain liability never proceeds to selector or retries',async()=>{
  const f=await fixture(options);await assert.rejects(rt.runPublicResearchQualification(f.scope,f.policy.id,f.runtime));assert.equal(f.sent.length,1);
  await assert.rejects(rt.runPublicResearchQualification(f.scope,f.policy.id,f.runtime));assert.equal(f.sent.length,1);
 });
 test('R11 invalid paid selector preserves both receipts and cannot repeat the selector',async()=>{
- const f=await fixture({badSelection:true});await assert.rejects(rt.runPublicResearchQualification(f.scope,f.policy.id,f.runtime));assert.equal(f.sent.length,2);assert.equal(f.settlements.length,2);
+ const f=await fixture({badSelection:true});await assert.rejects(rt.runPublicResearchQualification(f.scope,f.policy.id,f.runtime));assert.equal(f.sent.length,2);assert.equal(f.settlements.length,4);
  await assert.rejects(rt.runPublicResearchQualification(f.scope,f.policy.id,f.runtime));assert.equal(f.sent.length,2);
 });
 test('R11 missing durable result never becomes claimed success and never repeats a paid phase',async()=>{
- const f=await fixture({completeFailure:true});await assert.rejects(rt.runPublicResearchQualification(f.scope,f.policy.id,f.runtime));assert.equal(f.sent.length,2);assert.equal(f.settlements.length,2);
+ const f=await fixture({completeFailure:true});await assert.rejects(rt.runPublicResearchQualification(f.scope,f.policy.id,f.runtime));assert.equal(f.sent.length,2);assert.equal(f.settlements.length,4);
  await assert.rejects(rt.runPublicResearchQualification(f.scope,f.policy.id,f.runtime));assert.equal(f.sent.length,2);
 });
 test('R11 already admitted selector output survives policy expiry through bounded audit completion',async()=>{
- const f=await fixture({lateSelector:true}),result=await rt.runPublicResearchQualification(f.scope,f.policy.id,f.runtime);assert.equal(result.resultId,id(21));assert.equal(f.sent.length,2);assert.equal(f.settlements.length,2);assert.equal(f.events.at(-1),'complete');
+ const f=await fixture({lateSelector:true}),result=await rt.runPublicResearchQualification(f.scope,f.policy.id,f.runtime);assert.equal(result.resultId,id(21));assert.equal(f.sent.length,2);assert.equal(f.settlements.length,4);assert.equal(f.events.at(-1),'complete');
  await assert.rejects(rt.runPublicResearchQualification(f.scope,f.policy.id,f.runtime));assert.equal(f.sent.length,2);
 });
 test('R11 post-dispatch retention does not authorize a selector that was not admitted before expiry',async()=>{
@@ -129,16 +132,15 @@ for(const model of ['openai/gpt-5.6-luna-20260710','openai/gpt-5.6-luna:online',
  assert.equal(error.observation.modelIdentity,'other');assert.equal(error.observation.observedModelId,null);assert.equal(error.recorded,true);
  assert.equal(f.sent.length,1);assert.equal(f.settlements.length,1);assert.ok(!JSON.stringify([...f.failures,...f.settlements]).includes(model));
 });
-test('R11 provider mismatch journals its class but never private upstream identity text',async()=>{
- const f=await fixture({wrongProvider:true}),error=await stopped(f,'response_provider_unqualified');
- assert.equal(error.observation.providerIdentity,'other');assert.equal(error.observation.observedProvider,null);
- assert.equal(error.observation.searchRequests,1);assert.equal(error.observation.annotationCount,1);assert.deepEqual(error.observation.approvedDomainCounts,[{domain:'gardening.example',count:1}]);
- assert.ok(!JSON.stringify([error,...f.failures,...f.settlements]).includes('private-provider-secret'));
+test('R11 an unknown wrapper label stays observational while documented inference proof qualifies',async()=>{
+ const f=await fixture({wrongProvider:true}),result=await rt.runPublicResearchQualification(f.scope,f.policy.id,f.runtime);
+ assert.equal(result.resultId,id(21));assert.equal(f.settlements[0].receipt.responseProviderIdentity,'other');assert.equal(f.settlements[0].receipt.observedResponseProvider,null);
+ assert.ok(!JSON.stringify([result,...f.failures,...f.settlements]).includes('private-provider-secret'));
+ assert.equal(f.settlements[1].receipt.generationRouteProof.providerName,'Azure');assert.equal(f.routeQueries.length,2);
 });
 for(const [mutateResponse,reason,check] of [
  [(r)=>{delete r.model;},'response_model_unqualified',o=>assert.equal(o.modelIdentity,'missing')],
  [(r)=>{r.model={secret:'unknown-model'};},'response_model_unqualified',o=>assert.equal(o.modelIdentity,'invalid')],
- [(r)=>{delete r.provider;},'response_provider_unqualified',o=>assert.equal(o.providerIdentity,'missing')],
  [(r)=>{delete r.usage.server_tool_use;},'source_contract_invalid',o=>assert.equal(o.searchRequests,null)],
  [(r)=>{r.usage.server_tool_use.web_search_requests=2;},'source_contract_invalid',o=>assert.equal(o.searchRequests,2)],
  [(r)=>{delete r.choices[0].message.annotations;},'source_contract_invalid',o=>assert.equal(o.annotationCount,null)],
@@ -149,7 +151,7 @@ for(const [mutateResponse,reason,check] of [
  [(r)=>{r.choices[0].message.annotations[0].url_citation.url='https://gardening.example/secret?token=private';},'source_contract_invalid',o=>assert.equal(o.malformedAnnotationCount,1)],
 ])test(`R11 ${reason} keeps bounded shape before rejected annotations disappear`,async()=>{
  const f=await fixture({mutateResponse}),error=await stopped(f,reason);check(error.observation);
- assert.equal(f.sent.length,1);assert.equal(f.settlements.length,1);assert.equal(error.recorded,true);assert.equal(error.phase,'search');assert.equal(error.requestId,id(10));
+ assert.equal(f.sent.length,1);assert.equal(f.settlements.length,reason==='response_model_unqualified'?1:2);assert.equal(error.recorded,true);assert.equal(error.phase,'search');assert.equal(error.requestId,id(10));
  assert.equal(f.events.at(-1),'fail');assert.ok(f.events.indexOf('settle')<f.events.indexOf('fail'));
  const persisted=JSON.stringify(f.failures);for(const secret of ['private','https://','Search result','Adult gardeners','unknown-model'])assert.ok(!persisted.includes(secret));
 });
@@ -167,12 +169,13 @@ for(const [options,reason,phase] of [
 test('R11 malformed selector JSON preserves returned response shape and records its exact gate',async()=>{
  const f=await fixture({mutateResponse:(r,phase)=>{if(phase==='select'){r.choices[0].finish_reason='length';r.choices[0].message.content='private rejected selector output';}}});
  const error=await stopped(f,'selector_output_invalid');assert.equal(error.observation.finishReason,'length');assert.equal(error.observation.providerError,'malformed_model_output');
- assert.equal(f.settlements.length,2);assert.ok(!JSON.stringify(f.failures).includes('private rejected'));
+ assert.equal(f.settlements.length,4);assert.ok(!JSON.stringify(f.failures).includes('private rejected'));
 });
-test('R11 trusted adapter error metadata fallback survives without its observation callback',async()=>{
+test('R11 legacy adapter observation upgrades exact Azure hash while verifying its route without a callback',async()=>{
  const f=await fixture(),original=f.runtime.provider;
  const observation=outcome.observePublicResearchResponse({model:f.policy.modelId,provider:'Azure',choices:[{finish_reason:'length',message:{annotations:[]}}],usage:{server_tool_use:{web_search_requests:1}}},
   {modelId:f.policy.modelId,acceptedResponseModelIds:[f.policy.modelId],allowedDomains:f.policy.allowedDomains,excludedDomains:f.policy.excludedDomains});
+ delete observation.responseProviderHash;delete observation.inferenceRouteStatus;delete observation.inferenceRouteProofHash;
  f.runtime.provider=(admit)=>{
   const adapter=original(admit);return{invokeStructured:r=>adapter.invokeStructured(r),async invokeWebSearch(r){
    const response=await adapter.invokeWebSearch(r);
@@ -181,7 +184,9 @@ test('R11 trusted adapter error metadata fallback survives without its observati
   }};
  };
  const error=await stopped(f,'source_contract_invalid');assert.equal(error.observation.annotationCount,0);assert.equal(error.observation.finishReason,'length');assert.equal(error.observation.searchRequests,1);
- assert.equal(f.settlements.length,1);assert.ok(!JSON.stringify(f.failures).includes('private provider error'));
+ assert.equal(f.settlements.length,2);assert.ok(!JSON.stringify(f.failures).includes('private provider error'));
+ assert.equal(Object.keys(error.observation).length,14);assert.equal(error.observation.responseProviderHash,require('node:crypto').createHash('sha256').update('Azure').digest('hex'));
+ assert.equal(error.observation.inferenceRouteStatus,'verified');assert.deepEqual(outcome.validateResearchObservation(error.observation,f.policy.allowedDomains,f.policy.modelId),error.observation);
 });
 test('R11 a failed journal never masquerades as a persisted diagnosis or retries payment',async()=>{
  const f=await fixture({badOrigin:true,journalFailure:true}),error=await stopped(f,'source_contract_invalid');
@@ -231,7 +236,7 @@ for(const waitingPhase of ['search','select'])test(`R11 denied concurrent ${wait
  });
  assert.equal(f.failures.length,0);assert.equal(f.events.includes('fail'),false,'duplicate must not submit a failure for the real caller');
  release();const result=await first;
- assert.equal(result.resultId,id(21));assert.equal(f.sent.length,2);assert.equal(f.settlements.length,2);assert.equal(f.events.filter(e=>e==='complete').length,1);
+ assert.equal(result.resultId,id(21));assert.equal(f.sent.length,2);assert.equal(f.settlements.length,4);assert.equal(f.events.filter(e=>e==='complete').length,1);
  assert.equal(f.failures.length,0);assert.equal(f.loaded.collection.id,id(20));
 });
 test('R11 uncertain guard response never borrows its persisted marker or misreports journal failure',async()=>{
@@ -269,18 +274,88 @@ for(const reply of ['lost','malformed'])test(`R11 ${reply} collect reply cannot 
  releaseFirst();await assert.rejects(first,error=>{assert.ok(error instanceof outcome.PublicResearchQualificationUnacquiredError);assert.equal(error instanceof outcome.PublicResearchQualificationError,false);return true;});
  assert.equal(f.events.filter(e=>e==='fail').length,1,'database arbitrates ambiguous persistence exactly once');
  assert.equal(f.failures.length,0,'superseded failure must not append an event or revoke');
- releaseSecond();assert.equal((await second).resultId,id(21));assert.equal(f.sent.length,2);assert.equal(f.settlements.length,2);assert.equal(f.events.filter(e=>e==='complete').length,1);
+ releaseSecond();assert.equal((await second).resultId,id(21));assert.equal(f.sent.length,2);assert.equal(f.settlements.length,4);assert.equal(f.events.filter(e=>e==='complete').length,1);
  assert.equal(f.failures.length,0);assert.equal(f.loaded.collection.id,id(20));
 });
 for(const reply of ['lost','malformed'])test(`R11 ${reply} completion reply reads back its committed result instead of claiming a diagnostic-write failure`,async()=>{
  const f=await fixture({attemptVersion:2,supersedeProgressedPhase:true}),rpc=f.runtime.rpc;
  f.runtime.rpc=async(operation,payload)=>{const value=await rpc(operation,payload);if(operation==='complete'){if(reply==='lost')throw Error('complete reply lost after commit');return{};}return value;};
  await assert.rejects(rt.runPublicResearchQualification(f.scope,f.policy.id,f.runtime),outcome.PublicResearchQualificationUnacquiredError);
- assert.equal(f.failures.length,0);assert.equal(f.sent.length,2);assert.equal(f.settlements.length,2);assert.equal(f.events.filter(e=>e==='complete').length,1);
+ assert.equal(f.failures.length,0);assert.equal(f.sent.length,2);assert.equal(f.settlements.length,4);assert.equal(f.events.filter(e=>e==='complete').length,1);
  await assert.rejects(rt.runPublicResearchQualification(f.scope,f.policy.id,f.runtime),outcome.PublicResearchQualificationUnacquiredError);assert.equal(f.sent.length,2);assert.equal(f.failures.length,0);
 });
 test('R11 only an explicit validated phase-progressed response becomes safe readback',async()=>{
  const f=await fixture({collectFailure:true}),rpc=f.runtime.rpc;
  f.runtime.rpc=async(operation,payload)=>operation==='fail'?{recorded:false,superseded:true,reason:'unverified-other-status',workflowStatus:'running'}:rpc(operation,payload);
  const error=await stopped(f,'collection_persistence_failed');assert.equal(error.recorded,false);assert.equal(error.outcomeId,null);assert.equal(f.sent.length,1);
+});
+
+for(const wrapper of [undefined,'private-unknown-wrapper',{opaque:'private-label'}])test('R11 documented generation route permits an omitted or different wrapper provider without storing its text',async()=>{
+ const f=await fixture({mutateResponse:r=>{if(wrapper===undefined)delete r.provider;else r.provider=wrapper;}}),result=await rt.runPublicResearchQualification(f.scope,f.policy.id,f.runtime);
+ assert.equal(result.resultId,id(21));assert.equal(f.routeQueries.length,2);assert.equal(f.settlements.length,4);
+ assert.deepEqual(f.routeQueries.map(x=>x.generationId),['gen-inert-search-receipt','gen-inert-select-receipt']);
+ assert.ok(f.routeQueries.every(x=>x.requestedEndpoint==='azure/us'&&x.providerName==='Azure'&&x.acceptedResponseModelIds.length===2));
+ for(const offset of [0,2]){
+  const first=f.settlements[offset],last=f.settlements[offset+1];assert.equal(first.requestId,last.requestId);
+  assert.equal(first.receipt.reportedMicrousd,last.receipt.reportedMicrousd);assert.equal(first.receipt.providerRequestId,last.receipt.providerRequestId);
+  assert.equal(first.receipt.generationRouteProof,undefined);assert.equal(last.receipt.generationRouteProof.generationId,last.receipt.providerRequestId);
+  assert.notEqual(q.publicResearchHash(first.receipt),q.publicResearchHash(last.receipt));assert.equal(last.receipt.generationRouteProof.modelId,'openai/gpt-5.6-luna-20260709');
+ }
+ assert.equal(JSON.stringify([result,...f.settlements]).includes('private-'),false);
+ assert.deepEqual(f.events.filter(e=>['settle','route'].includes(e)),['settle','route','settle','settle','route','settle']);
+});
+for(const [options,status] of [
+ [{routeError:true},'unavailable'],[{routeNull:true},'invalid'],
+ [{mutateRoute:r=>{r.data.id='gen-another-request';}},'invalid'],
+ [{mutateRoute:r=>{r.data.provider_name='private-non-Azure';}},'invalid'],
+ [{mutateRoute:r=>{r.data.model='unknown/private-model';}},'invalid'],
+ [{mutateRoute:r=>{r.data.provider_responses=[{provider_name:'Azure',model_permaslug:'openai/gpt-5.6-luna-20260709',status:500}];}},'invalid'],
+])test(`R11 ${status} documented route keeps the first known charge and stops without a selector or fallback`,async()=>{
+ const f=await fixture(options),error=await stopped(f,'response_provider_unqualified');
+ assert.equal(error.observation.inferenceRouteStatus,status);assert.equal(error.observation.inferenceRouteProofHash,null);assert.equal(error.recorded,true);
+ assert.equal(f.sent.length,1);assert.equal(f.settlements.length,1);assert.equal(f.settlements[0].receipt.reportedMicrousd,1000);assert.equal(f.routeQueries.length,1);
+ assert.deepEqual(f.events.filter(e=>['settle','route'].includes(e)),['settle','route']);
+ assert.ok(!JSON.stringify([error,...f.failures,...f.settlements]).includes('private-'));
+ await assert.rejects(rt.runPublicResearchQualification(f.scope,f.policy.id,f.runtime));assert.equal(f.routeQueries.length,1);assert.equal(f.sent.length,1);
+});
+test('R11 route-proof enrichment failure retains original accounting and cannot authorize a selector',async()=>{
+ const f=await fixture({enrichmentFailure:true}),error=await stopped(f,'cost_unverified_or_over_cap');
+ assert.equal(f.sent.length,1);assert.equal(f.routeQueries.length,1);assert.equal(f.settlements.length,2);
+ assert.equal(f.settlements[0].receipt.generationRouteProof,undefined);assert.equal(f.settlements[0].receipt.reportedMicrousd,1000);
+ assert.equal(error.observation.inferenceRouteStatus,'verified');assert.equal(error.observation.inferenceRouteProofHash,f.settlements[1].receipt.generationRouteProof.proofHash);
+});
+for(const options of [{deny:'search'},{guardLoss:'search'},{transportFailure:'search'},{unknownCost:true},{overage:true},{settleFailure:true}])test('R11 no generation GET runs without an owned response and successfully settled in-cap cost',async()=>{
+ const f=await fixture(options);await assert.rejects(rt.runPublicResearchQualification(f.scope,f.policy.id,f.runtime));assert.equal(f.routeQueries.length,0);
+});
+test('R11 malformed generation IDs never reach the reader, even after a marked response',async()=>{
+ const f=await fixture({mutateResponse:r=>{r.id='not-a-generation-id';}}),error=await stopped(f,'response_provider_unqualified');
+ assert.equal(f.settlements.length,1);assert.equal(f.routeQueries.length,0);assert.equal(error.observation.inferenceRouteStatus,'invalid');
+});
+test('R11 a missing injected route reader cannot be replaced with a wrapper-label assertion',async()=>{
+ const f=await fixture();delete f.runtime.verifyGenerationRoute;const error=await stopped(f,'response_provider_unqualified');
+ assert.equal(f.routeQueries.length,0);assert.equal(f.settlements.length,1);assert.equal(error.observation.providerIdentity,'exact');assert.equal(error.observation.inferenceRouteStatus,'invalid');
+});
+test('R11 legacy injected quote without a verified two-model mapping cannot fabricate a generation proof',async()=>{
+ const f=await fixture();f.runtime.verifyQuote=async()=>({providerName:'Azure'});const error=await stopped(f,'response_provider_unqualified');
+ assert.equal(f.sent.length,1);assert.equal(f.routeQueries.length,0);assert.equal(error.observation.inferenceRouteStatus,'invalid');
+});
+test('R11 adapter source rejection verifies its marked generation after settling, without treating unknown wrapper text as inference',async()=>{
+ const f=await fixture({wrongProvider:true,mutateResponse:r=>{delete r.choices[0].message.annotations;}}),error=await stopped(f,'source_contract_invalid');
+ assert.equal(f.routeQueries.length,1);assert.equal(f.settlements.length,2);assert.equal(error.observation.providerIdentity,'other');
+ assert.equal(error.observation.inferenceRouteStatus,'verified');assert.equal(error.observation.inferenceRouteProofHash,f.settlements[1].receipt.generationRouteProof.proofHash);
+ assert.ok(!JSON.stringify([error,...f.failures,...f.settlements]).includes('private-provider-secret'));
+});
+
+for(const field of ['generationId','acceptedResponseModelIds','requestedEndpoint'])test(`R11 injected generation reader cannot change the admitted ${field} across its async boundary`,async()=>{
+ const f=await fixture();f.runtime.verifyGenerationRoute=async expected=>{
+  const original=structuredClone(expected);await Promise.resolve();
+  if(field==='generationId')expected.generationId='gen-another-paid-generation';
+  if(field==='acceptedResponseModelIds')expected.acceptedResponseModelIds[1]='unreviewed/private-model';
+  if(field==='requestedEndpoint')expected.requestedEndpoint='azure/eu';
+  const verified=route.qualifyGenerationRouteProof({data:{id:original.generationId,provider_name:'Azure',model:original.acceptedResponseModelIds[1],provider_responses:null}},original);
+  const altered={...verified,...(field==='generationId'?{generationId:expected.generationId}:field==='acceptedResponseModelIds'?{modelId:expected.acceptedResponseModelIds[1]}:{requestedEndpoint:expected.requestedEndpoint})};
+  const {proofHash,...body}=altered;void proofHash;return{...body,proofHash:q.publicResearchHash(body)};
+ };
+ const error=await stopped(f,'response_provider_unqualified');assert.equal(error.observation.inferenceRouteStatus,'invalid');assert.equal(f.sent.length,1);assert.equal(f.settlements.length,1);
+ assert.equal(f.settlements[0].receipt.providerRequestId,'gen-inert-search-receipt');assert.ok(!JSON.stringify(f.failures).includes('unreviewed/private-model'));
 });

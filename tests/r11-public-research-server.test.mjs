@@ -5,6 +5,7 @@ import {createRequire} from 'node:module';
 import {runInNewContext} from 'node:vm';
 const require=createRequire(import.meta.url),ts=require('typescript'),crypto=require('node:crypto');
 const Q=require('../.core-tests/research/qualification.js'),QR=require('../.core-tests/research/qualification-quote.js'),R=require('../.core-tests/research/qualification-runtime.js');
+const generationRoute=require('../.core-tests/research/generation-route.js');
 const registry=require('../.core-tests/models/registry.js'),sources=require('../.core-tests/research/sources.js'),profile=require('../.core-tests/research/qualification-profile.js');
 const id=n=>`11000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
 const sha=x=>crypto.createHash('sha256').update(x).digest('hex');
@@ -22,7 +23,7 @@ function harness(){
  const grant={version:'r11.owner-proof-grant.1',id:id(7),businessId,ownerId,policyId,workflowRunId,serverKeyHash:sha(env.R05_ADMISSION_SERVER_KEY),runtimeCapabilityHash:sha(cap()),researchPolicy,installationSnapshotHash:'4'.repeat(64)};
  const savedPolicy={policyId,workflowRunId,goalId:policy.goalId,operatingPolicyId:policy.operatingPolicyId,policy,policyHash:Q.publicResearchHash(policy),status:'ready',revoked:false,expired:false,phases:[],result:null};
  const row={businessId,ownerId,exposure:{currency:'USD',heldMicrounits:'598063',hasUnknown:false},policies:[savedPolicy],grants:[{grantId:grant.id,grantHash:Q.publicResearchHash(grant),grant,used:false,expired:false,revoked:false}],policyTotal:1,grantTotal:1};
- let readError=false,quoteHook=()=>{},runHook=()=>{};
+ let readError=false,quoteHook=()=>{},runHook=()=>{},generationHook=()=>{},generationMutate=proof=>proof;
  const context={userId:ownerId,businesses:[{id:businessId}],supabase:{auth:{getClaims:async()=>({data:{claims:{sub:context.userId,session_id:id(8)}}})},rpc:async(name,args)=>{
   calls.push({name,args:structuredClone(args)});if(name==='r11_research_workspace_v2')return readError?{error:{message:'PRIVATE ERROR'}}:{data:structuredClone(row)};
   if(name==='r11_research_bootstrap'||name==='r11_research_continue'){const source=[...row.grants,...(row.continuationGrants??[])].find(x=>x.grantId===args.p_grant_id).grant;return{data:{policyId:source.policyId,workflowRunId:source.workflowRunId,replayed:false}};}
@@ -30,17 +31,19 @@ function harness(){
   throw Error('unexpected RPC');
  }}};
  function complete(){
-  const response={provider:'openrouter.exa',providerModelId:policy.modelId,providerRequestId:'inert-search-receipt',metadata:{searchRequests:1,actualUpstreamProvider:'Azure'},output:{annotations:[{type:'url_citation',url_citation:{url:'https://spiegel.medill.northwestern.edu/mothersday2026/',title:'Public gifting analysis',content:'The adult-consumer survey considered uniqueness, creating special memories, convenience, and cost when choosing gifts for this occasion.'}}]}};
-  const {collection,lineage}=Q.collectQualifiedPublicSources(policy,response,id(10)),evidencePack=Q.qualifiedPublicEvidence(policy,collection,lineage,{selections:[{sourceKey:'S1',quote:collection.sources[0].excerpt}],limitations:['limited_sources']});
-  savedPolicy.phases=[{phase:'search',requestId:id(10),marked:true,settled:true,actualMicrounits:'7000',providerRequestId:'inert-search-receipt'},{phase:'select',requestId:id(11),marked:true,settled:true,actualMicrounits:'1000',providerRequestId:'inert-selector-receipt'}];
-  savedPolicy.result={resultId:id(12),evidencePack,evidencePackHash:Q.publicResearchHash(evidencePack),collectionId:id(13),selectorRequestId:id(11),providerRequestId:'inert-selector-receipt',createdAt:new Date().toISOString()};savedPolicy.status='completed';
+  const response={provider:'openrouter.exa',providerModelId:policy.modelId,providerRequestId:'gen-inert-search-receipt',metadata:{searchRequests:1,actualUpstreamProvider:'Azure'},output:{annotations:[{type:'url_citation',url_citation:{url:'https://spiegel.medill.northwestern.edu/mothersday2026/',title:'Public gifting analysis',content:'The adult-consumer survey considered uniqueness, creating special memories, convenience, and cost when choosing gifts for this occasion.'}}]}};
+  const expectation={generationId:response.providerRequestId,providerName:'Azure',acceptedResponseModelIds:[policy.modelId,QR.PUBLIC_RESEARCH_QUOTE_LIMITS.canonicalModelId],requestedEndpoint:'azure/us'},routeProof=generationRoute.qualifyGenerationRouteProof({data:{id:response.providerRequestId,provider_name:'Azure',model:QR.PUBLIC_RESEARCH_QUOTE_LIMITS.canonicalModelId}},expectation);
+  const {collection,lineage}=Q.collectQualifiedPublicSources(policy,response,id(10),Date.now(),expectation.acceptedResponseModelIds,routeProof),evidencePack=Q.qualifiedPublicEvidence(policy,collection,lineage,{selections:[{sourceKey:'S1',quote:collection.sources[0].excerpt}],limitations:['limited_sources']});
+  savedPolicy.phases=[{phase:'search',requestId:id(10),marked:true,settled:true,actualMicrounits:'7000',providerRequestId:'gen-inert-search-receipt'},{phase:'select',requestId:id(11),marked:true,settled:true,actualMicrounits:'1000',providerRequestId:'gen-inert-selector-receipt'}];
+  savedPolicy.result={resultId:id(12),evidencePack,evidencePackHash:Q.publicResearchHash(evidencePack),collectionId:id(13),selectorRequestId:id(11),providerRequestId:'gen-inert-selector-receipt',createdAt:new Date().toISOString()};savedPolicy.status='completed';
  }
  const deps={'server-only':{},'node:crypto':crypto,'../lib/core-ui/owner-business':{verifyOwnerBusiness:async(c,b)=>c.userId===ownerId&&b===businessId},'../models/registry':registry,'./sources':sources,'./qualification':Q,'./qualification-quote':QR,'./qualification-profile':profile,'./qualification-owner-contract':require('../.core-tests/research/qualification-owner-contract.js'),'./qualification-outcome':require('../.core-tests/research/qualification-outcome.js'),
+  './generation-route':generationRoute,
   './qualification-runtime':{...R,runPublicResearchQualification:async(scope,selected,runtime)=>{effects.push({kind:'run',scope:structuredClone(scope),selected});await runtime.verifyQuote(policy);runHook();complete();}},
-  './qualification-server-dependencies':{researchQualificationDependencies:()=>({fetchQuote:async(options)=>{effects.push({kind:'quote',options:structuredClone(options)});quoteHook();return freshQuote(options);},makeRuntime:(scope,verifyQuote)=>({scope,verifyQuote})})}};
+  './qualification-server-dependencies':{researchQualificationDependencies:()=>({fetchGenerationRoute:async(expectation)=>{effects.push({kind:'generation-read',expectation:structuredClone(expectation)});generationHook(expectation);return generationMutate(generationRoute.qualifyGenerationRouteProof({data:{id:expectation.generationId,provider_name:'Azure',model:'openai/gpt-5.6-luna-20260709',provider_responses:[]}},expectation));},fetchQuote:async(options)=>{effects.push({kind:'quote',options:structuredClone(options)});quoteHook();return freshQuote(options);},makeRuntime:(scope,verifyQuote)=>({scope,verifyQuote})})}};
  const source=ts.transpileModule(readFileSync('src/research/qualification-server.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,m={exports:{}};
  runInNewContext(`(function(require,module,exports){${source}\n})`,{process:{env},Buffer,Date,URL,BigInt,structuredClone})(n=>{assert.ok(n in deps,n);return deps[n];},m,m.exports);
- return{...m.exports,context,row,policy,grant,savedPolicy,businessId,ownerId,policyId,workflowRunId,calls,effects,env,cap,complete,setReadError:v=>readError=v,onQuote:fn=>quoteHook=fn,onRun:fn=>runHook=fn};
+ return{...m.exports,context,row,policy,grant,savedPolicy,businessId,ownerId,policyId,workflowRunId,calls,effects,env,cap,complete,setReadError:v=>readError=v,onQuote:fn=>quoteHook=fn,onRun:fn=>runHook=fn,onGeneration:fn=>generationHook=fn,mutateGeneration:fn=>generationMutate=fn};
 }
 
 test('R11 owner read is quote-free, key-free and removes execution verifier metadata',async()=>{
@@ -130,4 +133,33 @@ test('R11 durable outcome reader exposes only bounded catalog identities and rec
 test('R11 continuation reads cannot expose extra metadata or claim eligibility over changed financial exposure',async()=>{
  for(const mutate of [c=>c.secret='NOT A REAL SECRET',c=>c.remainingMicrounits='250000']){const h=harness();const c=makeContinuation(h);mutate(c);assert.equal((await h.readResearchQualification(h.context,h.businessId)).unavailable,true);}
  const h=harness();makeContinuation(h);h.row.exposure.heldMicrounits='608132';assert.equal((await h.readResearchQualification(h.context,h.businessId)).unavailable,true);await assert.rejects(h.prepareResearchBootstrap(h.context,h.businessId,id(30),id(31),h.policyId));assert.deepEqual(h.effects,[]);
+});
+
+function savedGeneration(h,{generationId='gen-owner-receipt-1',requestId=id(70)}={}){
+ const phase={phase:'search',requestId,marked:true,settled:true,actualMicrounits:'9378',providerRequestId:generationId};
+ h.savedPolicy.phases=[phase];h.savedPolicy.revoked=true;h.savedPolicy.expired=true;h.savedPolicy.status='revoked';return phase;
+}
+test('R11 owner route verification reads only the saved settled generation, without R05 authority or mutations',async()=>{
+ const h=harness(),phase=savedGeneration(h);delete h.env.R05_ADMISSION_SERVER_KEY;h.env.VERCEL_ENV='preview';
+ const before=structuredClone(h.row),result=await h.verifySavedResearchInferenceRoute(h.context,h.businessId,h.policyId,phase.requestId);
+ assert.equal(result.proof.generationId,phase.providerRequestId);assert.equal(result.proof.providerName,'Azure');assert.equal(result.proof.modelId,'openai/gpt-5.6-luna-20260709');assert.match(result.proof.proofHash,/^[a-f0-9]{64}$/);assert.equal(result.requestId,phase.requestId);
+ assert.deepEqual(h.row,before);assert.deepEqual(h.effects.map(x=>x.kind),['generation-read']);assert.ok(h.calls.every(c=>c.name==='r11_research_workspace_v2'));assert.equal(h.calls.length,2);
+ assert.deepEqual(h.effects[0].expectation,{generationId:'gen-owner-receipt-1',providerName:'Azure',acceptedResponseModelIds:['openai/gpt-5.6-luna','openai/gpt-5.6-luna-20260709'],requestedEndpoint:'azure/us'});
+});
+test('R11 owner route read rejects unknown, cross-Business, unmarked and unsettled receipt scopes before external I/O',async()=>{
+ for(const change of [p=>p.marked=false,p=>p.settled=false,p=>p.providerRequestId=null,p=>p.providerRequestId='https://evil.test/receipt',p=>p.providerRequestId='unknown']){const h=harness(),phase=savedGeneration(h);change(phase);await assert.rejects(h.verifySavedResearchInferenceRoute(h.context,h.businessId,h.policyId,phase.requestId));assert.deepEqual(h.effects,[]);}
+ for(const scope of [{businessId:id(90)},{policyId:id(90)},{requestId:id(90)},{requestId:'gen-client-supplied'}]){const h=harness(),phase=savedGeneration(h);await assert.rejects(h.verifySavedResearchInferenceRoute(h.context,scope.businessId??h.businessId,scope.policyId??h.policyId,scope.requestId??phase.requestId));assert.deepEqual(h.effects,[]);}
+ const h=harness(),phase=savedGeneration(h);h.context.userId=id(90);await assert.rejects(h.verifySavedResearchInferenceRoute(h.context,h.businessId,h.policyId,phase.requestId));assert.deepEqual(h.effects,[]);
+});
+test('R11 generation route result is revalidated and owner/receipt drift cannot disclose a stale proof',async()=>{
+ for(const kind of ['owner','receipt','proof']){const h=harness(),phase=savedGeneration(h);if(kind==='owner')h.onGeneration(()=>h.context.userId=id(90));if(kind==='receipt')h.onGeneration(()=>phase.providerRequestId='gen-changed-receipt');if(kind==='proof')h.mutateGeneration(proof=>({...proof,proofHash:'f'.repeat(64)}));await assert.rejects(h.verifySavedResearchInferenceRoute(h.context,h.businessId,h.policyId,phase.requestId));assert.deepEqual(h.effects.map(x=>x.kind),['generation-read']);assert.ok(h.calls.every(c=>c.name==='r11_research_workspace_v2'));}
+});
+test('R11 metadata read may inspect a settled receipt with unknown cost without calling it a verified charge',async()=>{
+ const h=harness(),phase=savedGeneration(h);phase.actualMicrounits=null;h.row.exposure.hasUnknown=true;const result=await h.verifySavedResearchInferenceRoute(h.context,h.businessId,h.policyId,phase.requestId);assert.equal(result.proof.generationId,phase.providerRequestId);assert.equal(h.savedPolicy.phases[0].actualMicrounits,null);assert.equal(h.row.exposure.hasUnknown,true);assert.deepEqual(h.effects.map(x=>x.kind),['generation-read']);
+});
+
+test('R11 async injected route reader cannot mutate the independent expected receipt scope',async()=>{
+ const h=harness(),phase=savedGeneration(h);h.onGeneration(expectation=>{expectation.generationId='gen-another-existing-call';});
+ await assert.rejects(h.verifySavedResearchInferenceRoute(h.context,h.businessId,h.policyId,phase.requestId));assert.equal(phase.providerRequestId,'gen-owner-receipt-1');assert.equal(h.effects.length,1);assert.ok(h.calls.every(c=>c.name==='r11_research_workspace_v2'));
+ for(const mutate of [e=>e.providerName='Other',e=>e.requestedEndpoint='azure/eu',e=>e.acceptedResponseModelIds.splice(0,2,'other/model','other/model-canonical')]){const x=harness(),p=savedGeneration(x);x.onGeneration(mutate);await assert.rejects(x.verifySavedResearchInferenceRoute(x.context,x.businessId,x.policyId,p.requestId));assert.equal(x.effects.length,1);}
 });

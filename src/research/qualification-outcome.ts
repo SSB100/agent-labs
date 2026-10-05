@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { MODEL_PROVIDER_FAILURE_CATEGORIES } from "../models/types";
 import type { ResearchFailureReason, ResearchObservation } from "./qualification-owner-contract";
 
@@ -7,6 +8,12 @@ const within = (host: string, domain: string) => host === domain || host.endsWit
 const count = (value: unknown): number | null => typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= 1000 ? value : null;
 const FINISH_REASONS = ["stop", "length", "content_filter", "tool_calls", "error", "other", "missing"] as const;
 const OBSERVATION_KEYS = "modelIdentity,observedModelId,providerIdentity,observedProvider,finishReason,searchRequests,annotationCount,approvedDomainCounts,rejectedDomainCount,malformedAnnotationCount,providerError";
+const DIAGNOSTIC_KEYS = "responseProviderHash,inferenceRouteStatus,inferenceRouteProofHash";
+const ROUTE_STATUSES = ["unrequested", "verified", "unavailable", "invalid"] as const;
+const hash = (value: unknown): value is string => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
+// Bound work before hashing; use the complete label, never a truncated prefix.
+const responseProviderHash = (value: unknown): string | null => typeof value === "string" && value.length <= 300 && Buffer.byteLength(value, "utf8") <= 300
+  ? createHash("sha256").update(value, "utf8").digest("hex") : null;
 const exactKeys = (value: object, keys: string) => Object.keys(value).sort().join(",") === keys.split(",").sort().join(",");
 /** The historical persisted-reader default is deliberately one reviewed mapping,
  * not a prefix/date matcher. New runtime observations use the verified quote. */
@@ -25,13 +32,20 @@ export function validateResearchResponseModelIds(modelId: string, acceptedRespon
 export function validateResearchObservation(value: unknown, allowedDomains: readonly string[], modelId: string,
   acceptedResponseModelIds: readonly string[] = reviewedModels(modelId)): ResearchObservation {
   const accepted = validateResearchResponseModelIds(modelId, acceptedResponseModelIds);
-  if (!record(value) || !exactKeys(value, OBSERVATION_KEYS) ||
+  if (!record(value) || !(exactKeys(value, OBSERVATION_KEYS) || exactKeys(value, `${OBSERVATION_KEYS},${DIAGNOSTIC_KEYS}`)) ||
       !["request_alias", "canonical", "other", "missing", "invalid"].includes(String(value.modelIdentity)) ||
       !["exact", "other", "missing", "invalid"].includes(String(value.providerIdentity)) ||
       !FINISH_REASONS.includes(value.finishReason as ResearchObservation["finishReason"]) ||
       !(value.searchRequests === null || count(value.searchRequests) !== null) || !(value.annotationCount === null || count(value.annotationCount) !== null) ||
       count(value.rejectedDomainCount) === null || count(value.malformedAnnotationCount) === null ||
       !(value.providerError === null || MODEL_PROVIDER_FAILURE_CATEGORIES.includes(value.providerError as typeof MODEL_PROVIDER_FAILURE_CATEGORIES[number]))) return fail();
+  if (Object.hasOwn(value, "inferenceRouteStatus")) {
+    if (!(value.responseProviderHash === null || hash(value.responseProviderHash)) ||
+        !ROUTE_STATUSES.includes(value.inferenceRouteStatus as typeof ROUTE_STATUSES[number]) ||
+        (value.inferenceRouteStatus === "verified" ? !hash(value.inferenceRouteProofHash) : value.inferenceRouteProofHash !== null) ||
+        (value.providerIdentity === "missing" && value.responseProviderHash !== null) ||
+        (value.providerIdentity === "exact" && value.responseProviderHash !== responseProviderHash("Azure"))) return fail();
+  }
   if (value.modelIdentity === "request_alias" ? value.observedModelId !== modelId : value.modelIdentity === "canonical"
     ? accepted.length !== 2 || value.observedModelId !== accepted[1] : value.observedModelId !== null) return fail();
   if (value.providerIdentity === "exact" ? value.observedProvider !== "Azure" : value.observedProvider !== null) return fail();
@@ -49,7 +63,8 @@ export type ResearchObservationContext = { modelId: string; acceptedResponseMode
   allowedDomains: readonly string[]; excludedDomains: readonly string[] };
 
 /** Called on the original parsed provider envelope, before adapter validators or
- * annotation filtering. It retains categories/counts only, never response text. */
+ * annotation filtering. It retains categories/counts and bounded label hashes
+ * only, never response text or unrecognized provider labels. */
 export function observePublicResearchResponse(raw: unknown, context: ResearchObservationContext,
   providerError: unknown = null): ResearchObservation {
   const accepted = validateResearchResponseModelIds(context.modelId, context.acceptedResponseModelIds);
@@ -57,6 +72,7 @@ export function observePublicResearchResponse(raw: unknown, context: ResearchObs
   const choice = record(choices[0]) ? choices[0] : {}, message = record(choice.message) ? choice.message : {};
   const usage = record(body.usage) ? body.usage : {};
   const toolUsage = record(usage.server_tool_use_details) ? usage.server_tool_use_details : record(usage.server_tool_use) ? usage.server_tool_use : {};
+  const providerHash = responseProviderHash(body.provider);
   const modelIdentity: ResearchObservation["modelIdentity"] = body.model === undefined || body.model === null ? "missing"
     : typeof body.model !== "string" || !body.model ? "invalid" : body.model === context.modelId ? "request_alias"
     : accepted.length === 2 && body.model === accepted[1] ? "canonical" : "other";
@@ -69,7 +85,8 @@ export function observePublicResearchResponse(raw: unknown, context: ResearchObs
     providerIdentity, observedProvider: providerIdentity === "exact" ? "Azure" : null, finishReason,
     searchRequests: count(toolUsage.web_search_requests), annotationCount: annotations === null ? null : count(annotations.length),
     approvedDomainCounts: context.allowedDomains.map(domain => ({ domain, count: 0 })), rejectedDomainCount: 0, malformedAnnotationCount: 0,
-    providerError: MODEL_PROVIDER_FAILURE_CATEGORIES.includes(providerError as typeof MODEL_PROVIDER_FAILURE_CATEGORIES[number]) ? String(providerError) : null };
+    providerError: MODEL_PROVIDER_FAILURE_CATEGORIES.includes(providerError as typeof MODEL_PROVIDER_FAILURE_CATEGORIES[number]) ? String(providerError) : null,
+    responseProviderHash: providerHash, inferenceRouteStatus: "unrequested", inferenceRouteProofHash: null };
   for (const annotation of annotations?.slice(0, 1000) ?? []) {
     if (!record(annotation) || annotation.type !== "url_citation" || !record(annotation.url_citation) ||
         typeof annotation.url_citation.url !== "string" || typeof annotation.url_citation.content !== "string" || annotation.url_citation.content.replace(/\s+/g, " ").trim().length < 30) {

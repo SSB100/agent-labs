@@ -8,8 +8,9 @@ import { verifyOwnerBusiness } from "@/lib/core-ui/owner-business";
 import { readResearchQualification } from "@/research/qualification-server";
 import { activateResearchProof, reconcileResearchProofAction, runResearchProofAction, stopResearchProofAction } from "./actions";
 import { PrepareResearchForm } from "./prepare-form";
+import { VerifySavedRouteForm } from "./verify-route-form";
 import { ResearchSubmitButton } from "./submit-button";
-import { formatResearchUsd, researchProofState, canRunResearchProof, researchWindowCurrent, researchGrantDisclosure, researchOutcomeDisclosure, safeResearchSourceUrl } from "./presentation";
+import { formatResearchUsd, researchProofState, canRunResearchProof, researchWindowCurrent, canVerifySavedInferenceRoute, researchGrantDisclosure, researchOutcomeDisclosure, safeResearchSourceUrl } from "./presentation";
 import "./research-qualification.css";
 
 export const dynamic = "force-dynamic";
@@ -142,9 +143,10 @@ export default async function ResearchQualificationPage({ searchParams }: {
                 <p>Dispatch markers and settlement records do not prove that returned evidence passed validation.</p>
                 {(["search", "select"] as const).map(name => {
                   const phase = entry.phases.find(saved => saved.phase === name);
-                  return <p key={name} data-r11-phase={name}>
-                    {name === "search" ? "Search" : "Evidence selection"}: {!phase ? "no dispatch recorded" : !phase.marked ? "Pending, not dispatched" : !phase.settled || phase.actualMicrounits === null ? "Dispatched; charge or settlement unknown, held" : `Dispatched; reported ${formatResearchUsd(phase.actualMicrounits)}`}
-                  </p>;
+                  return <div key={name} data-r11-phase={name}>
+                    <p>{name === "search" ? "Search" : "Evidence selection"}: {!phase ? "no dispatch recorded" : !phase.marked ? "Pending, not dispatched" : !phase.settled || phase.actualMicrounits === null ? "Dispatched; charge or settlement unknown, held" : `Dispatched; reported ${formatResearchUsd(phase.actualMicrounits)}`}</p>
+                    {phase && canVerifySavedInferenceRoute(phase) ? <VerifySavedRouteForm key={`${businessId}:${entry.policyId}:${phase.requestId}`} businessId={businessId} policyId={entry.policyId} requestId={phase.requestId} /> : null}
+                  </div>;
                 })}
                 {result ? <div data-r11-result={result.resultId}>
                   <h4>Saved validated evidence</h4>

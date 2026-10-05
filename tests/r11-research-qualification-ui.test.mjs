@@ -9,7 +9,7 @@ class FixtureDate extends Date { constructor(...args){super(...(args.length?args
 const hash='a'.repeat(64),noop=async()=>{};
 function load(file,deps={}){
  const code=ts.transpileModule(readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true}}).outputText,m={exports:{}};
- runInNewContext(`(function(require,module,exports){${code}\n})`,{URL,JSON,Date:FixtureDate})(name=>{if(['react/jsx-runtime','react','react-dom','node:crypto'].includes(name))return require(name);assert.ok(name in deps,`Unexpected UI dependency: ${name}`);return deps[name];},m,m.exports);return m.exports;
+ runInNewContext(`(function(require,module,exports){${code}\n})`,{URL,JSON,Date:FixtureDate})(name=>{if(name==='react'&&deps.react)return deps.react;if(['react/jsx-runtime','react','react-dom','node:crypto'].includes(name))return require(name);assert.ok(name in deps,`Unexpected UI dependency: ${name}`);return deps[name];},m,m.exports);return m.exports;
 }
 const presentation=load('src/app/dashboard/research-qualification/presentation.ts');
 const policy={query:'What do public adult surveys say about gift uniqueness?',allowedDomains:['example.org'],excludedDomains:['etsy.com','etsy.me','etsystatic.com'],modelId:'openai/gpt-5.6-luna',providerEndpoint:'azure/us',maximumMicrousd:250000,validFrom:'2026-10-05T00:00:00Z',validUntil:'2026-10-05T23:59:00Z',quoteValidUntil:'2026-10-05T23:59:00Z'};
@@ -25,6 +25,7 @@ function pageFixture({verified=true,unavailableOwnership=false,view=workspace()}
  '@/research/qualification-server':{readResearchQualification:async(...args)=>{reads.push(args);return view;}},
  './actions':{activateResearchProof:noop,runResearchProofAction:noop,stopResearchProofAction:noop,reconcileResearchProofAction:noop},
  './prepare-form':load('src/app/dashboard/research-qualification/prepare-form.tsx',{'./actions':{prepareResearchSetup:noop},'./presentation':presentation}),
+ './verify-route-form':load('src/app/dashboard/research-qualification/verify-route-form.tsx',{'./actions':{verifySavedInferenceRoute:noop}}),
  './submit-button':load('src/app/dashboard/research-qualification/submit-button.tsx'),'./presentation':presentation,'./research-qualification.css':{}};
  return{...load('src/app/dashboard/research-qualification/page.tsx',deps),reads};
 }
@@ -83,7 +84,7 @@ const outcome=(overrides={})=>({outcomeId:'11000000-0000-4000-8000-000000000006'
 test('saved failure and owner Stop remain independently visible with known historical charges and no selector',async()=>{
  const view=workspace(),p=view.policies[0];p.revoked=true;p.expired=true;p.status='revoked';p.phases[0]={...p.phases[0],marked:true,settled:true,actualMicrounits:'10068'};
  p.outcomeEvents=[outcome(),outcome({outcomeId:'11000000-0000-4000-8000-000000000007',kind:'owner_stopped',phase:'none',reason:'owner_stopped',observation:null})];
- view.configured=false;const html=await render(pageFixture({view}));assert.match(html,/Saved proof failure/);assert.match(html,/returned model identity was not qualified/);assert.match(html,/Saved owner Stop/);assert.match(html,/Stopped · saved revocation/);assert.match(html,/Search: Dispatched; reported \$0.010068 USD/);assert.match(html,/Evidence selection: Pending, not dispatched/);assert.match(html,/Model identity: unqualified identity/);assert.match(html,/Provider identity: exact approved Azure identity/);assert.match(html,/Search requests: 1; citation annotations: 4/);assert.match(html,/Approved source example.org: 3/);assert.doesNotMatch(html,/>Saved validated evidence</);assert.match(button(html,'Run public evidence proof'),/\sdisabled=/);
+ view.configured=false;const html=await render(pageFixture({view}));assert.match(html,/Saved proof failure/);assert.match(html,/returned model identity was not qualified/);assert.match(html,/Saved owner Stop/);assert.match(html,/Stopped · saved revocation/);assert.match(html,/Search: Dispatched; reported \$0.010068 USD/);assert.match(html,/Evidence selection: Pending, not dispatched/);assert.match(html,/Model identity: unqualified identity/);assert.match(html,/Raw response-provider observation: Azure label observed/);assert.match(html,/Search requests: 1; citation annotations: 4/);assert.match(html,/Approved source example.org: 3/);assert.doesNotMatch(html,/>Saved validated evidence</);assert.match(button(html,'Run public evidence proof'),/\sdisabled=/);
 });
 test('legacy marked proof never invents a cause and exposes key-free explicit Stop reconciliation',async()=>{
  const view=workspace(),p=view.policies[0];view.configured=false;p.revoked=true;p.expired=true;p.terminalReconciliationRequired=true;p.phases[0].marked=true;
@@ -136,4 +137,23 @@ test('owner Stop alone cannot hide missing failure diagnostics after a marked ph
  const view=workspace(),p=view.policies[0];p.revoked=true;p.phases=[{...p.phases[0],marked:true,settled:true,actualMicrounits:'10068'}];p.outcomeEvents=[outcome({kind:'owner_stopped',reason:'owner_stopped',phase:'none',observation:null})];
  let html=await render(pageFixture({view}));assert.match(html,/Saved owner Stop/);assert.match(html,/No typed validation outcome is saved for this attempt/);assert.match(html,/Dispatch markers and charges do not establish its result or failure cause/);assert.match(html,/Search: Dispatched; reported \$0.010068 USD/);assert.doesNotMatch(html,/>Saved proof failure</);
  p.result=result();html=await render(pageFixture({view}));assert.match(html,/Saved validated evidence/);assert.doesNotMatch(html,/No typed validation outcome is saved for this attempt/);
+});
+
+test('settled saved inference-route reads stay available after expiry, Stop and missing execution configuration',async()=>{
+ const view=workspace(),p=view.policies[0];view.configured=false;p.revoked=true;p.expired=true;p.phases=[{phase:'search',requestId:workflowRunId,marked:true,settled:true,actualMicrounits:'9378',providerRequestId:'gen-saved-existing'}];p.outcomeEvents=[outcome({reason:'response_provider_unqualified'})];
+ const html=await render(pageFixture({view}));assert.match(html,/Verify saved inference route/);assert.doesNotMatch(button(html,'Verify saved inference route'),/\sdisabled=/);assert.match(html,/does not change the proof or its prior failures/);assert.match(html,/Saved proof failure/);assert.doesNotMatch(html,/data-r11-route-evidence/);assert.match(html,/name="requestId" value="11000000-0000-4000-8000-000000000005"/);assert.doesNotMatch(html,/name="(?:generationId|providerRequestId|url)"/);
+});
+test('unmarked, unsettled or unknown receipt IDs never expose an inference-route read form',async()=>{
+ for(const edit of [{marked:false},{settled:false},{providerRequestId:null},{providerRequestId:'unknown'}]){const view=workspace();view.policies[0].phases=[{phase:'search',requestId:workflowRunId,marked:true,settled:true,actualMicrounits:'9378',providerRequestId:'gen-saved-existing',...edit}];assert.doesNotMatch(await render(pageFixture({view})),/Verify saved inference route/);}
+});
+test('diagnostics distinguish raw provider observation from independently verified generation-route evidence',()=>{
+ const observed={...outcome().observation,responseProviderHash:'b'.repeat(64),inferenceRouteStatus:'verified',inferenceRouteProofHash:'c'.repeat(64)};const d=presentation.researchOutcomeDisclosure(outcome({observation:observed}),['example.org']);assert.match(d.observations.join('\n'),/Raw response-provider observation: Azure label observed/);assert.match(d.observations.join('\n'),/Raw response-provider fingerprint: b{64}/);assert.match(d.observations.join('\n'),/Generation-route evidence: verified generation-record provider\/model/);assert.match(d.observations.join('\n'),/Generation-route proof fingerprint: c{64}/);
+ const historical=presentation.researchOutcomeDisclosure(outcome(),['example.org']);assert.match(historical.observations.join('\n'),/not recorded for this historical observation/);
+ const unsafe=presentation.researchOutcomeDisclosure(outcome({observation:{...observed,responseProviderHash:'secret',inferenceRouteStatus:'secret',inferenceRouteProofHash:'secret'}}),['example.org']);assert.doesNotMatch(JSON.stringify(unsafe),/secret/);
+});
+
+test('inline verified route disclosure reports only normalized route evidence without rehabilitating prior output',()=>{
+ const state={status:'verified',message:'Read-only route evidence received. This does not qualify prior output or authorize another run.',verification:{businessId:business,policyId,requestId:workflowRunId,phase:'search',proof:{generationId:'gen-existing-paid',providerName:'Azure',modelId:'openai/gpt-5.6-luna-20260709',requestedEndpoint:'azure/us',providerResponses:[{providerName:'Azure',modelId:'openai/gpt-5.6-luna-20260709',status:200}],proofHash:'d'.repeat(64)}}};
+ const component=load('src/app/dashboard/research-qualification/verify-route-form.tsx',{'./actions':{verifySavedInferenceRoute:noop},react:{...React,useActionState:()=>[state,noop,false]}}).VerifySavedRouteForm;
+ const html=renderToStaticMarkup(React.createElement(component,{businessId:business,policyId,requestId:workflowRunId}));assert.match(html,/Documented inference provider: Azure/);assert.match(html,/Model: openai\/gpt-5.6-luna-20260709/);assert.match(html,/Proof fingerprint: d{64}/);assert.match(html,/does not independently establish the regional endpoint or enumerate every inner call/);assert.match(html,/does not qualify prior output or authorize another run/);assert.match(html,/Historical failures and charges are preserved/);assert.doesNotMatch(html,/failure fixed|output qualified|name="generationId"/);
 });

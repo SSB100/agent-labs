@@ -6,6 +6,7 @@ import { assembleDiscoveryEvidenceV2, discoverySelectionSchemaV2 } from "../prod
 import { extractResearchSources, validateResearchCollection, validateResearchRequest } from "./sources";
 import type { EvidencePack, ResearchCollection } from "./types";
 import { validateResearchResponseModelIds } from "./qualification-outcome";
+import { validateGenerationRouteProof, type GenerationRouteProof } from "./generation-route";
 
 /** A reviewed public factual-research use basis, not an open-content license or
  * a financial grant. Only trusted immutable storage may supply this policy. */
@@ -88,10 +89,15 @@ export function publicResearchSearchRequest(policy: PublicResearchPolicy, model:
 
 /** Reject forbidden/malformed citation origins rather than hiding them by only
  * filtering retained output. Provider-side domain enforcement remains primary. */
-export function collectQualifiedPublicSources(policy: PublicResearchPolicy, response: ModelProviderResponse, searchRequestId: string, now = Date.now(), acceptedResponseModelIds: readonly string[] = [policy.modelId]): { collection: ResearchCollection; lineage: PublicResearchLineage } {
+export function collectQualifiedPublicSources(policy: PublicResearchPolicy, response: ModelProviderResponse, searchRequestId: string, now = Date.now(), acceptedResponseModelIds: readonly string[] = [policy.modelId], routeProof?: GenerationRouteProof): { collection: ResearchCollection; lineage: PublicResearchLineage } {
   validatePublicResearchPolicy(policy, now);
   const acceptedModels = validateResearchResponseModelIds(policy.modelId, acceptedResponseModelIds);
-  if (!UUID.test(searchRequestId) || response.provider !== "openrouter.exa" || !acceptedModels.includes(response.providerModelId) || response.metadata.actualUpstreamProvider !== "Azure" || typeof response.providerRequestId !== "string" || response.providerRequestId.length < 3 || response.providerRequestId.length > 300 || response.metadata.searchRequests !== 1 || !Array.isArray(response.output.annotations) || response.output.annotations.length > 4) return fail();
+  if (!UUID.test(searchRequestId) || response.provider !== "openrouter.exa" || !acceptedModels.includes(response.providerModelId) || typeof response.providerRequestId !== "string" || response.providerRequestId.length < 3 || response.providerRequestId.length > 300 || response.metadata.searchRequests !== 1 || !Array.isArray(response.output.annotations) || response.output.annotations.length > 4) return fail();
+  if (policy.providerEndpoint !== "azure/us") return fail();
+  // The wrapper's optional provider label is observational only. Source
+  // provenance requires the documented generation endpoint's exact proof.
+  validateGenerationRouteProof(routeProof, { generationId: response.providerRequestId, providerName: "Azure",
+    acceptedResponseModelIds: acceptedModels, requestedEndpoint: "azure/us" });
   for (const annotation of response.output.annotations) {
     if (!record(annotation) || annotation.type !== "url_citation" || !record(annotation.url_citation) || typeof annotation.url_citation.url !== "string" || typeof annotation.url_citation.content !== "string" || annotation.url_citation.content.replace(/\s+/g, " ").trim().length < 30) return fail();
     let url: URL; try { url = new URL(annotation.url_citation.url); } catch { return fail(); }
