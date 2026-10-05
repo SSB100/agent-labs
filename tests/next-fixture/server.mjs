@@ -59,14 +59,23 @@ export async function startFixtureBoundary() {
     }
     if(req.url==='/rpc'){
       const {name,args}=input;const business=args.p_business_id;
-      if(name==='r11_connection_read'){
+      if(name==='r11_connection_read'||name==='r11_etsy_read_workspace'){
         if(!state.businesses.some(b=>b.id===business))return send({data:null,error:{message:'Inert owner mismatch'}});
         if(input.mode==='unavailable')return send({data:null,error:{message:'Inert qualification unavailable'}});
         state.r11Connections??=new Map();
         if(!state.r11Connections.has(business))state.r11Connections.set(business,[{id:id(business===id(1)?110001:110002),provider:'etsy',externalAccountId:'200',label:'Saved own shop with a deliberately long readable display name',revision:id(110003),status:'token_expired',custody:'encrypted_oauth',verifiedAt:'2026-10-04T23:00:00Z',expiresAt:'2026-11-01T00:00:00Z',permittedOperations:['shop.read','listing.read'],providerExpiryVerified:false,credentialAlias:null,credentialFingerprint:'a'.repeat(64)}]);
         const connections=input.mode==='empty'?[]:state.r11Connections.get(business);
         const grants=input.mode==='empty'?[]:[{id:id(110010),provider:'etsy',expectedAccount:'Inert exact shop',applicationId:'inert-app',expiresAt:'2027-01-01T00:00:00Z',purposeHash:'a'.repeat(64),approvedCredentialFingerprint:'b'.repeat(64),state:'available',credentialAlias:null,providerScopeMode:'exact',providerScopes:['shops_r','listings_r']}];
-        log.push({rpc:name,business});return send({data:{businessId:business,grantTotal:grants.length,attemptTotal:0,grants,connections,attempts:[]},error:null});
+        state.r11ReadWindows??=new Map();
+        if(control.r11Reads&&!state.r11ReadWindows.has(business))state.r11ReadWindows.set(business,{id:id(business===id(1)?111001:111002),connectionId:id(business===id(1)?110001:110002),bindingRevision:id(110003),expiresAt:'2027-01-01T00:00:00Z',mode:'lazy',credentialFingerprint:'a'.repeat(64),maxReads:2,maxRefreshes:1,readsDispatched:1,refreshesDispatched:1,minRefreshSeconds:3000,state:'available'});
+        const readWindows=control.r11Reads&&input.mode!=='empty'?[state.r11ReadWindows.get(business)]:[];
+        const readAttempts=readWindows.length?[{id:id(111010),windowId:readWindows[0].id,connectionId:readWindows[0].connectionId,bindingRevision:id(110003),status:control.r11ReadState==='candidate'?'failed':'succeeded',createdAt:'2026-10-04T23:10:00Z',completedAt:'2026-10-04T23:10:01Z',refreshed:true,proof:control.r11ReadState==='candidate'?null:{totalDrafts:2,listingCount:1,verifiedAt:'2026-10-04T23:10:01Z'}}]:[];
+        const projectedConnections=control.r11Reads&&control.r11ReadState==='candidate'?connections.map(c=>({...c,status:'refresh_unverified'})):connections;
+        log.push({rpc:name,business});return send({data:{businessId:business,grantTotal:grants.length,attemptTotal:0,grants,connections:projectedConnections,attempts:[],readWindowTotal:readWindows.length,readAttemptTotal:readAttempts.length,readWindows,readAttempts},error:null});
+      }
+      if(name==='r11_etsy_read_owner'&&args.p_operation==='revoke_window'){
+        const window=state.r11ReadWindows?.get(business);if(!state.businesses.some(b=>b.id===business)||!window||window.id!==args.p_payload.windowId)return send({data:null,error:{message:'Inert exact read window unavailable'}});
+        if(window.state!=='revoked'){window.state='revoked';effects.push({kind:'in-memory-r11-read-window-revoke',business,windowId:window.id});}return send({data:{revoked:true},error:null});
       }
       if(name==='r11_connection_owner'&&args.p_operation==='disconnect'){
         const connection=state.r11Connections?.get(business)?.find(c=>c.id===args.p_payload.connectionId&&c.revision===args.p_payload.revision);

@@ -24,6 +24,7 @@
     "src/core/**/*.ts",
     "src/connections/contracts.ts",
     "src/connections/etsy-read.ts",
+    "src/connections/etsy-refresh.ts",
     "src/connections/printful-read.ts",
     "src/evaluations/**/*.ts",
     "src/lib/core-ui/workflows.ts",

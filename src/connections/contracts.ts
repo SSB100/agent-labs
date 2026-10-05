@@ -17,9 +17,11 @@ export type ConnectionGrant = { id: string; provider: "etsy" | "printful"; expec
   expiresAt: string; purposeHash: string; approvedCredentialFingerprint: string; state: "available" | "used" | "expired" | "revoked"; credentialAlias: string | null; providerScopes?: string[] | null; providerScopeMode?: "exact"|"inspect_and_record"; configured?: boolean };
 export type ConnectionSummary = { id: string; provider: "etsy" | "printful"; externalAccountId: string; label: string;
   revision: string; status: string; custody: "encrypted_oauth" | "environment"; verifiedAt: string; expiresAt: string;
-  permittedOperations: string[]; providerScopes?: string[]; providerExpiryVerified: boolean };
+  permittedOperations: string[]; providerScopes?: string[]; providerExpiryVerified: boolean; tokenExpiresAt?: string };
 export type QualificationAttempt = { id: string; provider: string; status: string; createdAt: string; completedAt: string | null; reason: string | null };
-export type QualificationWorkspace = { businessId: string; unavailable: boolean; configured: boolean; grants: ConnectionGrant[]; connections: ConnectionSummary[]; attempts: QualificationAttempt[]; grantTotal?: number; attemptTotal?: number; configurationFingerprints?: {etsy: string|null; printfulPrimary: string|null} };
+export type OwnShopReadWindow = {id:string;connectionId:string;bindingRevision:string;expiresAt:string;mode:"lazy"|"qualification";maxReads:number;maxRefreshes:number;readsDispatched:number;refreshesDispatched:number;minRefreshSeconds:number;state:string;configured:boolean};
+export type OwnShopReadAttempt = {id:string;windowId:string;connectionId:string;bindingRevision:string;status:string;createdAt:string;completedAt:string|null;refreshed:boolean;proof:{totalDrafts:number;listingCount:number;verifiedAt:string}|null};
+export type QualificationWorkspace = { businessId: string; unavailable: boolean; configured: boolean; grants: ConnectionGrant[]; connections: ConnectionSummary[]; attempts: QualificationAttempt[]; grantTotal?: number; attemptTotal?: number; configurationFingerprints?: {etsy: string|null; printfulPrimary: string|null};readWindows?:OwnShopReadWindow[];readAttempts?:OwnShopReadAttempt[];readWindowTotal?:number;readAttemptTotal?:number };
 export type QualificationPermit = { attemptId: string; step: number; endpoint: string; method: "GET" | "POST"; expiresAt: string };
 export function exactPermit(value: unknown, expected: { attemptId: string; step: number; endpoint: string; method: string }, now = Date.now()): QualificationPermit {
   const p = record(value);

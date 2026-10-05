@@ -46,6 +46,10 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false,que
     assert.match(first,/Loading exact saved workflow/);assert.ok(chunks>1);assert.ok(Date.now()-start>=900,'No delayed stream boundary observed');assert.match(text,/data-work-detail/);
     await fetch(boundary.origin+'/control',{method:'POST',body:JSON.stringify({delayId:null,delayMs:0})});
   });
+  await check('real Next own-shop read metadata renders with no provider dispatch',async()=>{
+    const before=boundary.effects.length;await fetch(boundary.origin+'/control',{method:'POST',body:JSON.stringify({r11Reads:true,r11ReadState:'ready'})});
+    try{const response=await fetch(origin+`/dashboard/connections?business=${id(1)}`);assert.equal(response.status,200);const html=await response.text();assert.match(html,/Authorized own-shop reads/);assert.match(html,/Read latest draft status/);assert.match(html,/Stop this read window/);assert.match(html,/Observed.*2.*drafts/s);assert.equal(boundary.effects.length,before);}finally{await fetch(boundary.origin+'/control',{method:'POST',body:JSON.stringify({r11Reads:false,r11ReadState:'ready'})});}
+  });
   if(workspaceOnly) await runWorkspaceHttp({origin,boundary,check});
   if(browserWatchOnly) await runViewerHttp({origin,boundary,check});
   if(knowledgeOnly) await runKnowledgeHttp({origin,boundary,check});
@@ -227,6 +231,18 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false,que
         const before=boundary.effects.length;await link.click();await page.waitForURL(u=>u.pathname==='/dashboard'&&u.searchParams.get('view')==='connections');assert.equal(boundary.effects.length,before);
         await page.goBack();await page.waitForURL(u=>u.pathname===`/dashboard/accounts/${route}`);await page.reload();await link.waitFor();assert.equal(await page.locator('input[type=password]').count(),0,'Expired/unavailable entry must expose no credential input');
       }
+    });
+    await check('R11 renewable-read metadata is inert and Stop survives repeated navigation and reload',async()=>{
+      await control({r11Reads:true,r11ReadState:'ready'});await page.setViewportSize({width:1280,height:720});await page.goto(origin+`/dashboard/connections?business=${business}`);
+      await page.getByRole('heading',{name:'Authorized own-shop reads',exact:true}).waitFor();await page.getByText(/Observed 2 drafts/).waitFor();
+      assert.equal(await page.getByRole('button',{name:'Read latest draft status',exact:true}).isDisabled(),true,'No Production credentials are present in the inert browser fixture');
+      await page.screenshot({path:path.join(output,'r11-read-window-ready-1280x720.png'),fullPage:true});const before=boundary.effects.length;
+      await page.getByRole('button',{name:'Stop this read window',exact:true}).click();await page.waitForFunction(()=>[...document.querySelectorAll('button')].some(b=>b.textContent==='Stop this read window'&&b.disabled));assert.equal(boundary.effects.length,before+1);
+      await page.reload();assert.equal(await page.getByRole('button',{name:'Stop this read window',exact:true}).isDisabled(),true);
+      await page.goto(origin+`/dashboard/connections?business=${id(2)}`);assert.equal(await page.getByRole('button',{name:'Stop this read window',exact:true}).isEnabled(),true);
+      await page.goBack();await page.waitForURL(u=>u.searchParams.get('business')===business);assert.equal(await page.getByRole('button',{name:'Stop this read window',exact:true}).isDisabled(),true);assert.equal(boundary.effects.length,before+1);
+      await control({r11ReadState:'candidate'});await page.reload();await page.getByText(/refresh_unverified/).waitFor();await page.getByText(/An unknown refresh or unverified rotated token needs explicit recovery/).waitFor();assert.equal(await page.getByRole('button',{name:'Read latest draft status',exact:true}).isDisabled(),true);
+      await page.setViewportSize({width:390,height:844});await page.screenshot({path:path.join(output,'r11-read-window-candidate-390x844.png'),fullPage:true});assert.equal(boundary.effects.length,before+1);await control({r11Reads:false,r11ReadState:'ready'});
     });
     await check('R11 exact read-only connections preserve Business and local disconnect across real Next actions',async()=>{
       await page.setViewportSize({width:1280,height:720});await page.goto(origin+`/dashboard/connections?business=${business}`);

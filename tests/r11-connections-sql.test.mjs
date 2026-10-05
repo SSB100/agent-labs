@@ -5,6 +5,7 @@ import {createRequire} from 'node:module';
 import path from 'node:path';
 import {randomUUID,createHash} from 'node:crypto';
 import {r04SqlBootstrap} from './helpers/r04-sql-bootstrap.mjs';
+import {r11RefreshSqlCases} from './helpers/r11-refresh-sql-cases.mjs';
 import {sessionBootstrap} from './helpers/r10-sql-fixture.mjs';
 const host=process.env.R11_SQL_TEST_HOST,pgUrl=process.env.R11_POSTGRES_URL;
 function validatePg(url){const u=new URL(url);assert.ok(u.hostname==='127.0.0.1'&&u.username==='r11_test'&&u.pathname==='/r11_test'&&!u.search&&!u.hash,'Only isolated loopback r11_test allowed');return url;}
@@ -25,6 +26,7 @@ test('R11 additive SQL preserves prior functions/ACLs and installs no authority'
   if(name.endsWith('_r11_scoped_connections.sql')){
    before=(await db.query(functions)).rows;await assert.rejects(db.exec(source.replace(/commit;\s*$/,()=>"do $$ begin raise exception 'r11_rollback';end $$;commit;")),/r11_rollback/);await db.exec('rollback');assert.deepEqual((await db.query(functions)).rows,before);
   }
+  if(name.endsWith('_r11_etsy_lazy_refresh.sql')){const prior=(await db.query(functions)).rows;await assert.rejects(db.exec(source.replace(/commit;\s*$/,()=>"do $$ begin raise exception 'r11_refresh_rollback';end $$;commit;")),/r11_refresh_rollback/);await db.exec('rollback');assert.deepEqual((await db.query(functions)).rows,prior);}
   try{await db.exec(source);}catch(e){throw Error(`${name}: ${e.message}\n${e.where??''}\n${e.internalQuery??''}`);}
  }
  const after=new Map((await db.query(functions)).rows.map(x=>[x.id,x]));for(const row of before)assert.deepEqual(after.get(row.id),row);
@@ -91,6 +93,7 @@ test('R11 additive SQL preserves prior functions/ACLs and installs no authority'
   assert.equal(await value(db,'select count(*)::int result from private.provider_connections where id=$1',[result.connectionId]),0);
   const v=(await db.query('select custody,credential_alias,permitted_operations from private.r11_credential_versions where connection_id=$1',[result.connectionId])).rows[0];assert.equal(v.custody,'environment');assert.equal(v.credential_alias,'PRINTFUL_INERT_TOKEN');assert.deepEqual(v.permitted_operations,['catalog.read']);
  });
+ await r11RefreshSqlCases(t,{db,user,authSession,key,envelope,Client});
  if(pgUrl){
   const client=async()=>{const c=new Client({connectionString:pgUrl});await c.connect();await c.query("select set_config('request.jwt.claim.sub',$1,false),set_config('request.jwt.claims',$2,false)",[user,JSON.stringify({sub:user,session_id:authSession})]);return c;};
   const waiting=async(c)=>{const pid=c.processID;for(let i=0;i<100;i++){const blocked=(await db.query('select cardinality(pg_blocking_pids($1)) n',[pid])).rows[0].n;if(blocked>0)return;await new Promise(r=>setTimeout(r,20));}assert.fail('No real lock wait observed');};
