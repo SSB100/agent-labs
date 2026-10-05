@@ -30,9 +30,10 @@ function renderFixture(React, components, route, fixture) {
 
 let bundlePromise;
 async function browserBundle() {
-  const productionInputs = new Set([
+  const productionInputs = new Set(["src/lib/core-ui/workspace-navigation.ts",
     "src/components/console/console-browser-centre.tsx", "src/components/console/console-browser-centre.css",
-    "src/browser/console-view.ts",
+    "src/browser/console-view.ts", "src/browser/console-watch-client.ts",
+    "src/components/console/console-browser-watch.tsx", "src/components/console/console-browser-watch.css",
     "src/components/console/console-overview.tsx", "src/components/console/console-overview.css",
     "src/components/stage7/icons.tsx", "src/lib/core-ui/workflows.ts",
   ]);
@@ -83,7 +84,7 @@ async function browserBundle() {
         }`,
       }));
       builder.onResolve({ filter: /^@\// }, args => {
-        const aliases = { "@/browser/console-view": "src/browser/console-view.ts", "@/lib/core-ui/workflows": "src/lib/core-ui/workflows.ts", "@/components/stage7/icons": "src/components/stage7/icons.tsx" };
+        const aliases = { "@/lib/core-ui/workspace-navigation":"src/lib/core-ui/workspace-navigation.ts", "@/browser/console-view": "src/browser/console-view.ts", "@/browser/console-watch-client": "src/browser/console-watch-client.ts", "@/lib/core-ui/workflows": "src/lib/core-ui/workflows.ts", "@/components/stage7/icons": "src/components/stage7/icons.tsx" };
         assert.ok(Object.hasOwn(aliases, args.path), `Unexpected app import ${args.path}`);
         return { path: path.join(root, aliases[args.path]) };
       });
@@ -102,7 +103,7 @@ export async function consoleBrowserFixtureDocument(route = consoleBrowserStartP
   });
   const markup = renderToString(renderFixture(React, { ...browser, ...overview }, route, consoleBrowserFixture));
   const script = await (bundlePromise ??= browserBundle());
-  const css = ["src/components/console/console-overview.css", "src/components/console/console-browser-centre.css"].map(file => readFileSync(path.join(root, file), "utf8")).join("\n");
+  const css = ["src/components/console/console-overview.css", "src/components/console/console-browser-centre.css", "src/components/console/console-browser-watch.css"].map(file => readFileSync(path.join(root, file), "utf8")).join("\n");
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Synthetic centre browser</title><style>
   *{box-sizing:border-box}body{margin:0;background:#07121c;color:#d8e8f2;font:14px system-ui}${css}
   .consoleBrowserFixture{display:block;height:auto;width:auto;margin:40px auto}.consoleBrowserFixturePanel{width:548px;height:318px;margin:auto}

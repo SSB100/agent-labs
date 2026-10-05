@@ -135,8 +135,14 @@ test('Quest workspace browser behavior is bounded and exact', { skip: process.en
 
     await t.test('ready Quest gates a complete proposal and raw multiline credentials stop before the action', async () => {
       await page.evaluate(({ references, selected }) => window.__setQuestState({ references, selected: { ...selected, preference: 'draft' } }), { references: baseState.references, selected });
+      // Observe each React commit before checking the gate; native pseudo-classes
+      // include the proposal button's inherited disabled fieldset state.
+      await page.getByText(/^Saved preference: draft\./).waitFor({ timeout: 10000 });
+      await page.waitForFunction(() => [...document.querySelectorAll('button')].find(button => button.textContent.trim() === 'Save proposal for complete review')?.matches(':disabled') === true, null, { timeout: 10000 });
       assert.equal(await page.getByRole('button', { name: 'Save proposal for complete review' }).isDisabled(), true);
       await page.evaluate(value => window.__setQuestState({ selected: value }), selected);
+      await page.getByText(/^Saved preference: ready\./).waitFor({ timeout: 10000 });
+      await page.waitForFunction(() => [...document.querySelectorAll('button')].find(button => button.textContent.trim() === 'Save proposal for complete review')?.matches(':enabled') === true, null, { timeout: 10000 });
       assert.equal(await page.getByRole('button', { name: 'Save proposal for complete review' }).isEnabled(), true);
       const field = name => page.locator(`[name="${name}"]`);
       await field('purposes').fill('Research shirts');
@@ -166,8 +172,12 @@ test('Quest workspace browser behavior is bounded and exact', { skip: process.en
 
     await t.test('current Quest selection waits for saved Business settings', async () => {
       await page.evaluate(business => window.__setQuestState({ business: { ...business, revision: 0 } }), baseState.business);
+      // The fixture's React setter schedules a render; isDisabled itself does
+      // not retry. Wait for the real control state rather than racing commit.
+      await page.waitForFunction(() => [...document.querySelectorAll('button')].find(button => button.textContent.trim() === 'Make this the current Quest')?.disabled === true, null, { timeout: 10000 });
       assert.equal(await page.getByRole('button', { name: 'Make this the current Quest' }).isDisabled(), true);
       await page.evaluate(business => window.__setQuestState({ business }), baseState.business);
+      await page.waitForFunction(() => [...document.querySelectorAll('button')].find(button => button.textContent.trim() === 'Make this the current Quest')?.disabled === false, null, { timeout: 10000 });
       assert.equal(await page.getByRole('button', { name: 'Make this the current Quest' }).isEnabled(), true);
     });
 

@@ -1,3 +1,4 @@
+import type { WatchSummary } from "./watch/contracts";
 export const CONSOLE_BROWSER_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 export type ConsoleCentreMode = "overview" | "browser";
 export const CONSOLE_BROWSER_STATUSES = ["reserved", "launching", "live", "human_control", "returning", "released", "failed"] as const;
@@ -11,6 +12,9 @@ export type ConsoleBrowserSummary = {
   updatedAt: string | null;
 };
 export type ConsoleBrowserWorkspace = {
+  viewer?: WatchSummary;
+  viewerUnavailable?: boolean;
+  workspaceSearch?: string;
   status: "ready" | "unavailable" | "invalid_selection";
   businesses: { id: string; name: string }[];
   selectedBusinessId: string | null;
@@ -19,7 +23,7 @@ export type ConsoleBrowserWorkspace = {
   selectedSession: ConsoleBrowserSummary | null;
   truncated: boolean;
 };
-export const CONSOLE_BROWSER_UNAVAILABLE = "Live viewing unavailable: a privacy-safe viewer contract is not yet implemented";
+export const CONSOLE_BROWSER_UNAVAILABLE = "Live viewing unavailable for this session";
 
 export function consoleCentreMode(value: unknown): ConsoleCentreMode {
   return value === "browser" ? "browser" : "overview";

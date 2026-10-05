@@ -6,10 +6,11 @@ export function accountReturnHref(businessId: string, options: { returnTo?: stri
   const query = new URLSearchParams({ view: "connections", business: businessId });
   try {
     const prior = new URL(options.returnTo ?? "", "https://agent-labs.invalid");
-    const scopeKeys = ["view", "business", "connectionRun", "provider"];
+    const scopeKeys = ["view", "business", "connectionRun", "provider", "quest", "episode", "step", "agent", "sourceArtifact"];
     if (prior.origin === "https://agent-labs.invalid" && prior.pathname === "/dashboard" &&
       scopeKeys.every(key => prior.searchParams.getAll(key).length <= 1) &&
       prior.searchParams.get("view") === "connections" && prior.searchParams.get("business") === businessId) {
+      for (const key of ["quest", "episode", "step", "agent", "sourceArtifact"]) { const value = prior.searchParams.get(key); if (value && uuid.test(value)) query.set(key, value); }
       const run = prior.searchParams.get("connectionRun"), provider = prior.searchParams.get("provider");
       if (run && uuid.test(run) && (!options.provider || options.provider === provider)) query.set("connectionRun", run);
       if (provider === "printful" || provider === "etsy") query.set("provider", provider);

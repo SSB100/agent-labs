@@ -62,3 +62,8 @@ The new isolated SQL harness replays the complete migration chain, checks unchan
 The real production Next fixture uses unchanged application components/loaders and an action/provider/network-denying transport. Focused local production compilation and HTTP checks are recorded separately from browser journeys. The current cloud host rejects Chromium process-singleton sockets even outside the command sandbox; local browser journeys are therefore unrun. Hosted PostgreSQL, Chromium, full quality and final screenshot review remain required on the frozen candidate.
 
 Existing optional test-host skips remain explicitly unqualified unless a named separate gate executes them. Existing query-driven legacy success notices are not expanded into a new authority claim by R06. No live or commercial qualification is claimed.
+
+
+## Migration history filename alignment
+
+The deployed R06 migration was recorded by Supabase as version `20261003133459`. The repository migration is now named `20261003133459_r06_bounded_reads.sql` to match that history. Its SQL bytes are unchanged (SHA-256 `d79fc5b32989f3ebcc4fd6c23f473115251318c379ccaf2ce9a051aa442be8da`). This is a source-only filename reconciliation, not another migration application or a production-history edit. Existing SQL harnesses select the migration by its `_r06_bounded_reads.sql` suffix; no test body needs to change. R07 follows it at `20261003133632`.

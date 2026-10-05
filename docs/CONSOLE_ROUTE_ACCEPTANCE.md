@@ -79,3 +79,14 @@ The canonical Quest, Events, Knowledge and product obligations below are target 
 Record the frozen commit/tree, fixture/query cases, actual screenshots at both desktop sizes and mobile/zoom, accessibility/history/client-transport results, provider-action-denial result and remaining limitations. An empty render or source review alone cannot close a populated route. Read-only deployed acceptance is separate from synthetic hosted checks. Software/UI acceptance never qualifies a provider action.
 
 Historical private account/Etsy/Printful RPCs retain fixed windows or unbounded eligibility arrays identified in [the populated audit](POPULATED_ROUTE_AUDIT.md). Complete historical paging/count/exact lookup requires R06's separate backend review. Do not widen ACLs, fetch every row or present client filtering of those windows as a completed checklist item.
+
+## R08 owner workspace delta
+
+See [R08 owner workspace contract](R08_OWNER_WORKSPACE_CONTRACT.md). The actual page inventory is now 23 (the R04 Quest and operating-control pages extend the historical R03 count); R08 adds no duplicate page routes. New root query destinations are `view=products-catalog` (Products and `type=listings`), `view=knowledge` (existing packs only), and `view=decision-log` (searchable automated/human audit). `view=work` is canonically labelled Events; `view=decisions` remains the exact actionable/historical Needs owner queue; `view=activity` remains underlying audit events.
+
+R08 acceptance requires the populated same-Business/Quest journey through all these surfaces, exact off-page Step/Agent/artifact and package/draft selection, empty/current Quest truth, wrong-scope rejection, status/receipt preservation, both desktop sizes, 320/390px and actual 200% zoom. Existing retained-route and action/recovery tests remain required. Focused development evidence is not final release acceptance; record the final source/tree and complete CI before deployment.
+
+
+## R11 additive destination
+
+`/dashboard/connections?business=<exact-id>` is the new owner-scoped read-only connection qualification workspace. This extends the original 21-page inventory. It reuses the compact shell/contained workspace and exact Business navigation, and exposes no raw secret. Acceptance requires populated/empty/unavailable states, two Businesses, token-expired/revoked/credential-changed states, read-only grant disclosures, local-disconnect action and repeated/navigation/reload behavior at the universal widths. Hosted exact-head evidence is recorded separately; this row does not claim live provider qualification.

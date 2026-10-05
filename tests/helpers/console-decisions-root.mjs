@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import { rootCollectionFixture } from './console-collection-root.mjs';
 import { renderToString } from 'react-dom/server';
-import { components, findFixtureElement, loadSource } from './guided-ui.mjs';
+import { components, findFixtureElement, loadSource, renderDashboard } from './guided-ui.mjs';
 import { api, businessId, businesses, component, costLoader, fixtureTables, id, origin, owner, query, terminal, time, wire, workflows } from './console-decisions.mjs';
 
 export { businessId, businesses, fixtureTables, id, origin, owner, time };
@@ -130,6 +130,14 @@ export function rootDecisionFixture({ tables = fixtureTables({ count: 131 }), us
   }
   async function render(route = '/dashboard?view=decisions') {
     const current = context(), parts = components();
+    if (queryFromRoute(route).view === 'overview') {
+      // Supplemental read-only R03 presentation uses the shared typed R04 boundary.
+      // Production R08 resolver/transport qualification remains in the actual Next suite.
+      let tree;
+      const html = await renderDashboard({ view: 'overview', records: collectionFor(), contextOverrides: current,
+        queryOverrides: queryFromRoute(route), inspect: value => { tree = value; } });
+      return { tree, html, overview: findFixtureElement(tree, 'ConsoleOverview'), boundary: findFixtureElement(tree, 'ConsoleMotionBoundary') };
+    }
     const { shell, visuals, icons, workflows, consoleShell, motion, motionUi, browserView, browserUi } = parts;
     const questDraft = loadSource('src/lib/core-ui/quest-draft.ts');
     const command = loadSource('src/components/console/console-command.tsx', { 'next/navigation': { useRouter: () => ({ push: deny }) }, '@/lib/core-ui/quest-draft': questDraft, './console-command.css': {} });

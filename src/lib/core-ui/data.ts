@@ -64,6 +64,7 @@ export type OwnerUiContext = {
   readSearch?: string;
   readPath?: string;
   scopeBusinessId?: string;
+  workspaceQuest?: { id: string; title: string; selection: string };
 };
 
 export type WorkflowCollection = {
@@ -82,7 +83,7 @@ export type WorkflowCollection = {
   errors: string[];
 };
 
-const EMPTY_COLLECTION: WorkflowCollection = {
+export const EMPTY_COLLECTION: WorkflowCollection = {
   runs: [],
   definitions: [],
   stages: [],
@@ -153,7 +154,7 @@ export async function requireOwnerUiContext(): Promise<OwnerUiContext> {
 
 export async function loadWorkflowCollection(
   context: OwnerUiContext,
-  options: { limit?: number; statuses?: string[] } = {},
+  options: { limit?: number; statuses?: string[]; workflowRunId?: string } = {},
 ): Promise<WorkflowCollection> {
   const businessIds = context.scopeBusinessId ? [context.scopeBusinessId] : context.ownerDirectoryPaged ? null : context.businesses.map((business) => business.id);
   if (businessIds?.length===0) return { ...EMPTY_COLLECTION, errors: context.businessesUnavailable ? ["Business records could not be loaded"] : [] };
@@ -165,13 +166,15 @@ export async function loadWorkflowCollection(
     .order("created_at", { ascending: false }).order("id",{ascending:false})
     .limit(runLimit);
   if(businessIds!==null)baseRunQuery=baseRunQuery.in("business_id",businessIds);
+  if(options.workflowRunId)baseRunQuery=baseRunQuery.eq("id",options.workflowRunId);
   const runResult = options.statuses?.length
     ? await baseRunQuery.in("status", options.statuses)
     : await baseRunQuery;
   const runs = rows<WorkflowRunRecord>(runResult.data);
+  if (options.workflowRunId && (runs.length > 1 || runs.some(run => run.id !== options.workflowRunId))) return { ...EMPTY_COLLECTION, errors: ["Exact episode read could not be verified"] };
   // A newer terminal history page cannot hide the current open workflow.
   let activeUnavailable=false;
-  if(context.ownerDirectoryPaged && !options.statuses?.length){
+  if((context.ownerDirectoryPaged || context.workspaceQuest) && !options.statuses?.length && !options.workflowRunId){
     let activeQuery=context.supabase.from("workflow_runs").select(WORKFLOW_RUN_SELECT,{count:"exact"}).in("status",["queued","running","waiting","review","needs_owner"]).is("completed_at",null).order("updated_at",{ascending:false}).order("id",{ascending:false}).limit(1);
     if(businessIds!==null)activeQuery=activeQuery.in("business_id",businessIds);
     const active=await activeQuery;activeUnavailable=!!active.error || !Number.isSafeInteger(active.count);
@@ -381,4 +384,14 @@ export async function loadWorkflowDetail(
     workerDefinitions,
     artifacts: rows<ArtifactRecord>(artifactResult.data),
   };
+}
+
+/** R08 current episode lookup is independent of every history page and notice sample. */
+export async function loadCurrentQuestEpisode(context: OwnerUiContext, businessId: string, explicitId?: string): Promise<{ id: string | null; available: boolean }> {
+  const base = () => context.supabase.from("workflow_runs").select("id,business_id").eq("business_id", businessId);
+  const active = explicitId ? await base().eq("id", explicitId).maybeSingle()
+    : await base().in("status", ["queued", "running", "waiting", "review", "needs_owner"]).is("completed_at", null).order("updated_at", { ascending: false }).order("id", { ascending: false }).limit(1).maybeSingle();
+  const result = !explicitId && !active.error && !active.data ? await base().order("created_at", { ascending: false }).order("id", { ascending: false }).limit(1).maybeSingle() : active;
+  if (result.error || result.data && (result.data.business_id !== businessId || typeof result.data.id !== "string" || !/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(result.data.id) || explicitId && result.data.id !== explicitId) || explicitId && !result.data) return { id: null, available: false };
+  return { id: result.data?.id ?? null, available: true };
 }

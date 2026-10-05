@@ -13,7 +13,7 @@ test('actual history reader sends bounded independent query state without mutati
   const f=fixture({search:`accountPage=3&accountQuery=Etsy&accountStatus=cancelled&accountId=${id(55)}&quest=${id(80)}`,records:Array.from({length:77},(_,i)=>({id:id(i+1)}))});
   const result=await read(f);
   assert.equal(f.calls.length,1); assert.equal(f.calls[0].name,'r06_read');
-  assert.deepEqual(JSON.parse(JSON.stringify(f.calls[0].args)),{p_business_id:id(900),p_dataset:'account_runs',p_query:{limit:25,offset:50,query:'Etsy',status:'cancelled',selectedId:id(55),goalId:id(80)}});
+  assert.deepEqual(JSON.parse(JSON.stringify(f.calls[0].args)),{p_business_id:id(900),p_dataset:'account_runs',p_query:{limit:25,offset:50,query:'Etsy',status:'cancelled',selectedId:id(55)}});
   assert.equal(result.items.length,25); assert.equal(result.page.total,77); assert.equal(result.page.hasNext,true);
   assert.equal(result.selected.id,id(55));
 });
@@ -49,3 +49,5 @@ test('an unknown owner-wide queue count remains unknown despite a valid local pa
   const f=fixture({alter:value=>{value.data.ownerTotal=null;return value;}});
   const result=await read(f);assert.equal(result.page.total,1);assert.equal(result.ownerTotal,undefined);
 });
+
+test('R08 keeps Quest provenance out of Business-level account filters while retaining supported product scope',async()=>{const f=fixture({search:`quest=${id(80)}`});for(const dataset of ['account_runs','account_health','account_unresolved','product_experiments']){await historyRead.readHistory(f.context,id(900),dataset,'records');const q=f.calls.at(-1).args.p_query;assert.equal(q.goalId,dataset.startsWith('account_')?undefined:id(80));}assert.equal(f.context.readSearch,`quest=${id(80)}`);});
