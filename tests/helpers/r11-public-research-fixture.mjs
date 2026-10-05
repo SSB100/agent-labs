@@ -5,6 +5,8 @@ import {createHash,randomUUID} from 'node:crypto';
 export const RESEARCH_KEY='inert-r11-public-research-authority-only-123456789';
 export const RESEARCH_CAPABILITY='inert-r11-public-research-runtime-only-123456789';
 export const RESEARCH_OWNER='95110000-0000-4000-8000-000000000001';
+export const RESEARCH_SESSION='95110000-0000-4000-8000-000000000003';
+export const RESEARCH_OTHER_SESSION='95110000-0000-4000-8000-000000000004';
 export const RESEARCH_OTHER='95110000-0000-4000-8000-000000000002';
 export const RESEARCH_PACK='95110000-0000-4000-8000-000000000011';
 export const RESEARCH_WORKFLOW='95110000-0000-4000-8000-000000000012';
@@ -14,21 +16,22 @@ export const sha=value=>createHash('sha256').update(value).digest('hex');
 export const canonical=value=>value===null||typeof value!=='object'?JSON.stringify(value):Array.isArray(value)?`[${value.map(canonical).join(',')}]`:`{${Object.keys(value).sort().map(k=>`${JSON.stringify(k)}:${canonical(value[k])}`).join(',')}}`;
 export const hash=value=>sha(canonical(value));
 export const value=async(db,sql,args=[])=>(await db.query(sql,args)).rows[0]?.result;
-export const authenticate=(db,user=RESEARCH_OWNER)=>db.query("select set_config('request.jwt.claim.sub',$1,false)",[user]);
+export const authenticate=(db,user=RESEARCH_OWNER,session=user===RESEARCH_OWNER?RESEARCH_SESSION:RESEARCH_OTHER_SESSION)=>db.query("select set_config('request.jwt.claim.sub',$1,false),set_config('request.jwt.claim.session_id',$2,false)",[user,session]);
 export function validateResearchPostgresUrl(url){
  const u=new URL(url);
  assert.ok(['postgres:','postgresql:'].includes(u.protocol)&&u.hostname==='127.0.0.1'&&u.username==='r11_test'&&u.pathname==='/r11_research_test'&&!u.search&&!u.hash,'Only fresh isolated loopback r11_test/r11_research_test is allowed');
  if(u.port)assert.ok(Number(u.port)>=1024&&Number(u.port)<=65535,'Invalid isolated PostgreSQL port');
  return url;
 }
-export async function setupResearchFixture(db,{modelId='inert/model',registryValidUntil=null}={}){
+export async function setupResearchFixture(db,{modelId='inert/model',registryValidUntil=null,registryValidFrom=null}={}){
  await db.query('insert into auth.users(id,email) values($1,$2),($3,$4)',[RESEARCH_OWNER,'r11-research@example.invalid',RESEARCH_OTHER,'r11-other@example.invalid']);
+ await db.query('insert into auth.sessions(id,user_id) values($1,$2),($3,$4)',[RESEARCH_SESSION,RESEARCH_OWNER,RESEARCH_OTHER_SESSION,RESEARCH_OTHER]);
  await db.query("insert into public.packs(id,pack_key,version,name,kind,status) values($1,'r11.research.inert','1.0.0','R11 inert research SQL only','workflow','qualified')",[RESEARCH_PACK]);
  await db.query("insert into public.workflow_definitions(id,pack_id,workflow_key,version,name,status) values($1,$2,'r11.research.inert','1.0.0','R11 inert research','qualified')",[RESEARCH_WORKFLOW,RESEARCH_PACK]);
  for(const [operation,liability,domains,classes] of [
   ['research.search',60,RESEARCH_DOMAINS,RESEARCH_CLASSES],['research.model',40,RESEARCH_DOMAINS,RESEARCH_CLASSES],
   ['creative.text',40,[],['business_context']],['creative.image',40,RESEARCH_DOMAINS,RESEARCH_CLASSES],
- ])await db.query("insert into private.r05_operations values($1,$2,$3,'openrouter',$7,'Research planning','USD','model',10000,4000,$4,$5,$6,repeat('a',64),repeat('b',64),repeat('c',64),clock_timestamp()-interval '1 hour',coalesce($8::timestamptz,clock_timestamp()+interval '1 day'))",[operation,RESEARCH_PACK,RESEARCH_WORKFLOW,liability,JSON.stringify(domains),JSON.stringify(classes),modelId,registryValidUntil]);
+ ])await db.query("insert into private.r05_operations values($1,$2,$3,'openrouter',$7,'Research planning','USD','model',10000,4000,$4,$5,$6,repeat('a',64),repeat('b',64),repeat('c',64),coalesce($9::timestamptz,clock_timestamp()-interval '1 hour'),coalesce($8::timestamptz,clock_timestamp()+interval '1 day'))",[operation,RESEARCH_PACK,RESEARCH_WORKFLOW,liability,JSON.stringify(domains),JSON.stringify(classes),modelId,registryValidUntil,registryValidFrom]);
  await db.query("insert into private.r05_server_keys values($1,clock_timestamp()+interval '1 day')",[sha(RESEARCH_KEY)]);
  await authenticate(db);
 }

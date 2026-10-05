@@ -4,16 +4,17 @@ import { createRuntimeClient } from "../lib/supabase/runtime";
 import { OpenRouterAdapter } from "../models/openrouter";
 import { resolveModelRoute } from "../models/registry";
 import { ModelProviderError, type ModelDefinition, type ModelDispatchAdmission, type ModelProviderResponse, type StructuredModelRequest, type WebSearchModelRequest } from "../models/types";
-import { canonicalPublicResearchJson, collectQualifiedPublicSources, publicResearchHash, publicResearchSearchRequest, publicResearchSelectorRequest, qualifiedPublicEvidence, validatePublicResearchLineage, validatePublicResearchPolicy, type PublicResearchLineage, type PublicResearchPolicy } from "./qualification";
+import { assembleAdmittedPublicEvidence, canonicalPublicResearchJson, collectQualifiedPublicSources, publicResearchHash, publicResearchSearchRequest, publicResearchSelectorRequest, validatePublicResearchLineage, validatePublicResearchPolicy, type PublicResearchLineage, type PublicResearchPolicy } from "./qualification";
 import type { EvidencePack, ResearchCollection } from "./types";
 import { fetchPublicResearchQuote, validatePublicResearchQuote } from "./qualification-quote";
 
 type Phase = "search" | "select";
-type Scope = { businessId: string; coreWorkflowRunId: string; runtimeCapability: string };
+export type ResearchRuntimeScope = { businessId: string; coreWorkflowRunId: string; runtimeCapability: string };
+type Scope = ResearchRuntimeScope;
 type Wire = { requestHash: string; wireHash: string; wireBytes: number; maxTokens: number };
 type SavedCollection = { id: string; collection: ResearchCollection; collectionHash: string; lineage: PublicResearchLineage; lineageHash: string; selector: Wire };
 type Loaded = { policy: PublicResearchPolicy; policyHash: string; search: Wire; collection: SavedCollection | null };
-type Rpc = (operation: "load" | "guard" | "collect", payload: JsonObject) => Promise<unknown>;
+type Rpc = (operation: "load" | "guard" | "collect" | "complete", payload: JsonObject) => Promise<unknown>;
 type Settle = (requestId: string, receipt: JsonObject) => Promise<void>;
 type Provider = Pick<OpenRouterAdapter, "invokeWebSearch" | "invokeStructured">;
 export type PublicResearchRuntime = {
@@ -62,7 +63,7 @@ function safeReceipt(response: ModelProviderResponse): JsonObject {
 /** This runner is deliberately not wired into R12 or an owner Start control.
  * A separately reviewed SQL policy and confirmed R05 operating envelope are
  * necessary, and the final marker rechecks them atomically on every dispatch. */
-export async function runPublicResearchQualification(scope: Scope, policyId: string, runtime: PublicResearchRuntime): Promise<{ evidencePack: EvidencePack; policyId: string; collectionId: string; receipts: JsonObject[] }> {
+export async function runPublicResearchQualification(scope: Scope, policyId: string, runtime: PublicResearchRuntime): Promise<{ evidencePack: EvidencePack; evidencePackHash: string; resultId: string; policyId: string; collectionId: string; receipts: JsonObject[] }> {
   const ownedScope = structuredClone(scope), now = runtime.now ?? Date.now;
   if (!UUID.test(policyId) || !UUID.test(ownedScope.businessId) || !UUID.test(ownedScope.coreWorkflowRunId) || !ownedScope.runtimeCapability) return denied();
   const loadedValue = await runtime.rpc("load", { policyId });
@@ -136,7 +137,12 @@ export async function runPublicResearchQualification(scope: Scope, policyId: str
   if (!UUID.test(saved.id) || saved.collectionHash !== publicResearchHash(saved.collection) || saved.lineageHash !== publicResearchHash(saved.lineage)) return denied();
   validatePublicResearchLineage(policy, saved.collection, saved.lineage, now());
   const selected = await call("select", publicResearchSelectorRequest(policy, model, saved.collection, saved.lineage, now()), saved.selector, saved.id);
-  return { evidencePack: qualifiedPublicEvidence(policy, saved.collection, saved.lineage, selected.response.output, now()), policyId, collectionId: saved.id, receipts };
+  const evidencePack = assembleAdmittedPublicEvidence(policy, saved.collection, saved.lineage, selected.response.output, now()), evidencePackHash = publicResearchHash(evidencePack);
+  const completed = await runtime.rpc("complete", { policyId, collectionId: saved.id, selectorRequestId: selected.requestId,
+    providerRequestId: selected.response.providerRequestId, selection: selected.response.output, evidencePack,
+    evidencePackCanonical: canonicalPublicResearchJson(evidencePack), evidencePackHash });
+  if (!record(completed) || typeof completed.resultId !== "string" || !UUID.test(completed.resultId) || completed.evidencePackHash !== evidencePackHash || typeof completed.replayed !== "boolean") return denied();
+  return { evidencePack, evidencePackHash, resultId: completed.resultId, policyId, collectionId: saved.id, receipts };
 }
 
 export async function verifyPublicResearchPolicyQuote(policy: PublicResearchPolicy): Promise<{ providerName: string }> {

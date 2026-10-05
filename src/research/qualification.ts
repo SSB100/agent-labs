@@ -106,11 +106,14 @@ export function collectQualifiedPublicSources(policy: PublicResearchPolicy, resp
 }
 
 export function validatePublicResearchLineage(policy: PublicResearchPolicy, collection: ResearchCollection, lineage: PublicResearchLineage, now = Date.now()): void {
-  validatePublicResearchPolicy(policy, now);
+  validateLineage(policy, collection, lineage, now, now);
+}
+function validateLineage(policy: PublicResearchPolicy, collection: ResearchCollection, lineage: PublicResearchLineage, sourceNow: number, policyNow: number): void {
+  validatePublicResearchPolicy(policy, policyNow);
   if (!record(lineage)) fail();
   exactKeys(lineage, "version,policyId,policyHash,collectionHash,searchRequestId,providerRequestId,sourceDomains");
   if (lineage.version !== policy.version || lineage.policyId !== policy.id || lineage.policyHash !== publicResearchHash(policy) || lineage.collectionHash !== publicResearchHash(collection) || !UUID.test(lineage.searchRequestId) || collection.providerMetadata.searchRequestId !== lineage.searchRequestId || collection.providerMetadata.providerRequestId !== lineage.providerRequestId || collection.providerMetadata.policyId !== policy.id || collection.providerMetadata.policyHash !== lineage.policyHash || publicResearchHash(lineage.sourceDomains) !== publicResearchHash(policy.allowedDomains)) fail();
-  validateResearchCollection(collection, { query: policy.query, allowedDomains: policy.allowedDomains }, now);
+  validateResearchCollection(collection, { query: policy.query, allowedDomains: policy.allowedDomains }, sourceNow);
 }
 
 /** R11 proves permitted research I/O. Product planning and hypotheses remain R12. */
@@ -124,7 +127,18 @@ export function publicResearchSelectorRequest(policy: PublicResearchPolicy, mode
 }
 
 export function qualifiedPublicEvidence(policy: PublicResearchPolicy, collection: ResearchCollection, lineage: PublicResearchLineage, selection: JsonObject, now = Date.now()): EvidencePack {
-  validatePublicResearchLineage(policy, collection, lineage, now);
-  const pack = assembleDiscoveryEvidenceV2(collection, { query: policy.query, allowedDomains: policy.allowedDomains }, selection, now);
+  return assembleQualifiedEvidence(policy, collection, lineage, selection, now, now);
+}
+function assembleQualifiedEvidence(policy: PublicResearchPolicy, collection: ResearchCollection, lineage: PublicResearchLineage, selection: JsonObject, sourceNow: number, policyNow: number): EvidencePack {
+  validateLineage(policy, collection, lineage, sourceNow, policyNow);
+  const pack = assembleDiscoveryEvidenceV2(collection, { query: policy.query, allowedDomains: policy.allowedDomains }, selection, sourceNow);
   return { ...pack, limitations: [...new Set([...pack.limitations, "no_sales_metrics", "not_profitability_proof"])], sourceLineage: structuredClone(lineage) };
+}
+
+/** Validate data returned by an already admitted selector. Expiry does not erase
+ * valid historical output. This is NOT an admission or a permission assertion:
+ * SQL complete must still verify both persisted markers/settlements and current
+ * bounded audit-key grace. Every new dispatch uses the fresh-policy validator. */
+export function assembleAdmittedPublicEvidence(policy: PublicResearchPolicy, collection: ResearchCollection, lineage: PublicResearchLineage, selection: JsonObject, now = Date.now()): EvidencePack {
+  return assembleQualifiedEvidence(policy, collection, lineage, selection, now, Date.parse(policy.validFrom));
 }

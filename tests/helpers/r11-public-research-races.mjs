@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {setTimeout as pause} from 'node:timers/promises';
-import {RESEARCH_KEY,RESEARCH_OWNER,RESEARCH_OTHER,authenticate,seedResearch,admission,revoke,counts,guard,settle,collectionPayload,recanonicalizeCollection,research} from './r11-public-research-fixture.mjs';
+import {RESEARCH_KEY,sha,value,RESEARCH_OWNER,RESEARCH_OTHER,authenticate,seedResearch,admission,revoke,counts,guard,settle,collectionPayload,recanonicalizeCollection,research} from './r11-public-research-fixture.mjs';
+import {completionPayload} from './r11-public-research-owner-proof.mjs';
 
 /** Requires actual independent PostgreSQL sessions and an observed blocking PID.
  * PGlite does not qualify as concurrency evidence for these tests. */
@@ -46,6 +47,27 @@ export async function researchPostgresRaces(t,{db,Client,pgUrl}){
   s.collectionId=(await research(db,s,'collect',payload)).collectionId;const before=await counts(db,s);
   const outcome=await race(s,c=>c.query("select operation_key from private.r05_operations where operation_key='research.model' for update"),()=>pause(Math.max(0,expires-Date.now()+120)),'select');
   assert.match(outcome.error?.message??'',/r11_research_collection_expired/);assert.deepEqual(await counts(db,s),before);
+ });
+ await t.test('observed workflow-row wait through key grace expiry rolls back completed result and workflow update',async()=>{
+  const s=await seedResearch(db),key=`inert-result-grace-${s.policy.id}`,expires=Date.now()+3000;
+  await db.query('insert into private.r05_server_keys(key_hash,expires_at) values($1,$2)',[sha(key),new Date(expires).toISOString()]);
+  const call=(client,op,payload)=>research(client,s,op,payload,key);
+  const searched=await call(db,'guard',{policyId:s.policy.id,phase:'search',collectionId:null,admission:admission(s,'search')}),searchReceipt=`inert-grace-search-${s.policy.id}`;
+  await settle(db,s,searched.requestId,searchReceipt);const collection=collectionPayload(s,searched.requestId,searchReceipt);
+  s.collectionId=(await call(db,'collect',collection)).collectionId;s.lineage=collection.lineage;
+  const selected=await call(db,'guard',{policyId:s.policy.id,phase:'select',collectionId:s.collectionId,admission:admission(s,'select')}),receipt=`inert-grace-selector-${s.policy.id}`;await settle(db,s,selected.requestId,receipt);
+  const before=await counts(db,s),statusBefore=await value(db,'select status result from public.workflow_runs where id=$1',[s.workflowRunId]),payload=completionPayload(s,collection.collection,selected.requestId,receipt);
+  const locker=await client(),runner=await client();let pending;
+  try{
+   await locker.query('begin');await locker.query('select id from public.workflow_runs where id=$1 for update',[s.workflowRunId]);
+   pending=call(runner,'complete',payload).then(result=>({result}),error=>({error}));
+   await observedLock(runner,locker);assert.ok(Date.now()<expires,'Completion must enter the real workflow row wait while authority is still live');
+   await pause(Math.max(0,expires-Date.now()+150));await locker.query('commit');const outcome=await pending;
+   assert.match(outcome.error?.message??'',/r11_research_authority_required/);
+   assert.equal(await value(db,'select count(*)::int result from private.r11_research_results where policy_id=$1',[s.policy.id]),0,'No success may survive a final lock wait past key grace');
+   assert.equal(await value(db,'select status result from public.workflow_runs where id=$1',[s.workflowRunId]),statusBefore);
+   assert.deepEqual(await counts(db,s),before,'Existing two marked/settled calls remain recorded without a new attempt');
+  }finally{await locker.query('rollback').catch(()=>{});if(pending)await pending;await Promise.all([locker.end(),runner.end()]);}
  });
  await t.test('observed owner-transfer-before-dispatch race cannot inherit prior owner research authority',async()=>{
   const s=await seedResearch(db),before=await counts(db,s);

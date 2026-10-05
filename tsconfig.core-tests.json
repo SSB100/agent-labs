@@ -62,6 +62,8 @@
     "src/browser/watch/**/*.ts"
   ],
   "exclude": [
+    "src/research/qualification-server.ts",
+    "src/research/qualification-server-dependencies.ts",
     "src/creative/data.ts",
     "src/listing/server.ts",
     "src/etsy-publication/server.ts",

@@ -15,7 +15,7 @@ const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const host=process.env.R11_SQL_TEST_HOST,pgUrl=process.env.R11_PUBLIC_RESEARCH_POSTGRES_URL;
 const migration='20261005035000_r11_public_research.sql';
 const functionSnapshot="select p.oid::regprocedure::text id,pg_get_functiondef(p.oid) body,p.proacl::text acl from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname in ('public','private') and p.prokind='f' order by 1";
-const tables=['r11_research_policies','r11_research_revocations','r11_research_collections','r11_research_bindings'];
+const tables=['r11_research_policies','r11_research_revocations','r11_research_collections','r11_research_bindings','r11_research_grants','r11_research_grant_revocations','r11_research_activations','r11_research_results'];
 const reject=/r11_|r05_|r04_|invalid input syntax|violates check constraint|duplicate key/;
 
 test('R11 public research SQL harness refuses remote, wrong-identity, shared, or options-bearing PostgreSQL targets',()=>{

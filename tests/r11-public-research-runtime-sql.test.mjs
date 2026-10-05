@@ -33,7 +33,8 @@ test('R11 actual TypeScript runner, adapter wire and SQL source/financial guard 
    }})};
   const scope={businessId:s.businessId,coreWorkflowRunId:s.workflowRunId,runtimeCapability:RESEARCH_CAPABILITY};
   const result=await rt.runPublicResearchQualification(scope,s.policy.id,runtime);
-  assert.equal(result.receipts.length,2);assert.equal(sent.length,2);assert.deepEqual(rpcCalls,['load','guard','collect','guard']);
+  assert.equal(result.receipts.length,2);assert.equal(sent.length,2);assert.deepEqual(rpcCalls,['load','guard','collect','guard','complete']);
+  assert.equal(await value(db,'select count(*)::int result from private.r11_research_results where policy_id=$1',[s.policy.id]),1);
   assert.equal(await value(db,'select count(*)::int result from private.r05_markers where business_id=$1',[s.businessId]),2);
   assert.equal(await value(db,'select count(*)::int result from private.r05_settlements where business_id=$1',[s.businessId]),2);
   assert.equal(await value(db,'select coalesce(sum(held),0)::text result from private.r05_exposure($1)',[s.businessId]),'40');
