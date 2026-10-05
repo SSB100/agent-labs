@@ -22,6 +22,10 @@
     "src/browser/replay.ts",
     "src/browser/types.ts",
     "src/core/**/*.ts",
+    "src/connections/contracts.ts",
+    "src/connections/etsy-read.ts",
+    "src/connections/etsy-refresh.ts",
+    "src/connections/printful-read.ts",
     "src/evaluations/**/*.ts",
     "src/lib/core-ui/workflows.ts",
     "src/lib/existing-effect-read-runtime.ts",
@@ -58,6 +62,8 @@
     "src/browser/watch/**/*.ts"
   ],
   "exclude": [
+    "src/research/qualification-server.ts",
+    "src/research/qualification-server-dependencies.ts",
     "src/creative/data.ts",
     "src/listing/server.ts",
     "src/etsy-publication/server.ts",

@@ -1,7 +1,7 @@
 # Agent Labs V2 remaining implementation plan
 
 Repository: `SSB100/agent-labs`
-Application continuation baseline: `a8a6122b5481e09e60d1c70ee8238c780b33c372` ([CI440](https://github.com/SSB100/agent-labs/actions/runs/37237093278); scoped R10 qualification, not a merged-main claim)
+Application continuation baseline: `65aec109241205f7d0d3d59cea08ee8d5e5b1eae` ([CI 37367283294](https://github.com/SSB100/agent-labs/actions/runs/37367283294), scoped R11 external-access/source qualification; final closeout and stack integration are separate release gates)
 Document status: active remaining-work plan
 Document scope: one dependency-ordered remaining-work queue, with earlier acceptance/dependency definitions retained for reference
 
@@ -24,9 +24,9 @@ This document specifies the intended product and future engineering work. It gra
 
 ## Current continuation
 
-The next unstarted stage is **R11**; the remaining stage order is **R11–R19**. Retain accepted R03–R09 implementation rather than restarting from old planning snapshots. R10's controlled-public capability/live exit is qualified within the [explicit source and acceptance limits](R10_PRIVATE_BROWSER_VIEWER_CONTRACT.md#scoped-qualification-status-2026-10-04). The definitions for R03–R10 below remain dependency/acceptance references, not a second active queue or a claim that every broader visual/product obligation is closed. The disclosed compact-640px/200%-capture limits and optional legacy SQL gaps remain visible under the universal gates.
+R11’s scoped external-prerequisite exit is qualified by [own-store and refresh evidence](R11_EXTERNAL_ELIGIBILITY_CONTRACT.md) and the [live public-research receipt](R11_RESEARCH_QUALIFICATION_RECEIPT.md). The next stage is **R12 planning before implementation**, as the owner requested; the remaining implementation order is **R12–R19**. Final R11 closeout/stack integration still follows the universal release gates. R12 implementation has not started. Retain accepted R03–R11 implementation rather than restarting from old snapshots. R10's controlled-public qualification and its [source/acceptance limits](R10_PRIVATE_BROWSER_VIEWER_CONTRACT.md#scoped-qualification-status-2026-10-04) remain unchanged. Earlier definitions are dependency references, not a second active queue or universal visual/commercial readiness. Disclosed compact-640px/200%-capture limits and optional legacy SQL gaps remain visible.
 
-Dependencies are acceptance gates, not permission to execute. A blocked external qualification must not cause unrelated safe UI or contract review to stop; retain its position and dependency explicitly. Backend and activation work must not be folded into an otherwise UI-only release. This source-accuracy update starts no R11 work and grants no new access or spending authority.
+Dependencies are acceptance gates, not permission to execute. A blocked external qualification must not cause unrelated safe UI or contract review to stop; retain its position and dependency explicitly. Backend and activation work must not be folded into an otherwise UI-only release. R11 qualification supplies only its recorded evidence; it grants no new access or spending authority to a later stage.
 
 ## Retained dependency definitions (R03–R10)
 
@@ -147,7 +147,7 @@ Dependencies are acceptance gates, not permission to execute. A blocked external
 
 **Scoped status:** controlled-public capability/live exit met; [qualification and remaining limits](R10_PRIVATE_BROWSER_VIEWER_CONTRACT.md#scoped-qualification-status-2026-10-04). This does not qualify arbitrary or secure browser sources.
 
-## Remaining implementation queue (R11–R19)
+## Qualified R11 handoff and remaining queue (R12–R19)
 
 ### R11 Qualify external access and platform purposes
 
@@ -155,15 +155,20 @@ Dependencies are acceptance gates, not permission to execute. A blocked external
 
 - Resolve the Etsy application-purpose/automation/API-content hold and implement the R05 server eligibility gate with written scope covering the intended operations and data uses. Review current applicable terms and permitted research/AI uses. Keep [Etsy activation gates](ETSY_ACTIVATION_GATES.md) closed until that evidence and enforcement are reviewed. Key issuance, personal access and seller OAuth are separate facts.
 - Verify exact account/shop/store identity, credential custody, requested capabilities, expiry, revision and revocation through secure owner paths. Present genuinely new persistent access and platform/legal/KYC steps to the owner where required. Do not use saved connection state as permission to publish or spend.
-- Preserve Printful's current `catalog.read` boundary and exact immutable store binding. Review any product-write or fulfilment capability separately. Qualify the Etsy-linked Printful store topology; a Manual/API store does not establish the selling association.
+- Preserve Printful's current `catalog.read` boundary and exact immutable store binding. Keep stable app credentials/server tokens in server-only environment configuration where appropriate; keep renewable shop OAuth tokens in context-bound encrypted custody. Name each provider/store credential and append revisions on rotation. The current pair does not claim multiple shops per provider. Review any product-write or fulfilment capability separately. Qualify the Etsy-linked Printful store topology; a Manual/API store does not establish the selling association.
+- Before recurring connection use, separately qualify encrypted-token resolution/refresh and any renewal of the local access cutoff. Preserve exact owner/Business/store/revision, current scope/purpose, expiry and revocation checks across refresh rotation, concurrent requests, stale deployment and interruption; never infer renewal permission from saved refresh tokens. Surface an approaching cutoff and secure reauthorization/reconnection need to the owner. R11 custody alone does not qualify refresh execution or silently extend the approved 31-day local limit.
 - Close account-registration browser entitlement/budget/retention/release requirements if that path is needed. Do not promise a free or already configured secure browser, reusable auth context or verified connection from an expired request or owner-reported token entry.
-- Resolve the approved external-data collection scope before live research; simulation and UI tests remain available while a provider is blocked.
+- Resolve the approved external-data collection scope before live research. The [qualified public factual-research path](R11_PUBLIC_RESEARCH_CONTRACT.md) retains useful task-selected Exa/OpenRouter snippets, provider-side restricted-source exclusion, explicit Exa retention disclosure and immutable source provenance at R05's actual marker. Its exact owner path, delayed-receipt persistence/Continue behavior, finite budgets, Stop and known-cost settlement were qualified live. Definition migrations seed no authority. Four earlier paid failures and one unused stopped permission remain intact. The successful one-search/one-selector proof used four receipt checks and cost $0.010033; it was then stopped without altering its completed result. Independent review establishes Medill quotation fidelity and source provenance with missing survey-context/coverage limits, not a full answer to the 2025–2026 question or demand/product readiness. See the [exact acceptance and immutable history](R11_RESEARCH_QUALIFICATION_RECEIPT.md).
 
 **Exit:** record exact permitted operations/data/purposes, account bindings, revocation and live read-only qualification evidence without publishing secrets. Each later mutation still requires its envelope, capability and technical prerequisites.
+
+**Scoped status:** this external-access/read-only exit is met within the recorded own-store, refresh and public-source boundaries. Account-registration browser work was not needed for the existing accounts. General source-bearing routes, marketplace ingestion, research conclusions and later commerce remain gated. Final closeout/merge evidence must accompany integration.
 
 ### R12 Qualify evidence-led research and production-purpose creative work
 
 **Class:** bounded runtime completion and external/model qualification. **Dependency:** R05/R07 and R11 eligibility for any affected provider/source. Reuse valid existing curated Knowledge pins/freshness; R09 is required only when applying newly learned modules, not to rebuild already-qualified pack knowledge.
+
+**Execution approach, planning only:** map and share the approach before implementation. Audit reusable evidence and the actual Quest; connect only the missing R11 provenance → R05 text/image admission → R07 lifecycle boundary; exercise the real runtime/SQL/adapter path with zero paid transport, including delayed receipts and restart/resume; then run the smallest useful paid research round with independent TEST/REJECT/NEEDS_MORE_EVIDENCE review. Generate one production-purpose creative only after TEST. Use focused iteration and one frozen full gate after the functional slice is complete. Do not silently reuse incomplete R11 survey context as general consumer or geographic demand evidence.
 
 - Finish a real bounded geographic discovery cycle through independently reviewed strategy, with attributable source evidence, an explicit TEST/REJECT/NEEDS_MORE_EVIDENCE outcome and a predeclared measurement plan. Preserve failed rounds and existing shared funding; do not start a fresh allowance by relabeling the Quest.
 - Reuse preserved complete evidence through allowed continuation contracts where suitable. Freshness, latest-round selection, immutable candidate/geography scope, exact sources and known/unknown cost state must be checked before every new call.
@@ -255,6 +260,8 @@ Dependencies are acceptance gates, not permission to execute. A blocked external
 1. Expand Social Growth into an independent reusable workflow pack and prove a Business can use it without Etsy-specific state or authority.
 2. Implement Shopify Dropshipping with its own supplier, policy, inventory/order/return, margin and fulfilment contracts; do not transplant Etsy's rules or assume account/financial permission.
 3. Implement Website Builder using scoped GitHub, deployment and database capabilities, coding specialists, browser QA and deployment receipts. Prove a different profession can reuse Core Business/Quest/envelope/workflow/Knowledge contracts without rewriting Core.
+
+- Future multi-store support must separately qualify multiple provider accounts per Business, exact immutable store selection, named credential-source revisions, per-store scopes/purposes/budgets, revocation, duplicate prevention and same-owner/cross-owner isolation. Multiple provider connections and key rotation are distinct from multiple stores; an account-level token does not grant execution against every store.
 
 **Exit:** each pack has a separately bounded plan, actual relevant qualification, Business isolation, truthful UI and independent deployment/access authority. Do not begin all packs in parallel merely because pack scaffolding exists.
 

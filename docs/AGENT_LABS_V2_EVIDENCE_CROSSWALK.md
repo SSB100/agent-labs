@@ -2,7 +2,7 @@
 
 ## Current continuation
 
-Application source `a8a6122b5481e09e60d1c70ee8238c780b33c372` passed [CI440](https://github.com/SSB100/agent-labs/actions/runs/37237093278). R10's capability/live exit is qualified only for the fixed controlled-public source; see the [current contract status and retained limits](R10_PRIVATE_BROWSER_VIEWER_CONTRACT.md#scoped-qualification-status-2026-10-04). Broader browser sources, whole-app/visual acceptance and later capability gates are not implied. The next unstarted stage and sole remaining stage order are R11–R19 in the [canonical plan](AGENT_LABS_V2_IMPLEMENTATION_PLAN.md); R11 has not started.
+Application source `a8a6122b5481e09e60d1c70ee8238c780b33c372` passed [CI440](https://github.com/SSB100/agent-labs/actions/runs/37237093278). R10's capability/live exit is qualified only for the fixed controlled-public source; see the [current contract status and retained limits](R10_PRIVATE_BROWSER_VIEWER_CONTRACT.md#scoped-qualification-status-2026-10-04). Broader browser sources, whole-app/visual acceptance and later capability gates are not implied. The active stage and sole remaining stage order are R11–R19 in the [canonical plan](AGENT_LABS_V2_IMPLEMENTATION_PLAN.md). R11 has an [qualified own-shop setup/refresh proofs and remaining external-source qualification](R11_EXTERNAL_ELIGIBILITY_CONTRACT.md); no later stage has started.
 
 The earlier R02/R03 snapshot and original-stage mappings below are dated reuse evidence, not instructions to rebuild accepted R03–R10 work or to infer fresh operational authority. Current per-capability contracts and the canonical continuation govern later work.
 

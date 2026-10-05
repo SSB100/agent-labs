@@ -124,7 +124,7 @@ test('R05 real PostgreSQL admission, legacy cap, pause and settlement races',{sk
   assert.equal((await observer.query('select count(*)::int n from private.r05_receipt_claims where provider_request_id=$1',['inert-legacy-global-race'])).rows[0].n,1);
 
   business=await seed();one=await input(observer,business,'eligibility-race');
-  const eligibility=await race(()=>left.query("insert into private.r05_operation_revocations(operation_key) values('research.model')"),()=>server(right,business,'guard',one));
+  const eligibility=await race(()=>left.query("insert into private.r05_operation_revocations(operation_key) values('browser.planner')"),()=>server(right,business,'guard',one));
   assert.ifError(eligibility.b.error);assert.equal(eligibility.b.result.reason,'operation_evidence_unavailable');
   t.diagnostic('Twelve actual pg_stat_activity/pg_blocking_pids races passed: duplicate marker, split caps, both pause/marker orders, settlement/admission, legacy cap, revocation, account revision, ownership transfer, two cross-Business receipt claims, and registry eligibility revocation. No provider or remote database used.');
  }finally{await Promise.allSettled([left.end(),right.end(),observer.end()]);}

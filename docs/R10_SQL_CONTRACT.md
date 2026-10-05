@@ -2,7 +2,7 @@
 
 ## Shipping and activation boundary
 
-`20261004024348_r10_private_browser_viewer.sql` adds an inert experimental pack, workflow definition and read-only capture-worker definition. It seeds no server key, enrollment, grant, account, browser session or execution authority. Existing R04–R09 function definitions, grants, private authority rows and legacy provider secrets are unchanged. New triggers protect only the dedicated R10 identities/projections and do not grant legacy Stage 8/9 viewing eligibility.
+`20261004044247_r10_private_browser_viewer.sql` adds an inert experimental pack, workflow definition and read-only capture-worker definition. It seeds no server key, enrollment, grant, account, browser session or execution authority. Existing R04–R09 function definitions, grants, private authority rows and legacy provider secrets are unchanged. New triggers protect only the dedicated R10 identities/projections and do not grant legacy Stage 8/9 viewing eligibility.
 
 R10 is a separately approved, one-shot qualification of a real browser rendering one fixed public document. It is not a general worker-browser viewer, commerce capability, R05 allowance, authorization transfer, or permission to provision a key or spend money. Shipping inactive code does not close the R10 exit requirement. Live activation still requires independent review of current provider pricing and timeout/billing enforceability, exact financial approval and an independently authorized harmless session. Provider timeout is a runtime bound, not a claimed provider money cap.
 
