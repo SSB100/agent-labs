@@ -39,7 +39,7 @@ function harness(){
  }
  const deps={'server-only':{},'node:crypto':crypto,'../lib/core-ui/owner-business':{verifyOwnerBusiness:async(c,b)=>c.userId===ownerId&&b===businessId},'../models/registry':registry,'./sources':sources,'./qualification':Q,'./qualification-quote':QR,'./qualification-profile':profile,'./qualification-owner-contract':require('../.core-tests/research/qualification-owner-contract.js'),'./qualification-outcome':require('../.core-tests/research/qualification-outcome.js'),
   './generation-route':generationRoute,
-  './qualification-runtime':{...R,runPublicResearchQualification:async(scope,selected,runtime)=>{effects.push({kind:'run',scope:structuredClone(scope),selected});await runtime.verifyQuote(policy);runHook();complete();}},
+  './qualification-runtime':{...R,runPublicResearchQualification:async(scope,selected,runtime)=>{effects.push({kind:'run',scope:structuredClone(scope),selected});await runtime.verifyQuote(policy);if(runHook()!==false)complete();}},
   './qualification-server-dependencies':{researchQualificationDependencies:()=>({fetchGenerationRoute:async(expectation)=>{effects.push({kind:'generation-read',expectation:structuredClone(expectation)});generationHook(expectation);return generationMutate(generationRoute.qualifyGenerationRouteProof({data:{id:expectation.generationId,provider_name:'Azure',model:'openai/gpt-5.6-luna-20260709',provider_responses:[]}},expectation));},fetchQuote:async(options)=>{effects.push({kind:'quote',options:structuredClone(options)});quoteHook();return freshQuote(options);},makeRuntime:(scope,verifyQuote)=>({scope,verifyQuote})})}};
  const source=ts.transpileModule(readFileSync('src/research/qualification-server.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,m={exports:{}};
  runInNewContext(`(function(require,module,exports){${source}\n})`,{process:{env},Buffer,Date,URL,BigInt,structuredClone})(n=>{assert.ok(n in deps,n);return deps[n];},m,m.exports);
@@ -177,4 +177,58 @@ test('R11 read-only failure diagnostics still recheck current owner and exact re
  const changed=harness();changed.complete();changed.onGeneration(()=>{changed.context.userId=id(99);throw error;});
  await assert.rejects(changed.verifySavedResearchInferenceRoute(changed.context,changed.businessId,changed.policyId,id(10)),value=>{assert.notEqual(value,error);assert.doesNotMatch(value.message,/api_failure|404/);return true;});
  assert.equal(changed.effects.filter(x=>x.kind==='generation-read').length,1);
+});
+
+function stagedReceipt(h,{phase='search',status='awaiting_receipt',due=true,attempts=1}={}){
+ const requestId=id(phase==='search'?10:11);
+ h.savedPolicy.status=phase==='search'?'search_recording_pending':'selection_recording_pending';
+ h.savedPolicy.phases=[{phase,requestId,marked:true,settled:true,actualMicrounits:'7000',providerRequestId:`gen-inert-${phase}-receipt`}];
+ const check={phase,requestId,candidateHash:'a'.repeat(64),status,attempts,nextCheckAt:new Date(Date.now()+(due?-1000:120000)).toISOString(),receiptExpiresAt:new Date(Date.parse(h.policy.validUntil)+1800000).toISOString(),diagnostic:{code:'api_failure',httpStatus:404},proofHash:null};
+ if(status==='verified'){check.diagnostic=null;check.proofHash='b'.repeat(64);check.nextCheckAt=null;}
+ h.savedPolicy.receiptChecks=[check];return check;
+}
+test('R11 owner acknowledges only durably staged pending output and explicit Continue cannot repeat Run',async()=>{
+ const h=harness();h.onRun(()=>{stagedReceipt(h);return false;});
+ assert.equal((await h.runResearchProof(h.context,h.businessId,h.policyId)).status,'receipt_pending');
+ const count=h.effects.length;await assert.rejects(h.runResearchProof(h.context,h.businessId,h.policyId));assert.equal(h.effects.length,count);
+ assert.equal((await h.continueResearchProof(h.context,h.businessId,h.policyId)).status,'receipt_pending');
+ const view=await h.readResearchQualification(h.context,h.businessId);assert.equal(view.policies[0].receiptChecks[0].attempts,1);assert.equal(view.policies[0].result,null);
+});
+test('R11 Continue requires exact saved phase, due cooldown, current owner and usable receipt grace',async()=>{
+ for(const mode of ['missing','cooldown','terminal','exhausted','expired','stopped','revoked','unknown','foreign','missing-key']){
+  const h=harness(),check=stagedReceipt(h);
+  if(mode==='missing')delete h.savedPolicy.receiptChecks;
+  if(mode==='cooldown')check.nextCheckAt=new Date(Date.now()+120000).toISOString();
+  if(['terminal','exhausted','expired','stopped'].includes(mode))check.status=mode;
+  if(mode==='exhausted')check.attempts=3;
+  if(mode==='revoked')h.savedPolicy.revoked=true;
+  if(mode==='unknown')h.row.exposure.hasUnknown=true;
+  if(mode==='foreign')h.context.userId=id(80);
+  if(mode==='missing-key')delete h.env.R05_ADMISSION_SERVER_KEY;
+  await assert.rejects(h.continueResearchProof(h.context,h.businessId,h.policyId),mode);assert.deepEqual(h.effects,[],mode);
+ }
+});
+test('R11 owner receipt projection rejects private payloads and cross-phase identity without disclosing them',async()=>{
+ for(const mutate of [c=>c.candidate={content:'PRIVATE STAGED OUTPUT'},c=>c.requestId=id(99),c=>c.attempts=4,c=>c.nextCheckAt='bad',c=>c.receiptExpiresAt=new Date(Date.parse(c.receiptExpiresAt)+1).toISOString(),c=>c.diagnostic={code:'raw-provider-text',httpStatus:404},c=>c.proofHash='bad']){
+  const h=harness(),check=stagedReceipt(h);mutate(check);const view=await h.readResearchQualification(h.context,h.businessId);assert.equal(view.unavailable,true);assert.equal(JSON.stringify(view).includes('PRIVATE STAGED'),false);assert.deepEqual(h.effects,[]);
+ }
+});
+test('R11 verified staged response can finish through explicit Continue and completed replay is inert',async()=>{
+ const h=harness();stagedReceipt(h,{status:'verified'});
+ assert.equal((await h.continueResearchProof(h.context,h.businessId,h.policyId)).status,'completed');
+ const count=h.effects.length;delete h.env.R05_ADMISSION_SERVER_KEY;assert.equal((await h.continueResearchProof(h.context,h.businessId,h.policyId)).status,'completed');assert.equal(h.effects.length,count);
+});
+
+test('independent historical diagnostic reads cannot bypass durable claim budgets or an active staging window',async()=>{
+ for(const status of ['awaiting_receipt','checking_receipt','verified','terminal','exhausted','expired','stopped']){
+  const h=harness(),check=stagedReceipt(h,{status,attempts:status==='exhausted'?3:1});h.savedPolicy.revoked=true;h.savedPolicy.expired=true;
+  for(let i=0;i<7;i++)await assert.rejects(h.verifySavedResearchInferenceRoute(h.context,h.businessId,h.policyId,check.requestId));
+  assert.deepEqual(h.effects,[],status);assert.equal(check.attempts,status==='exhausted'?3:1);
+ }
+ for(const expired of [false,true]){
+  const h=harness(),phase=savedGeneration(h);h.savedPolicy.revoked=false;h.savedPolicy.expired=expired;h.savedPolicy.status=expired?'expired':'search_recording_pending';
+  await assert.rejects(h.verifySavedResearchInferenceRoute(h.context,h.businessId,h.policyId,phase.requestId));assert.deepEqual(h.effects,[]);
+ }
+ const h=harness(),check=stagedReceipt(h);h.savedPolicy.revoked=true;h.savedPolicy.phases.push({phase:'select',requestId:id(11),marked:true,settled:true,actualMicrounits:'1000',providerRequestId:'gen-select-not-staged-yet'});
+ await assert.rejects(h.verifySavedResearchInferenceRoute(h.context,h.businessId,h.policyId,id(11)));assert.deepEqual(h.effects,[]);assert.equal(check.attempts,1);
 });

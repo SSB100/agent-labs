@@ -8,8 +8,11 @@ import { assembleAdmittedPublicEvidence, canonicalPublicResearchJson, collectQua
 import type { EvidencePack, ResearchCollection } from "./types";
 import { fetchPublicResearchQuote, validatePublicResearchQuote } from "./qualification-quote";
 import { readResearchRouteFailureDetails, type ResearchFailureReason, type ResearchObservation } from "./qualification-owner-contract";
-import { fetchGenerationRouteProof, GenerationRouteProofError, validateGenerationRouteProof, type GenerationRouteExpectation, type GenerationRouteProof } from "./generation-route";
+import { fetchGenerationRouteProof, GenerationRouteProofError, validateGenerationRouteProof, type GenerationRouteExpectation, type GenerationRouteProof, fetchGenerationRouteProofOnce, isTransientGenerationRouteFailure } from "./generation-route";
 import { observePublicResearchResponse, PublicResearchQualificationError, PublicResearchQualificationUnacquiredError, validateResearchObservation, validateResearchResponseModelIds } from "./qualification-outcome";
+
+import { normalizeReceiptSearchOutput, pendingReceiptResult, receiptCandidateResponse, receiptExpectation, RECEIPT_RESPONSE_MODELS, validateReceiptCandidate, validateReceiptCheck, validateSavedReceiptCandidates,
+  type PublicResearchPendingResult, type ReceiptCandidate, type ReceiptCheck, type SavedReceiptCandidate } from "./qualification-pending";
 
 type Phase = "search" | "select";
 export type ResearchRuntimeScope = { businessId: string; coreWorkflowRunId: string; runtimeCapability: string;
@@ -19,8 +22,8 @@ type Scope = ResearchRuntimeScope;
 type Wire = { requestHash: string; wireHash: string; wireBytes: number; maxTokens: number };
 type SavedCollection = { id: string; collection: ResearchCollection; collectionHash: string; lineage: PublicResearchLineage; lineageHash: string; selector: Wire };
 type Loaded = { policy: PublicResearchPolicy; policyHash: string; search: Wire; collection: SavedCollection | null;
-  attemptVersion: 1 | 2; operationKeys: { search: string; select: string } };
-type Rpc = (operation: "load" | "guard" | "collect" | "complete" | "fail", payload: JsonObject) => Promise<unknown>;
+  attemptVersion: 1 | 2; operationKeys: { search: string; select: string }; receiptCandidates?: SavedReceiptCandidate[] };
+type Rpc = (operation: "load" | "guard" | "collect" | "complete" | "fail" | "stage_receipt" | "claim_receipt" | "record_receipt", payload: JsonObject) => Promise<unknown>;
 type Settle = (requestId: string, receipt: JsonObject) => Promise<void>;
 type Provider = Pick<OpenRouterAdapter, "invokeWebSearch" | "invokeStructured">;
 export type PublicResearchRuntime = {
@@ -29,6 +32,10 @@ export type PublicResearchRuntime = {
   verifyQuote: (policy: PublicResearchPolicy) => Promise<{ providerName: string; acceptedResponseModelIds?: readonly string[]; quoteValidUntil?: string }>;
   /** Bounded non-generating lookups of this positively admitted generation. */
   verifyGenerationRoute: (expected: GenerationRouteExpectation) => Promise<GenerationRouteProof>;
+  /** Exactly one non-generating GET, after a committed durable claim. */
+  verifyGenerationRouteOnce?: (expected: GenerationRouteExpectation) => Promise<GenerationRouteProof>;
+  /** Production cannot silently downgrade to the historical injected path. */
+  requireDurableReceipts?: boolean;
   now?: () => number; model?: ModelDefinition;
 };
 const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
@@ -72,7 +79,11 @@ function safeReceipt(response: ModelProviderResponse, observation: ResearchObser
 
 /** No fallback or paid retry exists. A separately committed fail RPC makes the
  * exact bounded gate visible without rolling back its accounting or outcome. */
-export async function runPublicResearchQualification(scope: Scope, policyId: string, runtime: PublicResearchRuntime): Promise<{ evidencePack: EvidencePack; evidencePackHash: string; resultId: string; policyId: string; collectionId: string; receipts: JsonObject[] }> {
+export type PublicResearchQualificationResult = { status: "completed"; evidencePack: EvidencePack; evidencePackHash: string; resultId: string; policyId: string; collectionId: string; receipts: JsonObject[] } | PublicResearchPendingResult;
+class ReceiptPending extends Error {
+  constructor(readonly result: PublicResearchPendingResult) { super("public_research_receipt_pending"); }
+}
+export async function runPublicResearchQualification(scope: Scope, policyId: string, runtime: PublicResearchRuntime): Promise<PublicResearchQualificationResult> {
   const ownedScope = structuredClone(scope), now = runtime.now ?? Date.now;
   const failure: { reason: ResearchFailureReason; phase: "none" | Phase; requestId: string | null; observation: ResearchObservation | null } = {
     reason: "internal_failure", phase: "none", requestId: null, observation: null,
@@ -85,13 +96,72 @@ export async function runPublicResearchQualification(scope: Scope, policyId: str
     const loaded = structuredClone(loadedValue) as unknown as Loaded, policy = loaded.policy;
     if (policy.id !== policyId || policy.businessId !== ownedScope.businessId || policy.workflowRunId !== ownedScope.coreWorkflowRunId || publicResearchHash(policy) !== loaded.policyHash) return denied();
     journalEligible = true;
-    validatePublicResearchPolicy(policy, now());
+    const durable = Object.hasOwn(loaded, "receiptCandidates");
+    if ((runtime.requireDurableReceipts && !durable) || (durable && typeof runtime.verifyGenerationRouteOnce !== "function")) return denied();
+    const candidates = durable ? validateSavedReceiptCandidates(loaded.receiptCandidates, policy, loaded.collection, now()) : [];
+    // A saved paid response may finish within the original receipt grace. This
+    // historical policy check grants no new dispatch; guard remains current.
+    validatePublicResearchPolicy(policy, candidates.length ? Date.parse(policy.validFrom) : now());
     if (![1, 2].includes(loaded.attemptVersion) || !record(loaded.operationKeys) || Object.keys(loaded.operationKeys).sort().join(",") !== "search,select" ||
         loaded.operationKeys.search !== (loaded.attemptVersion === 2 ? `research.search.r11v2.${policy.id}` : "research.search") ||
         loaded.operationKeys.select !== (loaded.attemptVersion === 2 ? `research.model.r11v2.${policy.id}` : "research.model")) return denied();
     const model = structuredClone(runtime.model ?? resolveModelRoute("standard.default").primary);
     const receipts: JsonObject[] = [];
-    async function call(phase: Phase, request: WebSearchModelRequest | StructuredModelRequest, expected: Wire, collectionId: string | null): Promise<{ response: ModelProviderResponse; requestId: string; acceptedResponseModelIds: readonly string[]; routeProof: GenerationRouteProof }> {
+    let saved = loaded.collection;
+    type QualifiedCall = { response: ModelProviderResponse; requestId: string; acceptedResponseModelIds: readonly string[]; routeProof: GenerationRouteProof; receivedAt: number; receiptCheck?: ReceiptCheck };
+    const suspend = (check: ReceiptCheck): never => { throw new ReceiptPending(pendingReceiptResult(policy, check, now())); };
+    async function resumeReceipt(entry: SavedReceiptCandidate): Promise<QualifiedCall> {
+      // Neither a saved paid marker nor another caller's GET claim transfers
+      // failure-write ownership. Only collect/complete may promote this output.
+      failure.phase = entry.phase; failure.requestId = null; failure.observation = null;
+      let check: ReceiptCheck = entry, proof = entry.proof;
+      const candidate = validateReceiptCandidate(entry.candidate, policy, saved, now());
+      const expected = receiptExpectation(candidate);
+      if (check.status !== "verified") {
+        if (["terminal", "exhausted", "expired", "stopped"].includes(check.status)) return suspend(check);
+        const claimValue = await runtime.rpc("claim_receipt", { policyId, phase: entry.phase, candidateHash: entry.candidateHash });
+        check = validateReceiptCheck(claimValue, entry.phase, entry.requestId, entry.candidateHash, policy);
+        if (!record(claimValue) || typeof claimValue.claimed !== "boolean") return denied();
+        if (!claimValue.claimed) {
+          if (claimValue.claimId !== null || !["cooldown", "verified", "terminal", "exhausted", "expired", "stopped"].includes(String(claimValue.reason))) return denied();
+          if (check.status !== "verified") return suspend(check);
+          // Another caller may have committed proof after our initial load.
+          const refreshed = await runtime.rpc("load", { policyId });
+          if (!record(refreshed) || refreshed.policyHash !== loaded.policyHash) return denied();
+          const latest = validateSavedReceiptCandidates(refreshed.receiptCandidates, policy, saved, now()).find(value => value.phase === entry.phase && value.candidateHash === entry.candidateHash);
+          if (!latest || latest.status !== "verified" || !latest.proof) return denied();
+          check = latest; proof = latest.proof;
+        } else {
+          if (claimValue.reason !== "claimed" || typeof claimValue.claimId !== "string" || !UUID.test(claimValue.claimId) || check.status !== "checking_receipt" || check.attempts < 1 ||
+              check.attempts <= entry.attempts || !check.nextCheckAt || Date.parse(check.nextCheckAt) < now() || !runtime.verifyGenerationRouteOnce) return denied();
+          let diagnostic: { code: GenerationRouteProofError["code"]; httpStatus: number | null } | null = null, retryAfterAt: string | null = null;
+          try { proof = validateGenerationRouteProof(await runtime.verifyGenerationRouteOnce(structuredClone(expected)), expected); }
+          catch (error) {
+            // Unknown implementation exceptions are terminal; a trusted reader
+            // must explicitly classify transport availability to earn a retry.
+            const safeError = error instanceof GenerationRouteProofError ? error : new GenerationRouteProofError("response_invalid");
+            diagnostic = { code: safeError.code, httpStatus: safeError.httpStatus };
+            retryAfterAt = isTransientGenerationRouteFailure(safeError) ? safeError.retryAfterAt : null;
+          }
+          const recorded = await runtime.rpc("record_receipt", { policyId, phase: entry.phase, candidateHash: entry.candidateHash, claimId: claimValue.claimId,
+            proof: proof as unknown as JsonObject | null, diagnostic, retryAfterAt });
+          check = validateReceiptCheck(recorded, entry.phase, entry.requestId, entry.candidateHash, policy);
+          if (!record(recorded) || recorded.recorded !== true || typeof recorded.replayed !== "boolean") return denied();
+          if (check.status !== "verified") return suspend(check);
+        }
+      }
+      if (!proof || proof.proofHash !== check.proofHash) return denied();
+      proof = validateGenerationRouteProof(proof, expected);
+      const receipt: JsonObject = { provider: candidate.phase === "search" ? "openrouter.exa" : "openrouter", providerModelId: candidate.providerModelId,
+        providerRequestId: candidate.providerRequestId, responseProviderIdentity: candidate.observation.providerIdentity,
+        observedResponseProvider: candidate.observation.observedProvider, responseProviderHash: candidate.observation.responseProviderHash ?? null,
+        reportedMicrousd: candidate.reportedMicrousd, generationRouteProof: proof as unknown as JsonObject };
+      await runtime.settle(entry.requestId, receipt);
+      receipts.push(receipt);
+      return { response: receiptCandidateResponse(candidate), requestId: entry.requestId, acceptedResponseModelIds: [...RECEIPT_RESPONSE_MODELS], routeProof: proof,
+        receivedAt: Date.parse(candidate.receivedAt), receiptCheck: check };
+    }
+    async function call(phase: Phase, request: WebSearchModelRequest | StructuredModelRequest, expected: Wire, collectionId: string | null): Promise<QualifiedCall> {
       failure.reason = "internal_failure"; failure.phase = phase; failure.requestId = null; failure.observation = null;
       validatePublicResearchPolicy(policy, now());
       const freshQuote = await runtime.verifyQuote(structuredClone(policy));
@@ -109,6 +179,7 @@ export async function runPublicResearchQualification(scope: Scope, policyId: str
       // freshly hash-verified catalog alias/canonical pair.
       if (loaded.attemptVersion === 2 && freshQuote.acceptedResponseModelIds?.length !== 2) return denied();
       const acceptedResponseModelIds = validateResearchResponseModelIds(policy.modelId, freshQuote.acceptedResponseModelIds ?? [policy.modelId]);
+      if (durable && publicResearchHash(acceptedResponseModelIds) !== publicResearchHash(RECEIPT_RESPONSE_MODELS)) return denied();
       validatePublicResearchPolicy(policy, now());
       const inspected = await inspectPublicResearchWire(request, phase);
       if (!wireEquals(inspected, expected)) return denied();
@@ -203,7 +274,7 @@ export async function runPublicResearchQualification(scope: Scope, policyId: str
           else {
             const outputFailureReason = error.details.validationGate === "source_contract" ? "source_contract_invalid"
               : error.details.validationGate === "structured_output" ? "selector_output_invalid" : "provider_response_invalid";
-            if (providerRequestId(received.providerRequestId) && costMicrousd(usage.reportedCostUsd) !== null &&
+            if (!durable && providerRequestId(received.providerRequestId) && costMicrousd(usage.reportedCostUsd) !== null &&
                 ["request_alias", "canonical"].includes(failure.observation.modelIdentity)) {
               await verifyRouteAndEnrich(admittedRequestId, { providerRequestId: received.providerRequestId, reportedMicrousd: costMicrousd(usage.reportedCostUsd) });
             }
@@ -214,6 +285,7 @@ export async function runPublicResearchQualification(scope: Scope, policyId: str
       }
       if (!admittedRequestId) return denied();
       failure.reason = "provider_response_invalid";
+      const receivedAt = now();
       response = structuredClone(response);
       const metadata = record(response.metadata) ? response.metadata : {}, output = record(response.output) ? response.output : {};
       // A custom trusted adapter can omit the callback; use only its bounded
@@ -230,17 +302,37 @@ export async function runPublicResearchQualification(scope: Scope, policyId: str
       failure.observation = acceptObservation(metadata.researchObservation ?? failure.observation ?? undefined, fallback);
       if (!acceptedResponseModelIds.includes(response.providerModelId) || !["request_alias", "canonical"].includes(failure.observation.modelIdentity)) { failure.reason = "response_model_unqualified"; return denied(); }
       if (!providerRequestId(response.providerRequestId) || receipt.reportedMicrousd === null || Number(receipt.reportedMicrousd) > (phase === "search" ? policy.searchMicrousd : policy.selectorMicrousd)) { failure.reason = "cost_unverified_or_over_cap"; return denied(); }
+      if (durable) {
+        if (phase === "search" && response.provider !== "openrouter.exa") return denied();
+        // Validate all non-route gates before retaining output or spending a GET
+        // claim. The immutable projection is saved after accounting, before I/O.
+        failure.reason = phase === "search" ? "source_contract_invalid" : "selector_output_invalid";
+        const candidate: ReceiptCandidate = validateReceiptCandidate({ version: "r11.receipt-candidate.1", phase,
+          providerRequestId: response.providerRequestId, providerModelId: response.providerModelId, receivedAt: new Date(receivedAt).toISOString(),
+          reportedMicrousd: receipt.reportedMicrousd, output: phase === "search" ? normalizeReceiptSearchOutput(response.output.annotations, policy) : response.output,
+          observation: failure.observation }, policy, saved, now());
+        const candidateHash = publicResearchHash(candidate);
+        // A lost stage reply may already have committed. Do not revoke a saved
+        // response on uncertainty; reload safely finds the exact same candidate.
+        failure.requestId = null;
+        const staged = await runtime.rpc("stage_receipt", { policyId, requestId: admittedRequestId, candidate: candidate as unknown as JsonObject, candidateHash });
+        const check = validateReceiptCheck(staged, phase, admittedRequestId, candidateHash, policy);
+        if (!record(staged) || staged.staged !== true || typeof staged.replayed !== "boolean") return denied();
+        return resumeReceipt({ ...check, candidate, proof: null });
+      }
       const { routeProof, enrichedReceipt } = await verifyRouteAndEnrich(admittedRequestId, receipt);
       receipts.push(enrichedReceipt);
-      return { response, requestId: admittedRequestId, acceptedResponseModelIds, routeProof };
+      return { response, requestId: admittedRequestId, acceptedResponseModelIds, routeProof, receivedAt };
     }
-    let saved = loaded.collection;
     if (saved === null) {
-      const request = publicResearchSearchRequest(policy, model, now());
-      const searched = await call("search", request, loaded.search, null);
+      const stagedSearch = candidates.find(candidate => candidate.phase === "search");
+      const searched = stagedSearch ? await resumeReceipt(stagedSearch) : await call("search", publicResearchSearchRequest(policy, model, now()), loaded.search, null);
+      // Search proof can be retained after dispatch authority expires, but it
+      // cannot admit a new selector or be promoted into a false completed run.
+      if (durable && now() >= Date.parse(policy.validUntil) && searched.receiptCheck) return suspend(searched.receiptCheck);
       failure.reason = "source_contract_invalid";
       if (failure.observation && (failure.observation.searchRequests !== 1 || failure.observation.annotationCount === null || failure.observation.annotationCount < 1 || failure.observation.annotationCount > 4 || failure.observation.malformedAnnotationCount > 0 || failure.observation.rejectedDomainCount > 0)) return denied();
-      const { collection, lineage } = collectQualifiedPublicSources(policy, searched.response, searched.requestId, now(), searched.acceptedResponseModelIds, searched.routeProof);
+      const { collection, lineage } = collectQualifiedPublicSources(policy, searched.response, searched.requestId, durable ? searched.receivedAt : now(), searched.acceptedResponseModelIds, searched.routeProof);
       const selector = publicResearchSelectorRequest(policy, model, collection, lineage, now());
       const selectorWire = await inspectPublicResearchWire(selector, "select");
       const lineageHash = publicResearchHash(lineage);
@@ -257,8 +349,9 @@ export async function runPublicResearchQualification(scope: Scope, policyId: str
     }
     failure.reason = "source_contract_invalid";
     if (!UUID.test(saved.id) || saved.collectionHash !== publicResearchHash(saved.collection) || saved.lineageHash !== publicResearchHash(saved.lineage)) return denied();
-    validatePublicResearchLineage(policy, saved.collection, saved.lineage, now());
-    const selected = await call("select", publicResearchSelectorRequest(policy, model, saved.collection, saved.lineage, now()), saved.selector, saved.id);
+    const stagedSelect = candidates.find(candidate => candidate.phase === "select");
+    if (!stagedSelect) validatePublicResearchLineage(policy, saved.collection, saved.lineage, now());
+    const selected = stagedSelect ? await resumeReceipt(stagedSelect) : await call("select", publicResearchSelectorRequest(policy, model, saved.collection, saved.lineage, now()), saved.selector, saved.id);
     failure.reason = "selector_output_invalid";
     const evidencePack = assembleAdmittedPublicEvidence(policy, saved.collection, saved.lineage, selected.response.output, now()), evidencePackHash = publicResearchHash(evidencePack);
     failure.reason = "result_persistence_failed";
@@ -266,8 +359,9 @@ export async function runPublicResearchQualification(scope: Scope, policyId: str
       providerRequestId: selected.response.providerRequestId, selection: selected.response.output, evidencePack,
       evidencePackCanonical: canonicalPublicResearchJson(evidencePack), evidencePackHash });
     if (!record(completed) || typeof completed.resultId !== "string" || !UUID.test(completed.resultId) || completed.evidencePackHash !== evidencePackHash || typeof completed.replayed !== "boolean") return denied();
-    return { evidencePack, evidencePackHash, resultId: completed.resultId, policyId, collectionId: saved.id, receipts };
-  } catch {
+    return { status: "completed", evidencePack, evidencePackHash, resultId: completed.resultId, policyId, collectionId: saved.id, receipts };
+  } catch (error) {
+    if (error instanceof ReceiptPending) return error.result;
     // Never borrow a durable marker on denied, duplicate or uncertain admission.
     // The positively admitted caller may still finish; this caller only reads
     // back durable state and must not journal/revoke or claim a write failure.
@@ -305,7 +399,7 @@ export async function verifyPublicResearchPolicyQuote(policy: PublicResearchPoli
 export function publicResearchRuntime(scope: Scope, verifyQuote: PublicResearchRuntime["verifyQuote"] = verifyPublicResearchPolicyQuote): PublicResearchRuntime {
   const ownedScope = structuredClone(scope);
   const key = () => { const value = ownedScope.admissionKey ?? process.env.R05_ADMISSION_SERVER_KEY?.trim(); if (!value) return denied(); return value; };
-  return { verifyQuote, verifyGenerationRoute: fetchGenerationRouteProof, provider: (admit, observeResponse) => new OpenRouterAdapter({ admitDispatch: admit, observeResponse }),
+  return { verifyQuote, verifyGenerationRoute: fetchGenerationRouteProof, verifyGenerationRouteOnce: fetchGenerationRouteProofOnce, requireDurableReceipts: true, provider: (admit, observeResponse) => new OpenRouterAdapter({ admitDispatch: admit, observeResponse }),
     async rpc(operation, payload) {
       const result = await createRuntimeClient().rpc("r11_research_server_v2", { p_business_id: ownedScope.businessId, p_operation: operation, p_payload: payload, p_server_key: key() });
       if (result.error) return denied(); return result.data;

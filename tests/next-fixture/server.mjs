@@ -29,6 +29,10 @@ export async function startFixtureBoundary() {
     if(req.url==='/r10/authority'){if(input.scope?.ownerId!==state.owner||input.scope?.authSessionId!==id(910003))return send({error:'Inert identity rejected'});try{return send({data:viewerAuthorityFixture(state,input,effects,control)});}catch{return send({error:'Inert authority rejected'});}}
     if(req.url==='/r10/capture'){log.push({kind:'inert-viewer-frame'});res.setHeader('content-type','image/jpeg');return res.end(control.viewerCorruptFrame?Buffer.from([255,216,255,217]):viewerJpeg);}
     if(req.url==='/r11/catalog')return send(researchCatalogFixture(input.url,log,control));
+    if(req.url==='/r11/clock'){
+      if(req.method!=='POST'||!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).length)throw Error('Inert clock boundary rejected');
+      return send({now:Number.isSafeInteger(control.r11Now)?control.r11Now:Date.now()});
+    }
     if(req.url==='/r11/generation'){if(req.method!=='POST')throw Error('Inert generation boundary method rejected');return send(researchGenerationFixture(state,input,log,control));}
     if(req.url==='/r11/provider')return send(researchProviderFixture(state,input,effects,control));
     if(['/rest/v1/rpc/r11_research_server_v2','/rest/v1/rpc/r05_admission_server'].includes(req.url)){

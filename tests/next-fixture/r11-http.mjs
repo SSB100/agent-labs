@@ -78,7 +78,7 @@ export function researchRedirectUrl(location,base){
  assert.ok(location,'Actual action redirect must retain its full destination');
  const url=new URL(location,base);assert.equal(url.origin,base);assert.equal(url.pathname,'/dashboard/research-qualification');return url;
 }
-function renderedForm(html,button,identity=null){
+export function renderedResearchForm(html,button,identity=null){
  const forms=[...html.matchAll(/<form\b[^>]*>([\s\S]*?)<\/form>/g)].filter(match=>match[1].includes(button)&&(!identity||match[1].includes(`value="${identity}"`)));
  assert.equal(forms.length,1,`Expected one rendered ${button} form`);
  const data=new FormData();
@@ -93,7 +93,7 @@ export async function runResearchQualificationActionHttp({origin,noKeyOrigin,bou
  const control=values=>researchControl(boundary,values),fixture=()=>boundary.state().r11Research;
  const get=async(base=origin,business=r11Scope.businessId)=>{const response=await fetch(base+researchRoute(business),{signal:AbortSignal.timeout(30_000)});assert.equal(response.status,200);return response.text();};
  const post=async(button,values={},base=origin,html=null,identity=null)=>{
-  const data=renderedForm(html??await get(base),button,identity);for(const [key,value]of Object.entries(values))data.set(key,value);
+  const data=renderedResearchForm(html??await get(base),button,identity);for(const [key,value]of Object.entries(values))data.set(key,value);
   const response=await fetch(base+researchRoute(),{method:'POST',headers:{origin:base,accept:'text/html'},body:data,redirect:'manual',signal:AbortSignal.timeout(30_000)});
   assert.ok([200,303].includes(response.status),`Unexpected actual form POST status ${response.status}`);
   if(response.status===303){const url=researchRedirectUrl(response.headers.get('location'),base),redirected=await fetch(url,{signal:AbortSignal.timeout(30_000)});assert.equal(redirected.status,200);return redirected.text();}
@@ -109,7 +109,7 @@ export async function runResearchQualificationActionHttp({origin,noKeyOrigin,bou
  };
  await check('R11 actual HTML form preparation validates current public quote without creating authority',async()=>{
   await reset();const before=boundary.effects.length,catalogs=boundary.log.filter(item=>item.kind==='inert-r11-public-catalog').length;
-  const initial=await get(),submitted=renderedForm(initial,'Prepare public quote and setup'),html=await post('Prepare public quote and setup',{},origin,initial);assert.match(html,/Setup metadata prepared/);assert.match(html,/research-setup-metadata/);
+  const initial=await get(),submitted=renderedResearchForm(initial,'Prepare public quote and setup'),html=await post('Prepare public quote and setup',{},origin,initial);assert.match(html,/Setup metadata prepared/);assert.match(html,/research-setup-metadata/);
   const preparation=researchPreparedMetadata(html);
   assert.equal(preparation.version,'r11.owner-proof-preparation.2');assert.equal(preparation.mode,'initial');assert.equal(preparation.quote.version,'r11.public-research-quote.2');assert.deepEqual(preparation.quote.acceptedResponseModelIds,['openai/gpt-5.6-luna','openai/gpt-5.6-luna-20260709']);assert.equal(preparation.businessId,r11Scope.businessId);assert.equal(preparation.policyId,submitted.get('policyId'));assert.equal(preparation.workflowRunId,submitted.get('workflowRunId'));assert.equal(preparation.authorityCreated,false);assert.equal(preparation.paidCalls,0);assert.match(preparation.serverKeyHash,/^[a-f0-9]{64}$/);assert.match(preparation.runtimeCapabilityHash,/^[a-f0-9]{64}$/);
   assert.equal(boundary.effects.length,before);assert.equal(fixture().providerCalls.length,0);assert.equal(boundary.log.filter(item=>item.kind==='inert-r11-public-catalog').length,catalogs+4);
@@ -122,13 +122,13 @@ export async function runResearchQualificationActionHttp({origin,noKeyOrigin,bou
   const html=await activate();assert.match(html,/Ready.*pending proof/);await activate();assert.equal(fixture().policies.length,1);assert.equal(boundary.effects.filter(item=>item.kind==='in-memory-r11-research-activation').length,before+1);assert.equal(fixture().providerCalls.length,0);
   await post('Run public evidence proof',{businessId:r11Scope.otherBusinessId});assert.equal(fixture().providerCalls.length,0);
  });
- await check('R11 actual HTML Run retains the public response through a transient receipt 404 and saves one validated result without paid replay',async()=>{
-  await reset();await activate();await control({r11GenerationResponses:['not_found','success']});const readsBefore=boundary.log.length;
+ await check('R11 actual HTML Run saves one validated result for immediately available receipts without paid replay',async()=>{
+  await reset();await activate();const readsBefore=boundary.log.length;
   const html=await post('Run public evidence proof');assert.match(html,/Saved validated evidence/);assert.match(html,/Synthetic public gardening report/);assert.match(html,/data-r11-result=/);assert.equal(fixture().providerCalls.length,2);assert.deepEqual(fixture().providerCalls.map(item=>item.phase),['search','select']);assert.equal(fixture().markers.length,2);assert.equal(fixture().settlements.length,4);assert.equal(fixture().collections.length,1);assert.equal(fixture().results.length,1);
   const generationReads=()=>boundary.log.slice(readsBefore).filter(item=>item.kind==='inert-r11-generation-read'),[search,select]=fixture().providerCalls;
-  assert.deepEqual(generationReads().map(item=>item.generationId),[search.receiptId,search.receiptId,select.receiptId]);
+  assert.deepEqual(generationReads().map(item=>item.generationId),[search.receiptId,select.receiptId]);
   assert.deepEqual(fixture().settlements.map(item=>item.actualMicrounits),['10068','10068','1000','1000']);assert.match(html,/\$0\.136068 USD/);assert.equal(fixture().outcomes.length,0);
-  await post('Run public evidence proof');await get();await get();assert.equal(fixture().providerCalls.length,2);assert.equal(fixture().results.length,1);assert.equal(generationReads().length,3);
+  await post('Run public evidence proof');await get();await get();assert.equal(fixture().providerCalls.length,2);assert.equal(fixture().results.length,1);assert.equal(generationReads().length,2);
   await control({r11Expired:true});const retained=await get(noKeyOrigin);assert.match(retained,/data-r11-result=/);assert.match(retained,/dedicated admission or provider configuration is incomplete/);assert.match(retained,/Expired: no new dispatch/);
   const stopped=await post('Stop this proof',{},noKeyOrigin);assert.match(stopped,/Revoked: further dispatch is stopped/);assert.match(stopped,/data-r11-result=/);assert.equal(fixture().providerCalls.length,2);
  });
@@ -153,15 +153,13 @@ export async function runResearchQualificationActionHttp({origin,noKeyOrigin,bou
  await check('R11 canonical provider identity reaches saved validated evidence; safe failure metadata never contains raw provider text',async()=>{
   for(const scenario of [
    {control:{r11UnknownCost:true},reason:'cost_unverified_or_over_cap',calls:1,settlements:1,display:/charge could not be verified/},
-   {control:{r11InvalidSources:true},reason:'source_contract_invalid',calls:1,display:/returned sources did not pass/},
+   {control:{r11InvalidSources:true},reason:'source_contract_invalid',calls:1,settlements:1,display:/returned sources did not pass/},
    {control:{r11InvalidModel:true},reason:'response_model_unqualified',calls:1,settlements:1,display:/returned model identity was not qualified/},
    {control:{r11InvalidProvider:true},reason:'response_provider_unqualified',calls:1,settlements:1,display:/recorded provider-identity check did not pass/},
    {control:{r11GenerationResponses:['unauthorized']},reason:'response_provider_unqualified',calls:1,settlements:1,display:/Generation receipt failure:.*api_failure/,receipt:{code:'api_failure',httpStatus:401}},
    {control:{r11GenerationResponses:['invalid_json']},reason:'response_provider_unqualified',calls:1,settlements:1,display:/Generation receipt failure:.*json_invalid/,receipt:{code:'json_invalid',httpStatus:200}},
    {control:{r11GenerationResponses:['wrong_generation']},reason:'response_provider_unqualified',calls:1,settlements:1,display:/Generation receipt failure:.*generation_mismatch/,receipt:{code:'generation_mismatch',httpStatus:200}},
-   {control:{r11CollectFailure:true},reason:'collection_persistence_failed',calls:1,display:/source collection could not be confirmed/},
-   {control:{r11InvalidSelection:true},reason:'selector_output_invalid',calls:2,display:/evidence-selection output did not pass/},
-   {control:{r11CompleteFailure:true},reason:'result_persistence_failed',calls:2,display:/final evidence result could not be confirmed/},
+   {control:{r11InvalidSelection:true},reason:'selector_output_invalid',calls:2,settlements:3,display:/evidence-selection output did not pass/},
   ]){
    await reset();await activate();await control(scenario.control);const readsBefore=boundary.log.length,html=await post('Run public evidence proof');assert.match(html,/Saved proof failure/);assert.match(html,scenario.display);assert.doesNotMatch(html,new RegExp(R11_RAW_SENTINEL+'|data-r11-result='));assert.equal(fixture().providerCalls.length,scenario.calls);assert.equal(fixture().settlements.length,scenario.settlements??scenario.calls*2);assert.equal(fixture().settlements[0].actualMicrounits,scenario.control.r11UnknownCost?null:'10068');assert.equal(fixture().results.length,0);assert.equal(fixture().outcomes[0].reason,scenario.reason);assert.equal(fixture().policies[0].workflowStatus,'needs_owner');assert.equal(fixture().policies[0].revoked,true);assert.ok(!JSON.stringify(fixture().outcomes).includes(R11_RAW_SENTINEL));
    if(scenario.receipt){const observation=fixture().outcomes[0].observation;assert.equal(observation.inferenceRouteFailureCode,scenario.receipt.code);assert.equal(observation.inferenceRouteHttpStatus,scenario.receipt.httpStatus);assert.equal(observation.inferenceRouteAttempts,1);assert.match(researchHtmlText(html),new RegExp(`Generation receipt HTTP status: ${scenario.receipt.httpStatus}.*Generation receipt attempts: 1`));assert.equal(fixture().collections.length,0);}
@@ -185,7 +183,7 @@ export async function runResearchQualificationActionHttp({origin,noKeyOrigin,bou
  await check('R11 actual read-only owner action resolves the exact historical receipt without new authority, charge or inference',async()=>{
   await reconciledHistorical();const initial=await get(),requestId=fixture().markers[0].requestId;
   const original=structuredClone(fixture()),effects=boundary.effects.length,reads=()=>boundary.log.filter(item=>item.kind==='inert-r11-generation-read').length;
-  const before=reads(),form=renderedForm(initial,'Verify saved inference route',requestId);
+  const before=reads(),form=renderedResearchForm(initial,'Verify saved inference route',requestId);
   assert.deepEqual([...form.keys()].filter(key=>!key.startsWith('$ACTION_')).sort(),['businessId','policyId','requestId']);
   for(const values of [{businessId:r11Scope.otherBusinessId},{policyId:r11Scope.otherBusinessId},{requestId:r11Scope.otherBusinessId},{generationId:'gen-caller-forged'}]){
    const rejected=await post('Verify saved inference route',values,origin,initial,requestId);

@@ -1,4 +1,4 @@
-import { RESEARCH_INFERENCE_ROUTE_FAILURE_CODES } from "../../../research/qualification-owner-contract";
+import { RESEARCH_INFERENCE_ROUTE_FAILURE_CODES, currentResearchReceiptCheck, researchReceiptCheckDue, type ResearchReceiptCheck } from "../../../research/qualification-owner-contract";
 
 /** UI labels never turn admission markers into validated success. */
 type ProofState = {
@@ -6,11 +6,20 @@ type ProofState = {
   status: string; revoked: boolean; expired: boolean; result: unknown | null;
   phases: Array<{ phase: string; marked: boolean }>;
   outcomeEvents?: unknown[]; terminalReconciliationRequired?: boolean;
+  receiptChecks?: ResearchReceiptCheck[];
 };
 export function researchProofState(entry: ProofState): string {
   if (entry.result) return "Complete · saved validated evidence";
   if (entry.revoked) return "Stopped · saved revocation";
   if (entry.outcomeEvents?.length) return "Held · saved outcome requires review";
+  const receipt = currentResearchReceiptCheck(entry.receiptChecks);
+  if (receipt) {
+    if (receipt.status === "exhausted") return "Held · receipt checks exhausted";
+    if (receipt.status === "terminal") return "Held · receipt verification failed";
+    if (receipt.status === "expired" || entry.expired) return "Dispatch expired · saved response retained";
+    if (receipt.status === "verified") return "Receipt verified · saved proof pending";
+    return "Awaiting receipt · public response saved";
+  }
   if (entry.expired) return "Expired";
   if (entry.status === "ready") return "Ready · pending proof";
   if (entry.status === "collection_ready") return "Pending evidence selection";
@@ -23,9 +32,18 @@ export function researchWindowCurrent(policy: ProofState["policy"], now = Date.n
 }
 export function canRunResearchProof(entry: ProofState, configured: boolean, hasUnknown: boolean, now = Date.now()): boolean {
   return researchWindowCurrent(entry.policy, now) && configured && !hasUnknown && !entry.revoked && !entry.expired && !entry.result &&
-    !entry.terminalReconciliationRequired && !entry.outcomeEvents?.length &&
+    !entry.terminalReconciliationRequired && !entry.outcomeEvents?.length && !entry.receiptChecks?.length &&
     (entry.status === "ready" || entry.status === "collection_ready") &&
     !entry.phases.some(phase => phase.marked && (phase.phase === "select" || entry.status === "ready"));
+}
+export function canContinueResearchProof(entry: ProofState, configured: boolean, hasUnknown: boolean, now = Date.now()): boolean {
+  return configured && !hasUnknown && !entry.revoked && !entry.result && !entry.terminalReconciliationRequired && !entry.outcomeEvents?.length &&
+    researchReceiptCheckDue(currentResearchReceiptCheck(entry.receiptChecks), entry.policy.validUntil, now);
+}
+export function researchReceiptStatus(status: ResearchReceiptCheck["status"]): string {
+  const labels = { awaiting_receipt: "Awaiting generation receipt", checking_receipt: "Receipt check claimed", verified: "Generation receipt verified",
+    terminal: "Receipt verification failed", exhausted: "All three receipt checks used", expired: "Receipt window expired", stopped: "Stopped" };
+  return Object.hasOwn(labels, status) ? labels[status] : "Receipt status unavailable";
 }
 
 const outcomeReasons: Record<string, string> = {

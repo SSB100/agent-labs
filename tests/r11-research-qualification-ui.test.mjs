@@ -23,7 +23,7 @@ function pageFixture({verified=true,unavailableOwnership=false,view=workspace()}
  '@/components/console/console-retained-workspace':{ConsoleRetainedWorkspace:({header,notice,panels})=>React.createElement('div',null,header,notice,...panels.map(p=>p.content))},
  '@/lib/core-ui/data':{requireOwnerUiContext:async()=>owned},'@/lib/core-ui/owner-business':{verifyOwnerBusiness:async()=>verified},
  '@/research/qualification-server':{readResearchQualification:async(...args)=>{reads.push(args);return view;}},
- './actions':{activateResearchProof:noop,runResearchProofAction:noop,stopResearchProofAction:noop,reconcileResearchProofAction:noop},
+ './actions':{activateResearchProof:noop,runResearchProofAction:noop,continueResearchProofAction:noop,stopResearchProofAction:noop,reconcileResearchProofAction:noop},
  './prepare-form':load('src/app/dashboard/research-qualification/prepare-form.tsx',{'./actions':{prepareResearchSetup:noop},'./presentation':presentation}),
  './verify-route-form':load('src/app/dashboard/research-qualification/verify-route-form.tsx',{'./actions':{verifySavedInferenceRoute:noop}}),
  './submit-button':load('src/app/dashboard/research-qualification/submit-button.tsx'),'./presentation':presentation,'./research-qualification.css':{}};
@@ -170,4 +170,34 @@ test('saved receipt diagnostics distinguish HTTP 404 and 401, transport, timeout
  const malformed=presentation.researchOutcomeDisclosure(outcome({observation:{...outcome().observation,inferenceRouteStatus:'unavailable',inferenceRouteFailureCode:'api_failure',inferenceRouteHttpStatus:'PRIVATE_STATUS',inferenceRouteAttempts:99}}),['example.org']);
  assert.doesNotMatch(malformed.observations.join('\n'),/PRIVATE_STATUS|99/);assert.match(malformed.observations.join('\n'),/HTTP status: not recorded/);assert.match(malformed.observations.join('\n'),/attempts: not recorded/);
  const verified=presentation.researchOutcomeDisclosure(outcome({observation:{...outcome().observation,inferenceRouteStatus:'verified',inferenceRouteFailureCode:'api_failure',inferenceRouteHttpStatus:404,inferenceRouteAttempts:3}}),['example.org']);assert.doesNotMatch(verified.observations.join('\n'),/Generation receipt/);
+});
+
+function pendingReceipt({phase='search',status='awaiting_receipt',nextCheckAt='2026-10-05T00:59:00Z',attempts=1}={}){
+ return {phase,requestId:workflowRunId,candidateHash:hash,status,attempts,nextCheckAt,receiptExpiresAt:'2026-10-06T00:29:00Z',diagnostic:status==='verified'?null:{code:'api_failure',httpStatus:404},proofHash:status==='verified'?'b'.repeat(64):null};
+}
+test('durable receipt waiting is visibly separate from validated output and cannot repeat generation',async()=>{
+ const view=workspace(),p=view.policies[0];p.status='search_recording_pending';p.phases=[{phase:'search',marked:true,settled:true,actualMicrounits:'7000',requestId:workflowRunId,providerRequestId:'gen-inert-search'}];p.receiptChecks=[pendingReceipt()];
+ const html=await render(pageFixture({view}));assert.match(html,/Awaiting receipt · public response saved/);assert.match(html,/Unverified output is not usable research evidence/);assert.match(html,/at most three receipt reads per phase, six in total/);assert.match(html,/at least two minutes/);assert.match(html,/not an automatic deletion deadline/);assert.match(button(html,'Run public evidence proof'),/\sdisabled=/);assert.doesNotMatch(button(html,'Continue saved proof'),/\sdisabled=/);assert.match(html,/Last receipt diagnostic: api_failure; HTTP 404/);assert.doesNotMatch(html,/Complete · saved validated evidence|data-r11-result=/);
+});
+test('receipt cooldown, terminal states, Stop and missing configuration keep Continue inert',async()=>{
+ for(const mode of ['cooldown','terminal','exhausted','expired','stopped','revoked','unknown','missing-key']){
+  const view=workspace(),p=view.policies[0];p.status='search_recording_pending';p.receiptChecks=[pendingReceipt()];
+  if(mode==='cooldown')p.receiptChecks[0].nextCheckAt='2026-10-05T01:02:00Z';
+  if(['terminal','exhausted','expired','stopped'].includes(mode))p.receiptChecks[0].status=mode;
+  if(mode==='exhausted')p.receiptChecks[0].attempts=3;
+  if(mode==='revoked')p.revoked=true;
+  if(mode==='unknown')view.exposure.hasUnknown=true;
+  if(mode==='missing-key')view.configured=false;
+  const html=await render(pageFixture({view}));assert.match(button(html,'Continue saved proof'),/\sdisabled=/,mode);assert.match(button(html,'Run public evidence proof'),/\sdisabled=/,mode);
+ }
+});
+test('already-dispatched selector receipt can finish during grace but never after its fixed cutoff',()=>{
+ const p=proof();p.status='selection_recording_pending';p.expired=true;p.policy={...policy,validUntil:'2026-10-05T00:59:00Z',quoteValidUntil:'2026-10-05T00:59:00Z'};p.receiptChecks=[pendingReceipt({phase:'select',status:'verified'})];
+ assert.equal(presentation.canContinueResearchProof(p,true,false,FixtureDate.now()),true);assert.equal(presentation.canRunResearchProof(p,true,false,FixtureDate.now()),false);
+ p.receiptChecks[0].receiptExpiresAt='2026-10-05T00:59:00Z';assert.equal(presentation.canContinueResearchProof(p,true,false,FixtureDate.now()),false);
+ p.receiptChecks=[pendingReceipt({status:'verified'})];assert.equal(presentation.canContinueResearchProof(p,true,false,FixtureDate.now()),false,'verified expired search cannot admit a new selector');
+});
+
+test('staged policies and active pre-stage windows never expose the independent historical receipt reader',async()=>{
+ for(const staged of [false,true]){const view=workspace(),p=view.policies[0];p.status='search_recording_pending';p.phases=[{phase:'search',requestId:workflowRunId,marked:true,settled:true,actualMicrounits:'7000',providerRequestId:'gen-staged'}];if(staged){p.receiptChecks=[pendingReceipt()];p.revoked=true;p.expired=true;}const html=await render(pageFixture({view}));assert.doesNotMatch(html,/Verify saved inference route/);}
 });

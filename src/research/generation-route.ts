@@ -6,6 +6,8 @@ const MAX_RESPONSE_BYTES = 65_536;
 const MAX_TIMEOUT_MS = 20_000;
 const MAX_ATTEMPT_MS = 10_000;
 const RETRY_DELAYS_MS = [2_000, 8_000] as const;
+const MAX_RETRY_AFTER_AT = "9999-12-31T23:59:59.999Z";
+const MAX_RETRY_AFTER_MS = Date.parse(MAX_RETRY_AFTER_AT);
 const MODEL_IDS = ["openai/gpt-5.6-luna", "openai/gpt-5.6-luna-20260709"] as const;
 const GENERATION_ID = /^gen-[A-Za-z0-9_-]{1,296}$/;
 
@@ -38,11 +40,17 @@ export type GenerationRouteFailureCode = "invalid_request" | "configuration_unav
 export class GenerationRouteProofError extends Error {
   readonly httpStatus: number | null;
   readonly attempts: number;
-  constructor(readonly code: GenerationRouteFailureCode, httpStatus: number | null = null, attempts = 0) {
+  readonly retryAfterAt: string | null;
+  constructor(readonly code: GenerationRouteFailureCode, httpStatus: number | null = null, attempts = 0, retryAfterAt: string | null = null) {
     super("public_research_generation_route_unverified");
     this.name = "GenerationRouteProofError";
     this.httpStatus = typeof httpStatus === "number" && Number.isInteger(httpStatus) && httpStatus >= 100 && httpStatus <= 599 ? httpStatus : null;
     this.attempts = Number.isInteger(attempts) && attempts >= 0 && attempts <= 3 ? attempts : 0;
+    // Only canonical absolute timestamps can cross the error boundary. Never
+    // retain a caller-supplied header, even if Date.parse would accept it.
+    this.retryAfterAt = typeof retryAfterAt === "string" &&
+      /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}Z$/.test(retryAfterAt) &&
+      Number.isFinite(Date.parse(retryAfterAt)) && new Date(retryAfterAt).toISOString() === retryAfterAt ? retryAfterAt : null;
   }
 }
 const fail = (code: GenerationRouteFailureCode): never => { throw new GenerationRouteProofError(code); };
@@ -117,23 +125,53 @@ export function validateGenerationRouteProof(raw: unknown, expectation: Generati
   return qualified;
 }
 
-type FetchGenerationRouteProofArgs = GenerationRouteExpectation & {
+export type FetchGenerationRouteProofArgs = GenerationRouteExpectation & {
   fetcher?: typeof fetch;
   /** Test injection or trusted server config; only the key is used, never baseUrl. */
   config?: Pick<OpenRouterConfig, "apiKey">;
   /** Tests may shorten, but never extend, the fixed cumulative twenty seconds. */
   timeoutMs?: number;
+  /** Trusted clock for Retry-After timestamps only; never network deadlines. */
+  now?: () => number;
 };
 
 const retryableStatus = (status: number | null) => status === 404 || status === 429 || (status !== null && status >= 500 && status <= 599);
-function retryAfterMs(value: string | null): number {
-  if (value === null) return 0;
+export function isTransientGenerationRouteFailure(error: unknown): error is GenerationRouteProofError {
+  return error instanceof GenerationRouteProofError && (error.code === "timeout" || error.code === "transport_failure" ||
+    (error.code === "api_failure" && retryableStatus(error.httpStatus)));
+}
+
+function retryAfter(value: string | null, now: number): { waitMs: number; retryAfterAt: string | null } {
+  const ignored = { waitMs: 0, retryAfterAt: null };
+  if (value === null) return ignored;
   const header = value.trim();
-  if (/^[0-9]+$/.test(header)) return Number(header) * 1_000;
+  const numeric = /^[0-9]+$/.test(header);
+  let waitMs: number;
+  if (numeric) waitMs = Number(header) * 1_000;
   // HTTP-date permits IMF-fixdate and the two obsolete HTTP date formats.
-  if (!/^(?:[A-Za-z]{3}, [0-9]{2} [A-Za-z]{3} [0-9]{4} [0-9:]{8} GMT|[A-Za-z]+, [0-9]{2}-[A-Za-z]{3}-[0-9]{2} [0-9:]{8} GMT|[A-Za-z]{3} [A-Za-z]{3} [ 0-9][0-9] [0-9:]{8} [0-9]{4})$/.test(header)) return 0;
-  const date = Date.parse(header);
-  return Number.isFinite(date) ? Math.max(0, date - Date.now()) : 0;
+  else {
+    if (!/^(?:[A-Za-z]{3}, [0-9]{2} [A-Za-z]{3} [0-9]{4} [0-9]{2}:[0-9]{2}:[0-9]{2} GMT|[A-Za-z]+, [0-9]{2}-[A-Za-z]{3}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} GMT|[A-Za-z]{3} [A-Za-z]{3} [ 0-9][0-9] [0-9]{2}:[0-9]{2}:[0-9]{2} [0-9]{4})$/.test(header)) return ignored;
+    // HTTP asctime is UTC even though its syntax omits a timezone marker.
+    const time = Date.parse(header.endsWith(" GMT") ? header : `${header} GMT`);
+    if (!Number.isFinite(time)) return ignored;
+    const date = new Date(time), utc = date.toUTCString();
+    const [day, dayOfMonth, month, year, clock] = utc.split(" ");
+    const weekday = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][date.getUTCDay()];
+    // Date.parse normalizes impossible days and ignores an incorrect weekday.
+    // Require an exact valid HTTP-date in one of the documented formats.
+    if (header !== utc && header !== `${weekday}, ${dayOfMonth}-${month}-${year.slice(-2)} ${clock} GMT` &&
+        header !== `${day.slice(0, 3)} ${month} ${dayOfMonth.replace(/^0/, " ")} ${clock} ${year}`) return ignored;
+    waitMs = time - now;
+  }
+  if (waitMs <= 0) return ignored;
+  const at = now + waitMs;
+  // Saturate valid numeric delays rather than dropping the provider's wait:
+  // durable retries must remain blocked even if the delay exceeds the receipt
+  // timestamp range. Keep the original wait (including Infinity) for legacy
+  // in-process retries. Neither ISO overflow nor extended years can escape.
+  if (numeric && at > MAX_RETRY_AFTER_MS) return { waitMs, retryAfterAt: MAX_RETRY_AFTER_AT };
+  const iso = Number.isFinite(at) && Math.abs(at) <= 8_640_000_000_000_000 ? new Date(at).toISOString() : null;
+  return { waitMs, retryAfterAt: iso !== null && /^[0-9]{4}-/.test(iso) ? iso : null };
 }
 function transportCode(error: unknown): "redirect_rejected" | "transport_failure" {
   // Node/Undici rejects redirect:error before exposing a Response. Preserve
@@ -147,9 +185,29 @@ function transportCode(error: unknown): "redirect_rejected" | "transport_failure
  * identity, content, auth and redirect failures are terminal. No fallbacks,
  * configurable destination, paid inference or raw-response persistence. */
 export async function fetchGenerationRouteProof(args: FetchGenerationRouteProofArgs): Promise<GenerationRouteProof> {
+  return fetchGenerationRouteProofAttempts(args, 3);
+}
+
+/** Exactly one metadata GET, with the same deadlines and validation. Durable
+ * callers own retry scheduling; this reader never waits or retries internally. */
+export async function fetchGenerationRouteProofOnce(args: FetchGenerationRouteProofArgs): Promise<GenerationRouteProof> {
+  return fetchGenerationRouteProofAttempts(args, 1);
+}
+
+async function fetchGenerationRouteProofAttempts(args: FetchGenerationRouteProofArgs, maxAttempts: 1 | 3): Promise<GenerationRouteProof> {
   const expected = ownExpectation(args), timeoutMs = args.timeoutMs === undefined ? MAX_TIMEOUT_MS : args.timeoutMs;
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > MAX_TIMEOUT_MS ||
-      (args.fetcher !== undefined && typeof args.fetcher !== "function")) return fail("invalid_request");
+      (args.fetcher !== undefined && typeof args.fetcher !== "function") ||
+      (args.now !== undefined && typeof args.now !== "function")) return fail("invalid_request");
+  const clock = args.now ?? Date.now;
+  const retryClock = () => {
+    try {
+      const value = clock();
+      if (Number.isSafeInteger(value) && Math.abs(value) <= 8_640_000_000_000_000) return value;
+    } catch { /* Never expose a clock implementation's exception. */ }
+    return fail("invalid_request");
+  };
+  retryClock();
   let apiKey: string;
   try {
     apiKey = (args.config === undefined ? getOpenRouterConfig() : args.config).apiKey;
@@ -180,7 +238,7 @@ export async function fetchGenerationRouteProof(args: FetchGenerationRouteProofA
       let response: Response | undefined;
       let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
       let attemptTimer: ReturnType<typeof setTimeout> | undefined;
-      let retryWait = 0;
+      let retryWait = 0, retryAfterAt: string | null = null;
       const cancel = () => {
         controller.abort();
         // Cancellation is best effort and cannot extend either deadline.
@@ -205,7 +263,11 @@ export async function fetchGenerationRouteProof(args: FetchGenerationRouteProofA
         const contentLength = response.headers.get("content-length");
         if (contentLength !== null && (!/^(?:0|[1-9][0-9]*)$/.test(contentLength) || Number(contentLength) > MAX_RESPONSE_BYTES)) return fail("response_too_large");
         if (!response.ok) {
-          if (retryableStatus(currentStatus)) retryWait = retryAfterMs(response.headers.get("retry-after"));
+          if (retryableStatus(currentStatus)) {
+            const retry = retryAfter(response.headers.get("retry-after"), retryClock());
+            retryWait = retry.waitMs;
+            retryAfterAt = retry.retryAfterAt;
+          }
           return fail("api_failure");
         }
         if (!response.body) return fail("response_invalid");
@@ -230,15 +292,13 @@ export async function fetchGenerationRouteProof(args: FetchGenerationRouteProofA
       try { return await Promise.race([attemptDeadline, read()]); }
       catch (error) {
         const code = error instanceof GenerationRouteProofError ? error.code : transportCode(error);
-        failure = new GenerationRouteProofError(code, currentStatus, attempts);
+        failure = new GenerationRouteProofError(code, currentStatus, attempts, retryAfterAt);
       } finally {
         clearTimeout(attemptTimer);
         cancel();
       }
-      const retryable = failure.code === "timeout" || failure.code === "transport_failure" ||
-        (failure.code === "api_failure" && retryableStatus(failure.httpStatus));
       const waitMs = Math.max(RETRY_DELAYS_MS[attempts - 1] ?? Infinity, retryWait);
-      if (!retryable || stopped || attempts >= 3 || waitMs >= remaining()) throw failure;
+      if (!isTransientGenerationRouteFailure(failure) || stopped || attempts >= maxAttempts || waitMs >= remaining()) throw failure;
       await new Promise<void>(resolve => { waitTimer = setTimeout(resolve, waitMs); });
     }
     throw new GenerationRouteProofError("timeout", currentStatus, attempts);

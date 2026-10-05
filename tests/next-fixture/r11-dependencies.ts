@@ -3,7 +3,7 @@
  * admission callbacks, accounting, lineage and terminal-result code stay intact. */
 import { OpenRouterAdapter } from "@/models/openrouter";
 import { fetchPublicResearchQuote, PUBLIC_RESEARCH_QUOTE_LIMITS } from "@/research/qualification-quote";
-import { fetchGenerationRouteProof, type GenerationRouteExpectation } from "@/research/generation-route";
+import { fetchGenerationRouteProof, fetchGenerationRouteProofOnce, type GenerationRouteExpectation } from "@/research/generation-route";
 import { publicResearchRuntime } from "@/research/qualification-runtime";
 import type { PublicResearchRuntime } from "@/research/qualification-runtime";
 
@@ -15,11 +15,11 @@ const GENERATION_KEY = "inert-r11-generation-placeholder";
 
 /** Keep the production bounded generation reader and wire parser. Only its
  * credential and exact GET response are synthetic; no provider is contacted. */
-function fetchFixtureGenerationRoute(expectation: GenerationRouteExpectation) {
+function fetchFixtureGenerationRoute(expectation: GenerationRouteExpectation, once = false, now?: () => number) {
  const generationId = expectation.generationId;
- return fetchGenerationRouteProof({
+ return (once ? fetchGenerationRouteProofOnce : fetchGenerationRouteProof)({
   generationId, providerName: expectation.providerName, acceptedResponseModelIds: expectation.acceptedResponseModelIds,
-  requestedEndpoint: expectation.requestedEndpoint, config: { apiKey: GENERATION_KEY },
+  requestedEndpoint: expectation.requestedEndpoint, ...(now ? { now } : {}), config: { apiKey: GENERATION_KEY },
   fetcher: async (url, init) => {
    const headers = new Headers(init?.headers);
    if (String(url) !== `https://openrouter.ai/api/v1/generation?id=${encodeURIComponent(generationId)}` ||
@@ -27,7 +27,7 @@ function fetchFixtureGenerationRoute(expectation: GenerationRouteExpectation) {
        init.credentials !== "omit" || !init.signal || headers.get("Authorization") !== `Bearer ${GENERATION_KEY}` ||
        headers.get("Accept") !== "application/json" || [...headers].length !== 2) throw new Error("inert_exact_generation_wire_required");
    const generation = await post("/r11/generation", { url: String(url) });
-   return new Response(generation.body, { status: generation.status, headers: { "content-type": "application/json" } });
+   return new Response(generation.body, { status: generation.status, headers: { "content-type": "application/json", ...(generation.retryAfter ? { "retry-after": generation.retryAfter } : {}) } });
   },
  });
 }
@@ -43,18 +43,21 @@ async function post(path: string, payload: unknown) {
  return response.json();
 }
 export function researchQualificationDependencies() {
+ let clock = Date.now();
+ const now = async () => { const value = await post("/r11/clock", {}); if (!Number.isSafeInteger(value.now)) throw new Error("inert_clock_required"); clock = value.now; return clock; };
  return {
+  now,
   fetchGenerationRoute: fetchFixtureGenerationRoute,
-  fetchQuote: (options: { maximumMicrousd?: number } = {}) => fetchPublicResearchQuote({ ...options, fetch: async (url, init) => {
+  fetchQuote: async (options: { maximumMicrousd?: number } = {}) => { await now(); return fetchPublicResearchQuote({ ...options, now: () => clock, fetch: async (url, init) => {
    const allowed: readonly string[] = [PUBLIC_RESEARCH_QUOTE_LIMITS.modelIdentityCatalogUrl, PUBLIC_RESEARCH_QUOTE_LIMITS.modelCatalogUrl,
     `${PUBLIC_RESEARCH_QUOTE_LIMITS.modelIdentityCatalogUrl}/${CANONICAL_MODEL}/endpoints`, PUBLIC_RESEARCH_QUOTE_LIMITS.zdrCatalogUrl];
    if (init?.method !== "GET" || init?.body || !allowed.includes(String(url))) throw new Error("inert_exact_catalog_required");
    const catalog = await post("/r11/catalog", { url: String(url) });
    return new Response(JSON.stringify(catalog), { headers: { "content-type": "application/json" } });
-  } }),
+  } }); },
   makeRuntime(scope: ResearchRuntimeScope, verifyQuote: PublicResearchRuntime["verifyQuote"]): PublicResearchRuntime {
    const runtime = publicResearchRuntime(scope, verifyQuote);
-   return { ...runtime, verifyGenerationRoute: fetchFixtureGenerationRoute, provider: (admit, observeResponse) => new OpenRouterAdapter({
+   return { ...runtime, now: () => clock, verifyGenerationRoute: fetchFixtureGenerationRoute, verifyGenerationRouteOnce: expectation => fetchFixtureGenerationRoute(expectation, true, () => clock), provider: (admit, observeResponse) => new OpenRouterAdapter({
     config: { apiKey: "inert-r11-provider-placeholder", baseUrl: "https://openrouter.ai/api/v1", appUrl: "https://example.invalid", appName: "R11 inert Next fixture" },
     admitDispatch: admit, observeResponse,
     fetcher: async (url, init) => {

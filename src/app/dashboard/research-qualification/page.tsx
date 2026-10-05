@@ -6,11 +6,11 @@ import { ConsoleRetainedWorkspace } from "@/components/console/console-retained-
 import { requireOwnerUiContext } from "@/lib/core-ui/data";
 import { verifyOwnerBusiness } from "@/lib/core-ui/owner-business";
 import { readResearchQualification } from "@/research/qualification-server";
-import { activateResearchProof, reconcileResearchProofAction, runResearchProofAction, stopResearchProofAction } from "./actions";
+import { activateResearchProof, continueResearchProofAction, reconcileResearchProofAction, runResearchProofAction, stopResearchProofAction } from "./actions";
 import { PrepareResearchForm } from "./prepare-form";
 import { VerifySavedRouteForm } from "./verify-route-form";
 import { ResearchSubmitButton } from "./submit-button";
-import { formatResearchUsd, researchProofState, canRunResearchProof, researchWindowCurrent, canVerifySavedInferenceRoute, researchGrantDisclosure, researchOutcomeDisclosure, safeResearchSourceUrl } from "./presentation";
+import { formatResearchUsd, researchProofState, canRunResearchProof, canContinueResearchProof, researchReceiptStatus, researchWindowCurrent, canVerifySavedInferenceRoute, researchGrantDisclosure, researchOutcomeDisclosure, safeResearchSourceUrl } from "./presentation";
 import "./research-qualification.css";
 
 export const dynamic = "force-dynamic";
@@ -20,6 +20,7 @@ const notices: Record<string, string> = {
   "check-saved-state": "The requested change could not be confirmed. Check the saved status below; no automatic retry was made.",
   "review-activation": "Activation was requested. Check the saved policy below before starting the proof; activation alone does not claim a research result.",
   "review-proof": "Check the saved result, phase records and held exposure below. A dispatch marker is not a validated result. No automatic retry was made.",
+  "review-receipt": "Review the saved receipt status below. Continuing never repeats an already-dispatched phase. A pending receipt is not a validated research result.",
   "diagnostic-unavailable": "The failure diagnostic could not be saved. Inspect this exact proof’s phase and accounting records below. No automatic retry was made; unresolved charges remain held.",
   "review-stop": "Stop was requested. Only saved revocation confirms that further dispatch is stopped. Existing calls and held charges are not undone.",
   "review-reconciliation": "Review the saved Stop and reconciliation records below. A request alone does not confirm reconciliation or authorize a new attempt.",
@@ -37,6 +38,7 @@ export default async function ResearchQualificationPage({ searchParams }: {
   // GET is saved-state only: no quote acquisition, authority creation or provider call.
   const view = verified ? await readResearchQualification(context, businessId) : null;
   const unavailable = !view || view.unavailable;
+  const checkedNow = view?.checkedAt && Number.isFinite(Date.parse(view.checkedAt)) ? Date.parse(view.checkedAt) : undefined;
   const notice = typeof query.notice === "string" && Object.hasOwn(notices, query.notice) ? notices[query.notice] : null;
 
   return <AppShell active="dashboard" toolDestination="research" context={context} navigationBusinessId={businessId}>
@@ -64,7 +66,7 @@ export default async function ResearchQualificationPage({ searchParams }: {
               const policy = entry.grant.researchPolicy;
               const continuation = entry.kind === "continuation";
               const disclosure = researchGrantDisclosure(entry.grant, entry.kind);
-              const available = !!disclosure && view.configured && !view.exposure.hasUnknown && !entry.used && !entry.expired && !entry.revoked && researchWindowCurrent(policy);
+              const available = !!disclosure && view.configured && !view.exposure.hasUnknown && !entry.used && !entry.expired && !entry.revoked && researchWindowCurrent(policy, checkedNow);
               return <section key={entry.grantId} data-r11-grant={entry.grantId}>
                 <h3>{entry.revoked ? "Revoked grant" : entry.used ? "Activated grant" : entry.expired ? "Expired grant" : "Pending owner activation"}</h3>
                 <p><strong>Exact public question:</strong> {policy.query}</p>
@@ -113,8 +115,13 @@ export default async function ResearchQualificationPage({ searchParams }: {
                   <form action={runResearchProofAction}>
                     <input type="hidden" name="businessId" value={businessId} />
                     <input type="hidden" name="policyId" value={entry.policyId} />
-                    <ResearchSubmitButton disabled={!canRunResearchProof(entry, view.configured, view.exposure?.hasUnknown ?? true)} pendingLabel="Running bounded proof…">Run public evidence proof</ResearchSubmitButton>
+                    <ResearchSubmitButton disabled={!canRunResearchProof(entry, view.configured, view.exposure?.hasUnknown ?? true, checkedNow)} pendingLabel="Running bounded proof…">Run public evidence proof</ResearchSubmitButton>
                   </form>
+                  {entry.receiptChecks?.length && !entry.result ? <form action={continueResearchProofAction}>
+                    <input type="hidden" name="businessId" value={businessId} />
+                    <input type="hidden" name="policyId" value={entry.policyId} />
+                    <ResearchSubmitButton disabled={!canContinueResearchProof(entry, view.configured, view.exposure?.hasUnknown ?? true, checkedNow)} pendingLabel="Continuing saved proof…">Continue saved proof</ResearchSubmitButton>
+                  </form> : null}
                   <form action={stopResearchProofAction}>
                     <input type="hidden" name="businessId" value={businessId} />
                     <input type="hidden" name="policyId" value={entry.policyId} />
@@ -126,6 +133,19 @@ export default async function ResearchQualificationPage({ searchParams }: {
                     <ResearchSubmitButton disabled={false} pendingLabel="Reconciling saved Stop…">Reconcile saved Stop</ResearchSubmitButton>
                   </form> : null}
                 </div>
+                {entry.receiptChecks?.length ? <div data-r11-receipt-checks>
+                  <h4>Saved public responses and receipt checks</h4>
+                  <p>The bounded public response is retained privately while its exact generation receipt is verified. Unverified output is not usable research evidence. Continuing cannot repeat an already-dispatched search or selection.</p>
+                  <p>There are at most three receipt reads per phase, six in total, with at least two minutes between checks and any longer provider wait respected. After search verification, Continue may run the unused selector only within the original spending limit and dispatch deadline. An already-dispatched selector can finish saving its result during receipt grace.</p>
+                  {entry.receiptChecks.map(check => <div key={check.requestId} data-r11-receipt-phase={check.phase}>
+                    <p>{check.phase === "search" ? "Search" : "Evidence selection"}: {researchReceiptStatus(check.status)} · {check.attempts} of 3 reads claimed.</p>
+                    {check.nextCheckAt ? <p>Next eligible check: {check.nextCheckAt}. Refresh saved status when this time is reached; no background lookup runs.</p> : null}
+                    <p>Receipt and staged-content access ends: {check.receiptExpiresAt}. The bounded immutable audit record remains stored; this is not an automatic deletion deadline.</p>
+                    {check.diagnostic ? <p>Last receipt diagnostic: {check.diagnostic.code}; HTTP {check.diagnostic.httpStatus ?? "not received"}.</p> : null}
+                    <details><summary>Saved response identity</summary><p>Fingerprint {check.candidateHash}</p>{check.proofHash ? <p>Verified receipt fingerprint {check.proofHash}</p> : null}</details>
+                  </div>)}
+                  <Link className="coreButton" href={`/dashboard/research-qualification?business=${businessId}`}>Refresh saved receipt status</Link>
+                </div> : null}
                 {entry.terminalReconciliationRequired ? <p role="status">This historical attempt needs saved Stop reconciliation before continuation can be reviewed. Reconciliation preserves its charges and does not recover an unknown failure reason or start research.</p> : null}
                 <h4>Saved proof outcomes</h4>
                 {(entry.outcomeEvents ?? []).map(outcome => {
@@ -145,7 +165,7 @@ export default async function ResearchQualificationPage({ searchParams }: {
                   const phase = entry.phases.find(saved => saved.phase === name);
                   return <div key={name} data-r11-phase={name}>
                     <p>{name === "search" ? "Search" : "Evidence selection"}: {!phase ? "no dispatch recorded" : !phase.marked ? "Pending, not dispatched" : !phase.settled || phase.actualMicrounits === null ? "Dispatched; charge or settlement unknown, held" : `Dispatched; reported ${formatResearchUsd(phase.actualMicrounits)}`}</p>
-                    {phase && canVerifySavedInferenceRoute(phase) ? <VerifySavedRouteForm key={`${businessId}:${entry.policyId}:${phase.requestId}`} businessId={businessId} policyId={entry.policyId} requestId={phase.requestId} /> : null}
+                    {phase && !entry.receiptChecks?.length && (entry.revoked || entry.result !== null || ["needs_owner", "cancelled", "failed"].includes(entry.status)) && canVerifySavedInferenceRoute(phase) ? <VerifySavedRouteForm key={`${businessId}:${entry.policyId}:${phase.requestId}`} businessId={businessId} policyId={entry.policyId} requestId={phase.requestId} /> : null}
                   </div>;
                 })}
                 {result ? <div data-r11-result={result.resultId}>

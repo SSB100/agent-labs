@@ -12,7 +12,7 @@ import { PUBLIC_RESEARCH_QUOTE_LIMITS, validatePublicResearchQuote } from "./qua
 import { PUBLIC_RESEARCH_PROOF_PROFILE } from "./qualification-profile";
 import { researchQualificationDependencies } from "./qualification-server-dependencies";
 import { validateResearchObservation } from "./qualification-outcome";
-import { RESEARCH_FAILURE_REASONS, type ResearchBootstrapPreparation, type ResearchContinuation, type ResearchOutcomeEvent, type ResearchProofGrant, type ResearchProofPhase, type ResearchProofPolicy, type ResearchProofResult, type ResearchQualificationWorkspace } from "./qualification-owner-contract";
+import { RESEARCH_FAILURE_REASONS, currentResearchReceiptCheck, researchReceiptCheckDue, validateResearchReceiptCheck, type ResearchBootstrapPreparation, type ResearchContinuation, type ResearchOutcomeEvent, type ResearchProofGrant, type ResearchProofPhase, type ResearchProofPolicy, type ResearchProofResult, type ResearchQualificationWorkspace } from "./qualification-owner-contract";
 export type { ResearchBootstrapPreparation, ResearchQualificationWorkspace } from "./qualification-owner-contract";
 
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
@@ -88,6 +88,16 @@ function policy(value: unknown, businessId: string, ownerId: string): ResearchPr
       actualMicrounits: raw.actualMicrounits as string | null, providerRequestId: raw.providerRequestId as string | null };
   });
   requireValue(new Set(phases.map(phase => phase.phase)).size === phases.length);
+  requireValue(value.receiptChecks === undefined || Array.isArray(value.receiptChecks) && value.receiptChecks.length <= 2);
+  const receiptChecks = (value.receiptChecks as unknown[] | undefined)?.map(validateResearchReceiptCheck);
+  if (receiptChecks) {
+    requireValue(new Set(receiptChecks.map(check => check.phase)).size === receiptChecks.length);
+    for (const check of receiptChecks) {
+      const bound = phases.find(phase => phase.phase === check.phase && phase.requestId === check.requestId);
+      requireValue(bound?.marked && bound.settled && bound.actualMicrounits !== null && bound.providerRequestId !== null &&
+        Date.parse(check.receiptExpiresAt) <= Date.parse(p.validUntil) + 30 * 60_000);
+    }
+  }
   let result: ResearchProofResult | null = null;
   if (value.result !== null) {
     const r = value.result;
@@ -110,7 +120,8 @@ function policy(value: unknown, businessId: string, ownerId: string): ResearchPr
   requireValue(value.terminalReconciliationRequired === undefined || typeof value.terminalReconciliationRequired === "boolean");
   return { policyId: value.policyId as string, workflowRunId: value.workflowRunId as string, goalId: value.goalId as string, operatingPolicyId: value.operatingPolicyId as string,
     policy: p, policyHash: value.policyHash, status: value.status, revoked: value.revoked, expired: value.expired, phases, result,
-    attemptVersion: value.attemptVersion === 2 ? 2 : 1, outcomeEvents: outcomes(value.outcomes, p), terminalReconciliationRequired: value.terminalReconciliationRequired === true };
+    attemptVersion: value.attemptVersion === 2 ? 2 : 1, outcomeEvents: outcomes(value.outcomes, p), terminalReconciliationRequired: value.terminalReconciliationRequired === true,
+    ...(receiptChecks ? { receiptChecks } : {}) };
 }
 function grant(value: unknown, businessId: string, ownerId: string): ResearchProofGrant {
   requireValue(object(value) && id(value.grantId) && hash(value.grantHash) && object(value.grant) && typeof value.used === "boolean" && typeof value.expired === "boolean" && typeof value.revoked === "boolean");
@@ -142,9 +153,11 @@ export async function readResearchQualification(context: OwnerUiContext, busines
     grants.sort((a, b) => Date.parse(b.grant.researchPolicy.validFrom) - Date.parse(a.grant.researchPolicy.validFrom));
     const next = continuation(row.continuation);
     requireValue(!next?.eligible || !row.exposure.hasUnknown && next.exposureMicrounits === row.exposure.heldMicrounits);
+    const checkedNow = await researchQualificationDependencies().now?.() ?? Date.now();
+    requireValue(Number.isFinite(checkedNow));
     return { ...empty, exposure: { currency: "USD", heldMicrounits: row.exposure.heldMicrounits, hasUnknown: row.exposure.hasUnknown },
       policies: row.policies.map(value => policy(value, businessId, context.userId)), grants: grants.slice(0, 25), policyTotal: Number(row.policyTotal),
-      grantTotal: Number(row.grantTotal) + Number(continuedTotal), continuation: next };
+      grantTotal: Number(row.grantTotal) + Number(continuedTotal), continuation: next, checkedAt: new Date(checkedNow).toISOString() };
   } catch { return { ...empty, unavailable: true }; }
 }
 
@@ -161,13 +174,14 @@ export async function prepareResearchBootstrap(context: OwnerUiContext, business
   requireValue(!continued || continued.exposureMicrounits === before.exposure.heldMicrounits);
   const maximumMicrousd = continued ? Number(BigInt(continued.remainingMicrounits) > BigInt(250000) ? BigInt(250000) : BigInt(continued.remainingMicrounits)) : 250000;
   const key = serverKey(), dependencies = researchQualificationDependencies();
-  const quote = await dependencies.fetchQuote({ maximumMicrousd }); validatePublicResearchQuote(quote);
+  const quote = await dependencies.fetchQuote({ maximumMicrousd }); validatePublicResearchQuote(quote, await dependencies.now?.() ?? Date.now());
   requireValue(quote.version === "r11.public-research-quote.2" && quote.maximumMicrousd === maximumMicrousd);
   const after = await workspace(context, businessId); requireValue(serverKey() === key);
   requireValue(canonicalPublicResearchJson(after.exposure) === canonicalPublicResearchJson(before.exposure));
   if (continued) requireValue(canonicalPublicResearchJson(continuation(after.continuation)) === canonicalPublicResearchJson(continued));
   else requireValue(after.policyTotal === 0);
-  const preparedAt = new Date().toISOString();
+  const preparedNow = await dependencies.now?.() ?? Date.now(); requireValue(Number.isFinite(preparedNow));
+  const preparedAt = new Date(preparedNow).toISOString();
   // Continuation setup time must not consume the independent five-minute
   // catalogue freshness window. V2 phase markers bind their own fresh deadline.
   const expiresAt = continued ? new Date(Date.parse(preparedAt) + 30 * 60_000).toISOString() : quote.validUntil;
@@ -184,7 +198,7 @@ export async function prepareResearchBootstrap(context: OwnerUiContext, business
     validFrom: preparedAt, validUntil: expiresAt, maximumMicrousd: quote.maximumMicrousd, searchMicrousd: quote.searchMicrousd, selectorMicrousd: quote.selectorMicrousd,
     priceLimit: quote.priceLimit, quoteHash: quote.quoteHash, quoteValidUntil: expiresAt,
   };
-  const search = await inspectPublicResearchWire(publicResearchSearchRequest(proposed, resolveModelRoute("standard.default").primary), "search");
+  const search = await inspectPublicResearchWire(publicResearchSearchRequest(proposed, resolveModelRoute("standard.default").primary, preparedNow), "search");
   return { version: continued ? "r11.owner-proof-preparation.3" : "r11.owner-proof-preparation.2", businessId, ownerId: context.userId, policyId, workflowRunId,
     mode: continued ? "continuation" : "initial", predecessorPolicyId: predecessorPolicyId ?? null, continuation: continued,
     serverKeyHash: sha(continued ? attemptAdmissionKey(key, businessId, context.userId, policyId, workflowRunId) : key), runtimeCapabilityHash: sha(runtimeCapability(key, businessId, context.userId, policyId, workflowRunId)),
@@ -208,27 +222,42 @@ export async function activateResearchGrant(context: OwnerUiContext, businessId:
   requireValue(!error && object(data) && data.policyId === g.policyId && data.workflowRunId === g.workflowRunId && typeof data.replayed === "boolean");
   return { policyId: data.policyId, workflowRunId: data.workflowRunId, replayed: data.replayed };
 }
-export async function runResearchProof(context: OwnerUiContext, businessId: string, policyId: string) {
+async function executeResearchProof(context: OwnerUiContext, businessId: string, policyId: string, continueSaved: boolean) {
   requireValue(id(policyId));
   const row = await workspace(context, businessId); requireValue(Array.isArray(row.policies));
   const raw = row.policies.find(value => object(value) && value.policyId === policyId); requireValue(raw);
   const selected = policy(raw, businessId, context.userId);
   if (selected.result) return { status: "completed", resultId: selected.result.resultId };
-  requireValue(!selected.revoked && !selected.expired && ["ready", "collection_ready"].includes(selected.status));
-  const key = serverKey(), dependencies = researchQualificationDependencies();
+  requireValue(object(row.exposure) && row.exposure.hasUnknown === false);
+  requireValue(!selected.revoked && !selected.outcomeEvents?.length);
+  const dependencies = researchQualificationDependencies(), checkedNow = await dependencies.now?.() ?? Date.now();
+  requireValue(Number.isFinite(checkedNow));
+  if (continueSaved) requireValue(researchReceiptCheckDue(currentResearchReceiptCheck(selected.receiptChecks), selected.policy.validUntil, checkedNow));
+  else requireValue(!selected.expired && ["ready", "collection_ready"].includes(selected.status) && !selected.receiptChecks?.length);
+  const key = serverKey();
   const scope = { businessId, coreWorkflowRunId: selected.workflowRunId, runtimeCapability: runtimeCapability(key, businessId, context.userId, policyId, selected.workflowRunId),
     ...(selected.attemptVersion === 2 ? { admissionKey: attemptAdmissionKey(key, businessId, context.userId, policyId, selected.workflowRunId) } : {}) };
   const verifyQuote = async (p: PublicResearchPolicy) => {
     requireValue(serverKey() === key);
-    const quote = await dependencies.fetchQuote({ maximumMicrousd: p.maximumMicrousd }); validatePublicResearchQuote(quote);
+    const quote = await dependencies.fetchQuote({ maximumMicrousd: p.maximumMicrousd }); validatePublicResearchQuote(quote, await dependencies.now?.() ?? Date.now());
     requireValue(quote.version === "r11.public-research-quote.2" && quote.quoteHash === p.quoteHash && quote.modelId === p.modelId && quote.providerEndpoint === p.providerEndpoint &&
       quote.searchMicrousd === p.searchMicrousd && quote.selectorMicrousd === p.selectorMicrousd && publicResearchHash(quote.priceLimit) === publicResearchHash(p.priceLimit));
     requireValue(serverKey() === key); return { providerName: quote.providerName, acceptedResponseModelIds: quote.acceptedResponseModelIds, quoteValidUntil: quote.validUntil };
   };
   await runPublicResearchQualification(scope, policyId, dependencies.makeRuntime(scope, verifyQuote));
   const latest = await readResearchQualification(context, businessId), proof = latest.policies.find(item => item.policyId === policyId);
-  requireValue(!latest.unavailable && proof?.result);
-  return { status: "completed", resultId: proof.result.resultId };
+  requireValue(!latest.unavailable && proof);
+  if (proof.result) return { status: "completed", resultId: proof.result.resultId };
+  // A pending return is acknowledged only through freshly saved exact-owner
+  // metadata. It is never promoted to a completed result by action feedback.
+  requireValue(!proof.revoked && !proof.outcomeEvents?.length && proof.receiptChecks?.length);
+  return { status: "receipt_pending", policyId: proof.policyId };
+}
+export async function runResearchProof(context: OwnerUiContext, businessId: string, policyId: string) {
+  return executeResearchProof(context, businessId, policyId, false);
+}
+export async function continueResearchProof(context: OwnerUiContext, businessId: string, policyId: string) {
+  return executeResearchProof(context, businessId, policyId, true);
 }
 export async function stopResearchProof(context: OwnerUiContext, businessId: string, policyId: string) {
   requireValue(id(policyId)); await owner(context, businessId);
@@ -254,6 +283,10 @@ export async function verifySavedResearchInferenceRoute(context: OwnerUiContext,
     const matches = row.policies.filter(value => object(value) && value.policyId === policyId);
     requireValue(matches.length === 1);
     const selected = policy(matches[0], businessId, context.userId);
+    // Staged phases must spend their durable lookup claims through Continue.
+    // The independent historical diagnostic route cannot bypass that budget.
+    requireValue(!selected.receiptChecks?.length && (selected.revoked || selected.result !== null ||
+      ["needs_owner", "cancelled", "failed"].includes(selected.status)));
     requireValue(selected.policy.modelId === PUBLIC_RESEARCH_QUOTE_LIMITS.modelId && selected.policy.providerEndpoint === PUBLIC_RESEARCH_QUOTE_LIMITS.providerEndpoint);
     const phases = selected.phases.filter(phase => phase.requestId === requestId);
     requireValue(phases.length === 1);

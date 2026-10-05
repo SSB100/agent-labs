@@ -7,6 +7,7 @@ import { publicResearchRuntime, type PublicResearchRuntime, type ResearchRuntime
  * HMAC binding, actual runner, adapter serialization and admission stay real. */
 export function researchQualificationDependencies() {
   return {
+    now: (): number | Promise<number> => Date.now(),
     fetchQuote: fetchPublicResearchQuote,
     fetchGenerationRoute: fetchGenerationRouteProof,
     makeRuntime: (scope: ResearchRuntimeScope, verifyQuote: PublicResearchRuntime["verifyQuote"]): PublicResearchRuntime => publicResearchRuntime(scope, verifyQuote),

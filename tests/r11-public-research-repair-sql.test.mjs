@@ -24,7 +24,7 @@ test('R11 additive repair preserves R05 and records truthful terminal outcomes',
   await db.exec(r04SqlBootstrap+sessionBootstrap);
   for(const name of readdirSync(path.join(root,'supabase/migrations')).filter(name=>name.endsWith('.sql')).sort()){
    const source=readFileSync(path.join(root,'supabase/migrations',name),'utf8');
-   if(/function public\.r11_research_server_v2\(/.test(source)){
+   if(/create function public\.r11_research_server_v2\(/.test(source)){
     assert.equal(foundRepair,false,'Only one initial repair migration is expected');foundRepair=true;
     await setupResearchFixture(db);
     const existing=await seedResearch(db),marked=await guard(db,existing);await settle(db,existing,marked.requestId,'inert-pre-repair-receipt');

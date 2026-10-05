@@ -3,6 +3,8 @@ import {writeFile} from 'node:fs/promises';
 import path from 'node:path';
 import {chromium} from 'playwright-core';
 import {runResearchQualificationHttp,runResearchQualificationActionHttp} from './r11-http.mjs';
+import {runPendingReceiptBrowser} from './r11-pending-journeys.mjs';
+import {runPendingReceiptHttp} from './r11-pending-http.mjs';
 import {runResearchQualificationBrowser} from './r11-journeys.mjs';
 
 /** Independent runner keeps the earlier real-Next route matrix unchanged. */
@@ -18,6 +20,7 @@ export async function runResearchQualificationJourneys({origin,noKeyOrigin,bound
  };
  await runResearchQualificationHttp({origin,noKeyOrigin,boundary,check});
  await runResearchQualificationActionHttp({origin,noKeyOrigin,boundary,check});
+ await runPendingReceiptHttp({origin,noKeyOrigin,boundary,check});
  await check('R11 actual Next HTTP transport performs no unsupported operation',async()=>{assert.deepEqual(boundary.denied,[]);});
  if(httpOnly){await report();assert.ok(results.every(result=>result.status==='passed'),'R11 HTTP checks failed; see r11-research-acceptance.json');return;}
  let browser;
@@ -30,6 +33,7 @@ export async function runResearchQualificationJourneys({origin,noKeyOrigin,bound
   const page=await context.newPage();
   page.on('response',response=>{const request=response.request();if(response.headers()['content-type']?.includes('text/x-component'))requests.push({url:response.url(),status:response.status()});if(request.method()==='POST'&&request.headers()['next-action'])actions.push({url:response.url(),status:response.status(),revalidated:response.headers()['x-action-revalidated']??null});});
   await runResearchQualificationBrowser({page,context,origin,noKeyOrigin,boundary,output,check,requests,actions});
+  await runPendingReceiptBrowser({page,context,origin,noKeyOrigin,boundary,output,check});
   await check('R11 inert Next boundary attempts no external request or unsupported write',async()=>{assert.deepEqual(external,[]);assert.deepEqual(boundary.denied,[]);});
   await context.close();
  } finally {

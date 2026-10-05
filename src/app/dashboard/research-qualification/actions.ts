@@ -8,6 +8,7 @@ import { PublicResearchQualificationError } from "@/research/qualification-outco
 import { readResearchRouteFailureDetails } from "@/research/qualification-owner-contract";
 import {
   activateResearchGrant,
+  continueResearchProof,
   prepareResearchBootstrap,
   reconcileResearchProof,
   runResearchProof,
@@ -77,6 +78,21 @@ export async function runResearchProofAction(form: FormData) {
     if (UUID.test(policyId) && await verifyOwnerBusiness(context, businessId)) await runResearchProof(context, businessId, policyId);
   } catch (error) {
     // This is action feedback only; a recorded outcome must still be read back.
+    if (error instanceof PublicResearchQualificationError && error.recorded === false) notice = "diagnostic-unavailable";
+  }
+  revalidatePath(route);
+  redirect(`${route}?business=${businessId}&notice=${notice}`);
+}
+
+/** Resume only previously staged output; never a new grant or a repeated phase. */
+export async function continueResearchProofAction(form: FormData) {
+  const businessId = field(form, "businessId"), policyId = field(form, "policyId");
+  if (!UUID.test(businessId)) throw new Error("Exact Business unavailable");
+  const context = await requireOwnerUiContext();
+  let notice = "review-receipt";
+  try {
+    if (UUID.test(policyId) && await verifyOwnerBusiness(context, businessId)) await continueResearchProof(context, businessId, policyId);
+  } catch (error) {
     if (error instanceof PublicResearchQualificationError && error.recorded === false) notice = "diagnostic-unavailable";
   }
   revalidatePath(route);

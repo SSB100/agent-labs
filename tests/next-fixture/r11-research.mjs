@@ -1,5 +1,6 @@
 import {createHash,createHmac} from 'node:crypto';
 import {id} from './data.mjs';
+import {receiptEntries,receiptOperation,receiptCollectionAnnotations,researchFixtureNow} from './r11-receipts.mjs';
 
 export const r11Scope={businessId:id(1),otherBusinessId:id(2),foreignBusinessId:id(999999),grantId:id(911001),policyId:id(911002),workflowRunId:id(911003),goalId:id(911004),operatingPolicyId:id(911005),collectionId:id(911006)};
 export const R11_INERT_SERVER_KEY='inert-next-r11-authority-placeholder-000000000000';
@@ -9,7 +10,7 @@ export const R11_CONTINUATION_QUOTE_HASH='52bbd10682da06b0eff537916e0cfdd882c2d0
 export const R11_CANONICAL_MODEL='openai/gpt-5.6-luna-20260709';
 export const R11_RAW_SENTINEL='RAW_R11_PROVIDER_TEXT_MUST_NOT_PERSIST';
 export const r11ContinuationScope={grantId:id(912001),policyId:id(912002),workflowRunId:id(912003),operatingPolicyId:id(912005)};
-export const R11_RESET={r11Research:true,resetResearch:true,r11HoldLoads:false,r11Historical:false,r11Expired:false,r11ReadUnavailable:false,r11CatalogUnavailable:false,r11ProviderFailure:null,r11GenerationResponses:[],r11UnknownCost:false,r11InvalidSelection:false,r11InvalidSources:false,r11InvalidModel:false,r11InvalidProvider:false,r11AliasModel:false,r11CompleteFailure:false,r11CollectFailure:false,r11FailJournalFailure:false,r11StopFailure:false};
+export const R11_RESET={r11Research:true,resetResearch:true,r11HoldLoads:false,r11Historical:false,r11Expired:false,r11ReadUnavailable:false,r11CatalogUnavailable:false,r11ProviderFailure:null,r11GenerationResponses:[],r11Now:null,r11ReceiptDelayMs:0,r11UnknownCost:false,r11InvalidSelection:false,r11InvalidSources:false,r11InvalidModel:false,r11InvalidProvider:false,r11AliasModel:false,r11CompleteFailure:false,r11CollectFailure:false,r11FailJournalFailure:false,r11StopFailure:false};
 export const R11_EXCERPT='Adult gardeners often value practical tools and containers suited to the available growing space. This is a bounded public observation from an inert qualification fixture.';
 export const r11Endpoint={name:'Azure | openai/gpt-5.6-luna-20260709',model_id:'openai/gpt-5.6-luna',provider_name:'Azure',tag:'azure/us',status:0,context_length:1050000,max_completion_tokens:128000,supported_parameters:['reasoning','max_completion_tokens','tools','tool_choice','response_format','structured_outputs'],pricing:{prompt:'0.00000022',completion:'0.00000132',input_cache_read:'0.000000022',input_cache_write:'0.000000275',overrides:[{min_prompt_tokens:272000,prompt:'0.00000044',completion:'0.00000198',input_cache_read:'0.000000044',input_cache_write:'0.00000055'}]}};
 const canonical=value=>value===null||typeof value!=='object'?JSON.stringify(value):Array.isArray(value)?'['+value.map(canonical).join(',')+']':'{'+Object.keys(value).sort().map(key=>JSON.stringify(key)+':'+canonical(value[key])).join(',')+'}';
@@ -31,8 +32,10 @@ export function researchGenerationFixture(state,input,log,control){
  const call=match&&state.r11Research?.providerCalls.find(row=>row.receiptId===match[1]);
  if(!call)throw Error('Inert exact generation unavailable');
  log.push({kind:'inert-r11-generation-read',url:input.url,generationId:call.receiptId});
- const scenario=control.r11GenerationResponses?.shift()??'success';
+ const delayed=Number.isSafeInteger(control.r11ReceiptDelayMs)&&control.r11ReceiptDelayMs>0&&researchFixtureNow(control)<Date.parse(call.createdAt)+control.r11ReceiptDelayMs;
+ const scenario=delayed?'not_found':control.r11GenerationResponses?.shift()??'success';
  if(scenario==='not_found'||scenario==='unauthorized')return{status:scenario==='not_found'?404:401,body:R11_RAW_SENTINEL};
+ if(scenario==='rate_limited')return{status:429,body:R11_RAW_SENTINEL,retryAfter:'300'};
  if(scenario==='invalid_json')return{status:200,body:'{"private":"'+R11_RAW_SENTINEL};
  if(scenario==='invalid_envelope')return{status:200,body:JSON.stringify({error:R11_RAW_SENTINEL})};
  if(!['success','wrong_generation'].includes(scenario))throw Error('Unreviewed inert generation response');
@@ -41,7 +44,7 @@ export function researchGenerationFixture(state,input,log,control){
 }
 export const r11Search={requestHash:'2274c20fe35e47b44fdbb711dbd284d48293cea77a8e1c1088ca8c3fe138421f',wireHash:'4c966df85e61d3cd2666f37a10fe2d3334a90e29f71a3217be4e8b056cca3e19',wireBytes:844,maxTokens:4000};
 export function seedResearchFixture(state,options={}){
- const now=Date.now(),policy={version:'r11.public-research.1',id:r11Scope.policyId,businessId:r11Scope.businessId,ownerId:state.owner,workflowRunId:r11Scope.workflowRunId,goalId:r11Scope.goalId,operatingPolicyId:r11Scope.operatingPolicyId,query:R11_QUERY,
+ const now=researchFixtureNow(options),policy={version:'r11.public-research.1',id:r11Scope.policyId,businessId:r11Scope.businessId,ownerId:state.owner,workflowRunId:r11Scope.workflowRunId,goalId:r11Scope.goalId,operatingPolicyId:r11Scope.operatingPolicyId,query:R11_QUERY,
   allowedDomains:['gardening.example'],excludedDomains:['etsy.com','etsy.me','etsystatic.com'],sourceReviews:[{domain:'gardening.example',basis:'documented_api_factual_snippets',reviewHash:'1'.repeat(64)}],queryReviewHash:r11Hash({query:R11_QUERY,classification:'generic_nonpersonal_public_research'}),termsReviewHash:'2'.repeat(64),independentReviewHash:'3'.repeat(64),approvalHash:'4'.repeat(64),modelId:'openai/gpt-5.6-luna',providerEndpoint:'azure/us',recipients:{router:'openrouter.ai',search:'exa.ai',inferenceEndpoint:'azure/us'},retention:{inference:'no_training_zdr',search:'query_retention_improvement_training_possible',application:'bounded_attributed_audit_evidence'},validFrom:new Date(now-60_000).toISOString(),validUntil:new Date(now+240_000).toISOString(),maximumMicrousd:250_000,searchMicrousd:149_560,selectorMicrousd:26_311,priceLimit:{prompt:0.44,completion:1.98,request:0},quoteHash:R11_QUOTE_HASH,quoteValidUntil:new Date(now+240_000).toISOString()};
  const runtimeCapability=createHmac('sha256',R11_INERT_SERVER_KEY).update(canonical({version:'r11.owner-runtime.1',businessId:r11Scope.businessId,ownerId:state.owner,policyId:r11Scope.policyId,workflowRunId:r11Scope.workflowRunId})).digest('base64url');
  const businessContent={brandContext:'Synthetic adult gardening research Business',operatingRules:'Only the reviewed bounded public evidence proof',allowedActivity:'Research planning',restrictions:'No account or buyer data, commerce, publishing, store writes or product selection'};
@@ -49,7 +52,7 @@ export function seedResearchFixture(state,options={}){
  const installationId=id(911030),workflowDefinitionId=id(911031),priorHeldMicrounits='125000';
  const operatingPolicy={version:'r05.1',goalRevision:2,businessRevision:1,currency:'USD',businessLifetimeLimitMicrounits:'375000',policyLimitMicrounits:'250000',categoryLimits:[{category:'model',microunits:'250000'}],expectedCapRevision:0,expectedExposureMicrounits:priorHeldMicrounits,startsAt:policy.validFrom,expiresAt:policy.validUntil,maximumDispatches:2,minimumIntervalSeconds:0,stopOnTarget:false,financialMode:'bounded_model_cost_only',operations:[['research.search',policy.searchMicrousd],['research.model',policy.selectorMicrousd]].map(([operationKey,amount])=>({operationKey,installationId,workflowDefinitionId,purpose:'Research planning',provider:'openrouter',category:'model',accountId:null,accountRevision:null,sourceDomains:[...policy.allowedDomains],dataClasses:['generic_public_query','public_evidence'],maximumPerOperationMicrounits:String(amount)}))};
  const grant={version:'r11.owner-proof-grant.1',id:r11Scope.grantId,businessId:r11Scope.businessId,ownerId:state.owner,policyId:r11Scope.policyId,workflowRunId:r11Scope.workflowRunId,serverKeyHash:createHash('sha256').update(R11_INERT_SERVER_KEY).digest('hex'),runtimeCapabilityHash:createHash('sha256').update(runtimeCapability).digest('hex'),installationId,installationSnapshotHash:r11Hash({fixture:true}),workflowDefinitionId,businessContent,goalContent,operatingPolicy,researchPolicy:policy,search:structuredClone(r11Search),interpretationHash:r11Hash(goalContent),approvalHash:policy.approvalHash};
- const research={createdAt:new Date(now).toISOString(),businessId:r11Scope.businessId,ownerId:state.owner,priorHeldMicrounits,lifetimeCapMicrounits:'375000',continuationGrants:[],outcomes:[],grants:[{grantId:r11Scope.grantId,grantHash:r11Hash(grant),grant,used:false,expired:false,revoked:false}],policies:[],providerCalls:[],settlements:[],collections:[],results:[],markers:[],revocations:[]};
+ const research={createdAt:new Date(now).toISOString(),businessId:r11Scope.businessId,ownerId:state.owner,priorHeldMicrounits,lifetimeCapMicrounits:'375000',continuationGrants:[],outcomes:[],grants:[{grantId:r11Scope.grantId,grantHash:r11Hash(grant),grant,used:false,expired:false,revoked:false}],policies:[],providerCalls:[],settlements:[],collections:[],results:[],markers:[],revocations:[],receiptCandidates:[]};
  if(options.r11Historical)seedHistoricalResearch(research);
  return research;
 }
@@ -90,8 +93,8 @@ function projection(state,business,control,empty=false){
    return{phase:marker.phase,requestId:marker.requestId,marked:true,settled:!!settlements.length,actualMicrounits,providerRequestId:settlements[0]?.providerRequestId??null};
   });
   const collection=research.collections.find(row=>row.policyId===item.policyId),result=research.results.find(row=>row.policyId===item.policyId)??null;
-  const expired=!!control.r11Expired||Date.parse(item.policy.validUntil)<=Date.now();
-  return{...item,phases,result,expired,outcomes:research.outcomes.filter(row=>row.policyId===item.policyId),operations:item.operationKeys,status:result?'completed':item.revoked?'revoked':expired?'expired':phases.some(row=>row.phase==='select')?'selection_recording_pending':collection?'collection_ready':phases.some(row=>row.phase==='search')?'search_recording_pending':'ready'};
+  const expired=!!control.r11Expired||Date.parse(item.policy.validUntil)<=researchFixtureNow(control);
+  return{...item,phases,result,expired,receiptChecks:receiptEntries(research,item,control),outcomes:research.outcomes.filter(row=>row.policyId===item.policyId),operations:item.operationKeys,status:result?'completed':item.revoked?'revoked':expired?'expired':phases.some(row=>row.phase==='select')?'selection_recording_pending':collection?'collection_ready':phases.some(row=>row.phase==='search')?'search_recording_pending':'ready'};
  });
  const visible=rows=>empty?[]:rows.filter(item=>item.grant.businessId===business).map(item=>({...item,expired:!!control.r11Expired||Date.parse(item.grant.researchPolicy.validUntil)<=Date.now()}));
  const grants=visible(research?.grants??[]),continuationGrants=visible(research?.continuationGrants??[]);
@@ -164,7 +167,7 @@ export function researchProviderFixture(state,input,effects,control){
  const wire=JSON.stringify(input.body);
  if([proof.policy.businessId,proof.policy.ownerId,R11_INERT_SERVER_KEY,authority(research,proof.policyId,proof.workflowRunId,proof.attemptVersion)].some(value=>wire.includes(value)))throw Error('Inert provider wire contains private scope');
  const receiptId=`gen-r11-${proof.policyId}-${input.phase}-receipt`;
- const call={kind:'inert-r11-provider',business:proof.policy.businessId,policyId:proof.policyId,phase:input.phase,requestId:marker.requestId,receiptId};
+ const call={kind:'inert-r11-provider',business:proof.policy.businessId,policyId:proof.policyId,phase:input.phase,requestId:marker.requestId,receiptId,createdAt:new Date(researchFixtureNow(control)).toISOString()};
  research.providerCalls.push(call);effects.push(call);
  return{receiptId,fail:control.r11ProviderFailure===input.phase,unknownCost:!!control.r11UnknownCost,invalidSelection:!!control.r11InvalidSelection,invalidSources:!!control.r11InvalidSources,invalidModel:!!control.r11InvalidModel,invalidProvider:!!control.r11InvalidProvider,aliasModel:!!control.r11AliasModel};
 }
@@ -195,11 +198,17 @@ export function researchRuntimeFixture(state,name,args,effects,control){
    if(research.results.some(result=>result.policyId===proof.policyId)||payload.phase==='search'&&research.collections.some(collection=>collection.policyId===proof.policyId))return ok({outcomeId:null,recorded:false,replayed:false,superseded:true,reason:'phase_progressed',workflowStatus:proof.workflowStatus});
    return ok(saveOutcome(research,proof,'failure',payload.phase,phaseMarker?.requestId??null,payload.reason,payload.observation,effects));
   }
-  if(proof.revoked||control.r11Expired||Date.parse(proof.policy.validUntil)<=Date.now())return error('Inert exact active research policy unavailable');
-  if(args.p_operation==='load')return ok({policy:proof.policy,policyHash:proof.policyHash,search:r11Search,collection:research.collections.find(item=>item.policyId===proof.policyId)??null,attemptVersion:proof.attemptVersion,operationKeys:proof.operationKeys});
+  if(['stage_receipt','claim_receipt','record_receipt'].includes(args.p_operation))return ok(receiptOperation({research,proof,operation:args.p_operation,payload,effects,control,hash:r11Hash,rawSentinel:R11_RAW_SENTINEL,saveOutcome}));
+  const receiptCandidates=receiptEntries(research,proof,control,true);
+  if(proof.revoked||receiptCandidates.some(row=>['expired','stopped'].includes(row.status))||!receiptCandidates.length&&(control.r11Expired||Date.parse(proof.policy.validUntil)<=researchFixtureNow(control)))return error('Inert exact active research policy unavailable');
+  if(args.p_operation==='load')return ok({policy:proof.policy,policyHash:proof.policyHash,search:r11Search,collection:research.collections.find(item=>item.policyId===proof.policyId)??null,attemptVersion:proof.attemptVersion,operationKeys:proof.operationKeys,receiptCandidates});
+  if(['collect','complete'].includes(args.p_operation)){const phase=args.p_operation==='collect'?'search':'select',receipt=receiptCandidates.find(row=>row.phase===phase);if(receipt&&(receipt.status!=='verified'||payload.providerRequestId!==receipt.candidate.providerRequestId))return error('Inert verified receipt required');
+   if(receipt&&phase==='search'&&(r11Hash(payload.collection?.sources?.map(source=>({type:'url_citation',url_citation:{url:source.url,title:source.title,content:source.excerpt}})))!==r11Hash(receiptCollectionAnnotations(receipt.candidate.output))||payload.collection.sources.some(source=>source.retrievedAt!==receipt.candidate.receivedAt)))return error('Inert immutable search output mismatch');
+   if(receipt&&phase==='select'&&r11Hash(payload.selection)!==r11Hash(receipt.candidate.output))return error('Inert immutable selection mismatch');}
+  if(args.p_operation==='guard'&&(control.r11Expired||Date.parse(proof.policy.validUntil)<=researchFixtureNow(control)))return error('Inert dispatch authority expired');
   if(args.p_operation==='guard'){
    if(!['search','select'].includes(payload.phase))return error('Inert phase unavailable');
-   const markedAt=Date.now(),quoteUntil=Date.parse(payload.quoteValidUntil);
+   const markedAt=researchFixtureNow(control),quoteUntil=Date.parse(payload.quoteValidUntil);
    if(proof.policy.version==='r11.public-research.2'&&(typeof payload.quoteValidUntil!=='string'||!Number.isFinite(quoteUntil)||quoteUntil<=markedAt||quoteUntil>markedAt+5*60_000))return error('Inert fresh phase quote required');
    if(proof.policy.version==='r11.public-research.1'&&Object.hasOwn(payload,'quoteValidUntil'))return error('Inert legacy quote contract changed');
    const previous=research.markers.find(item=>item.policyId===proof.policyId&&item.phase===payload.phase);
@@ -216,6 +225,8 @@ export function researchRuntimeFixture(state,name,args,effects,control){
    if(control.r11CollectFailure)return error('Inert collection persistence unavailable');
    const marker=research.markers.find(item=>item.policyId===proof.policyId&&item.phase==='search'),settlement=research.settlements.find(item=>item.requestId===marker?.requestId);
    if(!marker||payload.searchRequestId!==marker.requestId||!settlement||settlement.actualMicrounits===null||settlement.providerRequestId!==payload.providerRequestId||r11Hash(payload.collection)!==payload.collectionHash||r11Hash(payload.lineage)!==payload.lineageHash||canonical(payload.collection)!==payload.collectionCanonical||canonical(payload.lineage)!==payload.lineageCanonical)return error('Inert collection lineage unavailable');
+   const existing=research.collections.find(item=>item.policyId===proof.policyId);
+   if(existing)return ok({collectionId:existing.id,collectionHash:existing.collectionHash,lineageHash:existing.lineageHash,replayed:true});
    const saved={id:id(911006+research.collections.length),policyId:proof.policyId,collection:payload.collection,collectionHash:payload.collectionHash,lineage:payload.lineage,lineageHash:payload.lineageHash,selector:{requestHash:payload.selectorRequestHash,wireHash:payload.selectorWireHash,wireBytes:payload.selectorWireBytes,maxTokens:payload.selectorMaxTokens}};
    if(!research.collections.some(item=>item.policyId===proof.policyId)){research.collections.push(saved);effects.push({kind:'in-memory-r11-collection',business,policyId:proof.policyId,collectionId:saved.id});}
    return ok({collectionId:saved.id,collectionHash:saved.collectionHash,lineageHash:saved.lineageHash,replayed:false});

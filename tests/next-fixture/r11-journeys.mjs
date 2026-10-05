@@ -99,9 +99,9 @@ export async function runResearchQualificationBrowser({page,context,origin,noKey
   await submitRunEvenIfDisabled();await page.reload();assert.equal(fixture().providerCalls.length,1);assert.equal(await result(page).count(),0);assert.equal(fixture().outcomes.length,1);
  });
  await check('R11 safe response diagnostics survive reload without raw provider text or false result success',async()=>{
-  for(const scenario of [{r11InvalidSources:true},{r11InvalidModel:true},{r11InvalidSelection:true},{r11CompleteFailure:true}]){
+  for(const scenario of [{r11InvalidSources:true},{r11InvalidModel:true},{r11InvalidSelection:true}]){
    await reset();await activate();await control(scenario);await runButton(page).click();await page.waitForURL(/notice=review-proof/);await proof(page).getByRole('heading',{name:'Saved proof failure',exact:true}).waitFor();
-   const calls=scenario.r11InvalidSources||scenario.r11InvalidModel?1:2;assert.equal(fixture().providerCalls.length,calls);assert.equal(fixture().settlements.length,scenario.r11InvalidModel?1:calls*2);assert.equal(fixture().results.length,0);assert.equal(await result(page).count(),0);assert.equal(await runButton(page).isDisabled(),true);assert.equal(fixture().policies[0].workflowStatus,'needs_owner');assert.ok(!JSON.stringify(fixture().outcomes).includes(R11_RAW_SENTINEL));
+   const calls=scenario.r11InvalidSources||scenario.r11InvalidModel?1:2;assert.equal(fixture().providerCalls.length,calls);assert.equal(fixture().settlements.length,scenario.r11InvalidModel||scenario.r11InvalidSources?1:scenario.r11InvalidSelection?3:calls*2);assert.equal(fixture().results.length,0);assert.equal(await result(page).count(),0);assert.equal(await runButton(page).isDisabled(),true);assert.equal(fixture().policies[0].workflowStatus,'needs_owner');assert.ok(!JSON.stringify(fixture().outcomes).includes(R11_RAW_SENTINEL));
    await proof(page).getByText('Safe observed response details',{exact:true}).click();assert.ok(!(await proof(page).innerText()).includes(R11_RAW_SENTINEL));
    if(scenario.r11InvalidSources){await proof(page).getByText('Model identity: approved canonical model',{exact:true}).waitFor();await proof(page).getByText('Rejected source domains: 1; malformed annotations: 1',{exact:true}).waitFor();await page.setViewportSize({width:320,height:800});await page.screenshot({path:path.join(output,'r11-research-safe-failure-320x800.png'),fullPage:true});await page.setViewportSize({width:1280,height:720});}
    await submitRunEvenIfDisabled();await page.reload();assert.equal(fixture().providerCalls.length,calls);assert.equal(await result(page).count(),0);
@@ -121,28 +121,6 @@ export async function runResearchQualificationBrowser({page,context,origin,noKey
   assert.equal(await result(page).getByRole('link',{name:'Synthetic public gardening report',exact:true}).getAttribute('href'),'https://gardening.example/report');assert.match(await result(page).innerText(),/Adult gardeners often value practical tools/);assert.equal(await runButton(page).isDisabled(),true);
   assert.ok(actions.some(item=>item.url.includes('/dashboard/research-qualification')&&Number(item.revalidated)>0),'Real server action must revalidate the unchanged page');
   await submitRunEvenIfDisabled();await page.reload();await result(page).waitFor();await page.getByRole('link',{name:'Back to Research',exact:true}).click();await page.waitForURL(/view=research/);await page.goBack();await result(page).waitFor();await page.goForward();await page.waitForURL(/view=research/);await page.goBack();await result(page).waitFor();assert.equal(fixture().providerCalls.length,2);
- });
- await check('R11 explicit saved-route verification shows safe terminal diagnostics and recovers transient metadata reads without paid or financial changes',async()=>{
-  const requestId=fixture().markers.find(item=>item.phase==='search').requestId;
-  const route=proof(page).locator(`[data-r11-route-check="${requestId}"]`),original=structuredClone(fixture()),effects=boundary.effects.length;
-  const reads=()=>boundary.log.filter(item=>item.kind==='inert-r11-generation-read').length,before=reads();
-  await submitSavedRouteCheck(page,route);
-  await route.getByText(/Documented inference provider: Azure/).waitFor();await route.getByText(/does not independently establish the regional endpoint or enumerate every inner call/).waitFor();
-  assert.equal(reads(),before+1);assert.deepEqual(fixture(),original);assert.equal(boundary.effects.length,effects);assert.equal(fixture().settlements.length,4);
-  assert.equal(boundary.log.filter(item=>item.kind==='inert-r11-generation-read').at(-1).generationId,original.providerCalls.find(item=>item.requestId===requestId).receiptId);
-  assert.match(await route.innerText(),/does not qualify prior output or authorize another run/);
-  assert.ok(!(await route.innerText()).includes(R11_RAW_SENTINEL));assert.ok(!(await route.innerText()).includes('inert-r11-generation-placeholder'));
-  await control({r11GenerationResponses:['unauthorized']});
-  await submitSavedRouteCheck(page,route,/Receipt metadata check: api_failure; HTTP 401; reads attempted 1/);
-  assert.equal(await route.locator('[data-r11-route-evidence]').count(),0);assert.equal(reads(),before+2);assert.deepEqual(fixture(),original);assert.equal(boundary.effects.length,effects);
-  assert.match(await route.innerText(),/Existing failures and charges remain unchanged; no new run was started/);assert.ok(!(await route.innerText()).includes(R11_RAW_SENTINEL));
-  await control({r11GenerationResponses:['not_found','success']});await submitSavedRouteCheck(page,route);
-  assert.equal(await route.getByRole('alert').count(),0);assert.equal(reads(),before+4);assert.deepEqual(fixture(),original);assert.equal(boundary.effects.length,effects);
-  assert.deepEqual(boundary.log.filter(item=>item.kind==='inert-r11-generation-read').slice(-4).map(item=>item.generationId),Array(4).fill(original.providerCalls.find(item=>item.requestId===requestId).receiptId));
-  await page.setViewportSize({width:320,height:800});await route.scrollIntoViewIfNeeded();
-  const geometry=await page.evaluate(()=>({width:document.documentElement.scrollWidth,innerWidth}));assert.ok(geometry.width<=geometry.innerWidth+1,JSON.stringify(geometry));
-  await page.screenshot({path:path.join(output,'r11-research-route-evidence-320x800.png'),fullPage:true});await page.setViewportSize({width:1280,height:720});
-  await page.reload();await result(page).waitFor();assert.equal(await route.locator('[data-r11-route-evidence]').count(),0);assert.equal(reads(),before+4);assert.deepEqual(fixture(),original);
  });
  await check('R11 terminal evidence survives expiry and missing server key while Stop remains explicit and usable',async()=>{
   await control({r11Expired:true});await page.reload();await result(page).waitFor();await proof(page).getByText(/Expired: no new dispatch is authorized/).waitFor();assert.equal(await runButton(page).isDisabled(),true);
@@ -168,6 +146,29 @@ export async function runResearchQualificationBrowser({page,context,origin,noKey
   await proof(page).getByRole('button',{name:'Reconcile saved Stop',exact:true}).click();await proof(page).getByText(/original stop cause remains undetermined/).waitFor();await proof(page).getByRole('heading',{name:'Saved owner Stop',exact:true}).waitFor();assert.equal(fixture().policies[0].workflowStatus,'cancelled');assert.equal(fixture().outcomes.length,2);assert.equal(fixture().outcomes[0].observation,null);assert.deepEqual(fixture().settlements,settlement);assert.equal(fixture().providerCalls.length,1);assert.equal(boundary.log.filter(item=>item.kind==='inert-r11-public-catalog').length,catalogs);
   await page.reload();await proof(page).getByText(/original stop cause remains undetermined/).waitFor();assert.equal(await proof(page).getByRole('button',{name:'Reconcile saved Stop',exact:true}).count(),0);
   await page.setViewportSize({width:320,height:800});await page.screenshot({path:path.join(output,'r11-research-legacy-reconciled-320x800.png'),fullPage:true});await page.setViewportSize({width:1280,height:720});
+ });
+ await check('R11 explicit saved-route verification shows safe terminal diagnostics and recovers transient metadata reads without paid or financial changes',async()=>{
+  await page.goto(origin+researchRoute());
+  const requestId=fixture().markers.find(item=>item.phase==='search').requestId;
+  const route=proof(page).locator(`[data-r11-route-check="${requestId}"]`),original=structuredClone(fixture()),effects=boundary.effects.length;
+  const reads=()=>boundary.log.filter(item=>item.kind==='inert-r11-generation-read').length,before=reads();
+  await submitSavedRouteCheck(page,route);
+  await route.getByText(/Documented inference provider: Azure/).waitFor();await route.getByText(/does not independently establish the regional endpoint or enumerate every inner call/).waitFor();
+  assert.equal(reads(),before+1);assert.deepEqual(fixture(),original);assert.equal(boundary.effects.length,effects);assert.equal(fixture().settlements.length,1);
+  assert.equal(boundary.log.filter(item=>item.kind==='inert-r11-generation-read').at(-1).generationId,original.providerCalls.find(item=>item.requestId===requestId).receiptId);
+  assert.match(await route.innerText(),/does not qualify prior output or authorize another run/);
+  assert.ok(!(await route.innerText()).includes(R11_RAW_SENTINEL));assert.ok(!(await route.innerText()).includes('inert-r11-generation-placeholder'));
+  await control({r11GenerationResponses:['unauthorized']});
+  await submitSavedRouteCheck(page,route,/Receipt metadata check: api_failure; HTTP 401; reads attempted 1/);
+  assert.equal(await route.locator('[data-r11-route-evidence]').count(),0);assert.equal(reads(),before+2);assert.deepEqual(fixture(),original);assert.equal(boundary.effects.length,effects);
+  assert.match(await route.innerText(),/Existing failures and charges remain unchanged; no new run was started/);assert.ok(!(await route.innerText()).includes(R11_RAW_SENTINEL));
+  await control({r11GenerationResponses:['not_found','success']});await submitSavedRouteCheck(page,route);
+  assert.equal(await route.getByRole('alert').count(),0);assert.equal(reads(),before+4);assert.deepEqual(fixture(),original);assert.equal(boundary.effects.length,effects);
+  assert.deepEqual(boundary.log.filter(item=>item.kind==='inert-r11-generation-read').slice(-4).map(item=>item.generationId),Array(4).fill(original.providerCalls.find(item=>item.requestId===requestId).receiptId));
+  await page.setViewportSize({width:320,height:800});await route.scrollIntoViewIfNeeded();
+  const geometry=await page.evaluate(()=>({width:document.documentElement.scrollWidth,innerWidth}));assert.ok(geometry.width<=geometry.innerWidth+1,JSON.stringify(geometry));
+  await page.screenshot({path:path.join(output,'r11-research-route-evidence-320x800.png'),fullPage:true});await page.setViewportSize({width:1280,height:720});
+  await page.reload();await proof(page).getByText(/original stop cause remains undetermined/).waitFor();assert.equal(await route.locator('[data-r11-route-evidence]').count(),0);assert.equal(reads(),before+4);assert.deepEqual(fixture(),original);
  });
  await check('R11 same-Goal continuation binds remaining allowance and two explicit consents without another lifetime budget',async()=>{
   const saved=structuredClone(fixture()),effects=boundary.effects.length;
