@@ -2,7 +2,7 @@ import type { JsonObject } from "../core/contracts";
 import { fetchCreativeModelQuote } from "../creative/budget";
 import { hash, requireEtsy, UUID, type EtsyProductPackage } from "../etsy/contracts";
 import { OpenRouterAdapter } from "../models/openrouter";
-import { ModelProviderError, type ModelProviderAdapter } from "../models/types";
+import { ModelProviderError, type ModelDispatchAdmission, type ModelProviderAdapter } from "../models/types";
 import type { WorkerInvocationContext } from "../workers/types";
 import { LISTING_MODELS, listingCallReservation, validateListingQuote, type ListingPriceReader, type ListingQuote } from "./budget";
 import { assembleListingProduct, validateListingInput, validateListingProposal, validateListingReview, type ListingInput, type ListingProposal, type ListingReview } from "./contracts";
@@ -38,6 +38,7 @@ export interface ListingRunRepository {
 }
 export type ListingRunResult = { status: ListingRunState["status"]; reason?: string };
 export type ListingRunOptions = {
+  admissionFor?(value: { role: ListingRole; requestHash: string; reservedMicrousd: number; providerModelId: string }): ModelDispatchAdmission;
   adapter?: Pick<ModelProviderAdapter, "invokeStructured">; prices?: ListingPriceReader;
   issue(product: EtsyProductPackage, record: ReviewedListing): Promise<ListingIssuedEnvelopes>;
 };
@@ -109,7 +110,8 @@ export async function executeListingRun(repository: ListingRunRepository, option
   const repo = { load: repository.load.bind(repository), guard: repository.guard.bind(repository), reserve: repository.reserve.bind(repository),
     settle: repository.settle.bind(repository), persist: repository.persist.bind(repository), finish: repository.finish.bind(repository), fail: repository.fail.bind(repository) };
   const prices = options.prices ?? fetchCreativeModelQuote, issue = options.issue;
-  const adapter = options.adapter ?? new OpenRouterAdapter(), invoke = adapter.invokeStructured.bind(adapter);
+  const suppliedAdapter = options.adapter, admissionFor = options.admissionFor;
+  const suppliedInvoke = suppliedAdapter?.invokeStructured.bind(suppliedAdapter);
   let reason = "listing_load_failed", state: ListingRunState | undefined;
   try {
     state = snapshot(await repo.load());
@@ -161,7 +163,8 @@ export async function executeListingRun(repository: ListingRunRepository, option
       let receiptData: ReturnType<typeof accounting>, failure: string | null = null;
       reason = "listing_provider_failed";
       try {
-        const response = await invoke(request);
+        const adapter = suppliedAdapter ?? new OpenRouterAdapter({ admitDispatch: admissionFor?.({ role, requestHash: prepared.requestHash, reservedMicrousd: reservation.reservedMicrousd, providerModelId: LISTING_MODELS[role] }) });
+        const response = await (suppliedInvoke ?? adapter.invokeStructured.bind(adapter))(request);
         // Capture charge/identity before cloning or validating untrusted output.
         receiptData = accounting(response);
         try {

@@ -64,6 +64,7 @@ async function browserBundle() {
     "src/components/console/console-command.tsx", "src/components/console/console-command.css",
     "src/components/guided/quest-kickoff.tsx", "src/components/guided/quest-kickoff.css",
     "src/lib/core-ui/quest-draft.ts",
+    "src/core/quest-intake.ts",
   ]);
   const result = await build({
     absWorkingDir: root, bundle: true, write: false, format: "iife", platform: "browser", target: "es2022", jsx: "automatic",
@@ -120,7 +121,7 @@ async function browserBundle() {
       });
       builder.onResolve({ filter: /.*/ }, args => {
         if (!args.importer.startsWith(path.join(root, "src") + path.sep)) return;
-        assert.ok(["react", "react-dom", "react/jsx-runtime", "./console-command.css", "./quest-kickoff.css"].includes(args.path), `Unexpected application dependency: ${args.path}`);
+        assert.ok(["react", "react-dom", "react/jsx-runtime", "./console-command.css", "./quest-kickoff.css", "../../core/quest-intake"].includes(args.path), `Unexpected application dependency: ${args.path}`);
       });
     } }],
   });

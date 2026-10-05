@@ -1,14 +1,14 @@
 /** Read-only Decisions navigation. Selection never grants execution authority. */
 export const CONSOLE_DECISION_PAGE_SIZE = 25;
 export const CONSOLE_DECISION_UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
-export type ConsoleDecisionOptions = { businessId?: string; selectedId?: string; page?: number; status?: string };
-export type ConsoleDecisionQuery = { businessId: string | null; selectedId: string | null; page: number; pageSize: 25; offset: number; status: "open" | "all" | "resolved" | "declined" | "cancelled" };
+export type ConsoleDecisionOptions = { workspace?: string; businessId?: string; selectedId?: string; page?: number; status?: string };
+export type ConsoleDecisionQuery = { workspace?: string; businessId: string | null; selectedId: string | null; page: number; pageSize: 25; offset: number; status: "open" | "all" | "resolved" | "declined" | "cancelled" };
 export function consoleDecisionQuery(options: ConsoleDecisionOptions = {}): ConsoleDecisionQuery {
   const page = options.page ?? 1, status = options.status ?? "open";
   if (!Number.isSafeInteger(page) || page < 1 || !Number.isSafeInteger(page * CONSOLE_DECISION_PAGE_SIZE)) throw new Error("Invalid decision page.");
   for (const value of [options.businessId, options.selectedId]) if (value !== undefined && !CONSOLE_DECISION_UUID.test(value)) throw new Error("Invalid decision identity.");
   if (!["open", "all", "resolved", "declined", "cancelled"].includes(status)) throw new Error("Invalid decision status.");
-  return { businessId: options.businessId ?? null, selectedId: options.selectedId ?? null, page, pageSize: CONSOLE_DECISION_PAGE_SIZE, offset: (page - 1) * CONSOLE_DECISION_PAGE_SIZE, status: status as ConsoleDecisionQuery["status"] };
+  return { ...(options.workspace ? { workspace: options.workspace } : {}), businessId: options.businessId ?? null, selectedId: options.selectedId ?? null, page, pageSize: CONSOLE_DECISION_PAGE_SIZE, offset: (page - 1) * CONSOLE_DECISION_PAGE_SIZE, status: status as ConsoleDecisionQuery["status"] };
 }
 export function consoleDecisionOptionsFromSearch(params: Record<string, string | string[] | undefined>): ConsoleDecisionOptions {
   const one = (key: string) => {
@@ -16,8 +16,9 @@ export function consoleDecisionOptionsFromSearch(params: Record<string, string |
     if (Array.isArray(value)) { if (value.length !== 1) throw new Error("Ambiguous decision selection."); return value[0]; }
     return value;
   };
+  const workspace = new URLSearchParams(); for (const key of ["quest", "episode", "step", "agent", "sourceArtifact"]) { const value = one(key); if (value !== undefined) { if (!CONSOLE_DECISION_UUID.test(value)) throw new Error("Invalid workspace identity"); workspace.set(key, value); } }
   const page = one("page"), business = one("business"), selected = one("decision");
-  return { businessId: business === "" ? undefined : business, selectedId: selected === "" ? undefined : selected,
+  return { ...(workspace.size ? { workspace: workspace.toString() } : {}), businessId: business === "" ? undefined : business, selectedId: selected === "" ? undefined : selected,
     page: page === undefined ? undefined : /^\d+$/.test(page) ? Number(page) : Number.NaN, status: one("status") };
 }
 export function consoleDecisionHref(query: ConsoleDecisionQuery, changes: Partial<Pick<ConsoleDecisionQuery, "businessId" | "selectedId" | "page" | "status">> = {}): string {
@@ -29,6 +30,7 @@ export function consoleDecisionHref(query: ConsoleDecisionQuery, changes: Partia
   if (validated.selectedId) params.set("decision", validated.selectedId);
   if (validated.page !== 1) params.set("page", String(validated.page));
   if (validated.status !== "open") params.set("status", validated.status);
+  for (const [key, value] of new URLSearchParams(query.workspace)) params.set(key, value);
   return `/dashboard?${params.toString()}`;
 }
 
@@ -38,7 +40,7 @@ export function safeConsoleDecisionReturnPath(value: unknown): string | null {
   try {
     const url = new URL(value, "https://console.invalid");
     if (url.origin !== "https://console.invalid" || url.pathname !== "/dashboard" || url.hash || url.searchParams.get("view") !== "decisions") return null;
-    const allowed = new Set(["view", "business", "decision", "page", "status"]);
+    const allowed = new Set(["view", "business", "decision", "page", "status", "quest", "episode", "step", "agent", "sourceArtifact"]);
     if ([...url.searchParams.keys()].some(key => !allowed.has(key) || url.searchParams.getAll(key).length !== 1)) return null;
     return consoleDecisionHref(consoleDecisionQuery(consoleDecisionOptionsFromSearch(Object.fromEntries(url.searchParams))));
   } catch { return null; }
@@ -83,6 +85,6 @@ export function consoleDecisionActionReturnPath(value: unknown, scope: { interve
   const requestedBusiness = params.get("business") ?? undefined;
   if (requestedBusiness && scope.businessId && requestedBusiness !== scope.businessId) return null;
   // Absence of Business is an explicit aggregate browsing scope, not an invitation to narrow it.
-  return consoleDecisionHref(consoleDecisionQuery({ businessId: requestedBusiness,
+  return consoleDecisionHref(consoleDecisionQuery({ businessId: requestedBusiness, workspace: consoleDecisionOptionsFromSearch(Object.fromEntries(params)).workspace,
     selectedId: scope.interventionId, page: Number(params.get("page") ?? 1), status: params.get("status") ?? undefined }));
 }

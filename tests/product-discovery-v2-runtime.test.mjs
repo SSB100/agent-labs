@@ -82,7 +82,7 @@ test('rejected paid plan reaches the durable workflow failure with safe diagnost
     if(scenario==='query_focus_length')output.queryFocus=[privateText.repeat(20)];
     if(scenario==='extra_property')output[privateText]=privateText;
     let providerCalls=0;
-    const adapter=new OpenRouterAdapter({
+    const adapter=new OpenRouterAdapter({ admitDispatch: async () => {},
       config:{apiKey:'synthetic-only',baseUrl:'https://provider.invalid/api/v1',appUrl:'https://app.invalid',appName:'Synthetic fixture'},
       fetcher:async()=>{
         providerCalls++;

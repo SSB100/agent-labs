@@ -11,7 +11,10 @@ test('Work actual-root document bundles the complete production shell and exact 
   const fixture=createCollectionBrowserFixture(),html=await collectionDocument(selectedArtifactRoute,{fixture});
   assert.deepEqual(fixture.loaderCalls.map(call=>call.name),['loadConsoleWorkPage','loadConsoleWorkDetail','loadRunCostData']);
   assert.match(html,/<div id="collection-root-island" style="display:contents"><!--\$-->/);assert.match(html,/hydrateRoot/);assert.match(html,/__loadCollectionRootFixture/);assert.match(html,/consoleCollectionToolbar/);
-  assert.match(html,/1–25 of (?:<!-- -->)?127 runs/);assert.match(html,/100 loaded/);assert.match(html,/Exact selected artifact/);
+  assert.match(html,/1–25 of (?:<!-- -->)?127 runs/);assert.match(html,/25 loaded of 133/);assert.match(html,/Exact selected artifact/);
+  const detail=fixture.loaderCalls.find(call=>call.name==='loadConsoleWorkDetail').result;
+  for(const key of ['stages','tasks','workers','interventions','artifacts']){assert.equal(detail.completeness[key].loaded,25);assert.equal(detail.completeness[key].total,133);assert.equal(detail.completeness[key].hasMore,true);assert.equal(detail.completeness[key].complete,false);}
+  assert.equal(detail.artifactSelection.item.id,exactArtifactId);
   assert.doesNotMatch(html,/PRIVATE_ARTIFACT_PAYLOAD_|PRIVATE_STAGE_PAYLOAD|service_role|OPENROUTER_API_KEY/);assert.deepEqual(fixture.denied,[]);
 });
 

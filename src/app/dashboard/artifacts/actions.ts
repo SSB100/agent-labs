@@ -1,4 +1,5 @@
 "use server";
+import { verifyOwnerBusiness } from "@/lib/core-ui/owner-business";
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -40,7 +41,7 @@ function feedback(context:Awaited<ReturnType<typeof requireOwnerUiContext>>,pane
 export async function approveCreativeCandidate(form: FormData) {
   const context = await requireOwnerUiContext(), businessId = value(form, "businessId"), approvalId = value(form, "approvalId");
   const {error,success,owned}=feedback(context,"technical");
-  if (!uuidPattern.test(approvalId) || !context.businesses.some(b => b.id === businessId)) return error("Business or approval reference not found.");
+  if (!uuidPattern.test(approvalId) || !(await verifyOwnerBusiness(context,businessId))) return error("Business or approval reference not found.");
   owned(businessId);
   if (!["confirmOriginalIntent", "confirmTechnicalOnly", "confirmPrintSpec", "confirmTerms", "confirmBudget"].every(key => value(form, key) === "on")) return error("Confirm the specific original design, technical scope, print specification, provider terms and total allowance.");
   const generatorModel = selectedProvider(form,error);
@@ -66,7 +67,7 @@ export async function startCreativeRun(form: FormData) {
   const {error,success,owned}=feedback(context,"receipts");
   if (!uuidPattern.test(approvalId)) return error("Invalid creative approval reference.");
   const existing = await context.supabase.from("creative_approvals").select("business_id").eq("id", approvalId).maybeSingle();
-  if (existing.error || !existing.data || !context.businesses.some(b => b.id === existing.data?.business_id)) return error("Creative approval not found.");
+  if (existing.error || !existing.data || !(await verifyOwnerBusiness(context,existing.data?.business_id))) return error("Creative approval not found.");
   owned(existing.data.business_id);
   const runtimeCapability = `${randomUUID()}${randomUUID()}`, nonce = randomUUID();
   const launch = await context.supabase.rpc("begin_creative_run", { p_approval_id: approvalId, p_launch_nonce: nonce, p_runtime_capability: runtimeCapability });
@@ -89,7 +90,7 @@ export async function approveProductionCreativeCandidate(form: FormData) {
   const generatorModel = selectedProvider(form,error);
   const candidateResult = await context.supabase.from("product_candidates").select("*").eq("id", candidateId).maybeSingle();
   const candidate = candidateResult.data as ProductCandidate | null;
-  if (candidateResult.error || !candidate || !context.businesses.some(b => b.id === candidate.business_id)) return error("Owned candidate not found.");
+  if (candidateResult.error || !candidate || !(await verifyOwnerBusiness(context,candidate.business_id))) return error("Owned candidate not found.");
   owned(candidate.business_id);
   const decisionsResult = await context.supabase.from("product_decisions").select("*").eq("candidate_id", candidate.id).eq("business_id", candidate.business_id).order("created_at", { ascending: false }).limit(2);
   const decisions = (decisionsResult.data ?? []) as ProductDecisionRecord[], selected = decisions.find(d => d.id === decisionId);
@@ -123,7 +124,7 @@ export async function closeExpiredCreativeRun(form: FormData) {
   const {error,success,owned}=feedback(context,"receipts");
   if (!uuidPattern.test(runId)) return error("Invalid creative run reference.");
   const existing=await context.supabase.from("creative_runs").select("business_id").eq("id",runId).maybeSingle();
-  if(existing.error||!existing.data||!context.businesses.some(b=>b.id===existing.data?.business_id))return error("Invalid creative run reference.");
+  if(existing.error||!existing.data||!(await verifyOwnerBusiness(context,existing.data?.business_id)))return error("Invalid creative run reference.");
   owned(existing.data.business_id);
   const result = await context.supabase.rpc("close_expired_creative_run", { p_creative_run_id: runId });
   if (result.error) return error(result.error.message);

@@ -12,7 +12,7 @@ test("actual Dashboard motion snapshots join exact displayed overview, stage, de
   for (const [view, detail] of [["overview", false], ["work", true], ["decisions", false]]) {
     const fixture = await integratedMotionPage("saved", { view, detail });
     const snapshot = fixture.boundary.props.snapshot;
-    assert.equal(fixture.boundary.props.scopeKey, view === "decisions" ? "decisions:owned:page:1" : detail ? `run:${ids.run}` : "recent-owned-work");
+    assert.equal(fixture.boundary.props.scopeKey, view === "decisions" ? "decisions:owned:page:1" : detail ? `run:${ids.run}` : `quest:00000000-0000-4000-8000-000000008200:episode:${ids.run}`);
     assert.equal(snapshot.available, true);
     const actual = displayedReceipts(fixture.markup);
     assert.ok(actual.length >= 1, view);

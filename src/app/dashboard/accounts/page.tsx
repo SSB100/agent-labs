@@ -1,3 +1,5 @@
+import { safeTablePage, historyRows } from "@/lib/core-ui/history-read";
+import { HistoryPager } from "@/components/console/history-pager";
 import { ConsoleRetainedWorkspace } from "@/components/console/console-retained-workspace";
 import Link from "next/link";
 import { accountReturnHref } from "@/accounts/connection-feedback";
@@ -72,9 +74,6 @@ function first(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
 }
 
-function rows<T>(value: unknown): T[] {
-  return Array.isArray(value) ? (value as T[]) : [];
-}
 
 function record<T>(value: unknown): T | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -112,40 +111,20 @@ export default async function AccountsPage({ searchParams }: AccountsPageProps) 
   const accountMessage = accountNoticeMessage(accountWorkspace, messageProvider, selectedRequestId, first(query.accountMessage));
 
   const [providerResult, sessionResult, plannerResult, plannerCaseResult] = await Promise.all([
-    context.supabase
-      .from("browser_provider_definitions")
-      .select(
-        "id, provider_key, name, status, is_default, api_base_url, capabilities, pricing, evaluation, created_at, updated_at",
-      )
-      .order("is_default", { ascending: false }),
-    context.businesses.length
-      ? context.supabase
-          .from("browser_sessions")
-          .select(
-            "id, business_id, workflow_run_id, provider_definition_id, browser_identity_id, provider_session_id, status, control_mode, live_view_status, replay_status, current_url, page_title, region, browser_mode, metadata, failure, started_at, released_at, created_at, updated_at",
-          )
-          .in(
-            "business_id",
-            context.businesses.map((business) => business.id),
-          )
-          .order("created_at", { ascending: false })
-          .limit(12)
-      : Promise.resolve({ data: [], error: null }),
+    safeTablePage<BrowserProviderDefinitionRecord>(context,"browser_provider_definitions","id,provider_key,name,status,is_default,api_base_url,capabilities,pricing,evaluation,created_at,updated_at","browserProvider",{time:"is_default"}),
+    safeTablePage<BrowserSessionRecord>(context,"browser_sessions","id,business_id,workflow_run_id,provider_definition_id,browser_identity_id,provider_session_id,status,control_mode,live_view_status,replay_status,current_url,page_title,region,browser_mode,metadata,failure,started_at,released_at,created_at,updated_at","browserSession",{businessId:selectedBusiness?.id,statusColumn:"status"}),
     context.supabase
       .from("browser_planner_definitions")
       .select("id, planner_key, version, name, status, model_route_key, qualification")
       .eq("planner_key", "browser.planner")
       .eq("version", "1.0.0")
       .maybeSingle(),
-    context.supabase
-      .from("browser_planner_qualification_cases")
-      .select("id, case_key, level, status, score")
-      .order("level"),
+    safeTablePage<BrowserPlannerCaseRecord>(context,"browser_planner_qualification_cases","id,case_key,level,status,score","browserCase",{time:"level"}),
   ]);
-  const providers = rows<BrowserProviderDefinitionRecord>(providerResult.data);
-  const sessions = rows<BrowserSessionRecord>(sessionResult.data);
+  const providers = historyRows(providerResult);
+  const sessions = historyRows(sessionResult);
   const planner = record<BrowserPlannerDefinitionRecord>(plannerResult.data);
-  const plannerCases = rows<BrowserPlannerCaseRecord>(plannerCaseResult.data);
+  const plannerCases = historyRows(plannerCaseResult);
   const plannerPassed = plannerCases.filter((entry) => entry.status === "passed").length;
   const providerById = new Map(providers.map((provider) => [provider.id, provider]));
   const businessById = new Map(context.businesses.map((business) => [business.id, business]));
@@ -174,7 +153,7 @@ export default async function AccountsPage({ searchParams }: AccountsPageProps) 
   ];
 
   return (
-    <AppShell toolDestination="diagnostics" active="accounts" context={context} navigationBusinessId={selectedBusiness?.id}><ConsoleRetainedWorkspace ownerId={context.userId}  header={<><PageHeader
+    <AppShell toolDestination="diagnostics" active="accounts" context={context} navigationBusinessId={selectedBusiness?.id}><ConsoleRetainedWorkspace ownerId={context.userId}  header={<><HistoryPager page={providerResult.page} name="browserProvider" label="Browser providers"/><HistoryPager page={sessionResult.page} name="browserSession" label="Browser sessions"/><HistoryPager page={plannerCaseResult.page} name="browserCase" label="Browser cases"/>{!providerResult.page.available||!sessionResult.page.available||!plannerCaseResult.page.available?<p role="alert">Some diagnostics are unavailable; missing records are not empty history.</p>:null}<PageHeader
         description="Inspect saved provider configuration and bounded operational evidence."
         eyebrow="System tools"
         title="Platform diagnostics"
@@ -272,7 +251,7 @@ export default async function AccountsPage({ searchParams }: AccountsPageProps) 
               decision selects exactly one observed stable element or stops.
             </p>
             <small>
-              {plannerPassed}/{plannerCases.length || 4} required cases passed · Route {planner?.model_route_key ?? "standard.default"}
+              {plannerPassed}/{plannerCases.length} displayed cases passed · Route {planner?.model_route_key ?? "standard.default"}
             </small>
           </div>
           <div className="browserQualificationActions">
@@ -320,7 +299,7 @@ export default async function AccountsPage({ searchParams }: AccountsPageProps) 
             ))}
           </div>
         ) : (
-          <p className="sectionEmptyText">No remote browser session has been launched yet.</p>
+          <p className="sectionEmptyText">No browser sessions are shown on this server page. Check the session count and other pages; an unavailable read does not prove no saved session.</p>
         )}
       </section>
 

@@ -28,3 +28,38 @@ test('legacy browse alias permits only precise Research identities and never gue
   for(const extra of [{artifact:id(42)},{candidate:id(42)},{run:id(42)},{message:'funded'},{error:'retry'}, {type:'create'}])assert.equal(alias('products',{view:'results',...extra}),null);
   assert.throws(()=>alias('library',{view:'library',type:'research',artifact:id(42)}));
 });
+
+test('Research directory paging and search survive collection, selection, attempt and sheet href changes', () => {
+  const params = new URLSearchParams({ view: 'research', type: 'records', businessPage: '3', businessQuery: 'Outside directory & saved', page: '2', selected: id(22), root: id(23), attemptPage: '4', attemptSort: 'oldest' });
+  const changes = [{ page: 3 }, { type: 'roots' }, { selected: id(24) }, { attemptPage: 5 }, { sheet: 'research' }, { selected: null, root: null }, { q: 'saved', searchField: 'hypothesis' }];
+  for (const change of changes) {
+    const href = query.consoleResearchHref(params, change), output = new URL(href, 'https://fixture').searchParams;
+    assert.equal(output.get('businessPage'), '3'); assert.equal(output.get('businessQuery'), 'Outside directory & saved');
+    assert.doesNotThrow(() => query.consoleResearchOptionsFromSearch(Object.fromEntries(output)));
+  }
+  const open = new URL(query.consoleResearchHref(params, { sheet: 'research' }), 'https://fixture').searchParams;
+  const closed = new URL(query.consoleResearchHref(open, { sheet: null }), 'https://fixture').searchParams;
+  assert.deepEqual(Object.fromEntries(closed), Object.fromEntries(params));
+});
+
+test('actual Research preserves Business directory context through collection links, exact close and sheet return without 404', async () => {
+  const f = rootResearchFixture(), route = `/dashboard?view=research&type=records&selected=${id(1000)}&page=2&businessPage=3&businessQuery=Saved%20%26%20outside`;
+  f.context.ownerDirectoryPaged = true;
+  const page = await f.render(route);
+  const assertDirectory = href => {
+    const params = new URL(href.replaceAll('&amp;', '&'), 'https://fixture').searchParams;
+    assert.equal(params.get('businessPage'), '3'); assert.equal(params.get('businessQuery'), 'Saved & outside'); assert.equal(params.has('business'), false);
+    return params;
+  };
+  assertDirectory(page.command.returnTo); assertDirectory(page.pane.props.scopeHref); assertDirectory(page.pane.props.researchHref);
+  assert.equal(page.pane.props.searchParams.get('businessPage'), '3'); assert.equal(page.pane.props.searchParams.get('businessQuery'), 'Saved & outside');
+  for (const text of ['Starting rounds', 'All records', 'Plan research', 'Close detail', 'Previous', 'Next']) {
+    const href = page.markup.match(new RegExp(`href="([^"]+)"[^>]*>${text}</a>`))?.[1];
+    assert.ok(href, `Expected ${text} link`); assertDirectory(href);
+  }
+  assert.match(page.markup, /name="businessPage" value="3"/); assert.match(page.markup, /name="businessQuery" value="Saved &amp; outside"/);
+  const sheet = await f.render(`${route}&sheet=research`);
+  const closed = assertDirectory(sheet.sheet.props.returnTo); assert.equal(closed.has('sheet'), false); assert.equal(closed.get('selected'), id(1000)); assert.equal(closed.get('page'), '2');
+  const afterClose = await f.render(sheet.sheet.props.returnTo); assert.equal(afterClose.data.query.page, 2); assert.equal(afterClose.data.query.selectedId, id(1000));
+  assert.deepEqual(f.denied, []);
+});

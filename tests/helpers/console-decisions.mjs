@@ -15,6 +15,7 @@ export function load(file, dependencies = {}) {
   const loaded = { exports: {} };
   runInNewContext(`(function(require,module,exports){${output}\n})`, { URL, URLSearchParams, Date, structuredClone })(name => {
     if (['react', 'react/jsx-runtime', 'react-dom', 'node:crypto'].includes(name)) return require(name);
+    if (name === './history-pager') return { HistoryPager:()=>null };
     if (name === 'next/link') return function Link({ children, ...props }) { delete props.prefetch; return React.createElement('a', props, children); };
     assert.ok(Object.hasOwn(dependencies, name), `Forbidden dependency in Decisions fixture: ${name}`); return dependencies[name];
   }, loaded, loaded.exports);

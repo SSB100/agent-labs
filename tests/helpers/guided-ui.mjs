@@ -32,7 +32,13 @@ export function loadSource(file, dependencies = {}) {
   let sequence = 0;
   const crypto = { ...require("node:crypto"), randomUUID: () => `00000000-0000-4000-8000-${String(++sequence).padStart(12, "0")}` };
   runInNewContext(`(function(require,module,exports){${code}\n})`, { Date: FixtureDate, crypto, Buffer, URL, URLSearchParams, structuredClone, process: { env: { AGENTLABS_GUIDED_UI: "guided", NODE_ENV: "test" } } })(name => {
+    if (name === "@/lib/core-ui/workspace-navigation") return loadSource("src/lib/core-ui/workspace-navigation.ts");
+    if (name === "../../core/quest-intake" && file === "src/lib/core-ui/quest-draft.ts") return loadSource("src/core/quest-intake.ts");
     if (name === "@/lib/core-ui/console-retained-feedback") return loadSource("src/lib/core-ui/console-retained-feedback.ts");
+    if (["@/lib/core-ui/owner-business", "../lib/core-ui/owner-business", "./owner-business"].includes(name)) return loadSource("src/lib/core-ui/owner-business.ts");
+    if (["../lib/core-ui/history-read", "@/lib/core-ui/history-read"].includes(name)) return loadSource("src/lib/core-ui/history-read.ts");
+    if (["./history-query", "../lib/core-ui/history-query", "@/lib/core-ui/history-query"].includes(name)) return loadSource("src/lib/core-ui/history-query.ts");
+    if (["@/components/console/history-pager", "./history-pager"].includes(name)) return { HistoryPager: ({page, label}) => page ? React.createElement("p", null, `${label}: ${page.total ?? 'unavailable'} total · page ${page.page}`) : null };
     if (name === "react/jsx-runtime") return require(name);
     if (name === "react") return React;
     if (name === "react-dom") return require(name);
@@ -99,7 +105,8 @@ export function workflowCollection(overrides = {}) {
 }
 export function browserPresentation() {
   const browserView = loadSource("src/browser/console-view.ts");
-  const browserUi = loadSource("src/components/console/console-browser-centre.tsx", { "@/browser/console-view": browserView, "./console-browser-centre.css": {} });
+  const watcher = loadSource("src/components/console/console-browser-watch.tsx", { "@/browser/console-watch-client": loadSource("src/browser/console-watch-client.ts"), "./console-browser-watch.css": {} });
+  const browserUi = loadSource("src/components/console/console-browser-centre.tsx", { "@/browser/console-view": browserView, "./console-browser-centre.css": {}, "./console-browser-watch": watcher });
   return { browserView, browserUi };
 }
 
@@ -206,7 +213,30 @@ export async function renderDashboard({ unavailable = false, empty = false, view
   if (libraryFixture) context.supabase = libraryFixture.context.supabase;
   const boundedLibrary = libraryFixture ? libraryFixture.load("src/components/console/console-library-dashboard.tsx") : { ConsoleLibraryDashboard: noAction };
 
+  // R03 supplemental presentation fixtures supply a typed inert R04 selection boundary.
+  // R08 source/SQL and actual Next suites exercise the genuine resolver and Quest-filtered transport.
+  const workspaceBoundary = { resolveWorkspace: async (ctx, input) => {
+    const selectedBusiness = ctx.businesses.find(b => b.id === input.business) ?? ctx.businesses[0];
+    if (input.business && !ctx.businesses.some(b => b.id === input.business)) throw Error("Fixture record was not found");
+    if (input.browserRun && !collection.runs.some(r => r.id === input.browserRun && r.business_id === selectedBusiness?.id)) throw Error("Fixture record was not found");
+    const qid = "00000000-0000-4000-8000-000000008200";
+    const selected = selectedBusiness && !empty ? {id:qid,businessId:selectedBusiness.id,title:"Synthetic selected Quest",revision:1,preference:"ready",content:{objective:"Inspect this exact Business workflow evidence",originalIntent:"Inert intent"}} : null;
+    const original = ctx.supabase;
+    const scoped = {...ctx,supabase:{...original,rpc:async name=>name==='r07_quest_read'?{data:{selected:null},error:null}:{data:{authorityRootId:selectedBusiness?.id,exposure:[]},error:null},from:table=>{
+      if(table!=='owner_interventions')return original.from(table);
+      const q={select:()=>q,eq:()=>q,then:(resolve,reject)=>Promise.resolve({data:null,count:ctx.needsYouCount,error:ctx.needsYouUnavailable?true:null}).then(resolve,reject)};return q;
+    }}};
+    return {context:scoped,businessId:selectedBusiness?.id??null,unavailable:businessesUnavailable,state:selectedBusiness?{businessId:selectedBusiness.id,business:{revision:1},selected,selection:selected?'current':'none',quests:selected?[selected]:[],total:selected?1:0,limit:20,offset:0}:null};
+  }};
+  const workspaceOverview = loadSource("src/components/console/console-workspace-overview.tsx", {
+    "@/accounts/server":{loadAccountWorkspace:async()=>accounts},"./console-command":command,"@/components/guided/quest-kickoff":quest,"@/products/discovery-v2-data":{loadDiscoveryGoalData:async()=>({available:true})},
+    "@/lib/core-ui/console-data":{...consoleData,loadConsoleObservationTime:async()=>observedAt,loadConsoleResearchQuote:async()=>({one:370395,two:530914,verifiedAt:fixtureTime})},
+    "@/lib/core-ui/console-collections":loadSource("src/lib/core-ui/console-collections.ts", {"server-only":{},"./console-collections-query":loadSource("src/lib/core-ui/console-collections-query.ts")}),"./console-shell":consoleShell,"./console-overview":overview,
+    "./console-motion":motionUi,"@/lib/core-ui/console-motion":motion,"@/lib/core-ui/data":{EMPTY_COLLECTION:workflowCollection({runs:[],definitions:[],stages:[],events:[],interventions:[],tasks:[],workerRuns:[],workerDefinitions:[],artifacts:[],errors:[]}),loadWorkflowCollection:async()=>collection,loadCurrentQuestEpisode:async(_ctx,businessId,explicit)=>({id:collection.runs.find(r=>r.business_id===businessId&&(!explicit||r.id===explicit))?.id??null,available:!unavailable})},
+    "@/lib/core-ui/run-outcome-data":{loadRunCostData:async()=>costData},"@/browser/console-server":browserWire.server,"./console-workspace.css":{},
+  });
   const { default: Page } = loadSource("src/app/dashboard/page.tsx", {
+    "@/lib/core-ui/workspace-context":workspaceBoundary,"@/components/console/console-workspace-overview":workspaceOverview,
     "next/navigation": { notFound: () => { throw new Error("Fixture record was not found"); } },
     "@/components/console/console-shell": consoleShell, "@/components/console/console-overview": overview,
     "@/components/console/console-motion": motionUi, "@/lib/core-ui/console-motion": motion,
@@ -242,6 +272,7 @@ export async function renderDashboard({ unavailable = false, empty = false, view
   let tree = await Page({ searchParams: Promise.resolve(query) });
   if (React.isValidElement(tree) && tree.type?.name === "ConsolePopulatedDashboard") tree = await tree.type(tree.props);
   if (React.isValidElement(tree) && tree.type?.name === "ConsoleLibraryDashboard") tree = await tree.type(tree.props);
+  if (React.isValidElement(tree) && tree.type?.name === "ConsoleWorkspaceOverview") tree = await tree.type(tree.props);
   inspect?.(tree);
   reads.push(...browserWire.calls);
   return renderToStaticMarkup(tree);
@@ -435,7 +466,7 @@ export const fixtureRenderers = {
 export function fixtureDocument(markup, { creative = false, products = false } = {}) {
   // Match RootLayout's cascade exactly; creative imports Products' button styles.
   const styles = ["src/app/globals.css", "src/app/stage1.css", "src/app/stage3.css", "src/app/stage7.css", "src/app/stage7-mobile.css", "src/app/stage8.css", "src/components/guided/work-context.css", "src/components/guided/creative-library.css", "src/components/guided/run-outcome.css",
-    "src/components/console/console-shell.css", "src/components/console/console-overview.css", "src/components/console/console-browser-centre.css", "src/components/console/console-command.css", "src/components/console/console-motion.css", "src/components/console/console-panes.css", "src/components/console/console-compact-decisions.css", "src/components/console/console-collection-panes.css", "src/components/console/console-library-pane.css",
+    "src/components/console/console-shell.css", "src/components/console/console-workspace.css", "src/components/console/console-overview.css", "src/components/console/console-browser-centre.css", "src/components/console/console-command.css", "src/components/console/console-motion.css", "src/components/console/console-panes.css", "src/components/console/console-compact-decisions.css", "src/components/console/console-collection-panes.css", "src/components/console/console-library-pane.css",
     "src/app/dashboard/accounts/accounts.css", "src/app/dashboard/products/products.css",
     ...(creative || products ? ["src/app/dashboard/products/products.css"] : []),
     ...(creative ? ["src/app/dashboard/artifacts/artifacts.css"] : []), ...(products ? ["src/components/guided/quest-kickoff.css"] : []),

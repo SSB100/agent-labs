@@ -81,7 +81,7 @@ export type TaskContractRecord = {
   id: string;
   business_id: string;
   workflow_run_id: string;
-  workflow_stage_run_id: string;
+  workflow_stage_run_id: string | null;
   worker_definition_id: string;
   status: string;
   objective: string;

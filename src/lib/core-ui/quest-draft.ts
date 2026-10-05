@@ -1,3 +1,5 @@
+import { containsCredentialLikeContent } from "../../core/quest-intake";
+
 /** Browser-only presentation state. None of this grants research authority. */
 export const QUEST_DRAFT_VERSION = 1;
 export const QUEST_DEFAULT_GOAL = "Research the best-supported starting geographic market for original nature T-shirts, recommend up to three concepts, and prepare the strongest for review.";
@@ -58,6 +60,8 @@ export function questDraftStorageKey(ownerId: string): string {
 /** Explicit allowlist: approval, credentials and workflow authority are never persisted. */
 export function serializeQuestDraft(ownerId: string, state: RestoredQuestDraft): string {
   const { businessId, goal, audienceHint, maximumCollections, maximumUsd } = state.draft;
+  // An empty value replaces any older local draft without retaining a credential.
+  if ([ownerId, businessId, goal, audienceHint, maximumCollections, maximumUsd].some(containsCredentialLikeContent)) return "";
   return JSON.stringify({ version: QUEST_DRAFT_VERSION, ownerId, draft: { businessId, goal, audienceHint, maximumCollections, maximumUsd }, step: state.step, reviewedEstimate: state.reviewedEstimate });
 }
 
@@ -68,6 +72,7 @@ export function restoreQuestDraft(raw: string | null, ownerId: string, businessI
     if (!saved || saved.version !== QUEST_DRAFT_VERSION || saved.ownerId !== ownerId || !saved.draft) return null;
     const draft = saved.draft;
     if (typeof draft.businessId !== "string" || draft.businessId.length > 200 || typeof draft.goal !== "string" || draft.goal.length > 1200 || typeof draft.audienceHint !== "string" || draft.audienceHint.length > 160 || typeof draft.maximumUsd !== "string" || draft.maximumUsd.length > 32 || !["1", "2"].includes(draft.maximumCollections)) return null;
+    if ([draft.businessId, draft.goal, draft.audienceHint, draft.maximumUsd].some(containsCredentialLikeContent)) return null;
     return {
       draft: { businessId: businessIds.includes(draft.businessId) ? draft.businessId : "", goal: draft.goal, audienceHint: draft.audienceHint, maximumCollections: draft.maximumCollections, maximumUsd: draft.maximumUsd },
       step: [0, 1, 2].includes(saved.step) && businessIds.includes(draft.businessId) ? saved.step : 0,
@@ -107,10 +112,12 @@ export function isSupportedQuestGoal(goal: string): boolean {
 export function validateQuestDraft(draft: QuestDraft, businessIds: readonly string[], through: "goal" | "scope" = "scope"): QuestIssue[] {
   const issues: QuestIssue[] = [];
   if (!businessIds.includes(draft.businessId)) issues.push({ field: "businessId", message: "Choose an available Business for this research." });
-  if (draft.goal.trim().length < 20 || draft.goal.trim().length > 1200) issues.push({ field: "goal", message: "Describe your research goal in 20–1,200 characters." });
+  if (containsCredentialLikeContent(draft.goal)) issues.push({ field: "goal", message: "Enter credentials through secure Connections, not in a research goal." });
+  else if (draft.goal.trim().length < 20 || draft.goal.trim().length > 1200) issues.push({ field: "goal", message: "Describe your research goal in 20–1,200 characters." });
   else if (!isSupportedQuestGoal(draft.goal)) issues.push({ field: "goal", message: "This flow supports geographic market research for original POD T-shirts only. Other goals need their own supported workflow." });
   const audience = draft.audienceHint.trim();
-  if (audience && (audience.length < 3 || audience.length > 160)) issues.push({ field: "audienceHint", message: "Use 3–160 characters for an audience constraint, or leave it blank." });
+  if (containsCredentialLikeContent(audience)) issues.push({ field: "audienceHint", message: "Enter credentials through secure Connections, not in an audience constraint." });
+  else if (audience && (audience.length < 3 || audience.length > 160)) issues.push({ field: "audienceHint", message: "Use 3–160 characters for an audience constraint, or leave it blank." });
   if (through === "scope") {
     if (!["1", "2"].includes(draft.maximumCollections)) issues.push({ field: "maximumCollections", message: "Choose one or two fixed source collections." });
     if (questAllowanceMicrousd(draft.maximumUsd) === null) issues.push({ field: "maximumUsd", message: "Enter a positive research allowance up to US$1, with no more than six decimal places." });

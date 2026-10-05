@@ -22,7 +22,7 @@ export async function loadRunCostData(context: OwnerUiContext, run: WorkflowRunR
   const key = definition?.workflow_key ?? "";
   const source = key.startsWith("product.discovery-v2.") ? "research" : key === "etsy.creative-pipeline" ? "creative" : "model";
   const unavailable: RunOutcomeCosts = { businessId: run.business_id, workflowRunId: run.id, source, calls: { status: "unavailable" } };
-  if (!context.businesses.some(business => business.id === run.business_id)) return { costs: unavailable };
+  if (!context.ownerDirectoryPaged && !context.businesses.some(business => business.id === run.business_id)) return { costs: unavailable };
   const client = context.supabase;
   try {
     if (source === "research") {

@@ -111,7 +111,7 @@ test("reconsideration requires new source content, not a URL or fresh retrieval 
 
 test("bounded structured requests forward token cap and reject unsafe bounds before network", async () => {
   let called = 0, body;
-  const adapter = new models.OpenRouterAdapter({ config: { apiKey: "test", baseUrl: "https://openrouter.ai/api/v1", appUrl: "https://agent-labs-two.vercel.app", appName: "Agent Labs" }, fetcher: async (_url, options) => {
+  const adapter = new models.OpenRouterAdapter({ admitDispatch: async()=>{}, config: { apiKey: "test", baseUrl: "https://openrouter.ai/api/v1", appUrl: "https://agent-labs-two.vercel.app", appName: "Agent Labs" }, fetcher: async (_url, options) => {
     called++; body = JSON.parse(options.body);
     return new Response(JSON.stringify({ choices: [{ message: { content: "{}" } }], usage: {} }), { status: 200 });
   } });

@@ -63,11 +63,11 @@ async function browserBundle() {
           : args.path === "next/navigation" ? 'export const useRouter = () => window.__rootBrowserRouter;'
             : 'export async function startGeographicDiscovery() { sessionStorage.setItem("root-browser-paid-call", "forbidden"); throw new Error("Paid actions are forbidden in this fixture"); }' }));
       builder.onResolve({ filter: /^@\// }, args => {
-        const files = { "@/lib/core-ui/console-motion-dom": "src/lib/core-ui/console-motion-dom.ts", "@/lib/core-ui/workflows": "src/lib/core-ui/workflows.ts", "@/components/stage7/icons": "src/components/stage7/icons.tsx", "@/browser/console-view": "src/browser/console-view.ts", "@/lib/core-ui/quest-draft": "src/lib/core-ui/quest-draft.ts" };
+        const files = { "@/lib/core-ui/workspace-navigation":"src/lib/core-ui/workspace-navigation.ts", "@/lib/core-ui/console-motion-dom": "src/lib/core-ui/console-motion-dom.ts", "@/lib/core-ui/workflows": "src/lib/core-ui/workflows.ts", "@/components/stage7/icons": "src/components/stage7/icons.tsx", "@/browser/console-watch-client": "src/browser/console-watch-client.ts", "@/browser/console-view": "src/browser/console-view.ts", "@/lib/core-ui/quest-draft": "src/lib/core-ui/quest-draft.ts" };
         assert.ok(files[args.path], `Unexpected root Browser import: ${args.path}`); return { path: path.join(root, files[args.path]) };
       });
     } }] }).then(result => {
-    const allowed = new Set(["src/components/console/console-motion.tsx", "src/components/console/console-motion.css", "src/components/console/console-overview.tsx", "src/components/console/console-overview.css", "src/components/console/console-browser-centre.tsx", "src/components/console/console-browser-centre.css", "src/components/console/console-command.tsx", "src/components/console/console-command.css", "src/components/guided/quest-kickoff.tsx", "src/components/guided/quest-kickoff.css", "src/browser/console-view.ts", "src/components/stage7/icons.tsx", "src/lib/core-ui/console-motion-dom.ts", "src/lib/core-ui/console-motion.ts", "src/lib/core-ui/workflows.ts", "src/lib/core-ui/quest-draft.ts"]);
+    const allowed = new Set(['src/lib/core-ui/workspace-navigation.ts',"src/components/console/console-motion.tsx", "src/components/console/console-motion.css", "src/components/console/console-overview.tsx", "src/components/console/console-overview.css", "src/components/console/console-browser-centre.tsx", "src/components/console/console-browser-centre.css", "src/components/console/console-browser-watch.tsx", "src/components/console/console-browser-watch.css", "src/browser/console-watch-client.ts", "src/components/console/console-command.tsx", "src/components/console/console-command.css", "src/components/guided/quest-kickoff.tsx", "src/components/guided/quest-kickoff.css", "src/browser/console-view.ts", "src/components/stage7/icons.tsx", "src/lib/core-ui/console-motion-dom.ts", "src/lib/core-ui/console-motion.ts", "src/lib/core-ui/workflows.ts", "src/lib/core-ui/quest-draft.ts", "src/core/quest-intake.ts"]);
     for (const file of Object.keys(result.metafile.inputs).filter(file => file.startsWith("src/"))) assert.ok(allowed.has(file), `Unexpected server/provider input: ${file}`);
     return result.outputFiles[0].text.replace(/<\/script/gi, "<\\/script");
   });
@@ -82,7 +82,13 @@ export async function rootBrowserDocument(route) {
     if (fixture.overview) {
       const island = renderToString(renderContent(React, { ConsoleMotionBoundary: fixture.boundary.type, ConsoleOverview: fixture.overview.type,
         ConsoleResearchSheet: fixture.sheet?.type, QuestKickoff: fixture.sheet?.props.children.type }, fixture.state));
-      const shell = React.cloneElement(fixture.tree, {}, React.createElement("div", { id: "root-browser-content", style: { display: "contents" } }));
+      const replaceBoundary = tree => {
+        if (!React.isValidElement(tree)) return tree;
+        if (tree.type === fixture.boundary.type) return React.createElement("div", { id: "root-browser-content", style: { display: "contents" } });
+        if (fixture.sheet && tree.type === fixture.sheet.type) return null;
+        return tree.props.children ? React.cloneElement(tree, {}, React.Children.map(tree.props.children, replaceBoundary)) : tree;
+      };
+      const shell = replaceBoundary(fixture.tree);
       markup = renderToString(shell).replace('<div id="root-browser-content" style="display:contents"></div>', `<div id="root-browser-content" style="display:contents">${island}</div>`);
     }
     return fixtureDocument(markup, { products: true }).replace("</head>", '<link rel="icon" href="data:,"></head>').replace("</body>", `<script>window.__rootBrowserState=${JSON.stringify(fixture.state).replace(/</g, "\\u003c")};</script><script>${await browserBundle()}</script></body>`);

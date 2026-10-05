@@ -159,16 +159,20 @@ create function pg_temp.persist_payload(rid uuid,role_name text) returns jsonb l
 $$;
 -- Launch serialization and permanent dedup use the actual owner RPC. Only the
 -- already documented new source/catalog helper substitutes remain in effect.
-do $$ declare f listing_fixture%rowtype; source uuid:=gen_random_uuid(); payload jsonb; result jsonb; result2 jsonb; ih text; b uuid:='17000000-1111-4111-8111-000000000002';
+do $$ declare f listing_fixture%rowtype; source uuid:=gen_random_uuid(); payload jsonb; result jsonb; result2 jsonb; ih text; b uuid:='17000000-1111-4111-8111-000000000002'; issued_before timestamptz; issued_after timestamptz;
 begin
  select * into f from listing_fixture; f.input:=jsonb_set(f.input,'{product,id}',to_jsonb(source::text)); ih:=private.stage14_hash(f.input);
  insert into public.goals(id,business_id,title,status) values((f.input->'product'->>'goalId')::uuid,b,'Rollback isolated launch','active');
  insert into public.artifacts(id,business_id,artifact_type,name,content) values(source,b,'product.package.v1','Rollback sealed fixture',jsonb_build_object('listingInput',f.input,'listingInputEnvelope',repeat('fixture-seal-',4)));
  payload:=jsonb_build_object('sourceArtifactId',source,'sourceEnvelope',repeat('fixture-seal-',4),'sourceContentHash',private.stage14_hash(jsonb_build_object('listingInput',f.input,'listingInputEnvelope',repeat('fixture-seal-',4))),'input',f.input,'inputHash',ih,'quote',jsonb_build_object('version','listing-estimate-1.0','inputHash',ih,'maximumCalls',2,'maximumEstimateMicrousd',200000,'ceilings',jsonb_build_object('specialist',100000,'reviewer',100000),'models',jsonb_build_object('specialist','openai/gpt-5.6-luna','reviewer','anthropic/claude-haiku-4.5'),'verifiedAt',clock_timestamp(),'source','https://openrouter.ai/api/v1/models','primaryOnly',true,'estimateOnly',true,'providerInvoiceGuarantee',false),'maximumMicrousd',250000,'runtimeCapability',repeat('start-capability-',4),'launchNonce',gen_random_uuid(),'knowledgeHash',private.stage14_hash(f.catalog->'knowledge'),'workerHashes','{}'::jsonb,'approveModelCalls',true);
- result:=public.listing_owner_transition(b,'start',payload,repeat('server-fixture-only-',3)); assert result->'shouldStart'='true';
+ issued_before:=clock_timestamp();
+ result:=public.listing_owner_transition(b,'start',payload,repeat('server-fixture-only-',3));
+ issued_after:=clock_timestamp(); assert result->'shouldStart'='true';
  result2:=public.listing_owner_transition(b,'start',payload||jsonb_build_object('runtimeCapability',repeat('replacement-must-fail-',3),'launchNonce',gen_random_uuid()),repeat('server-fixture-only-',3)); assert result2->'shouldStart'='false'; assert result2->'id'=result->'id';
  assert (select capability_hash=private.stage13_hash(repeat('start-capability-',4)) from private.listing_run_capabilities where listing_run_id=(result->>'id')::uuid);
- assert (select capability_expires_at<=created_at+interval '1 hour 1 second' from public.listing_runs where id=(result->>'id')::uuid);
+ -- created_at uses transaction-start now(); capability issuance uses the wall
+ -- clock. Bracket that exact call, with no timing tolerance or later test work.
+ assert (select capability_expires_at between least(issued_before+interval '1 hour',(payload->'input'->'product'->>'expiresAt')::timestamptz) and least(issued_after+interval '1 hour',(payload->'input'->'product'->>'expiresAt')::timestamptz) from public.listing_runs where id=(result->>'id')::uuid);
  perform public.listing_owner_transition(b,'cancel',jsonb_build_object('runId',result->>'id'));
  result2:=public.listing_owner_transition(b,'start',payload,repeat('server-fixture-only-',3)); assert result2->'shouldStart'='false'; assert result2->'id'=result->'id';
  perform pg_temp.expect_error(format('select public.listing_owner_transition(%L,''start'',%L::jsonb,%L)',b,jsonb_set(payload,'{quote,verifiedAt}','"2000-01-01T00:00:00Z"'),repeat('server-fixture-only-',3)),'listing_quote_invalid_or_stale');
@@ -287,10 +291,10 @@ begin
  perform public.listing_runtime_transition(rid,b,cap,'reserve',pg_temp.reservation_payload(rid,'reviewer'));
  payload:=pg_temp.settlement_payload(rid,'reviewer',100,false);
  payload:=jsonb_set(jsonb_set(payload,'{providerRequestId}',to_jsonb(prior_id)),'{receipt,providerRequestId}',to_jsonb(prior_id));
- perform public.listing_runtime_transition(rid,b,cap,'settle',payload);
- assert private.stage17_costs(rid)->'knownMicrousd'='200';
- assert (select status='failed' and reason='provider_output_invalid' from public.listing_runs where id=rid);
- assert (select count(*)=2 from public.listing_cost_settlements where listing_run_id=rid and provider_request_id=prior_id);
+ perform pg_temp.expect_error(format('select public.listing_runtime_transition(%L,%L,%L,''settle'',%L::jsonb)',rid,b,cap,payload),'r05_receipt_already_used');
+ assert private.stage17_costs(rid)->'knownMicrousd'='100';
+ assert private.stage17_costs(rid)->'pendingCount'='1';
+ assert (select count(*)=1 from public.listing_cost_settlements where listing_run_id=rid and provider_request_id=prior_id);
  assert not exists(select 1 from public.listing_phase_outputs where listing_run_id=rid and role='reviewer');
 end $$;
 set local role authenticated;

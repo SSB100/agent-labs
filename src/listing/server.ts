@@ -1,4 +1,7 @@
 import "server-only";
+import { verifyOwnerBusiness } from "../lib/core-ui/owner-business";
+import { readHistory, readState, historyRows } from "../lib/core-ui/history-read";
+import type { HistoryPage } from "../lib/core-ui/history-query";
 import { randomUUID } from "node:crypto";
 import type { OwnerUiContext } from "../lib/core-ui/data";
 import type { JsonObject } from "../core/contracts";
@@ -20,6 +23,7 @@ export function listingConfig() {
 }
 function owner(context: OwnerUiContext, businessId: string) { requireEtsy(UUID.test(businessId) && context.businesses.some(b => b.id===businessId),"owner_required"); }
 export async function listingOwnerRpc(context: OwnerUiContext, businessId: string, operation: string, payload: JsonObject = {}) {
+  if(businessId && !(await verifyOwnerBusiness(context,businessId)))throw new EtsyError("owner_required");
   owner(context,businessId);
   const result=await context.supabase.rpc("listing_owner_transition",{p_business_id:businessId,p_operation:operation,p_payload:payload,p_server_key:listingConfigured()?listingConfig().serverKey:""});
   if(result.error) throw new EtsyError("listing_state_unavailable");
@@ -50,6 +54,7 @@ export function listingEvidenceReader(context: OwnerUiContext,businessId: string
   };
 }
 export async function loadListingSource(context:OwnerUiContext,businessId:string,sourceArtifactId:string) {
+  if(businessId && !(await verifyOwnerBusiness(context,businessId)))throw new EtsyError("owner_required");
   owner(context,businessId);
   return loadVerifiedListingInput({businessId,sourceArtifactId,reader:listingEvidenceReader(context,businessId),vaultKey:listingConfig().vaultKey});
 }
@@ -58,29 +63,30 @@ export type ListingRunView={id:string;workflowRunId:string;sourceArtifactId:stri
   costs:{role:string;reservedMicrousd:number;reportedMicrousd:number|null;settled:boolean}[];review?:ReviewedListing["review"]|null;proposal?:ReviewedListing["proposal"]|null};
 export type ListingQualificationRunView={id:string;workflowRunId:string;status:string;reason:string|null;maximumMicrousd:number;createdAt:string;expiresAt:string;
   costs:{caseKey:string;reservedMicrousd:number;reportedMicrousd:number|null;settled:boolean}[]};
-export type ListingWorkspaceData={businessId:string;configured:boolean;qualified:boolean;unavailable:boolean;sources:ListingSourceChoice[];runs:ListingRunView[];sourceBlocker:boolean;
+export type ListingWorkspaceData={ runsPage?:HistoryPage; qualificationsPage?:HistoryPage; sourcesPage?:HistoryPage;businessId:string;configured:boolean;qualified:boolean;unavailable:boolean;sources:ListingSourceChoice[];runs:ListingRunView[];sourceBlocker:boolean;
   qualificationRuns:ListingQualificationRunView[];qualificationQuote:ListingQualificationQuote|null;qualificationQuoteUnavailable:boolean;qualificationLaunchNonce:string|null};
 export async function loadListingWorkspace(context:OwnerUiContext,businessId:string):Promise<ListingWorkspaceData> {
+  if(businessId && !(await verifyOwnerBusiness(context,businessId)))throw new EtsyError("owner_required");
   owner(context,businessId);
   const data:ListingWorkspaceData={businessId,configured:listingConfigured(),qualified:false,unavailable:false,sources:[],runs:[],sourceBlocker:false,qualificationRuns:[],qualificationQuote:null,qualificationQuoteUnavailable:false,qualificationLaunchNonce:null};
   try {
-    const workspace=await listingOwnerRpc(context,businessId,"workspace");
+    const [state,runs,qualification,candidates] = await Promise.all([readState(context,businessId,"listing_state"),readHistory<ListingRunView>(context,businessId,"listing_runs","listing"),readHistory<ListingQualificationRunView>(context,businessId,"listing_qualifications","listingQualification"),readHistory<{id:string}>(context,businessId,"listing_sources","listingSource")]);
+    requireEtsy(typeof state.qualified==="boolean" && typeof state.activeQualification==="boolean","listing_state_unavailable");
+    const workspace={...state,authorityConfigured:listingConfigured(),qualified:state.qualified,runs:historyRows(runs),qualificationRuns:historyRows(qualification)};
+    data.runsPage=runs.page;data.qualificationsPage=qualification.page;data.sourcesPage=candidates.page;
     data.configured=data.configured && workspace.authorityConfigured===true;data.qualified=workspace.qualified===true;
     data.runs=Array.isArray(workspace.runs)?(workspace.runs as ListingRunView[]).map(run=>({...run,expired:Number.isFinite(Date.parse(run.expiresAt))&&Date.parse(run.expiresAt)<=Date.now()})):[];
     data.qualificationRuns=Array.isArray(workspace.qualificationRuns)?workspace.qualificationRuns as ListingQualificationRunView[]:[];
-    if(data.configured && !data.qualified && !data.qualificationRuns.some(run=>["queued","running"].includes(run.status))) {
+    if(data.configured && !data.qualified && state.activeQualification!==true) {
       try{data.qualificationQuote=await qualificationQuote(LISTING_BUDGET.maximumMicrousd);data.qualificationLaunchNonce=randomUUID();}catch{data.qualificationQuoteUnavailable=true;}
     }
     if(!data.configured || !data.qualified)return data;
-    const rows=await context.supabase.from("artifacts").select("id,content").eq("business_id",businessId).eq("artifact_type","product.package.v1").order("created_at",{ascending:false}).limit(20);
-    if(rows.error)throw new EtsyError("listing_sources_unavailable");
     const prices=new Map<string,Promise<CreativeModelQuote>>();
     const currentPrice=(modelId:string)=>{let price=prices.get(modelId);if(!price){price=fetchCreativeModelQuote(modelId);prices.set(modelId,price);}return price;};
-    for(const row of rows.data??[]) {
-      if(typeof row.content?.listingInputEnvelope!=="string")continue;
+    for(const row of historyRows(candidates)) {
       try {
         const source=await loadListingSource(context,businessId,row.id);
-        if(data.runs.some(run=>run.sourceArtifactId===row.id))continue;
+
         const quote=await currentListingQuote(source.inputHash,LISTING_BUDGET.maximumMicrousd,currentPrice);
         data.sources.push({id:row.id,title:source.input.product.title,inputHash:source.inputHash,expiresAt:source.input.product.expiresAt,quote});
       }catch{data.sourceBlocker=true;}
@@ -89,6 +95,7 @@ export async function loadListingWorkspace(context:OwnerUiContext,businessId:str
   return data;
 }
 export async function beginListingPreparation(context:OwnerUiContext,businessId:string,sourceArtifactId:string,expectedInputHash:string,maximumMicrousd:number) {
+  if(businessId && !(await verifyOwnerBusiness(context,businessId)))throw new EtsyError("owner_required");
   owner(context,businessId);
   requireEtsy(Number.isSafeInteger(maximumMicrousd) && maximumMicrousd>0 && maximumMicrousd<=LISTING_BUDGET.maximumMicrousd,"invalid_listing_budget_scope");
   const source=await loadListingSource(context,businessId,sourceArtifactId);
@@ -115,6 +122,7 @@ export function assertRuntimeListingSource(state:{businessId:string;sourceArtifa
 }
 
 export async function beginListingQualification(context:OwnerUiContext,businessId:string,expectedSuiteHash:string,maximumMicrousd:number,launchNonce:string) {
+  if(businessId && !(await verifyOwnerBusiness(context,businessId)))throw new EtsyError("owner_required");
   owner(context,businessId);listingConfig();
   requireEtsy(expectedSuiteHash===listingQualificationSuiteHash() && UUID.test(launchNonce),"listing_qualification_suite_changed");
   const quote=await qualificationQuote(maximumMicrousd),runtimeCapability=randomSecret();

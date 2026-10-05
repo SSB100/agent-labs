@@ -1,7 +1,7 @@
 import { consoleResearchOptionsFromSearch, consoleResearchQuery, consoleResearchSearch } from "./console-research-query";
 
 type Search = Record<string, string | string[] | undefined>;
-const browseKeys = new Set(["view", "type", "business", "selected", "experiment", "root", "page", "pageSize", "q", "searchField", "sort", "attemptPage", "attemptSort", "sheet"]);
+const browseKeys = new Set(["view", "type", "business", "selected", "experiment", "root", "page", "pageSize", "q", "searchField", "sort", "attemptPage", "attemptSort", "sheet", "quest", "episode", "step", "agent", "sourceArtifact"]);
 
 /** Only former read-only results URLs. Candidate/action/notice routes keep their handler.
  * Actual old fragments name the aggregate discovery-goal-results section, not an ID.
@@ -13,5 +13,7 @@ export function consoleResearchAlias(source: "library" | "products", query: Sear
   } else if (query.view !== "library" || query.type !== "research") throw new Error("Invalid legacy Research route.");
   const next: Search = { ...query, view: "research", type: "roots" };
   const q = consoleResearchQuery("roots", consoleResearchOptionsFromSearch(next));
-  return Object.fromEntries(consoleResearchSearch(q, next.sheet === "research"));
+  const result: Search = Object.fromEntries(consoleResearchSearch(q, next.sheet === "research"));
+  for (const key of ["quest", "episode", "step", "agent", "sourceArtifact"]) if (typeof next[key] === "string") result[key] = next[key];
+  return result;
 }

@@ -1,4 +1,5 @@
 "use server";
+import { verifyOwnerBusiness } from "@/lib/core-ui/owner-business";
 import { randomUUID } from "node:crypto";
 import { safeConsoleDecisionReturnPath, consoleDecisionActionReturnPath } from "@/lib/core-ui/console-decisions-query";
 import { revalidatePath } from "next/cache";
@@ -16,23 +17,38 @@ import { etsyDiscoverySimulationRuntimeWorkflow, etsySimulationReviewHookToken, 
 function text(form: FormData,key: string) { const v=form.get(key); return typeof v === "string" ? v.trim() : ""; }
 
 function feedback(context:Awaited<ReturnType<typeof requireOwnerUiContext>>,form:FormData,panel:string) {
-  const business=text(form,"businessId"),scope={panel,business:context.businesses.some(b=>b.id===business)?business:undefined};
-  return (message:string):never=>redirect(retainedFeedbackHref("packs","error",message,scope));
+  const business=text(form,"businessId"),scope=()=>({panel,business:context.businesses.some(b=>b.id===business)?business:undefined});
+  return (message:string):never=>redirect(retainedFeedbackHref("packs","error",message,scope()));
 }
 
 export async function activatePack(form: FormData) {
   const context = await requireOwnerUiContext();
   const fail=feedback(context,form,"catalog");
   const businessId = text(form,"businessId"), packId=text(form,"packId");
-  if (!context.businesses.some(b=>b.id===businessId)) return fail("Business not found.");
-  const {data,error} = await context.supabase.from("packs").select("id,status,manifest");
-  if (error) return fail("Pack catalog could not be loaded.");
+  if (!(await verifyOwnerBusiness(context,businessId))) return fail("Business not found.");
+  const rootRead=await context.supabase.from("packs").select("id,status,manifest").eq("id",packId).maybeSingle();
+  if(rootRead.error || !rootRead.data)return fail("Pack release could not be loaded.");
   try {
-    const releases = (data??[]) as PackRelease[];
-    const root = releases.find(r=>r.id===packId);
-    if (!root) throw new Error("Pack release not found.");
-    validatePackManifest(root.manifest);
-    const resolved = resolvePackDependencies(releases,{packKey:root.manifest.packKey,version:root.manifest.version});
+    const root=rootRead.data as PackRelease,releases:PackRelease[]=[];
+    const queue=[root],seen=new Set<string>();
+    while(queue.length){
+      const release=queue.shift()!;validatePackManifest(release.manifest);
+      const pin=`${release.manifest.packKey}@${release.manifest.version}`;
+      if(seen.has(pin))continue;
+      if(seen.size>=50)throw new Error("Dependency graph exceeds its bound.");
+      seen.add(pin);releases.push(release);
+      for(const dependency of release.manifest.dependencies){
+        const key=`${dependency.packKey}@${dependency.version}`;
+        if(seen.has(key)||queue.some(r=>`${r.manifest.packKey}@${r.manifest.version}`===key))continue;
+        if(seen.size+queue.length>=50)throw new Error("Dependency graph exceeds its bound.");
+        const exact=await context.supabase.from("packs").select("id,status,manifest").eq("pack_key",dependency.packKey).eq("version",dependency.version).maybeSingle();
+        if(exact.error || !exact.data)throw new Error("An exact pinned dependency is unavailable.");
+        const row=exact.data as PackRelease;
+        if(row.manifest.packKey!==dependency.packKey || row.manifest.version!==dependency.version)throw new Error("Pinned dependency identity mismatch.");
+        queue.push(row);
+      }
+    }
+    const resolved=resolvePackDependencies(releases,{packKey:root.manifest.packKey,version:root.manifest.version});
     validateResolvedDefinitions(resolved);
   } catch(error) { return fail(error instanceof Error ? error.message : "Pack cannot be activated."); }
   const activated = await context.supabase.rpc("activate_business_pack",{p_business_id:businessId,p_pack_id:packId});
@@ -44,7 +60,7 @@ export async function activatePack(form: FormData) {
 export async function qualifyWebResearch(form:FormData) {
   const context=await requireOwnerUiContext(),businessId=text(form,"businessId");
   const fail=feedback(context,form,"qualification");
-  if (!context.businesses.some(b=>b.id===businessId)) return fail("Business not found.");
+  if (!(await verifyOwnerBusiness(context,businessId))) return fail("Business not found.");
   const runtimeCapability=`${randomUUID()}${randomUUID()}`,nonce=randomUUID();
   const reserved=await context.supabase.rpc("begin_web_research_qualification",{p_business_id:businessId,p_idempotency_key:text(form,"idempotencyKey"),p_launch_nonce:nonce,p_runtime_capability:runtimeCapability});
   if (reserved.error) return fail(reserved.error.message);
@@ -64,7 +80,7 @@ export async function launchInstalledPack(form: FormData) {
   const context = await requireOwnerUiContext();
   const fail=feedback(context,form,"installed");
   const businessId=text(form,"businessId"), installationId=text(form,"installationId"), workflowKey=text(form,"workflowKey");
-  if (!context.businesses.some(b=>b.id===businessId)) return fail("Business not found.");
+  if (!(await verifyOwnerBusiness(context,businessId))) return fail("Business not found.");
   const installed = await context.supabase.from("installed_packs").select("snapshot").eq("id",installationId).eq("business_id",businessId).eq("status","active").single();
   if (installed.error) return fail("Active installation not found.");
   let input: Record<string,unknown>;
@@ -98,7 +114,7 @@ export async function launchInstalledPack(form: FormData) {
 export async function runEtsyDiscoverySimulation(form: FormData) {
   const context = await requireOwnerUiContext(), businessId = text(form, "businessId");
   const fail=feedback(context,form,"qualification");
-  if (!context.businesses.some(business => business.id === businessId)) return fail("Business not found.");
+  if (!(await verifyOwnerBusiness(context,businessId))) return fail("Business not found.");
   const runtimeCapability = `${randomUUID()}${randomUUID()}`, nonce = randomUUID();
   const reserved = await context.supabase.rpc("begin_etsy_discovery_simulation", {
     p_business_id: businessId, p_idempotency_key: text(form, "idempotencyKey"),
@@ -139,7 +155,7 @@ export async function acknowledgeEtsySimulation(form: FormData) {
   if (returnTo) {
     const saved = await context.supabase.from("owner_interventions").select("id,business_id,workflow_run_id").eq("id", interventionId).maybeSingle().then(result => result, () => ({ data: null, error: true }));
     const savedNotice = saved.data;
-    if (!saved.error && savedNotice?.id === interventionId && savedNotice.workflow_run_id === recorded.data?.workflowRunId && context.businesses.some(business => business.id === savedNotice.business_id)) {
+    if (!saved.error && savedNotice?.id === interventionId && savedNotice.workflow_run_id === recorded.data?.workflowRunId && (await verifyOwnerBusiness(context,savedNotice.business_id))) {
       returnTo = consoleDecisionActionReturnPath(returnTo, { interventionId, businessId: savedNotice.business_id }) ?? `/dashboard?view=decisions&decision=${encodeURIComponent(interventionId)}`;
     }
   }

@@ -8,7 +8,7 @@ export async function POST(request: NextRequest) {
   const { data } = await supabase.auth.getClaims();
 
   if (data?.claims?.sub) {
-    await supabase.auth.signOut();
+    await supabase.auth.signOut({ scope: "local" });
   }
 
   revalidatePath("/", "layout");

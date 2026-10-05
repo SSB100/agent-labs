@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { requireTransportAdmission, type TransportAdmission } from "../core/transport-admission";
 import { getOpenRouterConfig, type OpenRouterConfig } from "../models/openrouter";
 import { MAX_CREATIVE_PNG_BYTES } from "./types";
 
@@ -129,6 +130,7 @@ export class ImageProviderError extends Error {
 }
 
 export type OpenRouterImageAdapterOptions = {
+  admitDispatch?: TransportAdmission;
   modelId?: ImageGenerationModelId;
   config?: OpenRouterConfig;
   fetcher?: typeof fetch;
@@ -287,6 +289,7 @@ export class OpenRouterImageAdapter implements ImageProviderAdapter {
   private readonly timeoutMs: number;
   private readonly now: () => number;
   private readonly consumedReservations = new Set<string>();
+  private readonly admitDispatch?: TransportAdmission;
 
   constructor(options: OpenRouterImageAdapterOptions = {}) {
     this.policy = getImageGenerationPolicy(options.modelId);
@@ -294,6 +297,7 @@ export class OpenRouterImageAdapter implements ImageProviderAdapter {
     this.fetcher = options.fetcher ?? fetch;
     this.timeoutMs = options.timeoutMs ?? this.policy.maximumTimeoutMs;
     this.now = options.now ?? Date.now;
+    this.admitDispatch = options.admitDispatch;
     // This deliberately narrow adapter cannot redirect credentials to an alternate origin.
     if (this.config.baseUrl.replace(/\/$/, "") !== "https://openrouter.ai/api/v1" || !this.config.apiKey.trim() ||
         !Number.isInteger(this.timeoutMs) || this.timeoutMs <= 0 || this.timeoutMs > this.policy.maximumTimeoutMs) {
@@ -313,6 +317,8 @@ export class OpenRouterImageAdapter implements ImageProviderAdapter {
     });
     try {
       return await Promise.race([timeout, (async () => {
+        if (init.method === "POST") await requireTransportAdmission(this.admitDispatch, { provider: "openrouter", operation: "image.generate", method: "POST", endpoint: url });
+        if (controller.signal.aborted) throw new ImageProviderError("provider_timeout", "Image dispatch expired before authority completed.");
         const response = await this.fetcher(url, { ...init, cache: "no-store", redirect: "error", signal: controller.signal });
         requestId = safeProviderId(response.headers.get("x-generation-id")) || safeProviderId(response.headers.get("x-request-id")) || safeProviderId(response.headers.get("x-openrouter-request-id"));
         if (!response.ok) {

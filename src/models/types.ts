@@ -1,5 +1,10 @@
 import type { JsonObject, JsonValue } from "../core/contracts";
 
+/** Trusted runtime callback at the final transport boundary. Never model/user supplied. */
+export type ModelDispatchAdmission = (request: {
+  url: string; method: "POST"; body: string;
+}) => Promise<void>;
+
 export const MODEL_CAPABILITIES = [
   "structured_output",
   "tool_use",
@@ -115,9 +120,23 @@ export type ModelProviderResponse = {
 };
 
 export type ProviderPriceLimit = { prompt: number; completion: number; request: 0 };
-export type WebSearchModelRequest = { model: ModelDefinition; query: string; allowedDomains: string[]; providerPriceLimit?: ProviderPriceLimit; providerOnly?: readonly string[]; requireReturnedModel?: boolean };
+/** Filters model inference endpoints only; does not govern search-backend retention. */
+export type InferencePrivacyControls = {
+  providerDataCollection?: "deny";
+  providerZdr?: true;
+};
+export type WebSearchModelRequest = InferencePrivacyControls & {
+  model: ModelDefinition;
+  query: string;
+  allowedDomains: string[];
+  /** Explicit provider-side exclusions, applied before search highlights reach the model. */
+  excludedDomains?: readonly string[];
+  providerPriceLimit?: ProviderPriceLimit;
+  providerOnly?: readonly string[];
+  requireReturnedModel?: boolean;
+};
 
-export type StructuredModelRequest = {
+export type StructuredModelRequest = InferencePrivacyControls & {
   /** Exact-span selection can reserve its output budget for visible JSON. */
   reasoning?: { effort: "none" };
   requireReturnedModel?: boolean;

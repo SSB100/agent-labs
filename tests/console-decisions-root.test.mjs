@@ -49,16 +49,15 @@ test('real action resolves exactly one old notice, count drops, failed execution
   assert.ok(h.revalidated.includes('/dashboard')); assert.ok(h.revalidated.includes(`/dashboard/workflows/${notice.workflow_run_id}`));
 });
 
-test('Overview and Work display stopped evidence rather than active or waiting work after real acknowledgement', async () => {
+test('Work displays stopped evidence rather than active or waiting work after real acknowledgement', async () => {
   const tables = fixtureTables({ count: 1, amountCase: 'png' }), h = rootDecisionFixture({ tables }), notice = tables.owner_interventions[0];
   await h.perform(formFor(notice));
-  const overview = await h.render(`/dashboard?view=overview&business=${businessId}`);
-  assert.equal(overview.overview.props.context.needsYouCount, 0); assert.doesNotMatch(overview.html, noWork);
-  assert.equal(overview.boundary.props.snapshot.entities.find(row => row.target === 'run').state, 'stopped');
+  // R08 Overview resolves a canonical Quest first; it must not inherit this unlinked legacy run.
+  // The new workspace context and production-Next journey suites qualify that selection boundary.
   for (const route of [`/dashboard?view=work&business=${businessId}`, `/dashboard?view=work&business=${businessId}&run=${notice.workflow_run_id}`]) {
     const work = await h.render(route); assert.match(work.html, /Stopped/);
     // Available filter choices are not assertions about the displayed execution.
-    const displayedWork = work.html.replace(/<form[^>]*class="consoleCollectionToolbar"[\s\S]*?<\/form>/g, "");
+    const displayedWork = work.html.replace(/<nav[^>]*aria-label="Workspace views"[\s\S]*?<\/nav>/g, "").replace(/<form[^>]*class="consoleCollectionToolbar"[\s\S]*?<\/form>/g, "");
     assert.doesNotMatch(displayedWork, noWork);
     assert.equal(work.boundary.props.snapshot.entities.find(row => row.target === 'run').state, 'stopped');
     if (query(route).has('run')) { assert.match(work.html, /1 of 3 recorded calls have an unknown charge/); assert.match(work.html, /Failed/); }

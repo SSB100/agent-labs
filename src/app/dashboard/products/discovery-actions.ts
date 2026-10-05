@@ -1,4 +1,5 @@
 "use server";
+import { verifyOwnerBusiness } from "@/lib/core-ui/owner-business";
 import {randomUUID} from "node:crypto";
 import {redirect} from "next/navigation";
 import {revalidatePath} from "next/cache";
@@ -17,7 +18,7 @@ export async function approveGeographicResearchFunding(form:FormData){
   if(text(form,'confirmFunding')!=='on')fail('Confirm the total USD research ceiling, including prior charges.');
   const result=await context.supabase.from('product_experiments').select('*').eq('id',rootId).eq('discovery_version','pod-discovery-2.0').is('parent_discovery_id',null).maybeSingle();
   const root=result.data as ProductExperimentRecord|null;
-  if(result.error||!root||!context.businesses.some(b=>b.id===root.business_id))fail('Research goal not found.');
+  if(result.error||!root||!(await verifyOwnerBusiness(context,root.business_id)))fail('Research goal not found.');
   let maximum,balance;
   try{
     maximum=parseDiscoveryAllowance(text(form,'maximumUsd'),2_000_000);
@@ -33,7 +34,7 @@ export async function approveGeographicResearchFunding(form:FormData){
 }
 export async function startGeographicDiscovery(form:FormData){
   const context=await requireOwnerUiContext(),businessId=text(form,'businessId');
-  if(!context.businesses.some(b=>b.id===businessId))fail('Business not found.');
+  if(!(await verifyOwnerBusiness(context,businessId)))fail('Business not found.');
   if(text(form,'confirmResearch')!=='on')fail('Confirm the bounded research allowance before starting.');
   let intent,quote;
   try{
@@ -60,7 +61,7 @@ export async function refreshGeographicDiscovery(form:FormData){
   if(text(form,'confirmResearch')!=='on')fail('Confirm the focused research continuation before starting.');
   const rootResult=await context.supabase.from('product_experiments').select('*').eq('id',rootId).eq('discovery_version','pod-discovery-2.0').is('parent_discovery_id',null).maybeSingle();
   const root=rootResult.data as ProductExperimentRecord|null;
-  if(rootResult.error||!root||!context.businesses.some(b=>b.id===root.business_id)||!['completed','failed'].includes(root.status))fail('A completed or failed owned research goal is required.');
+  if(rootResult.error||!root||!(await verifyOwnerBusiness(context,root.business_id))||!['completed','failed'].includes(root.status))fail('A completed or failed owned research goal is required.');
   const saved=await loadDiscoveryGoalData(context,[root]);
   const record=saved.records[0];
   if(!record?.intent||saved.errors.length)fail('The preserved goal and evidence could not be verified.');
@@ -97,7 +98,7 @@ export async function continueGeographicDiscoveryAnalysis(form:FormData){
   if(text(form,'confirmAnalysis')!=='on')fail('Confirm the separately quoted strategy and independent review round.');
   const rootResult=await context.supabase.from('product_experiments').select('*').eq('id',rootId).eq('discovery_version','pod-discovery-2.0').is('parent_discovery_id',null).maybeSingle();
   const root=rootResult.data as ProductExperimentRecord|null;
-  if(rootResult.error||!root||root.status!=='failed'||!context.businesses.some(b=>b.id===root.business_id))fail('An owned failed discovery round is required; its history will remain unchanged.');
+  if(rootResult.error||!root||root.status!=='failed'||!(await verifyOwnerBusiness(context,root.business_id)))fail('An owned failed discovery round is required; its history will remain unchanged.');
   const saved=await loadDiscoveryGoalData(context,[root]),record=saved.records[0];
   if(!saved.analysisAvailable||saved.errors.length||!record?.intent||!record.dossier)fail('The registered evidence-reuse workflow and frozen dossier could not be verified.');
   let intent,quote,priorArtifactIds:string[];

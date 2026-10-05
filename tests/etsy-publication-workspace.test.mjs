@@ -1,3 +1,4 @@
+import { historyPager } from './helpers/history-fixtures.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync,existsSync} from 'node:fs';
@@ -6,13 +7,13 @@ import {runInNewContext} from 'node:vm';
 const require=createRequire(import.meta.url),ts=require('typescript'),React=require('react');
 const {renderToStaticMarkup}=require('react-dom/server');
 const policy=require('../.core-tests/etsy-publication/policy.js');
-function load(path,deps){const code=ts.transpileModule(readFileSync(path,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true}}).outputText;const m={exports:{}};runInNewContext(`(function(require,module,exports){${code}\n})`)(name=>{assert.ok(name in deps,`Unexpected dependency ${name}`);return deps[name];},m,m.exports);return m.exports;}
+function load(path,deps){const code=ts.transpileModule(readFileSync(path,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true}}).outputText;const m={exports:{}};runInNewContext(`(function(require,module,exports){${code}\n})`)(name=>{if(name==='@/components/console/history-pager')return historyPager;assert.ok(name in deps,`Unexpected dependency ${name}`);return deps[name];},m,m.exports);return m.exports;}
 const noop=async()=>{};
 const {PublicationWorkspace}=load('src/app/dashboard/etsy/publication-workspace.tsx',{'react/jsx-runtime':require('react/jsx-runtime'),'@/etsy-publication/policy':policy,'./publication-actions':{publishReviewedEtsyDraft:noop,reconcileEtsyPublication:noop,stopEtsyPublication:noop}});
 const base={businessId:'fixture-business',configured:false,unavailable:false,feeReadiness:policy.publicationFeeReadiness(Date.parse('2026-10-01T13:00:00Z')),drafts:[],runs:[]};
 const render=value=>renderToStaticMarkup(React.createElement(PublicationWorkspace,{data:value}));
 test('publication workspace exposes current fee and genuine product blockers without claiming manual-only',()=>{
- const html=render(base);assert.match(html,/Commercial evidence incomplete/);assert.match(html,/not a verified total/);assert.match(html,/No verified Etsy draft/);assert.match(html,/single-unit draft/);assert.doesNotMatch(html,/manual-only|publication forbidden|owner.*JSON|type="text"/);
+ const html=render(base);assert.match(html,/Commercial evidence incomplete/);assert.match(html,/not a verified total/);assert.match(html,/No verified draft candidates are shown on this server page/);assert.match(html,/single-unit draft/);assert.doesNotMatch(html,/manual-only|publication forbidden|owner.*JSON|type="text"/);
 });
 test('supplier link and manual-confirmation checks remain separately unverified without changing fee controls',()=>{
  for(const data of [base,{...base,unavailable:true},{...base,configured:true,drafts:[{id:'draft',title:'Reviewed product',packageHash:'a'.repeat(64),quantity:1,priceMinor:2500,currency:'USD'}]}]){
@@ -34,7 +35,7 @@ test('larger stock is a visible initial qualification limit and is never silentl
  const html=render({...base,configured:true,drafts:[{id:'draft',title:'Reviewed product',packageHash:'a'.repeat(64),quantity:5,priceMinor:2500,currency:'USD'}]});assert.match(html,/5 units/);assert.match(html,/quantity has not been changed/);assert.doesNotMatch(html,/name="quantity"/);
 });
 test('unknown records are never presented as no attempts or no drafts',()=>{
- const html=render({...base,unavailable:true});assert.match(html,/Existing attempts may still exist/);assert.doesNotMatch(html,/No publication attempts|No verified Etsy draft/);
+ const html=render({...base,unavailable:true});assert.match(html,/Existing attempts may still exist/);assert.doesNotMatch(html,/No publication attempts|No verified draft candidates are shown on this server page/);
 });
 test('late active observation and owner stop remain visible without claiming success or reversal',()=>{
  const html=render({...base,configured:true,runs:[{id:'run',title:'Product',status:'needs_owner',providerState:'active',listingId:500,stopRequested:true,activationSent:true}]});
@@ -76,4 +77,10 @@ test('compact Decisions does not claim an empty queue when the authoritative int
  const {rendered,fixtureTables}=await import('./helpers/console-decisions.mjs');
  const {html}=await rendered('/dashboard?view=decisions',{tables:fixtureTables({count:0}),failTable:'owner_interventions'});
  assert.match(html,/Decision page completeness could not be checked/);assert.match(html,/Count unavailable/);assert.doesNotMatch(html,/No matching notices are recorded|No intervention required|Nothing needs your attention/);
+});
+
+test('out-of-range publication pages keep global counts and page-local absence', () => {
+ const page={page:7,pageSize:25,total:127,hasNext:false,available:true},html=render({...base,runsPage:page,draftsPage:page});
+ assert.match(html,/No verified draft candidates are shown on this server page/);assert.match(html,/No publication attempts are shown on this server page/);
+ assert.doesNotMatch(html,/No verified Etsy draft|No publication attempts are recorded/);
 });

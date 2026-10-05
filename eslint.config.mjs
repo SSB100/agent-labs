@@ -12,6 +12,7 @@ export default defineConfig([
     "coverage/**",
     ".core-tests/**",
     ".worker-tests/**",
+    "work/**",
     "src/app/.well-known/workflow/**",
     "next-env.d.ts",
   ]),

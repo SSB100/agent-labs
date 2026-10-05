@@ -61,7 +61,7 @@ export function sheetLifecycleDocument() {
     }}],
   }).then(result => {
     const modules = Object.keys(result.metafile.inputs).filter(file => file.startsWith("src/"));
-    assert.deepEqual(modules.sort(), ["src/components/console/console-command.css","src/components/console/console-command.tsx","src/lib/core-ui/quest-draft.ts"].sort());
+    assert.deepEqual(modules.sort(), ["src/components/console/console-command.css","src/components/console/console-command.tsx","src/lib/core-ui/quest-draft.ts", "src/core/quest-intake.ts"].sort());
     // Hydration begins with the real Suspense boundary, including React's SSR
     // markers. Plain main markup would force recovery before any modal test.
     const initial = renderToString(React.createElement(React.Suspense, { fallback: React.createElement("p", null, "Loading route") },

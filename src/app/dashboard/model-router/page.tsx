@@ -1,8 +1,11 @@
+import { safeTablePage, historyRows } from "@/lib/core-ui/history-read";
+import { HistoryPager } from "@/components/console/history-pager";
+import type { HistoryPage } from "@/lib/core-ui/history-query";
 import { AppShell } from "@/components/stage7/app-shell";
 import { ConsoleRetainedWorkspace, ConsoleRecentRows } from "@/components/console/console-retained-workspace";
 import { requireOwnerUiContext } from "@/lib/core-ui/data";
 import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 
 import { isOpenRouterConfigured } from "../../../models/openrouter";
 import { MODEL_ROUTER_RUNTIME_WORKFLOW_DEFINITION_ID } from "../../../workflows/model-router-runtime";
@@ -119,72 +122,39 @@ export default async function ModelRouterPage({ searchParams }: Props) {
   const exactRunId = first(query.run);
   if (query.run && (Array.isArray(query.run) || !/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(exactRunId ?? ""))) notFound();
 
-  const { data: claimsData, error: claimsError } = await supabase.auth.getClaims();
-  const userId = claimsData?.claims?.sub;
-  if (claimsError || !userId) redirect("/login?error=session-required");
-
   const [businessResult, modelResult, routeResult] = await Promise.all([
-    supabase
-      .from("businesses")
-      .select("id, name")
-      .eq("owner_user_id", userId)
-      .order("created_at", { ascending: false }),
-    supabase
-      .from("model_definitions")
-      .select(
-        "id, model_key, display_name, provider_family, provider_model_id, tier, status, context_window_tokens, input_price_per_million_usd, output_price_per_million_usd",
-      )
-      .order("model_key").limit(100),
-    supabase
-      .from("model_routes")
-      .select(
-        "id, route_key, name, status, primary_model_definition_id, fallback_model_definition_id, maximum_attempts",
-      )
-      .order("route_key").limit(100),
+    Promise.resolve({data:context.businesses,error:context.businessesUnavailable}),
+    safeTablePage<Model>(context,"model_definitions","id,model_key,display_name,provider_family,provider_model_id,tier,status,context_window_tokens,input_price_per_million_usd,output_price_per_million_usd","model",{time:"model_key",searchColumn:"display_name",statusColumn:"status"}),
+    safeTablePage<Route>(context,"model_routes","id,route_key,name,status,primary_model_definition_id,fallback_model_definition_id,maximum_attempts","route",{time:"route_key",searchColumn:"name",statusColumn:"status"}),
   ]);
 
   const businesses = ((businessResult.data ?? []) as Business[]).filter(b=>!selectedBusinessId || b.id===selectedBusinessId);
-  const models = (modelResult.data ?? []) as Model[];
-  const routes = (routeResult.data ?? []) as Route[];
-  const businessIds = businesses.map((business) => business.id);
+  const models = historyRows(modelResult);
+  const routes = historyRows(routeResult);
+  let historyPage:HistoryPage|undefined, invocationPage:HistoryPage|undefined;
   let runs: Run[] = [];
   let invocations: Invocation[] = [];
-  let loadError = Boolean(businessResult.error || modelResult.error || routeResult.error);
+  let loadError = Boolean(businessResult.error || !modelResult.page.available || !routeResult.page.available);
 
-  if (businessIds.length) {
-    let runRead = supabase
-      .from("workflow_runs")
-      .select(
-        "id, business_id, status, current_stage_key, input, state, runtime_run_id, created_at, completed_at",
-      )
-      .eq("workflow_definition_id", MODEL_ROUTER_RUNTIME_WORKFLOW_DEFINITION_ID)
-      .in("business_id", businessIds)
-      .order("created_at", { ascending: false }).order("id", { ascending: false })
-      .limit(exactRunId ? 2 : 30);
-    if (exactRunId) runRead = runRead.eq("id",exactRunId);
-    const runResult = await runRead;
-    if (exactRunId && !runResult.error && !runResult.data?.length) notFound();
-    runs = (runResult.data ?? []) as Run[];
-    loadError ||= Boolean(runResult.error);
+  if (!context.businessesUnavailable) {
+    const runResult=await safeTablePage<Run>(context,"workflow_runs","id,business_id,status,current_stage_key,input,state,runtime_run_id,created_at,completed_at","proof",{businessId:selectedBusinessId,filters:[["workflow_definition_id",MODEL_ROUTER_RUNTIME_WORKFLOW_DEFINITION_ID]],selectedId:exactRunId,statusColumn:"status"});
+    historyPage=runResult.page;
+    if(exactRunId && runResult.page.available && !runResult.selected)notFound();
+    runs=historyRows(runResult); loadError ||= !runResult.page.available;
 
     if (runs.length) {
-      const invocationResult = await supabase
-        .from("model_invocations")
-        .select(
-          "id, workflow_run_id, model_definition_id, attempt, status, provider_model_id, failure_category, input_tokens, output_tokens, provider_request_id, reported_cost_usd, estimated_cost_usd, latency_ms",
-        )
-        .in(
-          "workflow_run_id",
-          runs.map((run) => run.id),
-        )
-        .order("attempt");
-      invocations = (invocationResult.data ?? []) as Invocation[];
-      loadError ||= Boolean(invocationResult.error);
+      const invocationResult=await safeTablePage<Invocation>(context,"model_invocations","id,workflow_run_id,model_definition_id,attempt,status,provider_model_id,failure_category,input_tokens,output_tokens,provider_request_id,reported_cost_usd,estimated_cost_usd,latency_ms","invocation",{inFilters:[["workflow_run_id",exactRunId?[exactRunId]:runs.map(r=>r.id)]],time:"created_at"});
+      invocations=historyRows(invocationResult);invocationPage=invocationResult.page;
+      loadError ||= !invocationResult.page.available;
+
     }
   }
 
   const businessById = new Map(businesses.map((business) => [business.id, business]));
-  const modelById = new Map(models.map((model) => [model.id, model]));
+  const referencedIds=[...new Set([...routes.flatMap(r=>[r.primary_model_definition_id,r.fallback_model_definition_id]),...invocations.map(i=>i.model_definition_id)])].filter(id=>id&&!models.some(m=>m.id===id));
+  const relatedModels=referencedIds.length?await supabase.from("model_definitions").select("id,model_key,display_name,provider_family,provider_model_id,tier,status,context_window_tokens,input_price_per_million_usd,output_price_per_million_usd",{count:"exact"}).in("id",referencedIds).limit(79):{data:[],error:null,count:0};
+  if(relatedModels.error || relatedModels.count!==referencedIds.length || relatedModels.data?.length!==referencedIds.length)loadError=true;
+  const modelById = new Map([...models,...(relatedModels.data??[]) as Model[]].map((model) => [model.id, model]));
   const invocationsByRun = new Map<string, Invocation[]>();
   for (const invocation of invocations) {
     const entries = invocationsByRun.get(invocation.workflow_run_id) ?? [];
@@ -205,7 +175,7 @@ export default async function ModelRouterPage({ searchParams }: Props) {
   const message = messages[first(query.message) ?? ""];
   const error = errors[first(query.error) ?? ""];
 
-  return (<AppShell active="settings" toolDestination="model-router" context={context} navigationBusinessId={selectedBusinessId}><ConsoleRetainedWorkspace ownerId={context.userId} notice={<p className="coreNotice">Loaded window: up to 100 models, 100 routes and 30 runs. Earlier history and complete totals remain pending R06.</p>} header={<><header className="workspaceHeader">
+  return (<AppShell active="settings" toolDestination="model-router" context={context} navigationBusinessId={selectedBusinessId}><ConsoleRetainedWorkspace ownerId={context.userId} notice={<><HistoryPager page={historyPage} name="proof" label="Proof runs"/><HistoryPager page={modelResult.page} name="model" label="Models"/><HistoryPager page={routeResult.page} name="route" label="Routes"/><HistoryPager page={invocationPage} name="invocation" label="Model calls"/><p className="coreNotice">Models, routes, proof runs and model calls have independent server pages. Amounts summarize the displayed call page only. Proof run history is independently server-paged; related execution details are bounded and missing records remain unavailable.</p></>} header={<><header className="workspaceHeader">
           <div className="workspaceTitle"><p>Model routing</p><h1>Model Router</h1></div>
           <Link className="ghostButton" href={`/dashboard?view=overview${selectedBusinessId ? `&business=${selectedBusinessId}` : ""}`}>Back</Link>
         </header>

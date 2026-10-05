@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { JsonObject } from "../core/contracts";
 import { OpenRouterAdapter } from "../models/openrouter";
-import { ModelProviderError, type ModelProviderAdapter, type ModelProviderResponse, type StructuredModelRequest } from "../models/types";
+import { ModelProviderError, type ModelDispatchAdmission, type ModelProviderAdapter, type ModelProviderResponse, type StructuredModelRequest } from "../models/types";
 import { JsonSchemaValidationError } from "../workers/schema-validator";
 import { creativeFailureMessage } from "./errors";
 
@@ -14,6 +14,7 @@ export type CreativeModelCallKey = Exclude<CreativeCallKey, "generate:1" | "gene
 export type CreativeModelQuote = { modelId: string; verifiedAt: string; source: string; inputPerMillion: number; outputPerMillion: number; cacheWritePerMillion: number };
 export type CreativeReservation = { callKey: CreativeCallKey; reservedMicrousd: number; requestHash: string; model: string; provider: "openrouter"; estimate: JsonObject };
 export interface CreativeLedger {
+  admissionFor?(reservation: CreativeReservation): ModelDispatchAdmission;
   reserve(reservation: CreativeReservation): Promise<{ shouldExecute: boolean; committedMicrousd: number }>;
   record(callKey: CreativeCallKey, reportedMicrousd: number | null, providerRequestId: string | null, receipt: JsonObject): Promise<void>;
 }
@@ -69,13 +70,14 @@ export function creativeModelReservation(callKey: CreativeModelCallKey, request:
 /** No automatic model fallback: uncertain/replayed attempts stay spent until reconciled. */
 export async function callCreativeModel(options: { callKey: CreativeModelCallKey; request: StructuredModelRequest; ledger: CreativeLedger;
   validateOutput: (output: JsonObject) => void; adapter?: ModelProviderAdapter; prices?: typeof fetchCreativeModelQuote }): Promise<ModelProviderResponse> {
-  const quote = await (options.prices ?? fetchCreativeModelQuote)(options.request.model.providerModelId);
+  options = { ...options, request: structuredClone(options.request) };
+  const quote = structuredClone(await (options.prices ?? fetchCreativeModelQuote)(options.request.model.providerModelId));
   const reservation = creativeModelReservation(options.callKey, options.request, quote);
-  const reserved = await options.ledger.reserve(reservation);
+  const reserved = await options.ledger.reserve(structuredClone(reservation));
   if (!reserved.shouldExecute) throw fail("Creative provider attempt was already reserved; automatic replay is blocked.");
   let response: ModelProviderResponse | null = null;
   try {
-    response = await (options.adapter ?? new OpenRouterAdapter()).invokeStructured({ ...options.request,
+    response = await (options.adapter ?? new OpenRouterAdapter({ admitDispatch: options.ledger.admissionFor?.(reservation) })).invokeStructured({ ...options.request,
       providerOnly: [options.callKey === "brief:1" ? "openai" : "anthropic"],
       providerPriceLimit: { prompt: quote.inputPerMillion, completion: quote.outputPerMillion, request: 0 } });
     if (response.providerModelId !== quote.modelId) throw fail("Provider returned a different creative model; its charge is preserved for review.");

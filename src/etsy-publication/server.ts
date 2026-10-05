@@ -1,5 +1,11 @@
 import "server-only";
+import { verifyOwnerBusiness } from "../lib/core-ui/owner-business";
+import { readHistory, historyRows } from "../lib/core-ui/history-read";
+import type { HistoryPage } from "../lib/core-ui/history-query";
 import { randomUUID } from "node:crypto";
+import { existingEffectReadAdmission } from "../core/existing-effect-read";
+import { requireExistingEffectReadEligibility } from "../lib/existing-effect-read-runtime";
+import type { TransportAdmission } from "../core/transport-admission";
 import type { OwnerUiContext } from "../lib/core-ui/data";
 import type { OwnerInterventionRecord } from "../lib/core-ui/workflows";
 import { etsyConfigured, etsyConfig, ownerBusiness, resolveEtsyConnection } from "../etsy/server";
@@ -15,18 +21,21 @@ import { assertPublicationPolicyFresh, publicationDisclosureHash, publicationFee
 
 export type PublicationDraftChoice = { id: string; title: string; packageArtifactId: string; packageHash: string; listingId: number; shopId: number; quantity: number; priceMinor: number; currency: string; verifiedAt: string };
 export type PublicationRunView = { id: string; title: string; status: string; providerState: string; listingId: number | null; reason: string | null; stopRequested: boolean; activationSent: boolean };
-export type PublicationWorkspaceData = { businessId: string; configured: boolean; unavailable: boolean; feeReadiness: PublicationFeeReadiness; drafts: PublicationDraftChoice[]; runs: PublicationRunView[] };
+export type PublicationWorkspaceData = { runsPage?: HistoryPage; draftsPage?: HistoryPage; businessId: string; configured: boolean; unavailable: boolean; feeReadiness: PublicationFeeReadiness; drafts: PublicationDraftChoice[]; runs: PublicationRunView[] };
 export async function publicationRpc(context: OwnerUiContext, businessId: string, operation: string, payload: Record<string, unknown> = {}) {
+  if(businessId && !(await verifyOwnerBusiness(context,businessId)))throw new EtsyError("owner_required");
   ownerBusiness(context,businessId);
   const {data,error}=await context.supabase.rpc("etsy_publication_owner_transition",{p_business_id:businessId,p_operation:operation,p_payload:payload,p_server_key:operation === "workspace" || operation === "cancel" ? "" : etsyConfig().serverKey});
   if(error)throw new EtsyError("publication_state_unavailable");return record(data);
 }
 export async function loadPublicationWorkspace(context: OwnerUiContext,businessId:string,interventionId?:string|null):Promise<PublicationWorkspaceData> {
+  if(businessId && !(await verifyOwnerBusiness(context,businessId)))throw new EtsyError("owner_required");
   ownerBusiness(context,businessId);
   const view:PublicationWorkspaceData={businessId,configured:etsyConfigured(),unavailable:false,feeReadiness:publicationFeeReadiness(),drafts:[],runs:[]};
   try {
     requireEtsy(!interventionId || UUID.test(interventionId),"publication_request_invalid");
-    const raw=await publicationRpc(context,businessId,"workspace",interventionId?{interventionId}:{});
+    const [runs, drafts] = await Promise.all([readHistory<PublicationRunView>(context,businessId,"publication_runs","publication",{interventionId}), readHistory<PublicationDraftChoice>(context,businessId,"publication_drafts","publicationDraft")]);
+    const raw = { runs: historyRows(runs), drafts: historyRows(drafts) }; view.runsPage=runs.page; view.draftsPage=drafts.page;
     requireEtsy(Array.isArray(raw.drafts)&&Array.isArray(raw.runs),"publication_state_unavailable");
     view.drafts=raw.drafts as PublicationDraftChoice[];
     view.runs=raw.runs.map(value=>{const row=record(value);return{id:String(row.id),title:String(row.title),status:String(row.status),providerState:String(row.providerState??"unknown"),listingId:typeof row.listingId === "number" ? row.listingId:null,reason:typeof row.reason === "string"?row.reason:null,stopRequested:row.stopRequested===true,activationSent:row.activationSent===true || row.attemptedAt!=null};});
@@ -65,6 +74,7 @@ export function authenticatePublicationSource(raw:unknown,businessId:string,mode
   return source;
 }
 export async function loadPublicationSource(context:OwnerUiContext,businessId:string,draftRunId:string) {
+  if(businessId && !(await verifyOwnerBusiness(context,businessId)))throw new EtsyError("owner_required");
   requireEtsy(UUID.test(draftRunId),"verified_draft_required");
   return authenticatePublicationSource(await publicationRpc(context,businessId,"source",{draftRunId}),businessId,"publish",etsyConfig().vaultKey);
 }
@@ -73,6 +83,7 @@ export async function loadPublicationSource(context:OwnerUiContext,businessId:st
  * reviewed implementation. A caller cannot submit this evidence through a form. */
 async function verifiedPublicationFeeQuote():Promise<PublicationFeeQuote|null>{return null;}
 export async function beginEtsyPublication(context:OwnerUiContext,businessId:string,draftRunId:string,approvedBindings:{packageHash:string;reviewHash:string;preflightHash:string;disclosureHash:string;feeQuoteHash:string},consents:{publication:boolean;publicData:boolean;fee:boolean;renewal:boolean}) {
+  if(businessId && !(await verifyOwnerBusiness(context,businessId)))throw new EtsyError("owner_required");
   ownerBusiness(context,businessId);
   requireEtsy(consents.publication && consents.publicData && consents.fee && consents.renewal,"publication_consent_required");
   requireEtsy(Object.values(approvedBindings).every(value=>SHA256.test(value)),"publication_review_required");
@@ -115,10 +126,25 @@ export function publicationRepository(context:OwnerUiContext,businessId:string,r
   };
 }
 export async function runEtsyPublication(context:OwnerUiContext,businessId:string,runId:string,reconcileOnly=false) {
+  if(businessId && !(await verifyOwnerBusiness(context,businessId)))throw new EtsyError("owner_required");
   const repository=publicationRepository(context,businessId,runId),state=await repository.acquire();let engineEntered=false;
   try{
     if(reconcileOnly)requireEtsy(state.activation && typeof state.activation === "object" && !Array.isArray(state.activation),"publication_not_dispatched");
-    const config=etsyConfig(),provider=new EtsyPublicationAdapter({authorize:()=>resolveEtsyConnection(context,businessId),apiKey:`${config.keystring}:${config.sharedSecret}`,scope:state,connectionRevision:state.connectionRevision,listingId:state.listingId});
+    const saved = structuredClone(state);
+    // Only an authenticated acquire containing an existing immutable activation
+    // can enter this lane. Ordinary preflight reads never inherit it.
+    const admitReconciliation: TransportAdmission | undefined = saved.activation ? async request => {
+      const original = await repository.guard("reconcile");
+      requireEtsy(original.requestHash === saved.requestHash && original.connection.revision === saved.connectionRevision &&
+        hash(original.package) === saved.packageHash && hash(original.preflight) === saved.preflightHash, "publication_binding_mismatch");
+      const root = "https://api.etsy.com/v3/application", shop = `${root}/shops/${saved.shopId}`, listing = `${root}/listings/${saved.listingId}`;
+      await existingEffectReadAdmission({ businessId:saved.businessId, runId:saved.id, requestHash:saved.requestHash,
+        sentAt:saved.activation!.sentAt, connectionId:saved.connectionId, connectionRevision:saved.connectionRevision, provider:"etsy",
+        endpoints:[shop,listing,`${listing}/inventory`,`${listing}/images`,`${shop}/listings/${saved.listingId}/properties`,
+          `${shop}/shipping-profiles/${original.package.shippingProfileId}`,`${shop}/policies/return/${original.preflight.returnPolicyId}`,
+          `${shop}/readiness-state-definitions/${original.package.readinessStateId}`] }, requireExistingEffectReadEligibility)(request);
+    } : undefined;
+    const config=etsyConfig(),provider=new EtsyPublicationAdapter({authorize:()=>resolveEtsyConnection(context,businessId),apiKey:`${config.keystring}:${config.sharedSecret}`,scope:state,connectionRevision:state.connectionRevision,listingId:state.listingId,admitReconciliation});
     engineEntered=true;return await executeEtsyPublication({...repository,acquire:async()=>state},provider);
   }catch(error){if(!engineEntered){try{await repository.release();}catch{/* Preserve uncertain state without retry. */}}throw error;}
 }

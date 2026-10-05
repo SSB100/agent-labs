@@ -24,12 +24,12 @@ function wire(f,override){
     else throw new Error(`Unexpected synthetic request ${path}`);
     return new Response(JSON.stringify(body),{status:200,headers:{'content-type':'application/json'}});
   };
-  const adapter=new EtsyPublicationAdapter({authorize:async()=>structuredClone(f.connection),apiKey:'synthetic-key:synthetic-secret',scope:f.state,connectionRevision:f.state.connectionRevision,listingId:500,fetcher});
+  const adapter=new EtsyPublicationAdapter({ admitDispatch: async () => {},authorize:async()=>structuredClone(f.connection),apiKey:'synthetic-key:synthetic-secret',scope:f.state,connectionRevision:f.state.connectionRevision,listingId:500,fetcher});
   return{adapter,calls};
 }
 test('complete engine wire performs exactly one bounded PATCH with state only and fresh independent GETs',async()=>{
   const f=publicationFixture(),w=wire(f);const result=await executeEtsyPublication(f.store,w.adapter);assert.equal(result.status,'verified');
-  const writes=w.calls.filter(call=>call.method!=='GET');assert.equal(writes.length,1);const request=writes[0];assert.equal(request.method,'PATCH');assert.equal(request.url,'https://api.etsy.com/v3/application/shops/100/listings/500');assert.equal(request.body.toString(),'state=active');assert.equal(request.headers['Content-Type'],'application/x-www-form-urlencoded');
+  const writes=w.calls.filter(call=>call.method!=='GET');assert.equal(writes.length,1);const request=writes[0];assert.equal(request.method,'PATCH');assert.equal(request.url,'https://api.etsy.com/v3/application/shops/100/listings/500');assert.equal(request.body.toString(),'state=active');assert.equal(new Headers(request.headers).get('Content-Type'),'application/x-www-form-urlencoded');
   assert.ok(w.calls.every(call=>call.redirect==='error'&&call.cache==='no-store'&&call.signal instanceof AbortSignal));assert.ok(w.calls.every(call=>!call.url.includes('legacy=')));assert.ok(w.calls.every(call=>call.url.startsWith('https://api.etsy.com/v3/application/')));
   assert.deepEqual(ETSY_SCOPES,['shops_r','listings_r','listings_w']);
   assert.equal(typeof w.adapter.create,'undefined');assert.equal(typeof w.adapter.upload,'undefined');assert.equal(typeof w.adapter.renew,'undefined');

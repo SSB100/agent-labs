@@ -11,6 +11,7 @@ import type {
   BrowserProviderSession,
 } from "./types";
 import { BrowserProviderError } from "./types";
+import { requireTransportAdmission, type TransportAdmission } from "../core/transport-admission";
 
 const ACTION_CAPABILITIES: Record<BrowserAction["type"], string> = {
   click: "browser.interact",
@@ -146,7 +147,9 @@ async function observePage(page: Page): Promise<BrowserObservation> {
 export async function withBrowserSessionPage<T>(
   session: BrowserProviderSession,
   operation: (page: Page, connectionAttempt: number) => Promise<T>,
+  admitDispatch?: TransportAdmission,
 ) {
+  await requireTransportAdmission(admitDispatch, { provider: "steel", operation: "browser.automation", method: "CDP", endpoint: "saved-browser-session" });
   const { browser, context, attempt } = await connectRemoteBrowser(session);
 
   try {
