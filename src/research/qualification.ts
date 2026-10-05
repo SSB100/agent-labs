@@ -11,7 +11,7 @@ import { validateGenerationRouteProof, type GenerationRouteProof } from "./gener
 /** A reviewed public factual-research use basis, not an open-content license or
  * a financial grant. Only trusted immutable storage may supply this policy. */
 export type PublicResearchPolicy = {
-  version: "r11.public-research.1";
+  version: "r11.public-research.1" | "r11.public-research.2";
   id: string; businessId: string; ownerId: string; workflowRunId: string; goalId: string; operatingPolicyId: string;
   query: string; allowedDomains: string[]; excludedDomains: string[];
   sourceReviews: Array<{ domain: string; basis: "documented_api_factual_snippets"; reviewHash: string }>;
@@ -22,11 +22,13 @@ export type PublicResearchPolicy = {
   validFrom: string; validUntil: string;
   maximumMicrousd: number; searchMicrousd: number; selectorMicrousd: number;
   priceLimit: { prompt: number; completion: number; request: 0 };
+  /** Approved price-ceiling cutoff. V2 independently binds a fresh (<=5 minute)
+   * catalogue deadline to each phase's actual database dispatch marker. */
   quoteHash: string; quoteValidUntil: string;
 };
 
 export type PublicResearchLineage = {
-  version: "r11.public-research.1"; policyId: string; policyHash: string; collectionHash: string;
+  version: PublicResearchPolicy["version"]; policyId: string; policyHash: string; collectionHash: string;
   searchRequestId: string; providerRequestId: string; sourceDomains: string[];
 };
 
@@ -50,7 +52,7 @@ export const publicResearchHash = (value: unknown): string => createHash("sha256
 export function validatePublicResearchPolicy(policy: PublicResearchPolicy, now = Date.now()): void {
   if (!record(policy) || !Number.isFinite(now)) fail();
   exactKeys(policy, "version,id,businessId,ownerId,workflowRunId,goalId,operatingPolicyId,query,allowedDomains,excludedDomains,sourceReviews,queryReviewHash,termsReviewHash,independentReviewHash,approvalHash,modelId,providerEndpoint,recipients,retention,validFrom,validUntil,maximumMicrousd,searchMicrousd,selectorMicrousd,priceLimit,quoteHash,quoteValidUntil");
-  if (policy.version !== "r11.public-research.1" || ![policy.id, policy.businessId, policy.ownerId, policy.workflowRunId, policy.goalId, policy.operatingPolicyId].every(v => typeof v === "string" && UUID.test(v))) fail();
+  if (!["r11.public-research.1", "r11.public-research.2"].includes(policy.version) || ![policy.id, policy.businessId, policy.ownerId, policy.workflowRunId, policy.goalId, policy.operatingPolicyId].every(v => typeof v === "string" && UUID.test(v))) fail();
   validateResearchRequest({ query: policy.query, allowedDomains: policy.allowedDomains });
   const domains = canonicalSourceDomains(policy.allowedDomains), exclusions = canonicalSourceDomains(policy.excludedDomains);
   if (exclusions.some(domain => domain.length > 200 || domain.endsWith(".local") || domain.endsWith(".internal")) || !R11_RESTRICTED_SOURCE_DOMAINS.every(domain => exclusions.includes(domain)) || domains.some(domain => exclusions.some(excluded => within(domain, excluded) || within(excluded, domain)))) fail();
@@ -71,6 +73,7 @@ export function validatePublicResearchPolicy(policy: PublicResearchPolicy, now =
   if (policy.recipients.router !== "openrouter.ai" || policy.recipients.search !== "exa.ai" || policy.recipients.inferenceEndpoint !== policy.providerEndpoint ||
       policy.retention.inference !== "no_training_zdr" || policy.retention.search !== "query_retention_improvement_training_possible" || policy.retention.application !== "bounded_attributed_audit_evidence") fail();
   if (![policy.validFrom, policy.validUntil, policy.quoteValidUntil].every(v => typeof v === "string" && Number.isFinite(Date.parse(v))) || Date.parse(policy.validFrom) > now || Date.parse(policy.validUntil) <= now || Date.parse(policy.quoteValidUntil) <= now || Date.parse(policy.validUntil) <= Date.parse(policy.validFrom) || Date.parse(policy.validUntil) > Date.parse(policy.validFrom) + 31 * 86400000 || Date.parse(policy.validUntil) > Date.parse(policy.quoteValidUntil)) fail();
+  if (policy.version === "r11.public-research.2" && (policy.quoteValidUntil !== policy.validUntil || Date.parse(policy.validUntil) > Date.parse(policy.validFrom) + 30 * 60_000)) fail();
   if (![policy.maximumMicrousd, policy.searchMicrousd, policy.selectorMicrousd].every(v => Number.isSafeInteger(v) && v > 0 && v <= 250_000) || policy.searchMicrousd + policy.selectorMicrousd > policy.maximumMicrousd) fail();
   if (policy.priceLimit.request !== 0 || ![policy.priceLimit.prompt, policy.priceLimit.completion].every(v => typeof v === "number" && Number.isFinite(v) && v > 0 && v <= 1_000_000)) fail();
 }

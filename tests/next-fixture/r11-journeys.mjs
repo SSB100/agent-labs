@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import {actualZoomBrowser} from './browser-zoom.mjs';
 import {bounded,observe,FIXTURE_ACTION_TIMEOUT_MS,FIXTURE_NAVIGATION_TIMEOUT_MS} from './async-bounds.mjs';
-import {researchControl,researchRoute} from './r11-http.mjs';
+import {researchControl,researchRoute,assertResearchPreparationWindow,assertResearchPhaseQuoteWindows} from './r11-http.mjs';
 import {r11Scope,r11ContinuationScope,R11_RESET,R11_RAW_SENTINEL,R11_INERT_SERVER_KEY} from './r11-research.mjs';
 
 /** A redirect's Flight body may stay open; exact headers and fresh DOM prove rejection. */
@@ -60,7 +60,7 @@ export async function runResearchQualificationBrowser({page,context,origin,noKey
   const policy=await form.locator('input[name=policyId]').inputValue(),workflow=await form.locator('input[name=workflowRunId]').inputValue();
   assert.equal(catalogBefore,boundary.log.filter(item=>item.kind==='inert-r11-public-catalog').length);
   await page.getByRole('button',{name:'Prepare public quote and setup',exact:true}).click();await page.locator('#research-setup-metadata pre').waitFor();
-  const preparation=JSON.parse(await page.locator('#research-setup-metadata pre').innerText());
+  const preparation=JSON.parse(await page.locator('#research-setup-metadata pre').innerText());assertResearchPreparationWindow(preparation,'initial');
   assert.equal(preparation.businessId,r11Scope.businessId);assert.equal(preparation.policyId,policy);assert.equal(preparation.workflowRunId,workflow);assert.equal(preparation.authorityCreated,false);assert.equal(preparation.paidCalls,0);
   assert.match(preparation.serverKeyHash,/^[a-f0-9]{64}$/);assert.match(preparation.runtimeCapabilityHash,/^[a-f0-9]{64}$/);assert.equal(preparation.quote.maximumMicrousd,250000);
   assert.equal(await form.locator('input[name=policyId]').inputValue(),policy);assert.equal(await form.locator('input[name=workflowRunId]').inputValue(),workflow);
@@ -162,9 +162,10 @@ export async function runResearchQualificationBrowser({page,context,origin,noKey
   await page.setViewportSize({width:320,height:800});await page.screenshot({path:path.join(output,'r11-research-legacy-reconciled-320x800.png'),fullPage:true});await page.setViewportSize({width:1280,height:720});
  });
  await check('R11 same-Goal continuation binds remaining allowance and two explicit consents without another lifetime budget',async()=>{
+  const saved=structuredClone(fixture()),effects=boundary.effects.length;
   await page.goto(origin+researchRoute());const prepare=page.getByRole('button',{name:'Prepare continuation quote and setup',exact:true}),form=prepare.locator('..');await prepare.waitFor();await page.getByText(/Remaining allowance: \$0\.239932 USD/).waitFor();assert.equal(await form.locator('input[name=maximumMicrousd],input[name=lifetimeCapMicrounits]').count(),0);
   await form.locator('input[name=predecessorPolicyId]').evaluate((input,value)=>{input.value=value;},r11Scope.otherBusinessId);await prepare.click();await page.getByText(/Continuation setup could not be verified/).waitFor();assert.equal(await page.locator('#research-setup-metadata').count(),0);
-  await page.reload();await prepare.click();await page.locator('#research-setup-metadata pre').waitFor();const prepared=JSON.parse(await page.locator('#research-setup-metadata pre').innerText());assert.equal(prepared.mode,'continuation');assert.equal(prepared.continuation.goalId,r11Scope.goalId);assert.equal(prepared.continuation.lifetimeCapMicrounits,'848063');assert.equal(prepared.quote.maximumMicrousd,239932);assert.equal(fixture().providerCalls.length,1);assert.equal(fixture().policies.length,1);
+  await page.reload();await prepare.click();await page.locator('#research-setup-metadata pre').waitFor();const prepared=JSON.parse(await page.locator('#research-setup-metadata pre').innerText());assertResearchPreparationWindow(prepared,'continuation');assert.equal(prepared.mode,'continuation');assert.equal(prepared.continuation.goalId,r11Scope.goalId);assert.equal(prepared.continuation.lifetimeCapMicrounits,'848063');assert.equal(prepared.quote.maximumMicrousd,239932);assert.equal(prepared.authorityCreated,false);assert.equal(prepared.paidCalls,0);assert.equal(fixture().providerCalls.length,1);assert.equal(fixture().policies.length,1);assert.deepEqual(fixture(),saved);assert.equal(boundary.effects.length,effects);
   await control({r11InstallContinuation:true});await page.reload();const freshGrant=page.locator(`[data-r11-grant="${r11ContinuationScope.grantId}"]`),freshProof=page.locator(`[data-r11-policy="${r11ContinuationScope.policyId}"]`),activateButton=freshGrant.getByRole('button',{name:'Activate reviewed proof',exact:true});
   await freshGrant.getByText(/New one-time research cap: \$0\.239932 USD/).waitFor();await freshGrant.getByText(/authorize this one fresh continuation attempt/).waitFor();
   for(const readConsent of [false,true]){
@@ -177,7 +178,8 @@ export async function runResearchQualificationBrowser({page,context,origin,noKey
   }
   await page.setViewportSize({width:320,height:800});await freshGrant.scrollIntoViewIfNeeded();const geometry=await page.evaluate(()=>({width:document.documentElement.scrollWidth,innerWidth}));assert.ok(geometry.width<=geometry.innerWidth+1,JSON.stringify(geometry));await page.screenshot({path:path.join(output,'r11-research-continuation-consent-320x800.png'),fullPage:true});await page.setViewportSize({width:1280,height:720});
   await freshGrant.locator('input[name=readConsent]').check();await freshGrant.locator('input[name=retentionConsent]').check();await activateButton.click();await freshProof.waitFor();assert.equal(fixture().policies.length,2);assert.equal(fixture().policies[1].goalId,r11Scope.goalId);assert.equal(fixture().policies[1].policy.maximumMicrousd,239932);assert.equal(fixture().lifetimeCapMicrounits,'848063');assert.equal(fixture().settlements[0].actualMicrounits,'10068');
-  await freshProof.getByRole('button',{name:'Run public evidence proof',exact:true}).click();await freshProof.locator('[data-r11-result]').waitFor();assert.equal(fixture().providerCalls.length,3);assert.deepEqual(fixture().providerCalls.filter(item=>item.policyId===r11ContinuationScope.policyId).map(item=>item.phase),['search','select']);assert.equal(fixture().results.length,1);
+  const catalogs=boundary.log.filter(item=>item.kind==='inert-r11-public-catalog').length;
+  await freshProof.getByRole('button',{name:'Run public evidence proof',exact:true}).click();await freshProof.locator('[data-r11-result]').waitFor();assert.equal(fixture().providerCalls.length,3);assert.deepEqual(fixture().providerCalls.filter(item=>item.policyId===r11ContinuationScope.policyId).map(item=>item.phase),['search','select']);assert.equal(fixture().results.length,1);assertResearchPhaseQuoteWindows(fixture(),r11ContinuationScope.policyId);assert.equal(boundary.log.filter(item=>item.kind==='inert-r11-public-catalog').length,catalogs+8,'Both phases obtain independent fresh quotes');
   const response=page.waitForResponse(response=>response.request().method()==='POST'&&!!response.request().headers()['next-action']);await freshProof.locator('form').first().evaluate(form=>form.requestSubmit());await response;await page.reload();await freshProof.locator('[data-r11-result]').waitFor();await page.getByRole('link',{name:'Back to Research',exact:true}).click();await page.waitForURL(/view=research/);await page.goBack();await freshProof.locator('[data-r11-result]').waitFor();assert.equal(fixture().providerCalls.length,3);assert.equal(fixture().settlements[0].actualMicrounits,'10068');
  });
  await page.setViewportSize({width:1280,height:720});

@@ -2,11 +2,13 @@ import assert from 'node:assert/strict';
 import {setTimeout as pause} from 'node:timers/promises';
 import {RESEARCH_KEY,RESEARCH_SESSION,sha,value,RESEARCH_OWNER,RESEARCH_OTHER,authenticate,seedResearch,admission,revoke,counts,guard,settle,collectionPayload,recanonicalizeCollection,research} from './r11-public-research-fixture.mjs';
 import {completionPayload} from './r11-public-research-owner-proof.mjs';
+import {seedWindowResearch,windowGuard,freshPhaseQuote} from './r11-public-research-window-fixture.mjs';
 
 /** Requires actual independent PostgreSQL sessions and an observed blocking PID.
  * PGlite does not qualify as concurrency evidence for these tests. */
 export async function researchPostgresRaces(t,{db,Client,pgUrl}){
  if(!pgUrl){await t.test('actual PostgreSQL observed-lock revocation/expiry races',{skip:'Set R11_PUBLIC_RESEARCH_POSTGRES_URL to a fresh isolated loopback database; PGlite is not concurrency evidence'},()=>{});return;}
+ for(const phase of ['search','select'])await t.test(`observed source2 ${phase} quote expiry during operation-row wait rolls back admission`,()=>researchPhaseQuoteExpiryRace({db,Client,pgUrl,phase}));
  async function client(){const c=new Client({connectionString:pgUrl,connectionTimeoutMillis:5000,statement_timeout:15000,application_name:'r11-public-research-race'});await c.connect();await authenticate(c);return c;}
  async function observedLock(runner,locker){
   const deadline=Date.now()+10000;
@@ -120,6 +122,33 @@ export async function researchPostgresRaces(t,{db,Client,pgUrl}){
   assert.deepEqual(await counts(db,s),before);
   await authenticate(db,RESEARCH_OWNER);
  });
+}
+
+/** Real independent PostgreSQL sessions only: the 30-minute authority remains
+ * live while its independently bound phase quote expires at an observed wait. */
+export async function researchPhaseQuoteExpiryRace({db,Client,pgUrl,phase='search'}){
+ const s=await seedWindowResearch(db);
+ if(phase==='select'){
+  const marked=await windowGuard(db,s),receipt=`inert-window-race-${s.policy.id}`;await settle(db,s,marked.requestId,receipt);
+  const payload=collectionPayload(s,marked.requestId,receipt);s.collectionId=(await research(db,s,'collect',payload)).collectionId;
+ }
+ const before=await counts(db,s),expires=Date.now()+2500,quoteValidUntil=freshPhaseQuote(expires,0);
+ assert.ok(Date.parse(s.policy.validUntil)>expires+20*60000,'Reviewed authority must remain live throughout the quote race');
+ assert.ok(Date.parse(s.policy.quoteValidUntil)>expires+20*60000,'The policy-level ceiling is not the expiring per-phase quote');
+ assert.equal(await value(db,'select valid_until>$2::timestamptz result from private.r05_operations where operation_key=$1',[phase==='search'?'research.search':'research.model',new Date(expires+60000).toISOString()]),true,'Financial registry stays valid');
+ const locker=new Client({connectionString:pgUrl,connectionTimeoutMillis:5000,statement_timeout:15000,application_name:'r11-window-quote-locker'}),runner=new Client({connectionString:pgUrl,connectionTimeoutMillis:5000,statement_timeout:15000,application_name:'r11-window-quote-runner'});let pending;
+ try{
+  await Promise.all([locker.connect(),runner.connect()]);await authenticate(runner);
+  await locker.query('begin');await locker.query('select operation_key from private.r05_operations where operation_key=$1 for update',[phase==='search'?'research.search':'research.model']);
+  pending=windowGuard(runner,s,phase,quoteValidUntil).then(result=>({result}),error=>({error}));
+  const waitDeadline=Date.now()+10000;let observed=false;
+  while(Date.now()<waitDeadline){const row=(await db.query('select wait_event_type,pg_blocking_pids(pid) blockers from pg_stat_activity where pid=$1',[runner.processID])).rows[0];if(row?.wait_event_type==='Lock'&&row.blockers.includes(locker.processID)){observed=true;break;}await pause(20);}
+  assert.equal(observed,true,'The guard must block on the locked operation row in a separate PostgreSQL session');assert.ok(Date.now()<expires,'The phase quote must be live when the actual lock wait is observed');
+  await pause(Math.max(0,expires-Date.now()+150));await locker.query('commit');
+  assert.match((await pending).error?.message??'',/r11_research_fresh_quote_required/);
+  assert.deepEqual(await counts(db,s),before,'Expired phase quote cannot commit any additional request, reservation, binding, collection, or sent marker');
+  assert.equal(await value(db,'select count(*)::int result from private.r11_research_bindings where policy_id=$1 and phase=$2',[s.policy.id,phase]),0);
+ }finally{await locker.query('rollback').catch(()=>{});if(pending)await pending;await Promise.all([locker.end(),runner.end()]);}
 }
 
 /** A separate fresh PostgreSQL service permits genuinely expiring immutable

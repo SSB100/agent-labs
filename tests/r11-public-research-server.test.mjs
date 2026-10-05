@@ -54,6 +54,7 @@ test('R11 owner read is quote-free, key-free and removes execution verifier meta
 test('R11 explicit Prepare returns exact HMAC verifier metadata and fresh quote without creating authority or paid calls',async()=>{
  const h=harness();h.row.policies=[];h.row.policyTotal=0;const prepared=await h.prepareResearchBootstrap(h.context,h.businessId,h.policyId,h.workflowRunId);
  assert.equal(prepared.runtimeCapabilityHash,sha(h.cap()));assert.equal(prepared.serverKeyHash,sha(h.env.R05_ADMISSION_SERVER_KEY));assert.equal(prepared.authorityCreated,false);assert.equal(prepared.paidCalls,0);
+ assert.equal(prepared.version,'r11.owner-proof-preparation.2');assert.equal(prepared.expiresAt,prepared.quote.validUntil);
  assert.equal(prepared.quote.totalMicrousd,175871);assert.equal(prepared.search.maxTokens,4000);assert.equal(prepared.sourceProfile.query,profile.PUBLIC_RESEARCH_PROOF_PROFILE.query);
  assert.equal(JSON.stringify(prepared).includes(h.cap()),false);assert.equal(JSON.stringify(prepared).includes(h.env.R05_ADMISSION_SERVER_KEY),false);assert.deepEqual(h.effects.map(e=>e.kind),['quote']);assert.ok(h.calls.every(c=>c.name==='r11_research_workspace_v2'));
 });
@@ -94,7 +95,10 @@ test('R11 continuation Prepare binds exact predecessor, unchanged lifetime balan
  const h=harness(),c=makeContinuation(h),policyId=id(30),workflowRunId=id(31);
  const prepared=await h.prepareResearchBootstrap(h.context,h.businessId,policyId,workflowRunId,h.policyId);
  const derived=crypto.createHmac('sha256',h.env.R05_ADMISSION_SERVER_KEY).update(Q.canonicalPublicResearchJson({version:'r11.attempt-admission.1',businessId:h.businessId,ownerId:h.ownerId,policyId,workflowRunId})).digest('base64url');
- assert.equal(prepared.version,'r11.owner-proof-preparation.2');assert.equal(prepared.mode,'continuation');assert.deepEqual(prepared.continuation,c);
+ assert.equal(prepared.version,'r11.owner-proof-preparation.3');assert.equal(prepared.mode,'continuation');assert.deepEqual(prepared.continuation,c);
+ assert.equal(Date.parse(prepared.expiresAt)-Date.parse(prepared.preparedAt),1800000);
+ assert.equal(Date.parse(prepared.quote.validUntil)-Date.parse(prepared.quote.verifiedAt),300000);
+ assert.ok(Date.parse(prepared.expiresAt)>Date.parse(prepared.quote.validUntil));
  assert.equal(prepared.quote.maximumMicrousd,239932);assert.equal(prepared.quote.version,'r11.public-research-quote.2');assert.equal(prepared.serverKeyHash,sha(derived));
  assert.notEqual(prepared.serverKeyHash,sha(h.env.R05_ADMISSION_SERVER_KEY));assert.equal(JSON.stringify(prepared).includes(derived),false);
  assert.equal(prepared.authorityCreated,false);assert.equal(prepared.paidCalls,0);assert.deepEqual(h.effects.map(x=>x.kind),['quote']);

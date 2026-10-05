@@ -483,7 +483,7 @@ jobs:
           R11_SQL_TEST_HOST: ${{ runner.temp }}/r11-sql-host
           R11_PUBLIC_RESEARCH_POSTGRES_URL: postgresql://r11_test:r11-research-isolated-fixture@127.0.0.1:5432/r11_research_test
           R11_RESEARCH_EXPIRY_POSTGRES_URL: postgresql://r11_test:r11-research-isolated-fixture@127.0.0.1:5433/r11_research_test
-        run: node --test tests/r11-public-research-sql.test.mjs tests/r11-public-research-runtime-sql.test.mjs tests/r11-public-research-owner-sql.test.mjs tests/r11-public-research-repair-sql.test.mjs
+        run: node --test tests/r11-public-research-sql.test.mjs tests/r11-public-research-runtime-sql.test.mjs tests/r11-public-research-owner-sql.test.mjs tests/r11-public-research-repair-sql.test.mjs tests/r11-public-research-window-sql.test.mjs
 
   r03-next:
     runs-on: ubuntu-latest

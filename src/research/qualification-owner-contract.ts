@@ -47,7 +47,7 @@ export type ResearchQualificationWorkspace = { businessId: string; ownerId: stri
   policies: ResearchProofPolicy[]; grants: ResearchProofGrant[]; policyTotal: number; grantTotal: number;
   continuation?: ResearchContinuation | null };
 export type ResearchBootstrapPreparation = {
-  version: "r11.owner-proof-preparation.1" | "r11.owner-proof-preparation.2"; businessId: string; ownerId: string; policyId: string; workflowRunId: string;
+  version: "r11.owner-proof-preparation.1" | "r11.owner-proof-preparation.2" | "r11.owner-proof-preparation.3"; businessId: string; ownerId: string; policyId: string; workflowRunId: string;
   serverKeyHash: string; runtimeCapabilityHash: string; preparedAt: string; expiresAt: string;
   quote: PublicResearchQuote; sourceProfile: JsonObject; search: { requestHash: string; wireHash: string; wireBytes: number; maxTokens: number };
   authorityCreated: false; paidCalls: 0;

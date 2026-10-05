@@ -41,13 +41,38 @@ export async function runResearchQualificationHttp({origin,noKeyOrigin,boundary,
 const decodeAttribute=value=>value.replace(/&quot;/g,'"').replace(/&#x27;|&#39;/g,"'").replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&amp;/g,'&');
 /** Match rendered text, never serialized Flight/script strings or React separators. */
 export const researchHtmlText=html=>decodeAttribute(html.replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi,'').replace(/<!--[\s\S]*?-->/g,'').replace(/<[^>]*>/g,' ')).replace(/\s+/g,' ').trim();
-export function researchPreparedMetadata(html){
+/** Authority and catalogue freshness are independent, explicit versioned windows. */
+export function assertResearchPreparationWindow(preparation,mode){
+ assert.ok(['initial','continuation'].includes(mode));assert.equal(preparation.mode,mode);
+ assert.equal(preparation.version,mode==='continuation'?'r11.owner-proof-preparation.3':'r11.owner-proof-preparation.2');
+ assert.equal(preparation.quote.version,'r11.public-research-quote.2');
+ const preparedAt=Date.parse(preparation.preparedAt),expiresAt=Date.parse(preparation.expiresAt),quotedAt=Date.parse(preparation.quote.verifiedAt),quoteUntil=Date.parse(preparation.quote.validUntil);
+ assert.ok([preparedAt,expiresAt,quotedAt,quoteUntil].every(Number.isFinite),'Preparation timestamps must be finite');
+ assert.equal(preparation.quote.quoteValidUntil,preparation.quote.validUntil);
+ assert.equal(quoteUntil-quotedAt,5*60_000,'Public catalogue quotes retain their exact five-minute lifetime');
+ assert.ok(quotedAt<=preparedAt&&preparedAt<quoteUntil,'Preparation uses a still-fresh trusted catalogue quote');
+ if(mode==='continuation'){
+  assert.equal(expiresAt-preparedAt,30*60_000,'Continuation authority ends exactly thirty minutes after trusted preparation');
+  assert.ok(quoteUntil<expiresAt,'The catalogue quote must not inherit the longer authority window');
+ }else assert.equal(preparation.expiresAt,preparation.quote.validUntil,'Initial authority retains the original quote deadline');
+}
+export function assertResearchPhaseQuoteWindows(research,policyId){
+ const policy=research.policies.find(item=>item.policyId===policyId)?.policy;assert.ok(policy);
+ assert.equal(policy.version,'r11.public-research.2');assert.equal(Date.parse(policy.validUntil)-Date.parse(policy.validFrom),30*60_000);assert.equal(policy.quoteValidUntil,policy.validUntil);
+ const markers=research.markers.filter(item=>item.policyId===policyId);assert.deepEqual(markers.map(item=>item.phase),['search','select']);
+ for(const marker of markers){
+  const freshFor=Date.parse(marker.quoteValidUntil)-Date.parse(marker.markedAt);
+  assert.ok(freshFor>0&&freshFor<=5*60_000,'Each phase marker binds its own still-fresh at-most-five-minute quote');
+  assert.ok(Date.parse(marker.quoteValidUntil)<Date.parse(policy.validUntil),'Phase quote freshness is narrower than authority');
+ }
+}
+export function researchPreparedMetadata(html,mode='initial'){
  const panels=[...html.matchAll(/<details\b[^>]*\bid="research-setup-metadata"[^>]*>([\s\S]*?)<\/details>/g)];
  assert.equal(panels.length,1,'Expected the exact prepared setup metadata panel');
  const pre=[...panels[0][1].matchAll(/<pre\b[^>]*>([\s\S]*?)<\/pre>/g)];
  assert.equal(pre.length,1,'Expected one prepared setup JSON value');
  const preparation=JSON.parse(decodeAttribute(pre[0][1]));
- assert.equal(preparation.version,'r11.owner-proof-preparation.2');return preparation;
+ assertResearchPreparationWindow(preparation,mode);return preparation;
 }
 export function researchRedirectUrl(location,base){
  assert.ok(location,'Actual action redirect must retain its full destination');
@@ -170,10 +195,10 @@ export async function runResearchQualificationActionHttp({origin,noKeyOrigin,bou
   await get();assert.equal(reads(),before+2,'A saved page GET must not issue generation lookups');
  });
  await check('R11 fresh continuation preparation binds the same Goal and remaining cap; forged predecessor cannot prepare',async()=>{
-  await reconciledHistorical();const before=fixture().providerCalls.length,initial=await get();assert.match(initial,/Prepare continuation quote and setup/);assert.match(initial,/Remaining allowance:.*\$0\.239932 USD/);assert.match(initial,/Unchanged Business lifetime cap:.*\$0\.848063 USD/);
+  await reconciledHistorical();const before=fixture().providerCalls.length,saved=structuredClone(fixture()),effects=boundary.effects.length,initial=await get();assert.match(initial,/Prepare continuation quote and setup/);assert.match(initial,/Remaining allowance:.*\$0\.239932 USD/);assert.match(initial,/Unchanged Business lifetime cap:.*\$0\.848063 USD/);
   const invalid=await post('Prepare continuation quote and setup',{predecessorPolicyId:r11Scope.otherBusinessId},origin,initial);assert.match(invalid,/Continuation setup could not be verified/);assert.doesNotMatch(invalid,/id="research-setup-metadata"/);
-  const html=await post('Prepare continuation quote and setup',{maximumMicrousd:'250000',remainingMicrounits:'999999999',lifetimeCapMicrounits:'999999999'},origin,initial);assert.match(researchHtmlText(html),/Setup metadata prepared/);const prepared=researchPreparedMetadata(html);
-  assert.equal(prepared.mode,'continuation');assert.equal(prepared.predecessorPolicyId,r11Scope.policyId);assert.equal(prepared.continuation.goalId,r11Scope.goalId);assert.equal(prepared.continuation.lifetimeCapMicrounits,'848063');assert.equal(prepared.continuation.exposureMicrounits,'608131');assert.equal(prepared.continuation.remainingMicrounits,'239932');assert.equal(prepared.quote.maximumMicrousd,239932);assert.equal(prepared.authorityCreated,false);assert.equal(prepared.paidCalls,0);assert.notEqual(prepared.policyId,r11Scope.policyId);assert.notEqual(prepared.workflowRunId,r11Scope.workflowRunId);assert.notEqual(prepared.serverKeyHash,fixture().grants[0].grant.serverKeyHash);assert.ok(!html.includes(R11_INERT_SERVER_KEY));assert.equal(fixture().providerCalls.length,before);assert.equal(fixture().policies.length,1);
+  const html=await post('Prepare continuation quote and setup',{maximumMicrousd:'250000',remainingMicrounits:'999999999',lifetimeCapMicrounits:'999999999',preparedAt:'2099-01-01T00:00:00Z',expiresAt:'2099-12-31T00:00:00Z',quoteValidUntil:'2099-12-31T00:00:00Z'},origin,initial);assert.match(researchHtmlText(html),/Setup metadata prepared/);const prepared=researchPreparedMetadata(html,'continuation');
+  assert.equal(prepared.mode,'continuation');assert.equal(prepared.predecessorPolicyId,r11Scope.policyId);assert.equal(prepared.continuation.goalId,r11Scope.goalId);assert.equal(prepared.continuation.lifetimeCapMicrounits,'848063');assert.equal(prepared.continuation.exposureMicrounits,'608131');assert.equal(prepared.continuation.remainingMicrounits,'239932');assert.equal(prepared.quote.maximumMicrousd,239932);assert.equal(prepared.authorityCreated,false);assert.equal(prepared.paidCalls,0);assert.notEqual(prepared.policyId,r11Scope.policyId);assert.notEqual(prepared.workflowRunId,r11Scope.workflowRunId);assert.notEqual(prepared.serverKeyHash,fixture().grants[0].grant.serverKeyHash);assert.ok(!html.includes(R11_INERT_SERVER_KEY));assert.equal(fixture().providerCalls.length,before);assert.equal(fixture().policies.length,1);assert.deepEqual(fixture(),saved);assert.equal(boundary.effects.length,effects);
  });
  await check('R11 separately reviewed continuation needs both exact consents, preserves old charges, and dispatches only its two fresh phases',async()=>{
   await reconciledHistorical();await control({r11InstallContinuation:true});const identity=r11ContinuationScope.grantId,policyId=r11ContinuationScope.policyId,activateFresh=(values={})=>post('Activate reviewed proof',values,origin,null,identity);
@@ -181,7 +206,8 @@ export async function runResearchQualificationActionHttp({origin,noKeyOrigin,bou
   const prior=structuredClone(fixture().policies[0]),settlement=structuredClone(fixture().settlements[0]);await activateFresh();await activateFresh({readConsent:'on'});assert.equal(fixture().policies.length,1);await activateFresh({readConsent:'on',retentionConsent:'on',grantHash:'f'.repeat(64)});assert.equal(fixture().policies.length,1);
   let html=await activateFresh({readConsent:'on',retentionConsent:'on'});assert.match(html,/Ready.*pending proof/);assert.equal(fixture().policies.length,2);assert.equal(fixture().policies[1].goalId,r11Scope.goalId);assert.equal(fixture().policies[1].attemptVersion,2);assert.equal(fixture().policies[1].policy.maximumMicrousd,239932);assert.equal(fixture().lifetimeCapMicrounits,'848063');assert.deepEqual(fixture().policies[0],prior);assert.deepEqual(fixture().settlements[0],settlement);
   await activateFresh({readConsent:'on',retentionConsent:'on'});assert.equal(fixture().policies.length,2);assert.equal(fixture().providerCalls.length,1);
-  html=await post('Run public evidence proof',{},origin,null,policyId);assert.match(html,/data-r11-result=/);assert.equal(fixture().providerCalls.length,3);assert.deepEqual(fixture().providerCalls.filter(item=>item.policyId===policyId).map(item=>item.phase),['search','select']);assert.equal(fixture().results.length,1);assert.equal(fixture().results[0].policyId,policyId);assert.deepEqual(fixture().settlements[0],settlement);assert.deepEqual(fixture().policies[0],prior);
+  const catalogs=boundary.log.filter(item=>item.kind==='inert-r11-public-catalog').length;
+  html=await post('Run public evidence proof',{},origin,null,policyId);assert.match(html,/data-r11-result=/);assert.equal(fixture().providerCalls.length,3);assert.deepEqual(fixture().providerCalls.filter(item=>item.policyId===policyId).map(item=>item.phase),['search','select']);assert.equal(fixture().results.length,1);assert.equal(fixture().results[0].policyId,policyId);assertResearchPhaseQuoteWindows(fixture(),policyId);assert.equal(boundary.log.filter(item=>item.kind==='inert-r11-public-catalog').length,catalogs+8,'Both phases fetch independent four-part fresh public quotes');assert.deepEqual(fixture().settlements[0],settlement);assert.deepEqual(fixture().policies[0],prior);
   await post('Run public evidence proof',{},origin,null,policyId);await post('Run public evidence proof',{},origin,null,r11Scope.policyId);await get();await get(noKeyOrigin);assert.equal(fixture().providerCalls.length,3);assert.equal(fixture().results.length,1);
  });
  await check('R11 continuation activation rejects a tampered reviewed cap or predecessor without authority or paid effects',async()=>{

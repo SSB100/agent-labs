@@ -100,3 +100,12 @@ test('R11 pure source producer requires a matching, fully validated documented g
  delete response.metadata.actualUpstreamProvider;
  assert.equal(q.collectQualifiedPublicSources(policy,response,id(10),now,accepted,verified).collection.sources.length,1);
 });
+
+test('R11 source V2 is a fixed thirty-minute ceiling and retains versioned source lineage',()=>{
+ const {policy,now,response}=fixture();policy.version='r11.public-research.2';policy.validFrom=new Date(now).toISOString();policy.validUntil=new Date(now+1800000).toISOString();policy.quoteValidUntil=policy.validUntil;
+ assert.doesNotThrow(()=>q.validatePublicResearchPolicy(policy,now+6*60000));
+ const {collection,lineage}=q.collectQualifiedPublicSources(policy,response,id(10),now,accepted,proof(response));
+ assert.equal(lineage.version,'r11.public-research.2');assert.doesNotThrow(()=>q.validatePublicResearchLineage(policy,collection,lineage,now));
+ for(const edit of [p=>p.quoteValidUntil=new Date(now+1800001).toISOString(),p=>{p.validUntil=new Date(now+1800001).toISOString();p.quoteValidUntil=p.validUntil;},p=>p.version='r11.public-research.3']){const changed=structuredClone(policy);edit(changed);assert.throws(()=>q.validatePublicResearchPolicy(changed,now));}
+ assert.throws(()=>q.validatePublicResearchPolicy(policy,now+1800000));
+});

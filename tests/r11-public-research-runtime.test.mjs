@@ -19,6 +19,7 @@ async function fixture(options={}){
   queryReviewHash:q.publicResearchHash({query,classification:'generic_nonpersonal_public_research'}),termsReviewHash:'2'.repeat(64),independentReviewHash:'3'.repeat(64),approvalHash:'4'.repeat(64),modelId:model.providerModelId,providerEndpoint:'azure/us',
   recipients:{router:'openrouter.ai',search:'exa.ai',inferenceEndpoint:'azure/us'},retention:{inference:'no_training_zdr',search:'query_retention_improvement_training_possible',application:'bounded_attributed_audit_evidence'},
   validFrom:new Date(now-60000).toISOString(),validUntil:new Date(now+240000).toISOString(),maximumMicrousd:250000,searchMicrousd:180000,selectorMicrousd:20000,priceLimit:{prompt:0.44,completion:1.98,request:0},quoteHash:'5'.repeat(64),quoteValidUntil:new Date(now+240000).toISOString()};
+ if(options.thirtyMinute){policy.version='r11.public-research.2';policy.validFrom=new Date(now).toISOString();policy.validUntil=new Date(now+1800000).toISOString();policy.quoteValidUntil=policy.validUntil;}
  const scope={businessId:policy.businessId,coreWorkflowRunId:policy.workflowRunId,runtimeCapability:'inert-runtime-capability'};
  const search=await rt.inspectPublicResearchWire(q.publicResearchSearchRequest(policy,model,now),'search');
  const attemptVersion=options.attemptVersion??1;
@@ -26,7 +27,7 @@ async function fixture(options={}){
  const events=[],sent=[],settlements=[],routeQueries=[],failures=[],marked=new Set();let revoked=false,resultCommitted=false;
  const excerpt='Adult gardeners often value practical tools and containers suited to the available growing space. This is a bounded public observation.';
  const runtime={now:()=>clock,model,
-  async verifyQuote(p){events.push('quote');if(options.quoteFailure)throw Error('stale quote');assert.equal(p.quoteHash,policy.quoteHash);return{providerName:'Azure',acceptedResponseModelIds:[model.providerModelId,'openai/gpt-5.6-luna-20260709']};},
+  async verifyQuote(p){events.push('quote');if(options.quoteFailure)throw Error('stale quote');assert.equal(p.quoteHash,policy.quoteHash);const quote={providerName:'Azure',acceptedResponseModelIds:[model.providerModelId,'openai/gpt-5.6-luna-20260709'],quoteValidUntil:new Date(clock+300000).toISOString()};options.mutateQuote?.(quote,clock);return quote;},
   async verifyGenerationRoute(expected){events.push('route');routeQueries.push(structuredClone(expected));if(options.routeError)throw Error('private route lookup failure');if(options.routeNull)return null;
    const raw={data:{id:expected.generationId,provider_name:'Azure',model:'openai/gpt-5.6-luna-20260709',provider_responses:null}};options.mutateRoute?.(raw);return route.qualifyGenerationRouteProof(raw,expected);},
   async rpc(operation,payload){events.push(operation);if(operation==='load'){if(revoked)throw Error('policy revoked');return structuredClone(loaded);}
@@ -34,6 +35,7 @@ async function fixture(options={}){
     if(options.supersedeProgressedPhase&&((payload.phase==='search'&&loaded.collection)||(payload.phase==='select'&&resultCommitted)))return{recorded:false,superseded:true,reason:'phase_progressed',workflowStatus:resultCommitted?'completed':'running'};
     failures.push(structuredClone(payload));revoked=true;return{outcomeId:id(90),recorded:true,replayed:false,workflowStatus:'needs_owner'};}
    if(operation==='guard'){
+    if(policy.version==='r11.public-research.2'){assert.equal(payload.quoteValidUntil,new Date(clock+300000).toISOString());assert.equal('quoteValidUntil' in payload.admission,false);}
     assert.equal(payload.admission.operationKey,loaded.operationKeys[payload.phase]);assert.equal(payload.admission.accounting.kind,'r05');assert.deepEqual(payload.admission.sourceDomains,policy.allowedDomains);assert.deepEqual(payload.admission.dataClasses,['generic_public_query','public_evidence']);
     if(options.deny===payload.phase||marked.has(payload.phase))return{decision:'blocked',shouldDispatch:false,requestId:id(payload.phase==='search'?10:11)};
     marked.add(payload.phase);if(options.guardLoss===payload.phase)throw Error('lost marker response');return{decision:'allowed',shouldDispatch:true,requestId:id(payload.phase==='search'?10:11)};
@@ -65,8 +67,22 @@ async function fixture(options={}){
    options.mutateResponse?.(response,phase);
    return new Response(JSON.stringify(response),{status:options.httpError?400:200});
   }})};
- return{now,policy,scope,runtime,loaded,events,sent,settlements,routeQueries,failures,marked};
+ return{now,policy,scope,runtime,loaded,events,sent,settlements,routeQueries,failures,marked,setClock:value=>clock=value};
 }
+test('R11 thirty-minute authority refreshes and separately binds both phase quote deadlines after the original quote expired',async()=>{
+ const f=await fixture({attemptVersion:2,thirtyMinute:true});f.setClock(f.now+6*60000);
+ const result=await rt.runPublicResearchQualification(f.scope,f.policy.id,f.runtime);
+ assert.equal(f.sent.length,2);assert.equal(f.routeQueries.length,2);assert.equal(result.evidencePack.sourceLineage.version,'r11.public-research.2');
+ assert.equal(f.events.filter(x=>x==='quote').length,2);
+});
+for(const mutateQuote of [q=>delete q.quoteValidUntil,q=>q.quoteValidUntil='bad',(q,now)=>q.quoteValidUntil=new Date(now).toISOString(),(q,now)=>q.quoteValidUntil=new Date(now+300001).toISOString()])test('R11 thirty-minute authority cannot dispatch with missing, stale or overlong phase quote freshness',async()=>{
+ const f=await fixture({attemptVersion:2,thirtyMinute:true,mutateQuote});await assert.rejects(rt.runPublicResearchQualification(f.scope,f.policy.id,f.runtime));
+ assert.equal(f.sent.length,0);assert.equal(f.events.includes('guard'),false);assert.equal(f.settlements.length,0);
+});
+test('R11 a fresh phase quote cannot extend the fixed thirty-minute source authority',async()=>{
+ const f=await fixture({attemptVersion:2,thirtyMinute:true});f.setClock(Date.parse(f.policy.validUntil));
+ await assert.rejects(rt.runPublicResearchQualification(f.scope,f.policy.id,f.runtime));assert.equal(f.sent.length,0);assert.equal(f.events.includes('quote'),false);
+});
 test('R11 bounded runner makes exactly one search plus selector with durable lineage and original R05 authority',async()=>{
  const f=await fixture(),result=await rt.runPublicResearchQualification(f.scope,f.policy.id,f.runtime);
  assert.equal(f.sent.length,2);assert.equal(f.settlements.length,4);assert.deepEqual(f.events,['load','quote','guard','send:search','settle','route','settle','collect','quote','guard','send:select','settle','route','settle','complete']);

@@ -99,9 +99,9 @@ export function installResearchContinuationFixture(state,control={}){
  const research=state.r11Research,context=projection(state,research.businessId,control).continuation;
  if(!context?.eligible||research.continuationGrants.length)throw Error('Inert continuation not eligible');
  const original=research.grants[0].grant,grant=structuredClone(original),ids=r11ContinuationScope;
- const validFrom=new Date(Date.now()-5000).toISOString(),validUntil=new Date(Date.now()+240000).toISOString();
+ const preparedAt=Date.now(),validFrom=new Date(preparedAt).toISOString(),validUntil=new Date(preparedAt+30*60_000).toISOString();
  Object.assign(grant,{version:'r11.owner-continuation-grant.1',id:ids.grantId,policyId:ids.policyId,workflowRunId:ids.workflowRunId,continuation:context});
- Object.assign(grant.researchPolicy,{id:ids.policyId,workflowRunId:ids.workflowRunId,goalId:context.goalId,operatingPolicyId:ids.operatingPolicyId,validFrom,validUntil,quoteValidUntil:validUntil,maximumMicrousd:239932,quoteHash:R11_CONTINUATION_QUOTE_HASH});
+ Object.assign(grant.researchPolicy,{version:'r11.public-research.2',id:ids.policyId,workflowRunId:ids.workflowRunId,goalId:context.goalId,operatingPolicyId:ids.operatingPolicyId,validFrom,validUntil,quoteValidUntil:validUntil,maximumMicrousd:239932,quoteHash:R11_CONTINUATION_QUOTE_HASH});
  Object.assign(grant.operatingPolicy,{goalRevision:context.goalRevision+2,businessRevision:context.businessRevision+1,expectedCapRevision:context.capRevision,expectedExposureMicrounits:context.exposureMicrounits,businessLifetimeLimitMicrounits:context.lifetimeCapMicrounits,policyLimitMicrounits:'239932',categoryLimits:[{category:'model',microunits:'239932'}],startsAt:validFrom,expiresAt:validUntil});
  grant.operatingPolicy.operations.forEach((operation,index)=>{operation.operationKey=operationKeys(ids.policyId,2)[index===0?'search':'select'];});
  grant.serverKeyHash=createHash('sha256').update(authority(research,ids.policyId,ids.workflowRunId,2)).digest('hex');
@@ -193,13 +193,16 @@ export function researchRuntimeFixture(state,name,args,effects,control){
   if(args.p_operation==='load')return ok({policy:proof.policy,policyHash:proof.policyHash,search:r11Search,collection:research.collections.find(item=>item.policyId===proof.policyId)??null,attemptVersion:proof.attemptVersion,operationKeys:proof.operationKeys});
   if(args.p_operation==='guard'){
    if(!['search','select'].includes(payload.phase))return error('Inert phase unavailable');
+   const markedAt=Date.now(),quoteUntil=Date.parse(payload.quoteValidUntil);
+   if(proof.policy.version==='r11.public-research.2'&&(typeof payload.quoteValidUntil!=='string'||!Number.isFinite(quoteUntil)||quoteUntil<=markedAt||quoteUntil>markedAt+5*60_000))return error('Inert fresh phase quote required');
+   if(proof.policy.version==='r11.public-research.1'&&Object.hasOwn(payload,'quoteValidUntil'))return error('Inert legacy quote contract changed');
    const previous=research.markers.find(item=>item.policyId===proof.policyId&&item.phase===payload.phase);
    if(previous)return ok({decision:'blocked',shouldDispatch:false,requestId:previous.requestId});
    const collection=research.collections.find(item=>item.policyId===proof.policyId),wire=payload.phase==='search'?r11Search:collection?.selector;
    const admission=payload.admission,expectedCapability=capability(research,proof.policyId,proof.workflowRunId);
    if(!wire||admission?.runtimeCapability!==expectedCapability||admission?.workflowRunId!==proof.workflowRunId||admission?.operationKey!==proof.operationKeys[payload.phase]||admission?.requestHash!==wire.requestHash||admission?.wireRequestHash!==wire.wireHash||admission?.wireRequestBytes!==wire.wireBytes||admission?.maximumOutputTokens!==wire.maxTokens||admission?.idempotencyKey!==`r11:${proof.policyId}:${payload.phase}`||admission?.accounting?.kind!=='r05'||r11Hash(admission?.sourceDomains)!==r11Hash(proof.policy.allowedDomains))return error('Inert admission descriptor mismatch');
    if(payload.phase==='select'&&(!collection||payload.collectionId!==collection.id))return error('Inert selector collection mismatch');
-   const requestId=id(911010+research.markers.length),newMarker={business,policyId:proof.policyId,phase:payload.phase,requestId,wireHash:wire.wireHash};
+   const requestId=id(911010+research.markers.length),newMarker={business,policyId:proof.policyId,phase:payload.phase,requestId,wireHash:wire.wireHash,...(proof.policy.version==='r11.public-research.2'?{quoteValidUntil:payload.quoteValidUntil,markedAt:new Date(markedAt).toISOString()}: {})};
    research.markers.push(newMarker);proof.workflowStatus='running';effects.push({kind:'in-memory-r11-dispatch-marker',...newMarker});
    return ok({decision:'allowed',shouldDispatch:true,requestId});
   }

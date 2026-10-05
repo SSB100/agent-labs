@@ -167,22 +167,25 @@ export async function prepareResearchBootstrap(context: OwnerUiContext, business
   requireValue(canonicalPublicResearchJson(after.exposure) === canonicalPublicResearchJson(before.exposure));
   if (continued) requireValue(canonicalPublicResearchJson(continuation(after.continuation)) === canonicalPublicResearchJson(continued));
   else requireValue(after.policyTotal === 0);
-  const preparedAt = new Date().toISOString(), expiresAt = quote.validUntil;
+  const preparedAt = new Date().toISOString();
+  // Continuation setup time must not consume the independent five-minute
+  // catalogue freshness window. V2 phase markers bind their own fresh deadline.
+  const expiresAt = continued ? new Date(Date.parse(preparedAt) + 30 * 60_000).toISOString() : quote.validUntil;
   const profile = structuredClone(PUBLIC_RESEARCH_PROOF_PROFILE);
   // Only query/routing fields enter the dry wire. Goal/financial identifiers and
   // approval below are placeholders for structural checking, never a saved grant.
   const proposed: PublicResearchPolicy = {
-    version: "r11.public-research.1", id: policyId, businessId, ownerId: context.userId, workflowRunId, goalId: policyId, operatingPolicyId: policyId,
+    version: continued ? "r11.public-research.2" : "r11.public-research.1", id: policyId, businessId, ownerId: context.userId, workflowRunId, goalId: policyId, operatingPolicyId: policyId,
     query: profile.query, allowedDomains: [...profile.allowedDomains], excludedDomains: [...profile.excludedDomains], sourceReviews: profile.sourceReviews.map(review => ({ ...review })),
     queryReviewHash: publicResearchHash({ query: profile.query, classification: "generic_nonpersonal_public_research" }), termsReviewHash: profile.termsReviewHash,
     independentReviewHash: "0".repeat(64), approvalHash: "0".repeat(64), modelId: quote.modelId, providerEndpoint: quote.providerEndpoint,
     recipients: { router: "openrouter.ai", search: "exa.ai", inferenceEndpoint: quote.providerEndpoint },
     retention: { inference: "no_training_zdr", search: "query_retention_improvement_training_possible", application: "bounded_attributed_audit_evidence" },
     validFrom: preparedAt, validUntil: expiresAt, maximumMicrousd: quote.maximumMicrousd, searchMicrousd: quote.searchMicrousd, selectorMicrousd: quote.selectorMicrousd,
-    priceLimit: quote.priceLimit, quoteHash: quote.quoteHash, quoteValidUntil: quote.validUntil,
+    priceLimit: quote.priceLimit, quoteHash: quote.quoteHash, quoteValidUntil: expiresAt,
   };
   const search = await inspectPublicResearchWire(publicResearchSearchRequest(proposed, resolveModelRoute("standard.default").primary), "search");
-  return { version: "r11.owner-proof-preparation.2", businessId, ownerId: context.userId, policyId, workflowRunId,
+  return { version: continued ? "r11.owner-proof-preparation.3" : "r11.owner-proof-preparation.2", businessId, ownerId: context.userId, policyId, workflowRunId,
     mode: continued ? "continuation" : "initial", predecessorPolicyId: predecessorPolicyId ?? null, continuation: continued,
     serverKeyHash: sha(continued ? attemptAdmissionKey(key, businessId, context.userId, policyId, workflowRunId) : key), runtimeCapabilityHash: sha(runtimeCapability(key, businessId, context.userId, policyId, workflowRunId)),
     preparedAt, expiresAt, quote, sourceProfile: profile as unknown as JsonObject, search, authorityCreated: false, paidCalls: 0 };
@@ -220,7 +223,7 @@ export async function runResearchProof(context: OwnerUiContext, businessId: stri
     const quote = await dependencies.fetchQuote({ maximumMicrousd: p.maximumMicrousd }); validatePublicResearchQuote(quote);
     requireValue(quote.version === "r11.public-research-quote.2" && quote.quoteHash === p.quoteHash && quote.modelId === p.modelId && quote.providerEndpoint === p.providerEndpoint &&
       quote.searchMicrousd === p.searchMicrousd && quote.selectorMicrousd === p.selectorMicrousd && publicResearchHash(quote.priceLimit) === publicResearchHash(p.priceLimit));
-    requireValue(serverKey() === key); return { providerName: quote.providerName, acceptedResponseModelIds: quote.acceptedResponseModelIds };
+    requireValue(serverKey() === key); return { providerName: quote.providerName, acceptedResponseModelIds: quote.acceptedResponseModelIds, quoteValidUntil: quote.validUntil };
   };
   await runPublicResearchQualification(scope, policyId, dependencies.makeRuntime(scope, verifyQuote));
   const latest = await readResearchQualification(context, businessId), proof = latest.policies.find(item => item.policyId === policyId);

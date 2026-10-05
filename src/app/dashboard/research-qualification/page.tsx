@@ -71,7 +71,7 @@ export default async function ResearchQualificationPage({ searchParams }: {
                 <p>Allowed sources: {policy.allowedDomains.join(", ")}. Excluded sources: {policy.excludedDomains.join(", ")}.</p>
                 <p>Model: {policy.modelId}. Router: OpenRouter. Search: Exa. Exact inference route: {policy.providerEndpoint} (Azure US).</p>
                 <p>Maximum {formatResearchUsd(policy.maximumMicrousd)} for one search and one evidence-selection call, at most two paid calls. No fallback, extra research or automatic retry.</p>
-                <p>Authorization starts {policy.validFrom} and ends {policy.validUntil}. Approved quote window ends {policy.quoteValidUntil}.</p>
+                <p>Authorization starts {policy.validFrom} and ends {policy.validUntil}. Approved price-ceiling window ends {policy.quoteValidUntil}. A separate fresh quote, at most five minutes old, is checked before each paid phase.</p>
                 <p>Only the reviewed generic public question and bounded public evidence are sent. Exa may retain queries and use them for improvement or training. Exact Azure US inference ZDR/no-training does not cover Exa. Attributed evidence is retained in this application.</p>
                 {disclosure ? <div data-r11-activation-summary>
                   <h4>What activation confirms</h4>

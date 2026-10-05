@@ -26,7 +26,7 @@ type Provider = Pick<OpenRouterAdapter, "invokeWebSearch" | "invokeStructured">;
 export type PublicResearchRuntime = {
   rpc: Rpc; settle: Settle; provider: (admit: ModelDispatchAdmission, observeResponse?: (body: unknown, providerError?: string) => JsonObject) => Provider;
   /** Must freshly verify exact catalog/ZDR endpoint, full tier quote and hash. */
-  verifyQuote: (policy: PublicResearchPolicy) => Promise<{ providerName: string; acceptedResponseModelIds?: readonly string[] }>;
+  verifyQuote: (policy: PublicResearchPolicy) => Promise<{ providerName: string; acceptedResponseModelIds?: readonly string[]; quoteValidUntil?: string }>;
   /** One trusted, non-generating lookup of this positively admitted generation. */
   verifyGenerationRoute: (expected: GenerationRouteExpectation) => Promise<GenerationRouteProof>;
   now?: () => number; model?: ModelDefinition;
@@ -96,6 +96,15 @@ export async function runPublicResearchQualification(scope: Scope, policyId: str
       validatePublicResearchPolicy(policy, now());
       const freshQuote = await runtime.verifyQuote(structuredClone(policy));
       if (!freshQuote || freshQuote.providerName !== "Azure") return denied();
+      // Copy the trusted deadline before any further async work. V2's longer
+      // authority never makes stale catalogue evidence fresh. SQL binds this
+      // separately from the financial descriptor and rechecks after lock waits.
+      const quoteValidUntil = freshQuote.quoteValidUntil;
+      const requireFreshQuote = () => {
+        if (policy.version === "r11.public-research.2" && (typeof quoteValidUntil !== "string" ||
+            !Number.isFinite(Date.parse(quoteValidUntil)) || Date.parse(quoteValidUntil) <= now() || Date.parse(quoteValidUntil) > now() + 5 * 60_000)) return denied();
+      };
+      requireFreshQuote();
       // Historical V1 injection remains strict-alias only. V2 must carry the
       // freshly hash-verified catalog alias/canonical pair.
       if (loaded.attemptVersion === 2 && freshQuote.acceptedResponseModelIds?.length !== 2) return denied();
@@ -144,10 +153,12 @@ export async function runPublicResearchQualification(scope: Scope, policyId: str
       }
       const admit: ModelDispatchAdmission = async wire => {
         if (admittedRequestId !== null || wire.url !== "https://openrouter.ai/api/v1/chat/completions" || wire.method !== "POST" || digest(wire.body) !== inspected.wireHash || Buffer.byteLength(wire.body, "utf8") !== inspected.wireBytes) return denied();
+        requireFreshQuote();
         // A lost/denied guard reply can belong to another invocation. Only a
         // positive dispatch grant gives this invocation failure-write ownership.
         failure.phase = phase; failure.requestId = null; failure.observation = null;
         const result = await runtime.rpc("guard", { policyId, phase, collectionId,
+          ...(policy.version === "r11.public-research.2" ? { quoteValidUntil: quoteValidUntil! } : {}),
           admission: { workflowRunId: ownedScope.coreWorkflowRunId, runtimeCapability: ownedScope.runtimeCapability,
             operationKey: loaded.operationKeys[phase], requestHash: inspected.requestHash,
             wireRequestHash: inspected.wireHash, wireRequestBytes: inspected.wireBytes, maximumOutputTokens: inspected.maxTokens,
@@ -270,12 +281,12 @@ export async function runPublicResearchQualification(scope: Scope, policyId: str
   }
 }
 
-export async function verifyPublicResearchPolicyQuote(policy: PublicResearchPolicy): Promise<{ providerName: string; acceptedResponseModelIds: readonly string[] }> {
+export async function verifyPublicResearchPolicyQuote(policy: PublicResearchPolicy): Promise<{ providerName: string; acceptedResponseModelIds: readonly string[]; quoteValidUntil: string }> {
   validatePublicResearchPolicy(policy);
   const quote = await fetchPublicResearchQuote({ maximumMicrousd: policy.maximumMicrousd });
   validatePublicResearchQuote(quote);
   if (quote.quoteHash !== policy.quoteHash || quote.modelId !== policy.modelId || quote.providerEndpoint !== policy.providerEndpoint || quote.searchMicrousd !== policy.searchMicrousd || quote.selectorMicrousd !== policy.selectorMicrousd || publicResearchHash(quote.priceLimit) !== publicResearchHash(policy.priceLimit)) return denied();
-  return { providerName: quote.providerName, acceptedResponseModelIds: quote.version === "r11.public-research-quote.2" ? quote.acceptedResponseModelIds : [quote.modelId] };
+  return { providerName: quote.providerName, acceptedResponseModelIds: quote.version === "r11.public-research-quote.2" ? quote.acceptedResponseModelIds : [quote.modelId], quoteValidUntil: quote.validUntil };
 }
 
 /** Default trusted database adapter; model credentials never enter its saved
