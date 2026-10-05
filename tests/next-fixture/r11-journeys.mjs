@@ -1,8 +1,30 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import {actualZoomBrowser} from './browser-zoom.mjs';
+import {bounded,observe,FIXTURE_ACTION_TIMEOUT_MS,FIXTURE_NAVIGATION_TIMEOUT_MS} from './async-bounds.mjs';
 import {researchControl,researchRoute} from './r11-http.mjs';
 import {r11Scope,r11ContinuationScope,R11_RESET,R11_RAW_SENTINEL,R11_INERT_SERVER_KEY} from './r11-research.mjs';
+
+/** A redirect's Flight body may stay open; exact headers and fresh DOM prove rejection. */
+export async function submitResearchConsentRejection(page,button,origin){
+ const actionUrl=page.url(),destination=origin+researchRoute()+'&notice=consent-required';
+ assert.equal(actionUrl,origin+researchRoute(),'Consent rejection must start on the fresh exact-Business route');
+ let actionRequest;
+ const capture=request=>{if(!actionRequest&&request.method()==='POST'&&request.url()===actionUrl&&request.headers()['next-action'])actionRequest=request;};
+ page.on('request',capture);
+ const observed=observe(page.waitForResponse(response=>!!actionRequest&&response.request()===actionRequest,{timeout:FIXTURE_ACTION_TIMEOUT_MS}));
+ try{
+  await button.click({timeout:FIXTURE_ACTION_TIMEOUT_MS});
+  const result=await bounded(observed,'R11 exact consent action response headers',FIXTURE_ACTION_TIMEOUT_MS);
+  if(!result.ok)throw result.error;
+  assert.equal(result.value.request(),actionRequest);assert.equal(result.value.status(),200);
+  const redirect=result.value.headers()['x-action-redirect'];assert.ok(redirect,'The exact consent action must return a redirect header');
+  assert.equal(new URL(redirect.split(';')[0],actionUrl).href,destination);
+  await page.waitForURL(destination,{timeout:FIXTURE_NAVIGATION_TIMEOUT_MS});
+  await page.getByText(/Review both consent statements/).waitFor({state:'visible',timeout:FIXTURE_ACTION_TIMEOUT_MS});
+  await button.waitFor({state:'visible',timeout:FIXTURE_ACTION_TIMEOUT_MS});
+ }finally{page.off('request',capture);}
+}
 
 export async function runResearchQualificationBrowser({page,context,origin,noKeyOrigin,boundary,output,check,actions}) {
  const control=values=>researchControl(boundary,values);
@@ -120,9 +142,7 @@ export async function runResearchQualificationBrowser({page,context,origin,noKey
    await page.goto(origin+researchRoute());await freshGrant.waitFor();
    if(readConsent)await freshGrant.locator('input[name=readConsent]').check();
    await freshGrant.locator('form').evaluate(form=>{form.noValidate=true;});
-   const response=page.waitForResponse(response=>response.request().method()==='POST'&&!!response.request().headers()['next-action']&&response.url().includes('/dashboard/research-qualification'));
-   await activateButton.click();await (await response).finished();await page.waitForURL(/notice=consent-required/);
-   await page.getByText(/Review both consent statements/).waitFor();await activateButton.waitFor();assert.equal(fixture().policies.length,1);
+   await submitResearchConsentRejection(page,activateButton,origin);assert.equal(fixture().policies.length,1);
   }
   await page.setViewportSize({width:320,height:800});await freshGrant.scrollIntoViewIfNeeded();const geometry=await page.evaluate(()=>({width:document.documentElement.scrollWidth,innerWidth}));assert.ok(geometry.width<=geometry.innerWidth+1,JSON.stringify(geometry));await page.screenshot({path:path.join(output,'r11-research-continuation-consent-320x800.png'),fullPage:true});await page.setViewportSize({width:1280,height:720});
   await freshGrant.locator('input[name=readConsent]').check();await freshGrant.locator('input[name=retentionConsent]').check();await activateButton.click();await freshProof.waitFor();assert.equal(fixture().policies.length,2);assert.equal(fixture().policies[1].goalId,r11Scope.goalId);assert.equal(fixture().policies[1].policy.maximumMicrousd,239932);assert.equal(fixture().lifetimeCapMicrounits,'848063');assert.equal(fixture().settlements[0].actualMicrounits,'10068');
