@@ -1,7 +1,10 @@
 # R12 factual evidence continuation
 
-Status: implementation and verification in progress. No new Production schema,
-permission or provider call has been applied for this package. R12 remains open.
+Status: PR67 is released and its approved live scope is closed. One strategy
+response failed evidence validation after its route was verified; the independent
+reviewer never dispatched. The final plan slot is consumed and R12 remains open.
+See [the exact closeout](R12_EVIDENCE_CONTINUATION_CLOSEOUT.md). The proposal and
+implementation detail below describe the preserved approved package.
 
 ## Problem and resulting behavior
 

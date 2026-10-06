@@ -19,7 +19,8 @@
       "feat/r12-owner-preparation": false,
       "fix/r12-business-scope-rebind": false,
       "fix/r12-review-response-diagnostics": false,
-      "feat/r12-targeted-evidence": false
+      "feat/r12-targeted-evidence": false,
+      "docs/r12-evidence-closeout": false
     }
   },
   "buildCommand": "npm run deploy:build"
