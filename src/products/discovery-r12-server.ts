@@ -8,7 +8,7 @@ import { discoveryV2Hash } from "./discovery-v2";
 import { buildDiscoveryR12PhaseRequest, projectDiscoveryR12Phase, readDiscoveryR12PhaseInputs } from "./discovery-r12-runtime";
 import { DiscoveryR12ReceiptPending, type DiscoveryR12EffectStore } from "./discovery-r12-adapter";
 import type { DiscoveryR12Quote } from "./discovery-r12-quote";
-import type { DiscoverySourceScopeAmendment } from "./discovery-r12-scope";
+import type { DiscoveryR12ExecutionScope } from "./discovery-r12-review-continuation";
 import { DISCOVERY_R12_PHASES, type DiscoveryR12Phase } from "./discovery-r12-wire";
 import { discoveryR12ServerDependencies } from "./discovery-r12-server-dependencies";
 const id=(v:unknown):v is string=>typeof v==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(v);
@@ -37,7 +37,7 @@ export async function continueDiscoveryR12(context:OwnerUiContext,businessId:str
  const row=read.data;if(read.error||!object(row)||row.businessId!==businessId||row.scopeId!==scopeId||!object(row.activation))return fail();
  const activation=row.activation;
  if(activation.mode!=='qualification'||activation.controllerKeyHash!==sha(authority.controllerKey)||activation.admissionKeyHash!==sha(authority.admissionKey)||!Array.isArray(activation.operations)||!object(activation.scope))return fail();
- const scope=activation.scope as DiscoverySourceScopeAmendment,plan=compileQuestPlan(activation.plan);
+ const scope=activation.scope as DiscoveryR12ExecutionScope,plan=compileQuestPlan(activation.plan);
  if(scope.id!==scopeId||scope.businessId!==businessId||scope.goalId!==row.goalId||plan.businessId!==businessId||plan.goalId!==scope.goalId||plan.discoveryScopeId!==scopeId||plan.discoveryScopeHash!==discoveryV2Hash(scope))return fail();
  const dependencies=discoveryR12ServerDependencies(),controller=dependencies.createController(businessId,scope.goalId,authority),client=dependencies.createClient();
  const operation:DiscoveryR12EffectStore['operation']=async(attemptId,operation,payload)=>{
@@ -59,7 +59,7 @@ export async function continueDiscoveryR12(context:OwnerUiContext,businessId:str
  const saved=await controller.read();
  if(saved&&saved.planHash!==activation.planHash)return fail();
  if(!saved){
-  if(row.activeWindow!==true)return fail();
+  if(row.activeWindow!==true||plan.format==='r12.discovery-review.1')return fail();
   await controller.command('plan',{plan,expectedVersion:0,reason:'Approved bounded nature-shirt discovery',evidenceHash:scope.independentReviewHash});
  }
  const started=Date.now();

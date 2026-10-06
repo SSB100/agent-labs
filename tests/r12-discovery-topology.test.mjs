@@ -14,3 +14,9 @@ for(const [name,change] of [
 ])test(`R12 topology rejects ${name}`,()=>{const p=discoveryPlanFixture();change(p);assert.throws(()=>compileQuestPlan(p),/r07_/);});
 
 test('R12 reviewer cannot reuse planner identity under mixed-case UUID spelling',()=>{const p=discoveryPlanFixture();p.plannerWorkerDefinitionId='12ABCDEF-ABCD-4ABC-8ABC-ABCDEF123456';p.steps[4].workerDefinitionId=p.plannerWorkerDefinitionId.toLowerCase();assert.throws(()=>compileQuestPlan(p),/independent_check/);});
+
+test('R12 saved-review topology has one executable step and preserves cumulative bounds',()=>{
+ const p=discoveryPlanFixture();p.format='r12.discovery-review.1';p.steps=[p.steps[4]];p.maximumChildren=6;
+ assert.deepEqual(compileQuestPlan(p),p);
+ for(const mutate of [p=>p.format='r12.unknown',p=>p.maximumDispatches=1,p=>p.maximumDispatches=6,p=>p.maximumChildren=1,p=>p.maximumChildren=5,p=>p.steps.push({...p.steps[0],key:'retry'}),p=>p.steps[0].dependsOn=['strategy'],p=>p.steps[0].dependsOn.push('other-source'),p=>p.steps[0].kind='work',p=>p.steps[0].key='strategy',p=>p.steps[0].workerDefinitionId=p.plannerWorkerDefinitionId,p=>p.maximumRepairs=1,p=>p.maximumPivots=1]){const bad=structuredClone(p);mutate(bad);assert.throws(()=>compileQuestPlan(bad),/r07_/);}
+});

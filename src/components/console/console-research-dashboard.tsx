@@ -31,6 +31,7 @@ function unavailablePage(q: ConsoleResearchQuery): ConsoleResearchPage {
 
 /** Saved metadata entry point. Ordinary browsing makes no quote, catalogue or action call. */
 export async function ConsoleResearchDashboard({ context, query }: { context: OwnerUiContext; query: Search }) {
+  if(query.type==="r12-review-prepare"){const {ConsoleR12ReviewPreparation}=await import("./console-r12-review-preparation");return <ConsoleR12ReviewPreparation context={context} query={query}/>;}
   if(query.type==="r12-prepare"){const {ConsoleR12Preparation}=await import("./console-r12-preparation");return <ConsoleR12Preparation context={context} query={query}/>;}
   if(query.type==="r12"){const {ConsoleR12Discovery}=await import("./console-r12-discovery");return <ConsoleR12Discovery context={context} query={query}/>;}
   let q: ConsoleResearchQuery;

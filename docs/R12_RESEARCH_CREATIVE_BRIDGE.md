@@ -1,6 +1,10 @@
 # R12 research and production-purpose creative bridge
 
-## Status: implementation checkpoint, not live-qualified
+## Current status
+
+Four live phases completed and their original authority is closed. The independent reviewer did not dispatch. See [the exact partial-run receipt and remaining-review repair](R12_REVIEW_CONTINUATION.md) for current state; R12 creative qualification remains unfinished.
+
+## Original implementation checkpoint (historical)
 
 The approach was shared before implementation. This checkpoint does not satisfy R12's exit, activate a provider, change production SQL or authorize spending. The branch is excluded from automatic Vercel deployment; no PR/full CI gate has been requested yet.
 

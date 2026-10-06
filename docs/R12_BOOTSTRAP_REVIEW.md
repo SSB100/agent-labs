@@ -1,6 +1,8 @@
 # R12 research-only production bootstrap review
 
-**Approved research packet; activation pending.** The owner approved this bounded research package on 2026-10-06 at 03:37:22 UTC. All eight reviewed migrations are now applied with identical bytes. PR62 released as main `a5807d8492cd773deaecf95c90f8c715467e6550`, tree `636868836647a5c93f94261d105da7c4095728b7`, after twelve passing hosted checks and independent review. No installation, scope, verifier enrollment, financial policy or provider call for R12 has been created. The complete visible owner preparation path must pass its gate before activation. Execute only the matching reviewed release and owner-approved packet. [Purpose, sources, query, data sharing and fees](R12_FIRST_RESEARCH_PACKET.md) are part of this packet.
+**Historical approved first research packet; authority now closed.** Four phases completed for USD 0.019268; the independent reviewer never dispatched. The policy and both verifier enrollments are revoked. [Current closeout and separately proposed remaining review](R12_REVIEW_CONTINUATION.md) supersede the status below, while all original approval and migration bytes remain historical evidence.
+
+**Earlier pre-activation checkpoint:** The owner approved this bounded research package on 2026-10-06 at 03:37:22 UTC. All eight reviewed migrations are now applied with identical bytes. PR62 released as main `a5807d8492cd773deaecf95c90f8c715467e6550`, tree `636868836647a5c93f94261d105da7c4095728b7`, after twelve passing hosted checks and independent review. No installation, scope, verifier enrollment, financial policy or provider call for R12 has been created. The complete visible owner preparation path must pass its gate before activation. Execute only the matching reviewed release and owner-approved packet. [Purpose, sources, query, data sharing and fees](R12_FIRST_RESEARCH_PACKET.md) are part of this packet.
 
 ## Verified pre-migration baseline
 
