@@ -8,12 +8,13 @@ import { createDiscoveryR12Candidate, discoveryR12ReceiptExpectation, qualifyDis
 import { inspectDiscoveryR12Wire, routeDiscoveryR12Request, type DiscoveryR12Phase } from "./discovery-r12-wire";
 import type { DiscoveryR12Quote } from "./discovery-r12-quote";
 import type { DiscoveryR12ExecutionScope } from "./discovery-r12-review-continuation";
+import { observeR12ReviewResponse, r12ReviewDiagnostic, type R12ReviewObservation, type R12ReviewDiagnosticCode } from "./discovery-r12-observation";
 
 type Request = StructuredModelRequest | WebSearchModelRequest;
 type WireBinding = { version: "r12.discovery-wire.1"; scopeId: string; scopeHash: string; attemptId: string; requestId: string; phase: DiscoveryR12Phase;
   requestJson: string; requestHash: string; wireBody: string; wireHash: string; quote: DiscoveryR12Quote; dependencyPins: QuestAdapterContext["attempt"]["dependencyPins"] };
 export type DiscoveryR12EffectStore = {
-  operation(attemptId: string, operation: "inputs" | "load" | "bind" | "send" | "stage" | "claim" | "record", payload: Record<string, unknown>): Promise<Record<string, unknown>>;
+  operation(attemptId: string, operation: "inputs" | "load" | "bind" | "send" | "observe" | "diagnose" | "stage" | "claim" | "record", payload: Record<string, unknown>): Promise<Record<string, unknown>>;
   settle(attemptId: string, settlement: QuestSettlement): Promise<void>;
   /** Reads the committed R07/R05 marker timestamp, not the process clock. */
   dispatchedAt(attemptId: string): Promise<string>;
@@ -51,7 +52,7 @@ export function createDiscoveryR12QuestAdapter(options: {
       accounting: { kind: "r05" }, sourceDomains: [...scope.allowedDomains], dataClasses: [...options.dataClasses], accountId: null, accountRevision: null, currency: "USD", liabilityMicrounits: ctx.step.maximumMicrounits,
     } };
   }
-  async function load(ctx: QuestAdapterContext): Promise<{ binding: WireBinding | null; candidate?: unknown; proof?: unknown; receipt?: unknown }> {
+  async function load(ctx: QuestAdapterContext): Promise<{ binding: WireBinding | null; candidate?: unknown; proof?: unknown; receipt?: unknown; diagnostic?: unknown; observationSaved?: boolean }> {
     context(ctx);const saved = await options.store.operation(ctx.attempt.id, "load", {});
     if (!record(saved.binding)) return { ...saved, binding: null };
     const binding = saved.binding as WireBinding;
@@ -67,7 +68,7 @@ export function createDiscoveryR12QuestAdapter(options: {
       receiptExpiresAt: new Date(Math.min(Date.parse(ctx.plan.expiresAt) + 30 * 60_000, Date.parse(dispatchedAt) + 60 * 60_000)).toISOString() };
   }
   async function reconcile(ctx: QuestAdapterContext): Promise<QuestEffectResponse | null> {
-    const saved = await load(ctx);if (!saved.binding || !saved.candidate || !record(saved.receipt) || ["stopped", "expired", "terminal", "exhausted"].includes(String(saved.receipt.status))) return null;
+    const saved = await load(ctx);if (!saved.binding || saved.diagnostic || !saved.candidate || !record(saved.receipt) || ["stopped", "expired", "terminal", "exhausted"].includes(String(saved.receipt.status))) return null;
     const bound = await candidateBinding(ctx, saved.binding), candidate = validateDiscoveryR12Candidate(saved.candidate, bound), candidateHash = discoveryV2Hash(candidate);
     let proof: unknown = saved.proof;
     if (!proof) {
@@ -83,7 +84,9 @@ export function createDiscoveryR12QuestAdapter(options: {
       await options.store.operation(ctx.attempt.id, "record", { candidateHash, claimId: claim.claimId, proof, diagnostic: null, retryAfterAt: null });
     }
     const qualified = qualifyDiscoveryR12Candidate(candidate, bound, proof as GenerationRouteProof);
-    const projected = await options.project(qualified, ctx, JSON.parse(saved.binding.requestJson) as Request);
+    let projected;
+    try { projected = await options.project(qualified, ctx, JSON.parse(saved.binding.requestJson) as Request); }
+    catch (error) { await diagnose(ctx, saved.binding, error, "domain_validation", saved.observationSaved === true); throw error; }
     return { ...projected, result: { ...projected.result, outputHash: discoveryV2Hash(qualified.candidate.output), candidateHash, routeProofHash: qualified.route.proofHash },
       settlement: { actualMicrounits: String(candidate.reportedMicrousd), providerRequestId: candidate.providerRequestId, receiptHash: candidateHash } };
   }
@@ -95,6 +98,19 @@ export function createDiscoveryR12QuestAdapter(options: {
     if (typeof id !== "string" || !/^gen-[A-Za-z0-9_-]{1,296}$/.test(id)) return;
     const actualMicrounits = typeof amount === "number" && Number.isFinite(amount) && amount >= 0 ? String(Math.ceil(amount * 1e6)) : null;
     await options.store.settle(ctx.attempt.id, { actualMicrounits, providerRequestId: id, receiptHash: discoveryV2Hash({ phase, providerRequestId: id, actualMicrounits }) });
+  }
+  async function diagnose(ctx: QuestAdapterContext, binding: WireBinding, error: unknown, fallback: R12ReviewDiagnosticCode, observationSaved: boolean) {
+    if (phase !== "review") return;
+    const request = JSON.parse(binding.requestJson) as StructuredModelRequest;
+    const diagnostic = r12ReviewDiagnostic(error, fallback, { scopeId: scope.id, attemptId: ctx.attempt.id, requestId: binding.requestId }, request.outputSchema, observationSaved, new Date(now()).toISOString());
+    try { await options.store.operation(ctx.attempt.id, "diagnose", { diagnostic, diagnosticHash: discoveryV2Hash(diagnostic) }); }
+    catch { console.warn("r12_review_diagnostic_unavailable", { attemptId: ctx.attempt.id, code: diagnostic.code, observationSaved }); }
+  }
+  async function settleAfterFailure(ctx: QuestAdapterContext, response: ModelProviderResponse | null, error: unknown) {
+    // Observation/storage/readback failures cannot suppress an already observed
+    // provider charge. A settlement failure keeps the existing held liability.
+    try { await settle(ctx, response, error); }
+    catch { console.warn("r12_response_settlement_unavailable", { attemptId: ctx.attempt.id }); }
   }
   return { ...identity,
     async prepare(ctx) {
@@ -114,25 +130,46 @@ export function createDiscoveryR12QuestAdapter(options: {
     },
     async dispatch(call, ctx) {
       const saved = await load(ctx);if (!saved.binding || call.wire.body !== saved.binding.wireBody) return fail();
-      const adapter = new OpenRouterAdapter({ config: options.config, fetcher: options.fetcher, admitDispatch: async wire => {
+      const identity = { scopeId: scope.id, attemptId: ctx.attempt.id, requestId: saved.binding.requestId };
+      let observation: R12ReviewObservation | null = null, observationSaved = false;
+      const saveObservation = async () => {
+        if (phase !== "review" || !observation) return;
+        await options.store.operation(ctx.attempt.id, "observe", { observation, observationHash: discoveryV2Hash(observation) });
+        observationSaved = true;
+      };
+      const adapter = new OpenRouterAdapter({ config: options.config, fetcher: options.fetcher,
+        ...(phase === "review" ? { observeResponse: (body: unknown) => {
+          observation ??= observeR12ReviewResponse(body, identity, new Date(now()).toISOString());
+          // Raw text stays in this private closure, never in provider error
+          // metadata, general logs, or a qualified response candidate.
+          return { version: "r12.review-observation.1", contentState: observation.contentState, contentBytes: observation.contentBytes };
+        } } : {}), admitDispatch: async wire => {
         if (wire.url !== call.wire.url || wire.method !== call.wire.method || wire.body !== call.wire.body) return fail();
         const result = await options.store.operation(ctx.attempt.id, "send", { wireHash: saved.binding!.wireHash });
         if (result.shouldDispatch !== true) return fail();
       } });
       let response: ModelProviderResponse;
       try { response = phase === "search1" ? await adapter.invokeWebSearch(JSON.parse(saved.binding.requestJson) as WebSearchModelRequest) : await adapter.invokeStructured(JSON.parse(saved.binding.requestJson) as StructuredModelRequest); }
-      catch (error) { await settle(ctx, null, error);throw error; }
-      // Save the useful bounded response before receipt GET. Record real cost even
-      // when candidate/schema validation fails; never retry its paid generation.
-      const bound = await candidateBinding(ctx, saved.binding);
-      let candidate;
-      try { candidate = createDiscoveryR12Candidate(bound, response, new Date(now()).toISOString()); }
-      catch (error) { await settle(ctx, response);throw error; }
-      try { await options.store.operation(ctx.attempt.id, "stage", { candidate, candidateHash: discoveryV2Hash(candidate) }); }
       catch (error) {
-        // A storage failure cannot suppress an already observed charge. Preserve
-        // the first error if accounting is independently unavailable as well.
-        try { await settle(ctx, response); } catch { /* R05 marker remains held. */ }
+        try { await saveObservation(); } catch { /* The original error remains primary. */ }
+        await settleAfterFailure(ctx, null, error);
+        await diagnose(ctx, saved.binding, error, "transport", observationSaved);
+        throw error;
+      }
+      // Save unqualified review content before local checks can discard it.
+      // None of these observations authorizes a receipt or another generation.
+      let boundary: R12ReviewDiagnosticCode = "observation_storage";
+      try {
+        await saveObservation();
+        boundary = "candidate_binding";
+        const bound = await candidateBinding(ctx, saved.binding);
+        boundary = "response_schema";
+        const candidate = createDiscoveryR12Candidate(bound, response, new Date(now()).toISOString());
+        boundary = "candidate_storage";
+        await options.store.operation(ctx.attempt.id, "stage", { candidate, candidateHash: discoveryV2Hash(candidate) });
+      } catch (error) {
+        await settleAfterFailure(ctx, response, error);
+        await diagnose(ctx, saved.binding, error, boundary, observationSaved);
         throw error;
       }
       await settle(ctx, response);

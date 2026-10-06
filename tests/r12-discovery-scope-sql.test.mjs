@@ -207,7 +207,7 @@ test('R12 actual owner workflows preserve funding, bounded dispatch and immutabl
   await assert.rejects(ownerActions.continueDiscoveryR12(ownerContext,business,scopeId),/owner_action_unavailable/,'SQL ownership defeats stale owner context');
   await db.query("select set_config('request.jwt.claim.sub',$1,false)",[R07_OWNER]);
   assert.deepEqual(await ownerActions.prepareDiscoveryR12Authority(ownerContext,business,scopeId),{controllerKeyHash:createHash('sha256').update(R07_KEY).digest('hex'),admissionKeyHash:createHash('sha256').update(R05_KEY).digest('hex'),authorityCreated:false});
-  const ownerApi=source('src/products/discovery-r12-owner.ts',{'server-only':{},'../lib/core-ui/owner-business':owner,'./discovery-r12-runtime':require('../.core-tests/products/discovery-r12-runtime.js')});
+  const ownerApi=source('src/products/discovery-r12-owner.ts',{'./discovery-r12-observation':require('../.core-tests/products/discovery-r12-observation.js'),'server-only':{},'../lib/core-ui/owner-business':owner,'./discovery-r12-runtime':require('../.core-tests/products/discovery-r12-runtime.js')});
   for(const phase of phaseKeys.slice(1)){
    const phaseStep=plan.steps.find(step=>step.key===phase);
    phaseFetchers[phase]=async(url,init)=>{
@@ -232,7 +232,7 @@ test('R12 actual owner workflows preserve funding, bounded dispatch and immutabl
     for(const target of ['reason','diagnostic']){const bad=structuredClone(saved);if(target==='reason')bad.reason='A sentence is not a state code';else bad.phases[0].receipt.diagnostic={code:'Not a diagnostic code',httpStatus:404};assert.throws(()=>ownerApi.parseDiscoveryR12Workspace(bad,business,scopeId));}
     await captureNext('scheduled-review');
     await db.exec('begin');
-    try{const continuation=await prepareR12ReviewFixture(db,{quote,outputs},{nested:true});const replay=await exerciseR12ReviewRuntime(db,continuation.metadata,{nested:true});assert.deepEqual(replay,{providerCalls:0,inertPosts:1,inertReceiptGets:2,outcome:'NEEDS_MORE_EVIDENCE',phaseReceipts:5,dispatches:5,children:6});}
+    try{const continuation=await prepareR12ReviewFixture(db,{quote,outputs},{nested:true});for(const failureCase of ['json_parse','response_schema']){await db.exec('savepoint review_response_failure');try{assert.deepEqual(await exerciseR12ReviewRuntime(db,continuation.metadata,{nested:true,failureCase}),{providerCalls:0,inertPosts:1,inertReceiptGets:0,failureCase,observationSaved:true,actualMicrousd:10,activeAuthority:false});}finally{await db.exec('rollback to savepoint review_response_failure');await db.exec('release savepoint review_response_failure');}}const replay=await exerciseR12ReviewRuntime(db,continuation.metadata,{nested:true});assert.deepEqual(replay,{providerCalls:0,inertPosts:1,inertReceiptGets:2,outcome:'NEEDS_MORE_EVIDENCE',phaseReceipts:5,dispatches:5,children:6});}
     finally{await db.exec('rollback');}
     assert.equal((await ownerActions.continueDiscoveryR12(ownerContext,business,scopeId)).status,'completed');continue;
    }

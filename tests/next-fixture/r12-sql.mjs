@@ -78,6 +78,8 @@ export function r12Provider(state,input,control,effects){
   assert.equal(input.url,'https://openrouter.ai/api/v1/chat/completions');assert.ok(!r.calls.includes(phase),'Paid phase cannot regenerate');r.calls.push(phase);r.generations[phase]=id;effects.push({kind:'inert-r12-provider',phase});
   assert.deepEqual(input.body.provider.only,[phase==='review'?'amazon-bedrock/us':'azure/us']);
   const message=phase==='search1'?{content:'Synthetic bounded public source context.',annotations:r.outputs.search1.annotations}:{content:JSON.stringify(r.outputs[phase])};
+  if(phase==='review'&&control.r12ReviewFailure==='schema')message.content=JSON.stringify({...r.outputs.review,checks:r.outputs.review.checks.map((check,index)=>index===0?{...check,rationale:'x'.repeat(241)}:check)});
+  if(phase==='review'&&control.r12ReviewFailure==='json')message.content='UNQUALIFIED_NEXT_JSON_SENTINEL';
   return{status:200,body:{id,model,choices:[{finish_reason:'stop',message}],usage:{prompt_tokens:100,completion_tokens:50,total_tokens:150,cost:.00001,...(phase==='search1'?{server_tool_use_details:{web_search_requests:1}}:{})}}};
  }
  assert.equal(input.method,'GET');const generationId=r.generations[phase];assert.ok(generationId);assert.equal(input.url,`https://openrouter.ai/api/v1/generation?id=${generationId}`);r.receipts.push(phase);
