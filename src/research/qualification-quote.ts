@@ -16,7 +16,7 @@ export const PUBLIC_RESEARCH_QUOTE_LIMITS = Object.freeze({
 } as const);
 
 export type PublicResearchCatalogSnapshot = { url: string; fetchedAt: string; payload: unknown };
-type TokenRates = { prompt: string; completion: string; cacheRead: string; cacheWrite: string; reasoning: string };
+export type TokenRates = { prompt: string; completion: string; cacheRead: string; cacheWrite: string; reasoning: string };
 type PublicResearchQuoteCommon = {
   modelId: string; providerEndpoint: string; providerName: string;
   priceLimit: { prompt: number; completion: number; request: 0 };
@@ -97,9 +97,9 @@ function selectModelIdentity(catalog: unknown) {
   return identity;
 }
 
-function pricing(value: unknown) {
+export function qualifiedTextPricing(value: unknown) {
   if (!record(value)) return fail();
-  const allowed = new Set(["prompt", "completion", "request", "input_cache_read", "input_cache_write", "internal_reasoning",
+  const allowed = new Set(["prompt", "completion", "request", "input_cache_read", "input_cache_write", "input_cache_write_1h", "internal_reasoning",
     "web_search", "image", "audio", "input_audio_cache", "discount", "overrides"]);
   const parseTier = (tier: Record<string, unknown>, base?: TokenRates) => {
     for (const [key, raw] of Object.entries(tier)) {
@@ -117,7 +117,7 @@ function pricing(value: unknown) {
       return decimalString(decimal(raw));
     };
     const rates: TokenRates = { prompt: get("prompt", base?.prompt, true), completion: get("completion", base?.completion, true),
-      cacheRead: get("input_cache_read", base?.cacheRead), cacheWrite: get("input_cache_write", base?.cacheWrite),
+      cacheRead: get("input_cache_read", base?.cacheRead), cacheWrite: decimalString(max(decimal(get("input_cache_write", base?.cacheWrite)), decimal(get("input_cache_write_1h", base?.cacheWrite)))),
       reasoning: get("internal_reasoning", base?.reasoning) };
     if (decimal(rates.prompt) === ZERO || decimal(rates.completion) === ZERO) fail();
     return { rates, minPromptTokens: base ? tier.min_prompt_tokens : 0,
@@ -146,7 +146,7 @@ function endpoint(value: unknown) {
   if (value.max_prompt_tokens !== undefined && value.max_prompt_tokens !== null && (!positiveInteger(value.max_prompt_tokens) || value.max_prompt_tokens < LIMITS.searchInputTokens)) fail();
   return { modelId: value.model_id, providerEndpoint: value.tag, providerName: value.provider_name, name: value.name,
     status: value.status, contextLength: value.context_length, maxCompletionTokens: value.max_completion_tokens,
-    maxPromptTokens: value.max_prompt_tokens ?? null, supportedParameters: [...value.supported_parameters].sort(), pricing: pricing(value.pricing) };
+    maxPromptTokens: value.max_prompt_tokens ?? null, supportedParameters: [...value.supported_parameters].sort(), pricing: qualifiedTextPricing(value.pricing) };
 }
 function select(catalog: unknown, kind: "model" | "zdr") {
   if (!record(catalog)) return fail();
@@ -161,7 +161,7 @@ function allowances(): PublicResearchQuote["allowances"] {
     maximumSelectorRequestBytes: LIMITS.maximumSelectorRequestBytes, selectorFormattingTokens: LIMITS.selectorFormattingTokens,
     selectorOutputTokens: LIMITS.selectorOutputTokens, searchRequests: 1, exaFastSearchFeeMicrousd: LIMITS.exaFastSearchFeeMicrousd };
 }
-function cost(rates: TokenRates, inputTokens: number, outputTokens: number): number {
+export function quoteTextTokenCost(rates: TokenRates, inputTokens: number, outputTokens: number): number {
   // Reserve full prompt/cache-read plus possible cache-write even if caching is
   // unlikely. Do not assume the cache-write figure replaces the prompt charge.
   const input = max(decimal(rates.prompt), decimal(rates.cacheRead)) + decimal(rates.cacheWrite);
@@ -193,8 +193,8 @@ export function qualifyPublicResearchQuote(input: {
   const modelHash = hash(model), canonicalModelHash = hash(canonicalModel), zdrHash = hash(zdr);
   if (modelHash !== canonicalModelHash || modelHash !== zdrHash) return fail();
   const rates = model.pricing.tokenPricesUsd;
-  const searchMicrousd = cost(rates, LIMITS.searchInputTokens, LIMITS.searchOutputTokens) + LIMITS.exaFastSearchFeeMicrousd;
-  const selectorMicrousd = cost(rates, LIMITS.maximumSelectorRequestBytes + LIMITS.selectorFormattingTokens, LIMITS.selectorOutputTokens);
+  const searchMicrousd = quoteTextTokenCost(rates, LIMITS.searchInputTokens, LIMITS.searchOutputTokens) + LIMITS.exaFastSearchFeeMicrousd;
+  const selectorMicrousd = quoteTextTokenCost(rates, LIMITS.maximumSelectorRequestBytes + LIMITS.selectorFormattingTokens, LIMITS.selectorOutputTokens);
   const expiry = new Date(verified + LIMITS.freshnessMs).toISOString();
   const quote: PublicResearchQuoteV2 = { version: "r11.public-research-quote.2", modelId: LIMITS.modelId,
     canonicalModelId: identity.canonicalModelId, acceptedResponseModelIds: [LIMITS.modelId, identity.canonicalModelId],
@@ -227,8 +227,8 @@ export function validatePublicResearchQuote(quote: PublicResearchQuote, now = Da
   const rates = quote.tokenPricesUsd;
   if (Object.keys(rates).sort().join(",") !== "cacheRead,cacheWrite,completion,prompt,reasoning" || decimal(rates.prompt) === ZERO || decimal(rates.completion) === ZERO) fail();
   if (canonical(quote.priceLimit) !== canonical({ prompt: perMillion(decimal(rates.prompt)), completion: perMillion(max(decimal(rates.completion), decimal(rates.reasoning))), request: 0 })) fail();
-  const search = cost(rates, LIMITS.searchInputTokens, LIMITS.searchOutputTokens) + LIMITS.exaFastSearchFeeMicrousd;
-  const selector = cost(rates, LIMITS.maximumSelectorRequestBytes + LIMITS.selectorFormattingTokens, LIMITS.selectorOutputTokens);
+  const search = quoteTextTokenCost(rates, LIMITS.searchInputTokens, LIMITS.searchOutputTokens) + LIMITS.exaFastSearchFeeMicrousd;
+  const selector = quoteTextTokenCost(rates, LIMITS.maximumSelectorRequestBytes + LIMITS.selectorFormattingTokens, LIMITS.selectorOutputTokens);
   if (quote.searchMicrousd !== search || quote.selectorMicrousd !== selector || quote.totalMicrousd !== search + selector || quote.totalMicrousd > quote.maximumMicrousd || quote.quoteHash !== hash(quoteBody(quote))) fail();
 }
 

@@ -1,4 +1,4 @@
-import { loadAccountWorkspace } from "@/accounts/server";
+import { readConnectionQualification } from "@/connections/server";
 import { ConsoleCommandBar, ConsoleResearchSheet } from "./console-command";
 import { QuestKickoff } from "@/components/guided/quest-kickoff";
 import { loadDiscoveryGoalData } from "@/products/discovery-v2-data";
@@ -54,7 +54,7 @@ export async function ConsoleWorkspaceOverview({ scope, query }: { scope: Worksp
   const [costs, browserData, accounts] = await Promise.all([
     focus ? loadRunCostData(context, focus, focusDefinition) : null,
     quest && focus ? loadConsoleBrowserWorkspace(context, { businessId: businessId!, workflowRunId: focus.id }) : null,
-    businessId && !scope.unavailable ? loadAccountWorkspace(context, businessId) : null,
+    businessId && !scope.unavailable ? readConnectionQualification(context, businessId) : null,
   ]);
   returnParams.set("centre", query.centre === "browser" ? "browser" : "overview"); if (focus) returnParams.set("browserRun", focus.id); returnTo = `/dashboard?${returnParams}`;
   const observedAt = await loadConsoleObservationTime();

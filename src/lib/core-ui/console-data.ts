@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { OwnerUiContext } from "./data";
 import type { RunCostData } from "./run-outcome-data";
 import type { ConsoleCosts, ConsoleConnections } from "@/components/console/console-overview";
-import type { AccountWorkspace } from "@/accounts/contracts";
+import type { QualificationWorkspace } from "@/connections/contracts";
 import { buildDiscoveryIntentFromGoal, buildDiscoveryAnalysisIntent, discoveryGoalBudgetScope, DISCOVERY_GOAL_DEFAULT } from "@/products/discovery-v2-goal";
 import { fetchDiscoveryV2ModelQuote, quoteDiscoveryV2, discoveryV2Model } from "@/products/discovery-v2-budget";
 import type { QuestQuotePreview } from "./quest-draft";
@@ -29,13 +29,26 @@ export function consoleCostSummary(data: RunCostData | null, scopeLabel: string,
   ledger.records.forEach(call => { if (call.providerRequestId) ids.set(call.providerRequestId, (ids.get(call.providerRequestId) ?? 0) + 1); });
   const known = ledger.records.filter(call => call.providerRequestId && ids.get(call.providerRequestId) === 1 && typeof call.reportedUsd === "number" && Number.isFinite(call.reportedUsd) && call.reportedUsd >= 0);
   const total = known.reduce((sum, call) => sum + call.reportedUsd!, 0);
-  return { status: "ready", recordedMicrousd: known.length ? Math.round(total * 1e6) : null, uncertainCount: ledger.records.length - known.length, scopeLabel, workflowRunId };
+  return { status: "ready", recordedMicrousd: known.length ? Math.round(total * 1e6) : null, uncertainCount: ledger.records.length - known.length, scopeLabel: `${scopeLabel} · ${data.costs.source} ledger only`, workflowRunId };
 }
-export function consoleConnectionSummary(data: AccountWorkspace | null, businessName: string, now: number): ConsoleConnections {
-  if (!data || data.unavailable) return { status: "unavailable", reason: "Connection records could not be checked" };
+/** Projects only the bounded R11 registry. Legacy setup requests are not connection health. */
+export function consoleConnectionSummary(data: QualificationWorkspace | null, businessName: string, now: number): ConsoleConnections {
+  if (!data || data.unavailable || !Number.isFinite(now)) return { status: "unavailable", reason: "Qualified connection records could not be checked" };
+  if (new Set(data.connections.map(item => item.provider)).size !== data.connections.length) return { status: "unavailable", reason: "Qualified connection records are inconsistent" };
+  const href = `/dashboard/connections?business=${encodeURIComponent(data.businessId)}`;
   return { status: "ready", items: (["etsy", "printful"] as const).map(provider => {
-    const account = data.accounts.find(item => item.provider === provider);
-    const expired = account?.expiresAt ? Date.parse(account.expiresAt) <= now : false;
-    return { id: provider, name: provider === "etsy" ? "Etsy" : "Printful", state: account?.status === "connected" && !expired ? "verified" : account ? "needs_attention" : "not_connected", detail: `${businessName} · ${account?.status === "connected" && !expired ? "Saved connection; execution has separate approval" : "No current verified connection"}`, verifiedAt: account?.verifiedAt ?? null };
+    const account = data.connections.find(item => item.provider === provider);
+    const base = { id: provider, name: provider === "etsy" ? "Etsy" : "Printful", href, verifiedAt: account?.verifiedAt ?? null };
+    if (!account) return { ...base, state: "not_connected", detail: `${businessName} · No qualified store binding recorded` };
+    const unexpired = Number.isFinite(Date.parse(account.expiresAt)) && Date.parse(account.expiresAt) > now;
+    const verified = Number.isFinite(Date.parse(account.verifiedAt)) && Date.parse(account.verifiedAt) <= now;
+    const tokenExpired = account.status === "token_expired" || (account.tokenExpiresAt !== undefined && Date.parse(account.tokenExpiresAt) <= now);
+    const lazy = provider === "etsy" && data.configured && unexpired && verified && ["connected", "token_expired"].includes(account.status) && data.readWindows?.some(window =>
+      window.connectionId === account.id && window.bindingRevision === account.revision && window.mode === "lazy" && window.state === "available" && window.configured &&
+      Number.isFinite(Date.parse(window.expiresAt)) && Date.parse(window.expiresAt) > now && window.readsDispatched < window.maxReads && window.refreshesDispatched < window.maxRefreshes);
+    if (tokenExpired && lazy) return { ...base, state: "needs_attention", label: "Token expired · refresh approved", detail: `${account.label} · Lazy refresh is available on the next authorized own-shop read` };
+    if (account.status === "connected" && unexpired && verified && data.configured && !tokenExpired) return { ...base, state: "verified", detail: `${account.label} · ${account.permittedOperations.join(", ")}; no selling authority` };
+    const reason = !unexpired ? "Local access cutoff expired" : account.status === "revoked" ? "Access revoked" : account.status === "credential_changed" ? "Configured credential changed" : !data.configured ? "Connection runtime unavailable" : tokenExpired ? "Token expired; no eligible lazy-refresh window in this loaded snapshot" : ["refresh_uncertain", "refresh_unverified"].includes(account.status) ? "Refresh outcome needs verification" : "Connection needs verification";
+    return { ...base, state: "needs_attention", detail: `${account.label} · ${reason}` };
   }) };
 }

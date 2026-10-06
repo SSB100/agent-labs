@@ -29,6 +29,8 @@ export type ConsoleConnection = {
   name: string;
   state: "verified" | "configured" | "needs_attention" | "not_connected" | "unknown";
   detail?: string;
+  label?: string;
+  href?: string;
   verifiedAt?: string | null;
 };
 export type ConsoleConnections = {
@@ -165,10 +167,12 @@ function CostPanel({ costs, businessId }: { costs: ConsoleCosts; businessId?: st
   return <Panel name="costs" title={allowance !== null ? "Costs & allowance" : "Run costs"} href={ready && costs.workflowRunId ? runLink(costs.workflowRunId) : rootLink("work", businessId)} action="Receipts">
     {ready ? <div className="consolePanelScroll consoleCostBody"><div className="consoleCostScope" title={costs.scopeLabel}>{costs.scopeLabel}</div><dl className="consoleCostNumbers"><div><dt>{costs.uncertainCount && costs.uncertainCount > 0 ? "Known reported charges" : "Recorded charges"}</dt><dd data-cost="recorded">{recorded === null ? "Not reported" : money(recorded)}</dd></div>{allowance !== null ? <div><dt>Approved allowance</dt><dd data-cost="allowance">{money(allowance)}</dd></div> : null}{reserved !== null ? <div><dt>Reserved</dt><dd data-cost="reserved">{money(reserved)}</dd></div> : null}</dl><p className="consoleFootnote">{costs.uncertainCount && costs.uncertainCount > 0 ? `${costs.uncertainCount} charge${costs.uncertainCount === 1 ? " is" : "s are"} still unconfirmed. ` : ""}{allowance !== null ? "Owner allowance is not a guaranteed provider invoice cap." : "Provider-reported receipts; not a final invoice."}</p></div>
       : <Empty icon="metrics" title={costs.status === "unavailable" ? "Cost records unavailable" : "No cost summary loaded"} detail={costs.reason ?? "Open a workflow for its recorded receipts and approved allowance."}/>}
+    {businessId ? <p className="consoleFootnote"><Link href={`/dashboard/research-qualification?business=${encodeURIComponent(businessId)}`}>Qualified public-research receipts</Link> are stored separately.</p> : null}
   </Panel>;
 }
 
 function connectionLabel(connection: ConsoleConnection) {
+  if (connection.label) return connection.label;
   // A configured integration is never represented as a successful live check.
   if (connection.state === "verified" && connection.verifiedAt && Number.isFinite(Date.parse(connection.verifiedAt))) return "Verified on record";
   if (connection.state === "configured") return "Configured · not checked";
@@ -177,10 +181,10 @@ function connectionLabel(connection: ConsoleConnection) {
   return "Status not confirmed";
 }
 
-function ConnectionPanel({ connections, businessId }: { connections: ConsoleConnections; businessId?: string }) {
-  return <Panel name="connections" title="Connections" href={rootLink("connections", businessId)} action="Manage">
-    {connections.status === "ready" ? <p className="consoleConnectionNote">Saved account records · not a live health check</p> : null}
-    {connections.status === "ready" && connections.items.length ? <div className="consoleConnectionGrid consolePanelScroll">{connections.items.map(connection => <Link href={rootLink("connections", businessId)} className="consoleConnection" data-connection-id={connection.id} data-connection-state={connectionLabel(connection) === "Verified on record" ? "verified" : connection.state === "verified" ? "unknown" : connection.state} key={connection.id}><span className="consoleConnectionGlyph" aria-hidden="true">{connection.name.slice(0, 2).toUpperCase()}</span><span><strong>{connection.name}</strong><small>{connectionLabel(connection)}</small>{connection.detail ? <span className="consoleConnectionDetail" title={connection.detail}>{connection.detail}</span> : null}{connectionLabel(connection) === "Verified on record" ? <span className="consoleConnectionDetail"><RecordedTime value={connection.verifiedAt}/></span> : null}</span></Link>)}</div>
+export function ConnectionPanel({ connections, businessId }: { connections: ConsoleConnections; businessId?: string }) {
+  return <Panel name="connections" title="Connections" href={businessId ? `/dashboard/connections?business=${encodeURIComponent(businessId)}` : rootLink("connections", businessId)} action="Details">
+    {connections.status === "ready" ? <p className="consoleConnectionNote">Qualified store bindings · saved state, not a live health check</p> : null}
+    {connections.status === "ready" && connections.items.length ? <div className="consoleConnectionGrid consolePanelScroll">{connections.items.map(connection => <Link href={connection.href ?? rootLink("connections", businessId)} className="consoleConnection" data-connection-id={connection.id} data-connection-state={connectionLabel(connection) === "Verified on record" ? "verified" : connection.state === "verified" ? "unknown" : connection.state} key={connection.id}><span className="consoleConnectionGlyph" aria-hidden="true">{connection.name.slice(0, 2).toUpperCase()}</span><span><strong>{connection.name}</strong><small>{connectionLabel(connection)}</small>{connection.detail ? <span className="consoleConnectionDetail" title={connection.detail}>{connection.detail}</span> : null}{connectionLabel(connection) === "Verified on record" ? <span className="consoleConnectionDetail"><RecordedTime value={connection.verifiedAt}/></span> : null}</span></Link>)}</div>
       : <Empty icon="accounts" title={connections.status === "ready" ? "No connections recorded" : connections.status === "unavailable" ? "Connection records unavailable" : "Connections not checked"} detail={connections.status === "ready" ? "Open Connections to review the available account setup." : connections.reason ?? "No verified account check is available in this view."}/>}
   </Panel>;
 }
@@ -254,7 +258,8 @@ export function ConsoleOverview({ context, collection, costs = { status: "not_lo
       <Panel name="outputs" title="Saved outputs" href={rootLink("library")} action="Library">
         {outputs.length ? <div className="consoleOutputList consolePanelScroll">{outputs.slice(0, 8).map(artifact => { const preview = previews.get(artifact.id); return <Link href={artifact.workflow_run_id ? `${runLink(artifact.workflow_run_id)}&artifact=${encodeURIComponent(artifact.id)}#artifact-${encodeURIComponent(artifact.id)}` : `/dashboard?view=library&type=records&artifact=${encodeURIComponent(artifact.id)}&business=${encodeURIComponent(artifact.business_id)}`} className="consoleOutput" data-console-motion-target="output" data-console-motion-id={artifact.id} data-artifact-id={artifact.id} key={artifact.id}>{preview ? <span className="consoleOutputPreview">{/* A server-issued, explicitly provided signed URL only. */}
 {/* eslint-disable-next-line @next/next/no-img-element */}
-<img src={preview.signedUrl} alt={preview.alt} loading="lazy" referrerPolicy="no-referrer"/></span> : <span className="consoleOutputGlyph"><CoreIcon name="artifacts"/></span>}<span><strong title={artifact.name}>{artifact.name}</strong><small>{stageLabel(artifact.artifact_type)}</small><span className="consoleOutputTime"><RecordedTime value={artifact.created_at}/></span></span><span aria-hidden="true">›</span></Link>; })}</div> : <Empty icon="artifacts" title={unavailable ? "Saved outputs unavailable" : "No saved outputs yet"} detail={unavailable ? "Existing artifacts may still be available in the Library." : "Research, designs and other saved work will appear here."}/>}
+<img src={preview.signedUrl} alt={preview.alt} loading="lazy" referrerPolicy="no-referrer"/></span> : <span className="consoleOutputGlyph"><CoreIcon name="artifacts"/></span>}<span><strong title={artifact.name}>{artifact.name}</strong><small>{stageLabel(artifact.artifact_type)}</small><span className="consoleOutputTime"><RecordedTime value={artifact.created_at}/></span></span><span aria-hidden="true">›</span></Link>; })}</div> : <Empty icon="artifacts" title={unavailable ? "Saved outputs unavailable" : "No outputs linked in this view"} detail={unavailable ? "Existing artifacts may still be available in the Library." : "This selection may exclude older or separately qualified research results."}/>}
+        {navigationBusinessId ? <p className="consoleFootnote"><Link href={`/dashboard/research-qualification?business=${encodeURIComponent(navigationBusinessId)}`}>Qualified public-research results</Link></p> : null}
       </Panel>
     </div>
   </div>;

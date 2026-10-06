@@ -44,6 +44,7 @@ export function rootResearchFixture({ tables = researchTables(), readOptions = {
   const overrides = {
     '@/lib/core-ui/data': { requireOwnerUiContext: async () => { calls.push({ name: 'ownerGuard' }); return context; }, loadWorkflowCollection: deny },
     '@/accounts/server': { loadAccountSetupInterventions: async () => ({ records: [], unavailable: false }) },
+    '@/connections/server': { readConnectionQualification: async () => { throw Error('Unexpected connection qualification read'); } },
     '@/lib/core-ui/console-data': { loadConsoleObservationTime: async () => Date.parse('2026-10-02T03:00:00Z'), loadConsoleResearchQuote: async ctx => { ancillaryCalls.push({ name: 'quote', businesses: ctx.businesses.map(row => row.id) }); return { one: 100, two: 200, verifiedAt: '2026-10-02T03:00:00Z' }; } },
     '@/products/discovery-v2-data': { loadDiscoveryGoalData: async ctx => { ancillaryCalls.push({ name: 'catalogue', businesses: ctx.businesses.map(row => row.id) }); return { available: true, records: [], errors: [] }; } },
     '@/components/stage7/live-refresh': { LiveRefresh: () => null },

@@ -59,7 +59,8 @@
     "src/app/dashboard/printful/pricing-form.ts",
     "src/etsy-publication/**/*.ts",
     "src/accounts/**/*.ts",
-    "src/browser/watch/**/*.ts"
+    "src/browser/watch/**/*.ts",
+    "src/products/discovery-r12-*.ts"
   ],
   "exclude": [
     "src/research/qualification-server.ts",
@@ -68,6 +69,7 @@
     "src/listing/server.ts",
     "src/etsy-publication/server.ts",
     "src/accounts/server.ts",
-    "src/printful/server.ts"
+    "src/printful/server.ts",
+    "src/products/discovery-r12-scope-server.ts"
   ]
 }

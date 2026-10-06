@@ -179,7 +179,7 @@ test("configured integrations never become verified without an actual dated chec
     { id: "failed", name: "Attention provider", state: "needs_attention" },
   ] } });
   assert.match(markup, /Configured · not checked/);
-  assert.match(markup, /Saved account records · not a live health check/);
+  assert.match(markup, /Qualified store bindings · saved state, not a live health check/);
   assert.match(markup, /data-connection-id="unchecked" data-connection-state="unknown"/);
   assert.match(markup, /data-connection-id="verified" data-connection-state="verified"/);
   assert.equal((markup.match(/<small>Verified on record<\/small>/g) ?? []).length, 1);

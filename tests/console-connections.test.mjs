@@ -87,7 +87,7 @@ test("positive result query strings never confirm an action while the saved regi
     const result = await connectionsPage(connectionsStart + `&accountMessage=${message}&accountResult=${fixture.revision}`, { workspace: connectionsWorkspace({ unavailable: true }) });
     const notice = result.islands.find(island => island.name === "AccountNotice")?.props.message;
     assert.match(notice, /(?:not|cannot|could not|unable).{0,60}confirm/i, `${message} must be qualified by available saved state`);
-    assert.match(result.markup.replace(/<!--.*?-->/g, ""), /Current saved registry: Etsy · Unavailable; Printful · Unavailable/);
+    assert.match(result.markup.replace(/<!--.*?-->/g, ""), /Legacy setup registry: Etsy · Unavailable; Printful · Unavailable/);
   }
 });
 

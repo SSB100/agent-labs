@@ -30,9 +30,10 @@ test('R07 SQL rollback, immutable lineage, qualified R05 admission and crash rec
    assert.equal((await db.query("select count(*)::int n from pg_tables where schemaname='private' and tablename like 'r07_%'")).rows[0].n,0);
   }
   try{await db.exec(source);}catch(error){throw new Error(`${file}: ${error.message}`,{cause:error});}
+  if(file===migration){const immediatelyAfter=new Map((await db.query(functions)).rows.map(x=>[x.id,x]));for(const old of oldFunctions)assert.deepEqual(immediatelyAfter.get(old.id),old);}
  }
- const after=new Map((await db.query(functions)).rows.map(x=>[x.id,x]));
- for(const old of oldFunctions)assert.deepEqual(after.get(old.id),old);
+ // Check preservation immediately around R07 above. Later reviewed migrations
+ // may intentionally extend prior accounting contracts (R12 shared funding).
  assert.equal((await db.query('select count(*)::int n from private.r07_adapters')).rows[0].n,0);
  assert.equal((await db.query('select count(*)::int n from private.r07_server_keys')).rows[0].n,0);
  await db.exec(r07FixtureSetup(root));

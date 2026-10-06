@@ -174,7 +174,7 @@ test('all unknown calls never display an invented zero provider charge', () => {
 });
 
 test('empty and unavailable ledgers are not represented as free work', () => {
-  assert.equal(summarizeOutcomeSpending(run, researchOutcomeCosts(run, ready(), ready())).value, 'No calls recorded');
+  assert.equal(summarizeOutcomeSpending(run, researchOutcomeCosts(run, ready(), ready())).value, 'No entries in this ledger');
   for (const status of ['unavailable', 'not_loaded']) {
     const value = summarizeOutcomeSpending(run, researchOutcomeCosts(run, ready(reservation()), { status }));
     assert.equal(value.value, status === 'unavailable' ? 'Unavailable' : 'Not checked');

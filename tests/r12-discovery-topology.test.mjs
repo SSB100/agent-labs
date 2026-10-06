@@ -1,0 +1,16 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {compileQuestPlan} from '../.core-tests/core/quest-plan.js';
+const id=n=>`12000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
+export function discoveryPlanFixture(){
+ const plan={format:'r12.discovery.1',discoveryScopeId:id(20),discoveryScopeHash:'f'.repeat(64),businessId:id(1),goalId:id(2),goalRevision:2,goalHash:'a'.repeat(64),businessRevision:1,businessHash:'b'.repeat(64),policyId:id(3),policyHash:'c'.repeat(64),authorityRootId:id(1),plannerWorkerDefinitionId:id(4),currency:'USD',maximumMicrounits:'500',deadline:'2027-01-01T00:00:00Z',expiresAt:'2027-01-01T00:00:00Z',maximumRepairs:0,maximumPivots:0,maximumChildren:5,maximumDispatches:5,requiredChecks:['review'],finishCondition:'all_required_outputs_verified',stopConditions:['no_permitted_work','deadline','repair_exhausted','owner_stopped'],steps:[]};
+ const keys=['plan','search1','select1','strategy','review'];
+ for(const [i,key] of keys.entries())plan.steps.push({key,kind:key==='search1'?'research':key==='review'?'review':'work',objective:'One finite discovery phase',reason:'Evidence-led phase continuation',adapter:`r12.discovery.${plan.discoveryScopeId}.${key}`,qualificationHash:'d'.repeat(64),installationId:id(10),packSnapshotHash:'e'.repeat(64),workflowDefinitionId:id(11),workerDefinitionId:id(30+i),role:key,operationKey:`research.r12.${plan.discoveryScopeId}.${key}`,purpose:'Original adult nature-shirt geographic research',dependsOn:keys.slice(0,i),expectedArtifactType:`r12.discovery.${key}`,maximumMicrounits:'100',expiresAt:plan.expiresAt,notBefore:'2026-10-01T00:00:00Z',measurement:null,maximumRepairs:0});
+ return plan;
+}
+test('R12 discovery topology represents exactly five effects and one final independent review',()=>{const p=discoveryPlanFixture();assert.deepEqual(compileQuestPlan(p),p);});
+for(const [name,change] of [
+ ['extra call',p=>p.steps.push({...p.steps[0],key:'retry'})],['hidden retry',p=>p.maximumDispatches=6],['repair allowance',p=>p.maximumRepairs=1],['pivot allowance',p=>p.maximumPivots=1],['unchecked final result',p=>p.requiredChecks=[]],['missing source pin',p=>delete p.discoveryScopeHash],['unscoped round',p=>delete p.discoveryScopeId],['skipped selection',p=>p.steps.splice(2,1)],['unqualified adapter name',p=>p.steps[1].adapter='generic.research'],['generic operation',p=>p.steps[1].operationKey='research.search'],['changed order',p=>[p.steps[1],p.steps[2]]=[p.steps[2],p.steps[1]]],['missing source dependency',p=>p.steps[4].dependsOn=['strategy']],['worker reviews itself',p=>p.steps[4].workerDefinitionId=p.steps[3].workerDefinitionId],['planner reviews itself',p=>p.steps[4].workerDefinitionId=p.plannerWorkerDefinitionId],['mislabelled phase',p=>p.steps[1].kind='challenge'],['legacy format bypass',p=>{p.format='r07.1';delete p.discoveryScopeId;delete p.discoveryScopeHash;}],
+])test(`R12 topology rejects ${name}`,()=>{const p=discoveryPlanFixture();change(p);assert.throws(()=>compileQuestPlan(p),/r07_/);});
+
+test('R12 reviewer cannot reuse planner identity under mixed-case UUID spelling',()=>{const p=discoveryPlanFixture();p.plannerWorkerDefinitionId='12ABCDEF-ABCD-4ABC-8ABC-ABCDEF123456';p.steps[4].workerDefinitionId=p.plannerWorkerDefinitionId.toLowerCase();assert.throws(()=>compileQuestPlan(p),/independent_check/);});
