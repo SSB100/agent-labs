@@ -15,7 +15,8 @@
       "feat/r09-reviewed-knowledge": false,
       "feat/r10-private-browser-viewer": false,
       "feat/r11-external-eligibility": false,
-      "feat/r12-research-creative": false
+      "feat/r12-research-creative": false,
+      "diag/r12-zoom-capture": false
     }
   },
   "buildCommand": "npm run deploy:build"

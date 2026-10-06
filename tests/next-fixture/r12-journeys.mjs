@@ -7,8 +7,8 @@ import {renderedResearchForm,researchHtmlText} from './r11-http.mjs';
 import {r12OwnerRpc} from './r12-sql.mjs';
 import {actualZoomBrowser} from './browser-zoom.mjs';
 export async function runR12Journeys({origin,noKeyOrigin,boundary,output,directory,httpOnly=false}){
- const results=[],external=[],actions=[];let browser,browserStatus=httpOnly?'unrun HTTP-only':'unrun';
- const report=()=>writeFile(path.join(output,'r12-research-acceptance.json'),JSON.stringify({results,actions,external,browser:browserStatus},null,2));
+ const results=[],external=[],actions=[],zoomCaptures=[];let browser,browserStatus=httpOnly?'unrun HTTP-only':'unrun';
+ const report=()=>writeFile(path.join(output,'r12-research-acceptance.json'),JSON.stringify({results,actions,external,zoomCaptures,browser:browserStatus},null,2));
  const check=async(name,fn)=>{console.log('START:',name);const result={name,status:'running'};results.push(result);try{await fn();result.status='passed';console.log('PASS:',name);}catch(error){result.status='failed';result.error=String(error.stack??error);console.error('FAIL:',name,result.error);}await report();};
  const control=async values=>{const response=await fetch(boundary.origin+'/control',{method:'POST',body:JSON.stringify(values)});assert.equal(response.status,200);};
  const reset=async(scenario='current',extra={})=>control({r12Scenario:scenario,r12Directory:directory,r12DelayReceipt:false,...extra});
@@ -63,7 +63,18 @@ export async function runR12Journeys({origin,noKeyOrigin,boundary,output,directo
     await page.setViewportSize({width:1280,height:720});await page.goto(origin+route());await page.getByRole('link',{name:'Evidence 1',exact:true}).first().click();assert.equal(new URL(page.url()).hash,'#r12-evidence-1');assert.equal(fixture().calls.length,5);
    });
    await check('R12 actual 200 percent browser zoom preserves result access without horizontal overflow',async()=>{
-    const zoom=await actualZoomBrowser();try{await zoom.context.route('**/*',route=>{const u=new URL(route.request().url());if(['http:','https:'].includes(u.protocol)&&![origin,noKeyOrigin].includes(u.origin)){external.push(u.origin);return route.abort('blockedbyclient');}return route.continue();});const zoomPage=await zoom.context.newPage();await zoomPage.goto(origin+route());assert.equal(await zoom.set(zoomPage,2),2);await zoomPage.getByRole('region',{name:'Qualified discovery progress',exact:true}).waitFor();assert.ok(await zoomPage.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));const viewport=zoomPage.viewportSize();for(const [name,target] of [['r12-research-zoom200.png',zoomPage.locator('.r12ProgressHeading')],['r12-research-result-zoom200.png',zoomPage.getByRole('heading',{name:'Needs more evidence',exact:true})]]){await target.scrollIntoViewIfNeeded();const png=await zoomPage.screenshot({path:path.join(output,name),fullPage:false});assert.equal(png.readUInt32BE(16),viewport.width,'Zoom capture preserves the full physical viewport width');assert.equal(png.readUInt32BE(20),viewport.height);}}finally{await zoom.close();}
+    const zoom=await actualZoomBrowser();try{await zoom.context.route('**/*',route=>{const u=new URL(route.request().url());if(['http:','https:'].includes(u.protocol)&&![origin,noKeyOrigin].includes(u.origin)){external.push(u.origin);return route.abort('blockedbyclient');}return route.continue();});const zoomPage=await zoom.context.newPage();await zoomPage.goto(origin+route());assert.equal(await zoom.set(zoomPage,2),2);await zoomPage.getByRole('region',{name:'Qualified discovery progress',exact:true}).waitFor();assert.ok(await zoomPage.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));const viewport=zoomPage.viewportSize(),cdp=await zoom.context.newCDPSession(zoomPage);
+    try{await zoomPage.bringToFront();for(const [name,target] of [['r12-research-zoom200.png',zoomPage.locator('.r12ProgressHeading')],['r12-research-result-zoom200.png',zoomPage.getByRole('heading',{name:'Needs more evidence',exact:true})]]){
+     await target.evaluate(element=>element.scrollIntoView({block:'start',inline:'nearest',behavior:'instant'}));
+     await bounded(zoomPage.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))),'Zoom paint after scroll');
+     const geometry=await target.evaluate(element=>({innerWidth,innerHeight,devicePixelRatio,scrollX,scrollY,visualViewport:visualViewport?{width:visualViewport.width,height:visualViewport.height,scale:visualViewport.scale,pageLeft:visualViewport.pageLeft,pageTop:visualViewport.pageTop}:null,target:element.getBoundingClientRect().toJSON()}));
+     assert.ok(geometry.target.top>=-1&&geometry.target.bottom<=geometry.innerHeight+1,'The captured heading is inside the actual zoom viewport');
+     const metrics=await bounded(cdp.send('Page.getLayoutMetrics'),'Zoom layout metrics');
+     // Chromium owns the entire viewport capture; no clip mixes deprecated device offsets with CSS coordinates.
+     const shot=await bounded(cdp.send('Page.captureScreenshot',{format:'png',fromSurface:true,captureBeyondViewport:false}),'Unclipped native zoom capture'),png=Buffer.from(shot.data,'base64');
+     assert.equal(png.readUInt32BE(16),viewport.width,'Zoom capture preserves the full physical viewport width');assert.equal(png.readUInt32BE(20),viewport.height);
+     await writeFile(path.join(output,name),png);zoomCaptures.push({name,geometry,metrics});
+    }}finally{await cdp.detach();}}finally{await zoom.close();}
    });
    await check('R12 hydrated key-free Stop retains results and malformed route cannot substitute another scope',async()=>{
     await page.goto(noKeyOrigin+route());await action('Stop research',()=>progress().getByRole('button',{name:'Stop research',exact:true}).waitFor({state:'visible'}));await until(async()=>(await read()).policyRevoked);await page.reload();assert.equal(await progress().getByRole('button',{name:'Stop research',exact:true}).isDisabled(),true);await page.getByRole('heading',{name:'Needs more evidence',exact:true}).waitFor();
