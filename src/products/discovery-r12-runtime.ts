@@ -174,3 +174,24 @@ export function projectDiscoveryR12Phase(ctx: QuestAdapterContext, input: Discov
   // separate discovery decision; NME/REJECT cannot authorize creative work.
   return { outcome: "accepted", result, checkedArtifacts: phase === "review" ? structuredClone(ctx.attempt.dependencyPins) : [] };
 }
+
+/** Pure historical reconstruction from the owner-only completed SQL join.
+ * It grants no dispatch/creative authority and never rebuilds a model request. */
+export function reconstructDiscoveryR12Result(raw: Record<string, unknown>, businessId: string, scopeId: string) {
+  if (raw.version !== "r12.discovery-saved-result.1" || !raw.context || !raw.inputs || !raw.current) return fail();
+  const ctx = raw.context as QuestAdapterContext, current = raw.current as DiscoveryR12CompletedPhase;
+  if (ctx.plan.businessId !== businessId || ctx.plan.discoveryScopeId !== scopeId || ctx.attempt.status !== "completed" || ctx.step.key !== "review" || current.stepKey !== "review" || current.attemptId !== ctx.attempt.id ||
+      current.responseHash !== ctx.attempt.responseHash || current.responseCanonicalHash !== discoveryV2Hash(current.response) || current.response.outcome !== "accepted" || current.response.planHash !== ctx.planHash || current.response.inputHash !== ctx.attempt.inputHash) return fail();
+  const state = readDiscoveryR12PhaseInputs(ctx, raw.inputs as Record<string, unknown>), qualified = qualifyDiscoveryR12Candidate(current.candidate, current.binding, current.proof);
+  const projected = projectDiscoveryR12Phase(ctx, state, qualified, current.binding.request);
+  if (current.response.result.candidateHash !== qualified.candidateHash || current.response.result.routeProofHash !== qualified.route.proofHash || current.response.result.outputHash !== discoveryV2Hash(current.candidate.output) ||
+      Object.entries(projected.result).some(([key, value]) => discoveryV2Hash(current.response.result[key]) !== discoveryV2Hash(value))) return fail();
+  const found = strategist(state), review = normalizeReviewerResponseV2(found.prepared, found.assessment, current.candidate.output, { strategist: found.execution, reviewer: workerExecution(current) }, state.validationAt);
+  if (discoveryV2Hash(review) !== current.response.result.reviewHash) return fail();
+  return { version: "r12.discovery-result.1" as const, businessId, scopeId, goalId: ctx.plan.goalId, planId: ctx.planId,
+    historyOnly: true as const, executionAuthorized: false as const, reviewedAt: current.candidate.receivedAt, sourceScopeExpiresAt: state.scope.amendment.expiresAt,
+    originalFundingRootId: state.scope.budgetAuthorityRootId, sourceScopeHash: state.scope.amendmentHash, knowledgeHash: discoveryKnowledgeHashV2(state.knowledge),
+    objective: state.scope.intent.objective, planner: planAndCandidates(state).plan, dossier: found.dossier, evidence: found.persisted, assessment: found.assessment, review,
+    phaseReceipts: [...state.dependencies, current].map(phase => ({ phase: phase.stepKey, artifactId: phase.artifactId, responseHash: phase.responseHash, candidateHash: discoveryV2Hash(phase.candidate), routeProofHash: phase.proof.proofHash })) };
+}
+export type DiscoveryR12Result = ReturnType<typeof reconstructDiscoveryR12Result>;

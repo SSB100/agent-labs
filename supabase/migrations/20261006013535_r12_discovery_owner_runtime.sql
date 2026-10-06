@@ -5,20 +5,25 @@ alter table private.r07_adapters drop constraint r07_adapters_mode_check;
 alter table private.r07_adapters add constraint r07_adapters_mode_check check(mode in ('simulation','production','qualification'));
 create table private.r12_discovery_authorities(
  scope_id uuid primary key references private.r12_discovery_scopes(id),business_id uuid not null references public.businesses(id),goal_id uuid not null,
- controller_key_hash text not null references private.r07_server_keys(key_hash),admission_key_hash text not null references private.r05_server_keys(key_hash),
+ controller_key_hash text not null unique references private.r07_server_keys(key_hash),admission_key_hash text not null unique references private.r05_server_keys(key_hash),
  plan jsonb not null,plan_hash text not null,mode text not null check(mode in ('simulation','qualification')),
  approval_hash text not null check(approval_hash ~ '^[a-f0-9]{64}$'),execution_review_hash text not null check(execution_review_hash ~ '^[a-f0-9]{64}$'),
  valid_until timestamptz not null,receipt_until timestamptz not null,created_at timestamptz not null default clock_timestamp(),
  foreign key(goal_id,business_id) references private.r04_goal_state(goal_id,business_id),
+ check(controller_key_hash<>admission_key_hash),
  check(plan_hash=private.r04_hash(plan) and octet_length(plan::text)<=32768 and receipt_until=valid_until+interval '30 minutes')
 );
 alter table private.r12_discovery_authorities enable row level security;
 revoke all on private.r12_discovery_authorities from public,anon,authenticated,service_role;
 create trigger r12_authority_history before insert or update or delete on private.r12_discovery_authorities for each row execute function private.r12_discovery_history_guard();
 
+create function private.r12_authority_owner_current(q private.r12_discovery_authorities) returns boolean language sql stable set search_path='' as $$
+ select exists(select 1 from public.businesses b join private.r05_policies p on p.business_id=b.id and p.id=(q.plan->>'policyId')::uuid where b.id=q.business_id and b.owner_user_id=p.actor_id)
+$$;
+
 create function private.r12_plan_qualification(b uuid,g uuid,v jsonb) returns boolean language sql stable set search_path='' as $$
  select exists(select 1 from private.r12_discovery_authorities q join private.r12_discovery_scopes s on s.id=q.scope_id
- where q.business_id=b and q.goal_id=g and q.plan=v and q.plan_hash=private.r04_hash(v) and v->>'format'='r12.discovery.1' and v->>'discoveryScopeId'=s.id::text and v->>'discoveryScopeHash'=s.amendment_hash and q.valid_until>clock_timestamp())
+ where q.business_id=b and q.goal_id=g and q.plan=v and q.plan_hash=private.r04_hash(v) and v->>'format'='r12.discovery.1' and v->>'discoveryScopeId'=s.id::text and v->>'discoveryScopeHash'=s.amendment_hash and q.valid_until>clock_timestamp() and private.r12_authority_owner_current(q))
 $$;
 
 create function private.r12_authority_validate() returns trigger language plpgsql set search_path='' as $$
@@ -27,6 +32,7 @@ declare s private.r12_discovery_scopes;step jsonb;adapter private.r07_adapters;w
  select * into s from private.r12_discovery_scopes where id=new.scope_id and business_id=new.business_id and goal_id=new.goal_id;
  if s.id is null or new.plan->>'format' is distinct from 'r12.discovery.1' or new.plan->>'discoveryScopeId' is distinct from s.id::text or new.plan->>'discoveryScopeHash' is distinct from s.amendment_hash or new.valid_until is distinct from (new.plan->>'expiresAt')::timestamptz or new.valid_until<=clock_timestamp() or new.valid_until>clock_timestamp()+interval '30 minutes' or new.valid_until>(s.amendment->>'expiresAt')::timestamptz then raise exception 'r12_bounded_authority_required';end if;
  if not exists(select 1 from private.r07_server_keys where key_hash=new.controller_key_hash and expires_at>=new.receipt_until and expires_at<=new.receipt_until+interval '5 seconds') or not exists(select 1 from private.r05_server_keys where key_hash=new.admission_key_hash and expires_at>=new.receipt_until and expires_at<=new.receipt_until+interval '5 seconds') then raise exception 'r12_exact_authority_window_required';end if;
+ if exists(select 1 from private.r05_server_keys where key_hash=new.controller_key_hash) or exists(select 1 from private.r07_server_keys where key_hash=new.admission_key_hash) then raise exception 'r12_separate_scoped_key_roles_required';end if;
  if exists(select 1 from private.r07_server_revocations where key_hash=new.controller_key_hash) or exists(select 1 from private.r05_server_revocations where key_hash=new.admission_key_hash) then raise exception 'r12_authority_revoked';end if;
  for step in select value from jsonb_array_elements(new.plan->'steps') loop
  select * into adapter from private.r07_adapters where adapter_key=step->>'adapter' and qualification_hash=step->>'qualificationHash';
@@ -42,8 +48,25 @@ create trigger r12_authority_validate after insert on private.r12_discovery_auth
 
 create function private.r12_controller_keys(b uuid,g uuid,v jsonb,controller_hash text,admission_hash text) returns void language plpgsql set search_path='' as $$
 begin
- if v->>'format' is distinct from 'r12.discovery.1' then return;end if;
- if not exists(select 1 from private.r12_discovery_authorities q where q.business_id=b and q.goal_id=g and q.plan=v and q.controller_key_hash=controller_hash and q.admission_key_hash=admission_hash and q.receipt_until>clock_timestamp()) then raise exception 'r12_exact_scoped_controller_authority_required';end if;
+ if v->>'format' is distinct from 'r12.discovery.1' and not exists(select 1 from private.r12_discovery_authorities q where q.controller_key_hash in (controller_hash,admission_hash) or q.admission_key_hash in (controller_hash,admission_hash)) then return;end if;
+ if not exists(select 1 from private.r12_discovery_authorities q where q.business_id=b and q.goal_id=g and (q.plan=v or v is null) and q.controller_key_hash=controller_hash and q.admission_key_hash=admission_hash and q.receipt_until>clock_timestamp() and private.r12_authority_owner_current(q)) then raise exception 'r12_exact_scoped_controller_authority_required';end if;
+end $$;
+
+-- Enrollment in the shared key table must not grant generic R05 authority.
+create function private.r12_admission_key_scope(b uuid,op text,request_payload jsonb,key_hash text) returns void language plpgsql set search_path='' as $$
+declare scoped boolean;a private.r07_attempts;p private.r07_plans;r private.r05_requests;begin
+ scoped:=exists(select 1 from private.r12_discovery_authorities q where key_hash in(q.admission_key_hash,q.controller_key_hash));
+ if op in ('prepare','guard') then
+ select * into a from private.r07_attempts where id=(request_payload->>'workflowRunId')::uuid and business_id=b;
+ elsif op in ('reserve','dispatch','release_unsent','settle','readback') then
+ select * into r from private.r05_requests where id=(request_payload->>'requestId')::uuid and business_id=b;
+ select * into a from private.r07_attempts where id=r.workflow_run_id and business_id=b;
+ elsif scoped then raise exception 'r12_exact_scoped_admission_authority_required';else return;end if;
+ select * into p from private.r07_plans where id=a.plan_id and business_id=b;
+ if not scoped and p.content->>'format' is distinct from 'r12.discovery.1' then return;end if;
+ if a.id is null or p.content->>'format' is distinct from 'r12.discovery.1' or not exists(select 1 from private.r12_discovery_authorities q where q.business_id=b and q.goal_id=p.goal_id and q.plan=p.content and q.admission_key_hash=key_hash and q.receipt_until>clock_timestamp() and private.r12_authority_owner_current(q) and (op not in ('prepare','guard','reserve','dispatch') or q.valid_until>clock_timestamp() and private.r12_authority_owner_current(q)))
+ or (op in ('prepare','guard') and (request_payload->>'operationKey' is distinct from 'research.r12.'||(p.content->>'discoveryScopeId')||'.'||a.step_key or request_payload->'accounting' is distinct from '{"kind":"r05"}'::jsonb))
+ or (r.id is not null and (r.policy_id is distinct from p.policy_id or r.payload->>'operationKey' is distinct from 'research.r12.'||(p.content->>'discoveryScopeId')||'.'||a.step_key)) then raise exception 'r12_exact_scoped_admission_authority_required';end if;
 end $$;
 
 -- Only an exact approved R12 plan may use its pinned experimental definitions
@@ -71,15 +94,25 @@ declare definition text;old text;replacement text;begin
  replacement:=$new$ perform private.r12_controller_keys(p_business_id,p_goal_id,case when p_operation='plan' then p_payload->'plan' else p.content end,encode(extensions.digest(convert_to(p_server_key,'UTF8'),'sha256'),'hex'),encode(extensions.digest(convert_to(p_admission_key,'UTF8'),'sha256'),'hex'));
  if p_operation='read' then return private.r07_snapshot(p_business_id,p_goal_id,h.plan_id); end if;$new$;
  if (length(definition)-length(replace(definition,old,'')))/length(old)<>1 then raise exception 'r12_controller_entry_drift';end if;execute replace(definition,old,replacement);
+ definition:=pg_get_functiondef('public.r05_admission_server(uuid,text,jsonb,text)'::regprocedure);
+ old:=$old$ if p_operation='legacy_settle' then return private.r05_legacy_settle(p_business_id,p_payload); end if;$old$;
+ replacement:=$new$ perform private.r12_admission_key_scope(p_business_id,p_operation,p_payload,encode(extensions.digest(convert_to(p_server_key,'UTF8'),'sha256'),'hex'));
+ if p_operation='legacy_settle' then return private.r05_legacy_settle(p_business_id,p_payload); end if;$new$;
+ if (length(definition)-length(replace(definition,old,'')))/length(old)<>1 then raise exception 'r12_admission_key_scope_drift';end if;execute replace(definition,old,replacement);
+ definition:=pg_get_functiondef('private.r11_research_key(text)'::regprocedure);
+ old:=$old$ perform 1 from private.r05_server_keys where key_hash=h for share;$old$;
+ replacement:=$new$ if exists(select 1 from private.r12_discovery_authorities q where h in(q.controller_key_hash,q.admission_key_hash)) then raise exception 'r12_scoped_key_not_r11_authority' using errcode='42501';end if;
+ perform 1 from private.r05_server_keys where key_hash=h for share;$new$;
+ if (length(definition)-length(replace(definition,old,'')))/length(old)<>1 then raise exception 'r12_r11_key_scope_drift';end if;execute replace(definition,old,replacement);
  definition:=pg_get_functiondef('public.r12_discovery_server(uuid,uuid,text,jsonb,text)'::regprocedure);
  old:=' if p_operation=''inputs'' then';
- replacement:=$new$ if not exists(select 1 from private.r12_discovery_authorities scoped_auth where scoped_auth.business_id=p_business_id and scoped_auth.goal_id=p.goal_id and scoped_auth.plan=p.content and scoped_auth.controller_key_hash=key_hash and scoped_auth.receipt_until>clock_timestamp()) then raise exception 'r12_exact_scoped_controller_authority_required';end if;
+ replacement:=$new$ if not exists(select 1 from private.r12_discovery_authorities scoped_auth where scoped_auth.business_id=p_business_id and scoped_auth.goal_id=p.goal_id and scoped_auth.plan=p.content and scoped_auth.controller_key_hash=key_hash and scoped_auth.receipt_until>clock_timestamp() and private.r12_authority_owner_current(scoped_auth)) then raise exception 'r12_exact_scoped_controller_authority_required';end if;
  if p_operation='inputs' then$new$;
  if (length(definition)-length(replace(definition,old,'')))/length(old)<>1 then raise exception 'r12_server_authority_drift';end if;execute replace(definition,old,replacement);
 end $migration$;
 
 do $$ declare fn regprocedure;begin
- for fn in select p.oid::regprocedure from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='private' and p.proname in ('r12_plan_qualification','r12_authority_validate','r12_controller_keys') loop execute format('revoke all on function %s from public,anon,authenticated,service_role',fn);end loop;
+ for fn in select p.oid::regprocedure from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='private' and p.proname in ('r12_authority_owner_current','r12_plan_qualification','r12_authority_validate','r12_controller_keys','r12_admission_key_scope') loop execute format('revoke all on function %s from public,anon,authenticated,service_role',fn);end loop;
 end $$;
 -- Owner metadata is distinct from the trusted runtime load: no wire, prompt,
 -- private candidate body, capability or credential is returned during rendering.

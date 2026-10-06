@@ -28,8 +28,9 @@ test('R11 additive SQL preserves prior functions/ACLs and installs no authority'
   }
   if(name.endsWith('_r11_etsy_lazy_refresh.sql')){const prior=(await db.query(functions)).rows;await assert.rejects(db.exec(source.replace(/commit;\s*$/,()=>"do $$ begin raise exception 'r11_refresh_rollback';end $$;commit;")),/r11_refresh_rollback/);await db.exec('rollback');assert.deepEqual((await db.query(functions)).rows,prior);}
   try{await db.exec(source);}catch(e){throw Error(`${name}: ${e.message}\n${e.where??''}\n${e.internalQuery??''}`);}
+  if(name.endsWith('_r11_scoped_connections.sql')){const after=new Map((await db.query(functions)).rows.map(x=>[x.id,x]));for(const row of before)assert.deepEqual(after.get(row.id),row);}
  }
- const after=new Map((await db.query(functions)).rows.map(x=>[x.id,x]));for(const row of before)assert.deepEqual(after.get(row.id),row);
+ // R11's byte preservation is asserted immediately above; later scoped migrations may extend prior functions.
  for(const name of ['r11_connection_grants','r11_connection_attempts','r11_credential_versions','r11_etsy_secrets'])assert.equal(await value(db,`select count(*)::int result from private.${name}`),0);
  await db.query('insert into auth.users(id,email) values($1,$2)',[user,'r11-inert@example.invalid']);await db.query('insert into public.businesses(id,owner_user_id,name) values($1,$2,$3)',[business,user,'R11 isolated fixture']);await db.query('insert into auth.sessions(id,user_id) values($1,$2)',[authSession,user]);await db.query('insert into private.account_server_authority values($1,true)',[sha(key)]);
  await db.query("select set_config('request.jwt.claim.sub',$1,false),set_config('request.jwt.claims',$2,false)",[user,JSON.stringify({sub:user,session_id:authSession})]);

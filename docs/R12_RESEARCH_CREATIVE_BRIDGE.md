@@ -66,9 +66,21 @@ Historical receipt validation uses the original marked execution time while rech
 
 Current source candidates use attributable first-party Ipsos apparel/ecommerce studies, Australia Post fashion reporting and NZ Post shopper research. Multi-tenant CDN documents remain excluded because the selected OpenRouter server tool does not document exact URL filtering before model ingestion. Source licensing, population and geographic limits still require the explicit live packet; broad apparel preferences cannot be presented as demonstrated nature-shirt demand.
 
+### Research runtime freeze candidate, October 6
+
+The owner Continue facade now participates in the actual SQL/runtime replay with HMAC-derived inert per-scope credentials, current-owner authentication, Core scheduling, R05 admission and the existing R12 serializer. Repeated Continue creates no second effect; owner Stop records the exact policy revocation. The nonsecret `/api/research/r12/prepare` endpoint requires same-origin authenticated bounded JSON and returns verifier hashes only. It neither registers a key nor invokes a provider.
+
+Full results are reconstructed server-side from the five already durable accepted responses, exact artifacts, candidates, settlements and route proofs. There is no second result-storage engine or fabricated legacy worker artifact. Original Knowledge, marked-time validation and pre-attempt budget context are retained. The contained owner view shows concepts, all geographic comparisons, independent review, unanswered questions, any proposed learning test, exact evidence and receipt links. Historical reads survive Stop, expiry, superseded Knowledge, a successor and later unresolved funding. Current ownership is still required. Historical TEST carries no execution or creative authorization.
+
+Independent review found and corrected shared-key scope leakage before activation: registered R12 verifier hashes cannot address generic R05/R07 work or R11 research. Both roles are checked, cross-role enrollment is rejected, and old scoped keys cannot read or act after Business ownership changes. Current owners can still read preserved Business history. No global worker/workflow status is promoted.
+
+The final actual SQL replay and two preparation-route tests passed independently. Typecheck and repository lint passed. A broad compatibility run passed 1,044 tests with 16 optional/browser/PostgreSQL skips and three old migration-snapshot assertions failed because they compared an R11 boundary against all later R12 migrations. Those assertions now check byte preservation at each exact R11 migration boundary; final ACL/financial-row assertions remain. All 78 tests in the targeted compatibility/R05 recheck passed. This is not the final full CI/build/real-PostgreSQL or browser gate.
+
+The minimum first-live proposal remains five paid calls with one collection, no paid retries, a 30-minute dispatch window and a further 30-minute receipt grace. At most three metadata GETs per phase are permitted. The last public-price ceiling was $0.406736; with last observed Business exposure $0.646851 the minimum corresponding R05 lifetime cap would be $1.053587. Both exposure and prices require fresh verification. Current R05 authority has not been increased. Source-purpose review is converging on attributable publisher consumer evidence and AU/NZ apparel studies; the exact source/query packet remains unapproved.
+
 ## Remaining sequence
 
-1. Complete and independently review exact provider/source binding and durable bounded output/receipt continuation, then prove the actual SQL/runtime/adapter path with inert transport including failure/restart cases
+1. Complete exact source-purpose review and the research-slice CI/build/browser gate; the five-phase SQL/runtime/adapter and owner continuation path is now proven with inert transport
 2. Freeze the exact source, provider, financial and execution-authority packet; refresh quotes and obtain any required approval before production SQL or live generation
 3. Run the smallest useful one-collection round, with genuine TEST/REJECT/NEEDS_MORE_EVIDENCE and a predeclared learning plan. REJECT/NME stops creative work
 4. Only after an eligible current TEST, qualify one production-purpose creative through the existing brief, independent screen, original-byte retention and independent pixel/print/IP review pipeline

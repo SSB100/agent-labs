@@ -36,9 +36,10 @@ test('R11 fixed thirty-minute authority requires immutable fresh quotes per phas
    assert.equal(await value(db,"select count(*)::int result from information_schema.columns where table_schema='private' and table_name='r11_research_bindings' and column_name='quote_valid_until'"),0);
    assert.deepEqual((await db.query(r05FunctionSnapshot)).rows,oldFunctions);assert.deepEqual(await r05Rows(db),oldR05);
    await db.exec(migrationSource);
+   assert.deepEqual((await db.query(r05FunctionSnapshot)).rows,oldFunctions,'The window migration preserves R05 definitions and ACLs');
    assert.deepEqual((await db.query("select schemaname,tablename from pg_tables where schemaname in ('public','private') order by 1,2")).rows,oldTables,'No parallel registry or authority table is created');
   }
-  assert.equal(seen,true);assert.deepEqual((await db.query(r05FunctionSnapshot)).rows,oldFunctions);assert.deepEqual(await r05Rows(db),oldR05,'Migration cannot alter or renew existing financial rows');
+  assert.equal(seen,true);assert.deepEqual((await db.query(r05FunctionSnapshot)).rows.map(({id,acl})=>({id,acl})),oldFunctions.map(({id,acl})=>({id,acl})));assert.deepEqual(await r05Rows(db),oldR05,'Migration cannot alter or renew existing financial rows');
   await t.test('existing source1 authority and binding remain usable without a fresh-quote field',async()=>{
    assert.equal(await value(db,'select quote_valid_until result from private.r11_research_bindings where request_id=$1',[legacyMarker.requestId]),null);
    const replay=await guard(db,legacy);assert.equal(replay.shouldDispatch,false);assert.equal(replay.requestId,legacyMarker.requestId);
