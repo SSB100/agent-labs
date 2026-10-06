@@ -56,6 +56,16 @@ The second focused run passed 170 tests (zero failures/skips), including nine fi
 
 Candidate source review now includes published outdoor-apparel buyer surveys (NZTE US regional sample and UK sample), nature-motif search trends (Pinterest), and AU/NZ apparel transactions. These improve the relevance of possible research; publisher and API reuse terms, exact pages, geographical limits and disclosure still need an explicit source packet. None is silently approved, relabelled as GB/national US data or treated as proven nature-shirt demand.
 
+### Third WIP slice, October 6
+
+The complete five-phase runtime now reuses existing discovery normalizers and Knowledge pins through actual migrated SQL, R07 scheduling, R05 admission and the real provider serializer with inert transport. It preserves exact source/query scope and canonical provider identities. The replay makes five POSTs, six receipt GETs (one delayed), and counts settlement once under the original root. Its synthetic independent NEEDS_MORE_EVIDENCE decision does not authorize creative work.
+
+Owner-only metadata, Continue and Stop controls now expose all five phases, saved output/receipt timing, scoped known/held costs, pause/revocation, and links to exact immutable receipts. Browsing performs no provider calls. A per-scope, expiring qualification authority can use existing experimental definitions without globally promoting them; migrations contain no enrollment seeds. Server credentials are derived within the existing protected R05 boundary and only separately approved verifier hashes may be enrolled.
+
+Historical receipt validation uses the original marked execution time while rechecking current owner, Goal, source and Stop state; it cannot extend freshness or create another paid request. Focused SQL tests include the full replay, owner metadata, malformed read-model rejection, paused/Stop handling and bounded delayed receipts. Typecheck passes. The actual PostgreSQL concurrent-session gate, complete saved-result projection, owner-action/UI acceptance, production enrollment and creative qualification remain unfinished.
+
+Current source candidates use attributable first-party Ipsos apparel/ecommerce studies, Australia Post fashion reporting and NZ Post shopper research. Multi-tenant CDN documents remain excluded because the selected OpenRouter server tool does not document exact URL filtering before model ingestion. Source licensing, population and geographic limits still require the explicit live packet; broad apparel preferences cannot be presented as demonstrated nature-shirt demand.
+
 ## Remaining sequence
 
 1. Complete and independently review exact provider/source binding and durable bounded output/receipt continuation, then prove the actual SQL/runtime/adapter path with inert transport including failure/restart cases

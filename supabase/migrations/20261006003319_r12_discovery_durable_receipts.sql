@@ -59,7 +59,7 @@ declare body jsonb;q jsonb;route jsonb;msg jsonb;phase text:=a.step_key;maximum_
  for msg in select value from jsonb_array_elements(body->'messages') loop perform private.r04_keys(msg,array['role','content']);end loop;
  if phase='search1' then
  perform private.r04_keys(body,array['model','provider','messages','tools','tool_choice','max_tool_calls','max_tokens','stream']);
- if body->'tools' is distinct from jsonb_build_array(jsonb_build_object('type','openrouter:web_search','parameters',jsonb_build_object('engine','exa','mode','fast','max_uses',1,'max_results',4,'max_total_results',4,'max_characters',1800,'allowed_domains',s.amendment->'allowedDomains','excluded_domains',s.amendment->'excludedDomains'))) or body->>'tool_choice' is distinct from 'required' or body->'max_tool_calls' is distinct from '1'::jsonb or ((v->>'requestJson')::jsonb)->'allowedDomains' is distinct from s.amendment->'allowedDomains' or ((v->>'requestJson')::jsonb)->'excludedDomains' is distinct from s.amendment->'excludedDomains' then raise exception 'r12_exact_search_scope_required';end if;
+ if body->'messages'->1->>'content' is distinct from s.amendment->>'approvedQuery' or ((v->>'requestJson')::jsonb)->>'query' is distinct from s.amendment->>'approvedQuery' or body->'tools' is distinct from jsonb_build_array(jsonb_build_object('type','openrouter:web_search','parameters',jsonb_build_object('engine','exa','mode','fast','max_uses',1,'max_results',4,'max_total_results',4,'max_characters',1800,'allowed_domains',s.amendment->'allowedDomains','excluded_domains',s.amendment->'excludedDomains'))) or body->>'tool_choice' is distinct from 'required' or body->'max_tool_calls' is distinct from '1'::jsonb or ((v->>'requestJson')::jsonb)->'allowedDomains' is distinct from s.amendment->'allowedDomains' or ((v->>'requestJson')::jsonb)->'excludedDomains' is distinct from s.amendment->'excludedDomains' then raise exception 'r12_exact_search_scope_required';end if;
  elsif body ?| array['tools','plugins','tool_choice','max_tool_calls'] or body->'response_format'->>'type' is distinct from 'json_schema' then raise exception 'r12_text_only_phase_required';end if;
  if phase<>'search1' then
  perform private.r04_keys(body,array['model','provider','messages','response_format','max_tokens','stream']||case when phase='select1' then array['reasoning'] else array[]::text[] end);
@@ -212,7 +212,7 @@ declare a private.r07_attempts;p private.r07_plans;c private.r12_discovery_candi
  select c0.* into c from private.r12_discovery_candidates c0 join private.r12_discovery_wires w on w.request_id=c0.request_id where w.attempt_id=a.id and w.business_id=new.business_id;
  if c.request_id is null then raise exception 'r12_verified_candidate_required';end if;
  state:=private.r12_discovery_receipt_status(c);
- if state->>'status'<>'verified' or new.content->'result'->>'candidateHash' is distinct from c.candidate_hash or new.content->'result'->>'routeProofHash' is distinct from state->>'proofHash' or new.content->'result'->'output' is distinct from c.candidate->'output' or c.candidate->'reportedMicrousd'='null'::jsonb or not exists(select 1 from private.r05_settlements z where z.request_id=c.request_id and z.actual_microunits=(c.candidate->>'reportedMicrousd')::bigint and z.provider_request_id=c.candidate->>'providerRequestId') then raise exception 'r12_verified_candidate_required';end if;
+ if state->>'status'<>'verified' or new.content->'result'->>'candidateHash' is distinct from c.candidate_hash or new.content->'result'->>'routeProofHash' is distinct from state->>'proofHash' or new.content->'result'->>'outputHash' is distinct from private.stage14_hash(c.candidate->'output') or c.candidate->'reportedMicrousd'='null'::jsonb or not exists(select 1 from private.r05_settlements z where z.request_id=c.request_id and z.actual_microunits=(c.candidate->>'reportedMicrousd')::bigint and z.provider_request_id=c.candidate->>'providerRequestId') then raise exception 'r12_verified_candidate_required';end if;
  return new;
 end $$;
 revoke all on function private.r12_discovery_response_guard() from public,anon,authenticated,service_role;
@@ -258,7 +258,7 @@ declare definition text;old text:=$old$ select * into o from private.r05_operati
 end $migration$;
 
 revoke all on function public.r12_discovery_server(uuid,uuid,text,jsonb,text) from public,anon,authenticated,service_role;
-grant execute on function public.r12_discovery_server(uuid,uuid,text,jsonb,text) to authenticated,service_role;
+grant execute on function public.r12_discovery_server(uuid,uuid,text,jsonb,text) to anon;
 do $$ declare f regprocedure;begin
  for f in select p.oid::regprocedure from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='private' and p.proname in ('r12_discovery_history_guard','r12_discovery_key','r12_discovery_wire_validate','r12_discovery_receipt_status','r12_discovery_proof_validate') loop execute format('revoke all on function %s from public,anon,authenticated,service_role',f);end loop;
 end $$;

@@ -9,3 +9,8 @@
 
 .r08Card > a { display:inline-flex; min-height:24px; align-items:center; margin:4px 12px 4px 0; }
 @media(max-width:760px) { .r08Card > a { min-height:44px; } }
+
+.r12Progress { flex:0 0 auto; min-width:0; border:1px solid var(--console-border); border-radius:5px; padding:6px 9px; font-size:12px; }
+.r12ProgressHeading,.r12Controls { display:flex; align-items:center; flex-wrap:wrap; gap:7px 12px; min-width:0; }.r12ProgressHeading span { color:var(--console-muted); }.r12ProgressHeading a { margin-left:auto; }.r12Controls form { margin:0; }.r12Controls button { font-size:12px; min-height:30px; }
+.r12ActionStatus { flex-basis:100%; max-height:55px; overflow:auto; margin:0!important; }.r12DiscoveryDetails { display:flex; flex-direction:column; gap:8px; height:100%; min-height:0; min-width:0; }.r12DiscoveryScroll { flex:1; min-height:0; overflow:auto; overscroll-behavior:contain; padding:3px; }.r12DiscoveryScroll li { padding:7px 0; }.r12DiscoveryDetails p { overflow-wrap:anywhere; }
+@media(max-width:760px) { .r12DiscoveryDetails { height:auto; }.r12DiscoveryScroll { overflow:visible; }.r12Controls button { min-height:44px; }.r12ActionStatus { max-height:none; overflow:visible; } }

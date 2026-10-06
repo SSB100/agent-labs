@@ -20,6 +20,7 @@ export type DiscoverySourceScopeAmendment = {
   approvalHash: string;
   independentReviewHash: string;
   purposeReviewHash: string;
+  approvedQuery: string;
   createdAt: string;
   expiresAt: string;
 };
@@ -57,7 +58,7 @@ export function prepareAmendedDiscoveryScope(original: DiscoveryOriginalScope, a
   if (!original || !amendment || !Number.isFinite(now) || containsCredentialLikeValue({ original, amendment })) return fail();
   const prior = structuredClone(original), change = structuredClone(amendment);
   exact(prior, "businessId,budgetAuthorityRootId,priorRoundId,semanticGoalHash,priorIntent,maximumMicrousd,committedMicrousd,hasUncertainCosts");
-  exact(change, "version,id,businessId,goalId,budgetAuthorityRootId,priorRoundId,originalIntentHash,originalSemanticGoalHash,allowedDomains,excludedDomains,sourceReviews,approvalHash,independentReviewHash,purposeReviewHash,createdAt,expiresAt");
+  exact(change, "version,id,businessId,goalId,budgetAuthorityRootId,priorRoundId,originalIntentHash,originalSemanticGoalHash,allowedDomains,excludedDomains,sourceReviews,approvalHash,independentReviewHash,purposeReviewHash,approvedQuery,createdAt,expiresAt");
   if (![prior.businessId, prior.budgetAuthorityRootId, prior.priorRoundId, change.id, change.businessId, change.goalId, change.budgetAuthorityRootId, change.priorRoundId].every(v => typeof v === "string" && UUID.test(v))) return fail();
   if (![prior.semanticGoalHash, change.originalIntentHash, change.originalSemanticGoalHash, change.approvalHash, change.independentReviewHash, change.purposeReviewHash].every(v => typeof v === "string" && HASH.test(v))) return fail();
   if (!integer(prior.maximumMicrousd) || !integer(prior.committedMicrousd) || prior.maximumMicrousd < 1 || prior.committedMicrousd >= prior.maximumMicrousd || prior.hasUncertainCosts !== false) return fail();
@@ -70,6 +71,8 @@ export function prepareAmendedDiscoveryScope(original: DiscoveryOriginalScope, a
       change.originalIntentHash !== discoveryV2Hash(prior.priorIntent) || prior.priorIntent.limits.maximumMicrousd > prior.maximumMicrousd) return fail();
   const start = Date.parse(change.createdAt), end = Date.parse(change.expiresAt);
   if (!Number.isFinite(start) || !Number.isFinite(end) || start > now || end <= now || end <= start || end > start + 24 * 60 * 60_000) return fail();
+  if (typeof change.approvedQuery !== "string" || change.approvedQuery.trim() !== change.approvedQuery || change.approvedQuery.length < 20 || change.approvedQuery.length > 800 ||
+      change.purposeReviewHash !== discoveryV2Hash({ query: change.approvedQuery, classification: "generic_nonpersonal_public_research" })) return fail();
   const allowed = canonicalSourceDomains(change.allowedDomains), excluded = canonicalSourceDomains(change.excludedDomains);
   if (allowed.length > 4 || !R11_RESTRICTED_SOURCE_DOMAINS.every(domain => excluded.includes(domain)) ||
       [...allowed, ...excluded].some(domain => domain.endsWith(".local") || domain.endsWith(".internal")) || allowed.some(domain => excluded.some(blocked => within(domain, blocked) || within(blocked, domain)))) return fail();

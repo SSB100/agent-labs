@@ -81,3 +81,10 @@ export function consoleResearchHref(current: URLSearchParams | Record<string, st
   consoleResearchOptionsFromSearch(record);
   return `/dashboard?${params.toString()}`;
 }
+
+/** A separate exact R12 selection, never interpreted as a legacy experiment. */
+export function consoleR12ResearchSelection(params:Record<string,string|string[]|undefined>){
+ const allowed=new Set(["view","type","business","selected","quest"]);
+ if(Object.entries(params).some(([key,value])=>value!==undefined&&(!allowed.has(key)||typeof value!=="string"))||params.view!=="research"||params.type!=="r12"||typeof params.business!=="string"||!CONSOLE_COLLECTION_UUID.test(params.business)||typeof params.selected!=="string"||!CONSOLE_COLLECTION_UUID.test(params.selected)||(params.quest!==undefined&&(typeof params.quest!=="string"||!CONSOLE_COLLECTION_UUID.test(params.quest))))throw Error("Invalid exact discovery selection");
+ return{businessId:params.business.toLowerCase(),scopeId:params.selected.toLowerCase(),goalId:typeof params.quest==="string"?params.quest.toLowerCase():null};
+}

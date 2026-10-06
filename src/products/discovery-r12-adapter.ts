@@ -13,7 +13,7 @@ type Request = StructuredModelRequest | WebSearchModelRequest;
 type WireBinding = { version: "r12.discovery-wire.1"; scopeId: string; scopeHash: string; attemptId: string; requestId: string; phase: DiscoveryR12Phase;
   requestJson: string; requestHash: string; wireBody: string; wireHash: string; quote: DiscoveryR12Quote; dependencyPins: QuestAdapterContext["attempt"]["dependencyPins"] };
 export type DiscoveryR12EffectStore = {
-  operation(attemptId: string, operation: "load" | "bind" | "send" | "stage" | "claim" | "record", payload: Record<string, unknown>): Promise<Record<string, unknown>>;
+  operation(attemptId: string, operation: "inputs" | "load" | "bind" | "send" | "stage" | "claim" | "record", payload: Record<string, unknown>): Promise<Record<string, unknown>>;
   settle(attemptId: string, settlement: QuestSettlement): Promise<void>;
   /** Reads the committed R07/R05 marker timestamp, not the process clock. */
   dispatchedAt(attemptId: string): Promise<string>;
@@ -34,7 +34,7 @@ export function createDiscoveryR12QuestAdapter(options: {
   dataClasses: string[]; store: DiscoveryR12EffectStore;
   request(context: QuestAdapterContext): Promise<Request>;
   quote(): Promise<DiscoveryR12Quote>;
-  project(qualified: ReturnType<typeof qualifyDiscoveryR12Candidate>, context: QuestAdapterContext): Promise<Omit<QuestEffectResponse, "settlement">>;
+  project(qualified: ReturnType<typeof qualifyDiscoveryR12Candidate>, context: QuestAdapterContext, request: Request): Promise<Omit<QuestEffectResponse, "settlement">>;
   /** Inert transport/config overrides are also used by the actual SQL fixture. */
   config?: OpenRouterConfig; fetcher?: typeof fetch; now?: () => number;
 }): QuestAdapter {
@@ -83,8 +83,8 @@ export function createDiscoveryR12QuestAdapter(options: {
       await options.store.operation(ctx.attempt.id, "record", { candidateHash, claimId: claim.claimId, proof, diagnostic: null, retryAfterAt: null });
     }
     const qualified = qualifyDiscoveryR12Candidate(candidate, bound, proof as GenerationRouteProof);
-    const projected = await options.project(qualified, ctx);
-    return { ...projected, result: { ...projected.result, output: qualified.candidate.output, candidateHash, routeProofHash: qualified.route.proofHash },
+    const projected = await options.project(qualified, ctx, JSON.parse(saved.binding.requestJson) as Request);
+    return { ...projected, result: { ...projected.result, outputHash: discoveryV2Hash(qualified.candidate.output), candidateHash, routeProofHash: qualified.route.proofHash },
       settlement: { actualMicrounits: String(candidate.reportedMicrousd), providerRequestId: candidate.providerRequestId, receiptHash: candidateHash } };
   }
   async function settle(ctx: QuestAdapterContext, response: ModelProviderResponse | null, error?: unknown) {

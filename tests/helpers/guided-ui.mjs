@@ -229,6 +229,7 @@ export async function renderDashboard({ unavailable = false, empty = false, view
     return {context:scoped,businessId:selectedBusiness?.id??null,unavailable:businessesUnavailable,state:selectedBusiness?{businessId:selectedBusiness.id,business:{revision:1},selected,selection:selected?'current':'none',quests:selected?[selected]:[],total:selected?1:0,limit:20,offset:0}:null};
   }};
   const workspaceOverview = loadSource("src/components/console/console-workspace-overview.tsx", {
+    "@/products/discovery-r12-owner":{readDiscoveryR12Workspace:async()=>({available:false,record:null})}, "./console-r12-discovery":{ConsoleR12Progress:()=>null},
     "@/connections/server":{readConnectionQualification:async()=>qualifiedConnectionRecords??({businessId:accounts.businessId,unavailable:accounts.unavailable,configured:accounts.configured,connections:[],readWindows:[]})},"./console-command":command,"@/components/guided/quest-kickoff":quest,"@/products/discovery-v2-data":{loadDiscoveryGoalData:async()=>({available:true})},
     "@/lib/core-ui/console-data":{...consoleData,loadConsoleObservationTime:async()=>observedAt,loadConsoleResearchQuote:async()=>({one:370395,two:530914,verifiedAt:fixtureTime})},
     "@/lib/core-ui/console-collections":loadSource("src/lib/core-ui/console-collections.ts", {"server-only":{},"./console-collections-query":loadSource("src/lib/core-ui/console-collections-query.ts")}),"./console-shell":consoleShell,"./console-overview":overview,

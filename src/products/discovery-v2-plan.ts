@@ -39,8 +39,8 @@ export function discoveryPlanModelSchemaV2(intent:DiscoveryIntentV2,sourceMode:D
 }
 /** Match the already-defined database deterministic ID format. It is an identity, not a secret. */
 export function discoveryDeterministicId(value:string){const h=createHash("md5").update(value).digest("hex");return `${h.slice(0,8)}-${h.slice(8,12)}-5${h.slice(13,16)}-a${h.slice(17,20)}-${h.slice(20,32)}`;}
-export function normalizeDiscoveryPlanV2(intent:DiscoveryIntentV2,output:JsonObject,sourceMode:DiscoverySourceMode="legacy"):DiscoveryPlanV2{
-  validateDiscoveryIntentV2(intent);assertJsonSchemaValue(discoveryPlanModelSchemaV2(intent,sourceMode),output,"Discovery plan");
+export function normalizeDiscoveryPlanV2(intent:DiscoveryIntentV2,output:JsonObject,sourceMode:DiscoverySourceMode="legacy",now=Date.now()):DiscoveryPlanV2{
+  validateDiscoveryIntentV2(intent,now);assertJsonSchemaValue(discoveryPlanModelSchemaV2(intent,sourceMode),output,"Discovery plan");
   const focus=output.queryFocus as string[],proposals=output.proposals as Omit<DiscoveryPlanProposalV2,"proposalKey">[];
   if(focus.length!==intent.limits.maximumNewCollections)throw new Error("The planner must prepare exactly the prequoted finite collection count.");
   const audiences=intent.comparisonUniverse.audiences;

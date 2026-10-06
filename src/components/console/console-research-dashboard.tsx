@@ -31,6 +31,7 @@ function unavailablePage(q: ConsoleResearchQuery): ConsoleResearchPage {
 
 /** Saved metadata entry point. Ordinary browsing makes no quote, catalogue or action call. */
 export async function ConsoleResearchDashboard({ context, query }: { context: OwnerUiContext; query: Search }) {
+  if(query.type==="r12"){const {ConsoleR12Discovery}=await import("./console-r12-discovery");return <ConsoleR12Discovery context={context} query={query}/>;}
   let q: ConsoleResearchQuery;
   try { const kind = query.type === "records" ? "records" : "roots"; q = consoleResearchQuery(kind, consoleResearchOptionsFromSearch(query, kind)); }
   catch { notFound(); }
