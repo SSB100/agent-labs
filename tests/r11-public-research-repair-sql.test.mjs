@@ -34,6 +34,7 @@ test('R11 additive repair preserves R05 and records truthful terminal outcomes',
     await assert.rejects(db.exec(source.replace(/commit;\s*$/i,()=>"do $$ begin raise exception 'r11_repair_rollback_probe';end $$;commit;")),/r11_repair_rollback_probe/);await db.exec('rollback');
     assert.deepEqual((await db.query(r05FunctionSnapshot)).rows,oldFunctions);assert.deepEqual(await allR05Rows(db),oldRows);assert.deepEqual((await db.query(tableSnapshot)).rows,beforeTables);
     await db.exec(source);
+    assert.deepEqual((await db.query(r05FunctionSnapshot)).rows,oldFunctions,'Repair itself preserves every R05 definition and ACL');
     newTables=(await db.query(tableSnapshot)).rows.map(row=>row.tablename).filter(name=>!beforeTables.some(row=>row.tablename===name));
    }else if(name.endsWith('_r11_research_receipt_failure_diagnostics.sql')){
     const functionSnapshot="select p.oid::regprocedure::text signature,pg_get_functiondef(p.oid) definition,p.proowner owner,p.proacl::text acl from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname in ('private','public') and p.prokind='f' order by 1";
@@ -49,7 +50,9 @@ test('R11 additive repair preserves R05 and records truthful terminal outcomes',
    }else await db.exec(source);
   }
   assert.equal(foundRepair,true,'The additive repair migration must exist');
-  assert.deepEqual((await db.query(r05FunctionSnapshot)).rows,oldFunctions,'Every R05 function definition and ACL must remain byte-identical');
+  // Byte preservation belongs to the repair migration, asserted at its exact boundary above.
+  // Later R12 adds scoped-key rejection while preserving existing R05 behavior and ACLs.
+  assert.deepEqual((await db.query(r05FunctionSnapshot)).rows.map(({id,acl})=>({id,acl})),oldFunctions.map(({id,acl})=>({id,acl})));
   assert.deepEqual(await allR05Rows(db),oldRows,'Repair migration must not change, replace or seed any R05 row');
   async function noEffects(s,fn){const before=await repairStateSnapshot(db,s);await assert.rejects(fn(),reject);assert.deepEqual(await repairStateSnapshot(db,s),before);}
   await t.test('new immutable tables and private functions are closed; public wrappers expose only intended roles',async()=>{

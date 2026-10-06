@@ -29,3 +29,9 @@
 .connectionCleanup{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}.connectionCleanup form{min-width:0;max-width:100%}
 
 .connectionRequestState{font-size:12px;color:#9ce8f2}.connectionRequestSummary{padding:6px 0}.connectionRequestSummary>p{margin:4px 0 8px;color:#b6cad7;font-size:13px}.connectionDetailScroll>.accountRequest>.sectionTitleRow{align-items:flex-start;flex-wrap:wrap;gap:6px}
+
+/* Qualified read-only bindings and legacy setup have separate scrollable scopes. */
+.consoleConnectionsScroll{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;gap:12px;padding:12px}.consoleConnectionsScroll>.consolePanel{flex:none}.connectionLegacyWorkspace{display:flex;flex:1;flex-direction:column;min-height:0;overflow:hidden;border:1px solid #284658;border-radius:4px;padding:10px}.connectionLegacyWorkspace>h2{flex:none;font-size:14px;margin:0 0 6px}.connectionLegacyWorkspace>p{flex:none;font-size:13px;color:#b4cbd9;line-height:1.5;margin:0 0 10px}
+@media(max-width:900px){.consoleConnectionsScroll,.connectionLegacyWorkspace{flex:none;overflow:visible}}
+
+.consoleConnectionsScroll .consoleConnectionDetail{font-size:12px;white-space:normal;overflow:visible;text-overflow:clip;line-height:1.35}.consoleConnectionsScroll .consoleConnectionNote,.consoleConnectionsScroll .consoleConnection small{font-size:12px}.consoleConnectionsScroll a:focus-visible{outline:2px solid #97f1ff;outline-offset:-2px;border-radius:3px}

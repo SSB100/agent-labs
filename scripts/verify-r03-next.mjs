@@ -9,6 +9,8 @@ import { createServer } from 'node:net';
 import { startFixtureBoundary } from '../tests/next-fixture/server.mjs';
 import { runNextJourneys } from '../tests/next-fixture/journeys.mjs';
 import { runResearchQualificationJourneys } from '../tests/next-fixture/r11-runner.mjs';
+import {runR12Journeys} from '../tests/next-fixture/r12-journeys.mjs';
+import {R12_INERT_ROOT} from '../tests/next-fixture/r12-sql.mjs';
 import { R11_INERT_SERVER_KEY } from '../tests/next-fixture/r11-research.mjs';
 
 const root = process.cwd(), output = path.join(root, 'test-results/r03-next');
@@ -49,7 +51,8 @@ try {
   await writeFile(path.join(fixture,'src/lib/supabase/proxy.ts'), `import { NextResponse, type NextRequest } from 'next/server';\nexport function updateSupabaseSession(_request:NextRequest, requestHeaders:Headers) { return NextResponse.next({request:{headers:requestHeaders}}); }\n`);
   await cp(path.join(root,'tests/next-fixture/r10-dependencies.ts'),path.join(fixture,'src/browser/watch-dependencies.ts'));
   await cp(path.join(root,'tests/next-fixture/r11-dependencies.ts'),path.join(fixture,'src/research/qualification-server-dependencies.ts'));
-  await writeFile(path.join(output,'isolation.json'),JSON.stringify({copiedSource:true,substitutions:['supabase/server.ts','supabase/client.ts','supabase/proxy.ts','inert-transport.mjs','browser/watch-dependencies.ts (inert R10 authority/capture only)','research/qualification-server-dependencies.ts (inert R11 public catalogs/provider only)'],credentials:'none; inert loopback identifiers plus explicit test-only R11 authority/provider placeholders; no inherited secrets',network:'loopback only; denied effects logged',fixture:'two owned Businesses; realistic saved failures and costs'},null,2));
+  await cp(path.join(root,'tests/next-fixture/r12-dependencies.ts'),path.join(fixture,'src/products/discovery-r12-server-dependencies.ts'));
+  await writeFile(path.join(output,'isolation.json'),JSON.stringify({copiedSource:true,substitutions:['supabase/server.ts','supabase/client.ts','supabase/proxy.ts','inert-transport.mjs','browser/watch-dependencies.ts (inert R10 authority/capture only)','research/qualification-server-dependencies.ts (inert R11 public catalogs/provider only)','products/discovery-r12-server-dependencies.ts (inert R12 public quotes/provider only; actual isolated SQL)'],credentials:'none; inert loopback identifiers plus explicit test-only R11 authority/provider placeholders; no inherited secrets',network:'loopback only; denied effects logged',fixture:'two owned Businesses; realistic saved failures and costs'},null,2));
   console.log('Building disposable production Next application with blocked external effects.');
   await completion(start(['build','--webpack'],'build.log'));
   const probe = createServer(); await new Promise(resolve => probe.listen(0,'127.0.0.1',resolve)); const port=probe.address().port; await new Promise(resolve=>probe.close(resolve));
@@ -60,8 +63,8 @@ try {
   let ready=false;
   for(let attempt=0;attempt<120;attempt++){try{const response=await fetch(origin+'/login',{redirect:'manual'});if(response.status<500){ready=true;break;}}catch{} await new Promise(resolve=>setTimeout(resolve,250));}
   assert.ok(ready,'Production Next fixture did not start');
-  await runNextJourneys({origin,boundary,output,httpOnly:process.argv.includes('--http-only')||process.argv.includes('--research-only'),questsOnly:process.argv.includes('--quests-only'),controlsOnly:process.argv.includes('--controls-only'),historyOnly:process.argv.includes('--history-only'),workspaceOnly:process.argv.includes('--workspace-only'),knowledgeOnly:process.argv.includes('--knowledge-only'),browserWatchOnly:process.argv.includes('--browser-watch-only')});
-  if(process.argv.includes('--research-only')||!process.argv.some(flag=>['--quests-only','--controls-only','--history-only','--workspace-only','--knowledge-only','--browser-watch-only'].includes(flag))){
+  await runNextJourneys({origin,boundary,output,httpOnly:process.argv.includes('--http-only')||process.argv.includes('--research-only')||process.argv.includes('--r12-only'),questsOnly:process.argv.includes('--quests-only'),controlsOnly:process.argv.includes('--controls-only'),historyOnly:process.argv.includes('--history-only'),workspaceOnly:process.argv.includes('--workspace-only'),knowledgeOnly:process.argv.includes('--knowledge-only'),browserWatchOnly:process.argv.includes('--browser-watch-only')});
+  if(!process.argv.includes('--r12-only')&&(process.argv.includes('--research-only')||!process.argv.some(flag=>['--quests-only','--controls-only','--history-only','--workspace-only','--knowledge-only','--browser-watch-only'].includes(flag)))){
     const researchProbe=createServer();await new Promise(resolve=>researchProbe.listen(0,'127.0.0.1',resolve));const researchPort=researchProbe.address().port;await new Promise(resolve=>researchProbe.close(resolve));
     start(['start','-p',String(researchPort),'-H','127.0.0.1'],'r11-research-server.log',{VERCEL_ENV:'production',R05_ADMISSION_SERVER_KEY:R11_INERT_SERVER_KEY,OPENROUTER_API_KEY:'inert-r11-provider-placeholder'});
     const researchOrigin=`http://localhost:${researchPort}`;let researchReady=false;
@@ -69,6 +72,20 @@ try {
     assert.ok(researchReady,'R11 isolated production Next fixture did not start');
     await runResearchQualificationJourneys({origin:researchOrigin,noKeyOrigin:origin,boundary,output,httpOnly:process.argv.includes('--http-only')});
   }
+  if(process.argv.includes('--r12-only')||!process.argv.some(flag=>['--quests-only','--controls-only','--history-only','--workspace-only','--knowledge-only','--browser-watch-only','--research-only'].includes(flag))){
+    if(!process.env.R12_SQL_TEST_HOST)throw Error('R12 isolated SQL fixture host is required');
+    const directory=await mkdtemp(path.join(temporaryRoot,'r12-next-'));
+    try{
+    const capture=spawn(process.execPath,['--test','tests/r12-discovery-scope-sql.test.mjs'],{cwd:root,env:{...process.env,R12_NEXT_FIXTURE_OUTPUT:directory,R12_POSTGRES_URL:'',R12_REQUIRE_POSTGRES:'0'},stdio:['ignore','pipe','pipe']});
+    processes.push(capture);
+    const stream=log('r12-sql-capture.log');capture.stdout.pipe(stream);capture.stderr.pipe(stream);await completion(capture);
+    const r12Probe=createServer();await new Promise(resolve=>r12Probe.listen(0,'127.0.0.1',resolve));const r12Port=r12Probe.address().port;await new Promise(resolve=>r12Probe.close(resolve));
+    start(['start','-p',String(r12Port),'-H','127.0.0.1'],'r12-server.log',{VERCEL_ENV:'production',R05_ADMISSION_SERVER_KEY:R12_INERT_ROOT,OPENROUTER_API_KEY:'inert-r12-provider-placeholder'});
+    const r12Origin=`http://localhost:${r12Port}`;let r12Ready=false;for(let attempt=0;attempt<120;attempt++){try{const response=await fetch(r12Origin+'/login',{redirect:'manual'});if(response.status<500){r12Ready=true;break;}}catch{}await new Promise(resolve=>setTimeout(resolve,250));}assert.ok(r12Ready,'R12 Next fixture did not start');
+    await runR12Journeys({origin:r12Origin,noKeyOrigin:origin,boundary,output,directory,httpOnly:process.argv.includes('--http-only')});
+    }finally{await rm(directory,{recursive:true,force:true});}
+  }
+
 } finally {
   const stopped=await Promise.allSettled(processes.map(child=>new Promise((resolve,reject)=>{
     if(child.exitCode!==null||child.signalCode!==null)return resolve();

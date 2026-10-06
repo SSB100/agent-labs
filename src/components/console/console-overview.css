@@ -42,7 +42,7 @@
 .consolePanel::after { right: 5px; bottom: 5px; border-width: 0 1px 1px 0; }
 .consolePanelHeader { display: flex; flex: 0 0 auto; align-items: baseline; justify-content: space-between; gap: 6px; min-width: 0; }
 .consolePanelHeader h2 { color: #a0d9e7; font-size: 13px; font-weight: 650; line-height: 1.2; letter-spacing: .09em; text-transform: uppercase; }
-.consolePanelHeader > a { flex: 0 0 auto; color: #7bd8ec; font-size: 11px; white-space: nowrap; }
+.consolePanelHeader > a { display:inline-flex;align-items:center;justify-content:center;min-width:24px;min-height:24px;padding:2px 3px;flex: 0 0 auto; color: #7bd8ec; font-size: 11px; white-space: nowrap; }
 .consolePanelHeader > a:hover { color: #c2f9ff; }
 .consolePanelScroll { min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #265467 transparent; }
 .consoleStatusStack { display: grid; grid-template-rows: repeat(5, minmax(35px, 1fr)); gap: 5px; }

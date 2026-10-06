@@ -1,3 +1,4 @@
+import { validateGenerationRouteProof, type GenerationRouteProof } from "../research/generation-route";
 import { createHash } from "node:crypto";
 import { DIMENSIONS, type Dimension } from "./types";
 import { validateProductEvidence } from "./discovery";
@@ -43,9 +44,11 @@ export type DiscoveryDossierV2 = {
 export type PersistedResearchEvidenceV2 = {
   artifactId: string; businessId: string; workflowRunId: string; queryId: string; collectedForIntentId: string | null;
   question: string; sourceDomains: string[]; evidencePack: EvidencePack;
-  lineage: { status: "completed"; executionMode: "web.research"; provider: "openrouter.exa"; sourceArtifactId: string; providerRequestId: string; workerRequestId: string };
+  lineage: { status: "completed"; executionMode: "web.research" | "r12.discovery"; provider: "openrouter.exa"; sourceArtifactId: string; providerRequestId: string; workerRequestId: string;
+    qualifiedSource?: { version: "r12.discovery-source.1"; scopeId: string; scopeHash: string; searchCandidateHash: string; selectorCandidateHash: string;
+      searchRoute: NonNullable<WorkerExecutionV2["qualifiedRoute"]>; selectorRoute: NonNullable<WorkerExecutionV2["qualifiedRoute"]> } };
 };
-export type WorkerExecutionV2 = { modelId: string; providerRequestId: string; primaryOnly: true };
+export type WorkerExecutionV2 = { modelId: string; providerRequestId: string; primaryOnly: true; qualifiedRoute?: Omit<GenerationRouteProof, "providerResponses"> & { providerResponses: Array<GenerationRouteProof["providerResponses"][number]> } };
 export type DiscoveryValidationContextV2 = {
   /** Callers must obtain these from owner-scoped, immutable persistence. Pure validation cannot attest provider truth. */
   knowledge: DiscoveryKnowledgeContextV2;
@@ -201,8 +204,16 @@ export function validateDiscoveryDossierV2(intent: DiscoveryIntentV2, dossier: D
     if ((ref.origin === "new") !== (persisted.collectedForIntentId === intent.id)) fail("Collection origin cannot be relabeled to evade the two-query bound.");
     id(persisted.workflowRunId, "persisted workflow"); id(persisted.lineage.sourceArtifactId, "persisted source artifact");
     const lineage = persisted.lineage;
-    if (lineage.status !== "completed" || lineage.executionMode !== "web.research" || lineage.provider !== "openrouter.exa" ||
+    if (lineage.status !== "completed" || !["web.research", "r12.discovery"].includes(lineage.executionMode) || lineage.provider !== "openrouter.exa" ||
       [lineage.providerRequestId, lineage.workerRequestId].some(x => typeof x !== "string" || x.length < 3 || x.length > 240 || /(mock|fixture|simulation)/i.test(x))) fail("Real completed research source and worker lineage required.");
+    if (lineage.executionMode === "r12.discovery") {
+      const qualified = lineage.qualifiedSource;
+      shape(qualified, "version,scopeId,scopeHash,searchCandidateHash,selectorCandidateHash,searchRoute,selectorRoute", "qualified source lineage");
+      if (qualified.version !== "r12.discovery-source.1" || qualified.scopeId !== persisted.collectedForIntentId || !uuid.test(qualified.scopeId) ||
+          ![qualified.scopeHash, qualified.searchCandidateHash, qualified.selectorCandidateHash].every(value => sha.test(value))) fail("Qualified source scope/hash lineage required.");
+      for (const [proof, generationId] of [[qualified.searchRoute, lineage.providerRequestId], [qualified.selectorRoute, lineage.workerRequestId]] as const)
+        validateGenerationRouteProof(proof, { generationId, providerName: "Azure", requestedEndpoint: "azure/us", acceptedResponseModelIds: ["openai/gpt-5.6-luna", "openai/gpt-5.6-luna-20260709"] });
+    } else if (lineage.qualifiedSource !== undefined) fail("Legacy source cannot claim a different qualified origin.");
     validateProductEvidence(persisted.evidencePack, { query: ref.query.question, allowedDomains: ref.query.sourceDomains }, now);
   }
   list(dossier.shortlist, 1, 3, "candidate shortlist");
@@ -245,8 +256,13 @@ function marketSource(url: string) {
   return !/\/(seller-handbook|legal|help|blog)(\/|$)/i.test(source.pathname) && !/^(help|support)\./i.test(source.hostname);
 }
 function execution(actual: WorkerExecutionV2, expected: WorkerExecutionV2, role: keyof typeof DISCOVERY_V2_MODELS) {
-  shape(actual, "modelId,providerRequestId,primaryOnly", `${role} execution`);
-  if (actual.modelId !== DISCOVERY_V2_MODELS[role] || actual.primaryOnly !== true || discoveryV2Hash(actual) !== discoveryV2Hash(expected) ||
+  shape(actual, actual.qualifiedRoute ? "modelId,providerRequestId,primaryOnly,qualifiedRoute" : "modelId,providerRequestId,primaryOnly", `${role} execution`);
+  let models: readonly string[] = [DISCOVERY_V2_MODELS[role]];
+  if (actual.qualifiedRoute) {
+    models = role === "strategist" ? ["openai/gpt-5.6-luna", "openai/gpt-5.6-luna-20260709"] : ["anthropic/claude-haiku-4.5", "anthropic/claude-4.5-haiku-20251001"];
+    validateGenerationRouteProof(actual.qualifiedRoute, { generationId: actual.providerRequestId, providerName: role === "strategist" ? "Azure" : "Amazon Bedrock", requestedEndpoint: role === "strategist" ? "azure/us" : "amazon-bedrock/us", acceptedResponseModelIds: models });
+  }
+  if (!models.includes(actual.modelId) || actual.primaryOnly !== true || discoveryV2Hash(actual) !== discoveryV2Hash(expected) ||
     typeof actual.providerRequestId !== "string" || actual.providerRequestId.length < 3 || actual.providerRequestId.length > 240 || /(mock|fixture|simulation)/i.test(actual.providerRequestId)) fail(`Actual primary-only ${role} execution receipt required.`);
 }
 function dimensionEvaluation(d: DimensionEvaluationV2, dossier: DiscoveryDossierV2, context: DiscoveryValidationContextV2) {

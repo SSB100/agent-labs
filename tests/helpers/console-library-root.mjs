@@ -77,6 +77,7 @@ export function rootLibraryFixture({ tables = fixtureTables(), readOptions = {},
   let routeForHooks = '/dashboard';
   const overrides = {
     '@/lib/core-ui/data': { requireOwnerUiContext: async () => context, loadWorkflowCollection: deny, loadWorkflowDetail: deny },
+    '@/connections/server': { readConnectionQualification: async () => { throw Error('Unexpected connection qualification read'); } },
     '@/lib/core-ui/console-data': { loadConsoleObservationTime: async () => Date.parse(stamp), loadConsoleResearchQuote: async ctx => { ancillaryCalls.push({ name: 'researchQuote', businesses: ctx.businesses.map(row => row.id) }); return { one: 370395, two: 530914, verifiedAt: stamp }; } },
     '@/accounts/server': { loadAccountSetupInterventions: async () => ({ records: [], unavailable: false }) },
     '@/products/discovery-v2-data': { loadDiscoveryGoalData: async ctx => { ancillaryCalls.push({ name: 'researchCatalog', businesses: ctx.businesses.map(row => row.id) }); return { available: true, analysisAvailable: true, records: [], errors: [] }; } },

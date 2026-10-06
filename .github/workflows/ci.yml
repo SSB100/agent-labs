@@ -487,6 +487,40 @@ jobs:
           node --test tests/r11-public-research-sql.test.mjs tests/r11-public-research-runtime-sql.test.mjs tests/r11-public-research-owner-sql.test.mjs tests/r11-public-research-repair-sql.test.mjs tests/r11-public-research-window-sql.test.mjs
           node --test tests/r11-pending-receipt-sql.test.mjs
 
+  r12-sql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: r12_test
+          POSTGRES_DB: r12_test
+          POSTGRES_PASSWORD: r12-isolated-fixture
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U r12_test -d r12_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Install pinned isolated SQL runtime and source compiler
+        run: |
+          npm install --no-audit --no-fund
+          npm install --prefix "$RUNNER_TEMP/r12-sql-host" --no-audit --no-fund --ignore-scripts @electric-sql/pglite@0.5.8 pg@8.16.3
+          npm run pretest
+      - name: Verify five-phase R12 owner workflow and historical custody on PostgreSQL
+        env:
+          R12_SQL_TEST_HOST: ${{ runner.temp }}/r12-sql-host
+          R12_REQUIRE_POSTGRES: "1"
+          R12_POSTGRES_URL: postgresql://r12_test:r12-isolated-fixture@127.0.0.1:5432/r12_test
+        run: node --test tests/r12-discovery-scope-sql.test.mjs tests/r12-owner-preparation-route.test.mjs tests/r12-bootstrap-rehearsal.test.mjs
+
   r03-next:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -499,7 +533,13 @@ jobs:
         run: npm install --no-audit --no-fund
       - name: Install pinned inert browser
         run: npx playwright-core install --with-deps chromium
+      - name: Install isolated R12 Next SQL fixture host
+        run: |
+          npm install --prefix "$RUNNER_TEMP/r12-next-sql-host" --no-audit --no-fund --ignore-scripts @electric-sql/pglite@0.5.8 pg@8.16.3
+          npm run pretest
       - name: Verify real production Next navigation and actions
+        env:
+          R12_SQL_TEST_HOST: ${{ runner.temp }}/r12-next-sql-host
         run: |
           node tests/next-fixture/knowledge-contracts.mjs
           node scripts/verify-r03-next.mjs
@@ -572,4 +612,16 @@ jobs:
           name: r10-viewer-ui-${{ github.sha }}
           path: test-results/r03-next/r10-*.png
           if-no-files-found: warn
+          retention-days: 14
+
+      - name: Preserve scoped R12 research screenshots and action evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r12-research-ui-${{ github.sha }}
+          path: |
+            test-results/r03-next/r12-*.png
+            test-results/r03-next/r12-*.json
+            test-results/r03-next/r12-*.log
+          if-no-files-found: error
           retention-days: 14

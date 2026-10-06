@@ -148,7 +148,7 @@ export function summarizeOutcomeSpending(run: RunIdentity, costs?: RunOutcomeCos
   if (!costs || costs.calls.status === "not_loaded") return { label: "Provider charges", value: "Not checked", detail: "Cost records have not been loaded. No zero-spend claim can be made.", reservation: null, allowance, uncertain: true, exactAmounts: exactAllowance };
   if (costs.businessId !== run.business_id || costs.workflowRunId !== run.id || costs.calls.status !== "ready") return { label: "Provider charges", value: "Unavailable", detail: "The complete cost history could not be checked. Missing records do not prove zero spend or authorize another attempt.", reservation: null, allowance, uncertain: true, exactAmounts: exactAllowance };
   const calls = [...new Map(costs.calls.records.map(call => [call.id, call])).values()];
-  if (!calls.length) return { label: "Provider charges", value: "No calls recorded", detail: "The cost ledger has no calls for this run. This is not a provider invoice or proof of zero spend.", reservation: null, allowance, uncertain: false, exactAmounts: exactAllowance };
+  if (!calls.length) return { label: "Provider charges", value: "No entries in this ledger", detail: `The selected ${costs.source} ledger has no entries for this run. Qualified public research uses separate admission receipts; this is not proof of zero spend.`, reservation: null, allowance, uncertain: false, exactAmounts: exactAllowance };
   const requestCounts = new Map<string, number>();
   calls.forEach(call => { if (call.providerRequestId) requestCounts.set(call.providerRequestId, (requestCounts.get(call.providerRequestId) ?? 0) + 1); });
   const known = calls.filter(call => call.providerRequestId && requestCounts.get(call.providerRequestId) === 1 &&

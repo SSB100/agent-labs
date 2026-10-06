@@ -100,6 +100,24 @@ test('R07 actual PostgreSQL lock races: scheduling, leases, markers, callbacks, 
  result=await race(()=>left.query('insert into private.r05_server_revocations(key_hash) values($1)',[digest(admissionKey)]),()=>dispatch(right,s,pending.id,{admissionKey}));races++;
  assert.match(result.b.error?.message??'',/admission_authority_required/);assert.equal((await read(s)).head.dispatches,0);
 
+ // R12 shares the original research root with the callable legacy ledger.
+ // Both legacy entry points must wait on Business before touching that root.
+ for(const operation of ['reserve','settle']){
+  const businessId=(await observer.query('select public.r05_seed(1000) b')).rows[0].b;
+  const f=(await observer.query('select * from public.r05_fixture where b=$1',[businessId])).rows[0],rootId=randomUUID();
+  const intent={version:'pod-discovery-2.0',id:rootId,businessId,limits:{maximumMicrousd:500000}};
+  const variables={intent,policyHash:(await observer.query('select private.stage14_hash($1) hash',[intent])).rows[0].hash,semanticGoalHash:'a'.repeat(64),budgetAuthorityRootId:rootId,ownerKickoff:{followUpBasis:null}};
+  await observer.query(`insert into public.product_experiments(id,business_id,candidate_id,workflow_run_id,fingerprint,hypothesis,variables,audience,status,measurement_plan,discovery_version,failure,completed_at) values($1,$2,null,$3,$4,'Inert lock-order fixture',$5,'Adult audience','failed','{"version":"pod-discovery-2.0","testPlan":null}','pod-discovery-2.0','Historical inert failure',clock_timestamp())`,[rootId,businessId,f.w,digest(rootId),variables]);
+  const effect=()=>operation==='reserve'
+   ? right.query('select public.reserve_product_research_cost($1,$2,$3,$4,$5,$6,$7)',[f.w,businessId,'capability-'.repeat(5),'plan:1',1,'a'.repeat(64),{}])
+   : right.query('select public.record_product_research_cost($1,$2,$3,$4,$5,$6)',[f.w,businessId,'capability-'.repeat(5),'plan:1',null,null]);
+  const result=await race(()=>left.query('select id from public.businesses where id=$1 for update',[businessId]),effect,async()=>{
+   await left.query("set local lock_timeout='2000ms'");
+   await left.query('select id from public.product_experiments where id=$1 for update',[rootId]);
+  });races++;
+  assert.notEqual(result.b.error?.code,'40P01',`${operation} must not invert the Business/shared-root order`);
+ }
+
  await observer.query('begin read only');await observer.query('set local role authenticated');await observer.query("select set_config('request.jwt.claim.sub',$1,true)",[R07_OWNER]);
  assert.ok(await value(observer,'select public.r07_quest_read($1,$2) result',[s.businessId,s.goalId]));await observer.query('commit');
  t.diagnostic(`${races} observed independent-session lock waits passed; stale leases, duplicate scheduling/dispatch/callbacks, pause ordering and authority/adapter revocation fenced`);

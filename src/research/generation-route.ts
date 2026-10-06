@@ -9,25 +9,27 @@ const RETRY_DELAYS_MS = [2_000, 8_000] as const;
 const MAX_RETRY_AFTER_AT = "9999-12-31T23:59:59.999Z";
 const MAX_RETRY_AFTER_MS = Date.parse(MAX_RETRY_AFTER_AT);
 const MODEL_IDS = ["openai/gpt-5.6-luna", "openai/gpt-5.6-luna-20260709"] as const;
+const REVIEWER_MODEL_IDS = ["anthropic/claude-haiku-4.5", "anthropic/claude-4.5-haiku-20251001"] as const;
+type QualifiedRouteModelId = typeof MODEL_IDS[number] | typeof REVIEWER_MODEL_IDS[number];
 const GENERATION_ID = /^gen-[A-Za-z0-9_-]{1,296}$/;
 
 export type GenerationRouteExpectation = {
   generationId: string;
-  providerName: "Azure";
+  providerName: "Azure" | "Amazon Bedrock";
   acceptedResponseModelIds: readonly string[];
   /** Provenance from the exact admitted request, not an observed region. */
-  requestedEndpoint: "azure/us";
+  requestedEndpoint: "azure/us" | "amazon-bedrock/us";
 };
 export type GenerationRouteProviderResponse = Readonly<{
-  providerName: "Azure";
-  modelId: typeof MODEL_IDS[number];
+  providerName: "Azure" | "Amazon Bedrock";
+  modelId: QualifiedRouteModelId;
   status: 200;
 }>;
 export type GenerationRouteProof = Readonly<{
   generationId: string;
-  providerName: "Azure";
-  modelId: typeof MODEL_IDS[number];
-  requestedEndpoint: "azure/us";
+  providerName: "Azure" | "Amazon Bedrock";
+  modelId: QualifiedRouteModelId;
+  requestedEndpoint: "azure/us" | "amazon-bedrock/us";
   /** Supplied attempts only; an empty list does not enumerate inner calls. */
   providerResponses: readonly GenerationRouteProviderResponse[];
   proofHash: string;
@@ -55,15 +57,17 @@ export class GenerationRouteProofError extends Error {
 }
 const fail = (code: GenerationRouteFailureCode): never => { throw new GenerationRouteProofError(code); };
 const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
-const acceptedModel = (value: unknown): value is typeof MODEL_IDS[number] => value === MODEL_IDS[0] || value === MODEL_IDS[1];
+const acceptedModel = (value: unknown, expected: GenerationRouteExpectation): value is QualifiedRouteModelId => typeof value === "string" && expected.acceptedResponseModelIds.includes(value);
 
 function ownExpectation(expected: GenerationRouteExpectation): GenerationRouteExpectation {
+  const models = expected?.providerName === "Azure" ? MODEL_IDS : REVIEWER_MODEL_IDS;
+  const endpoint = expected?.providerName === "Azure" ? "azure/us" : "amazon-bedrock/us";
   if (!record(expected) || typeof expected.generationId !== "string" || GENERATION_ID.exec(expected.generationId)?.[0] !== expected.generationId ||
-      expected.providerName !== "Azure" || expected.requestedEndpoint !== "azure/us" ||
+      !["Azure", "Amazon Bedrock"].includes(expected.providerName) || expected.requestedEndpoint !== endpoint ||
       !Array.isArray(expected.acceptedResponseModelIds) || expected.acceptedResponseModelIds.length !== 2 ||
-      expected.acceptedResponseModelIds[0] !== MODEL_IDS[0] || expected.acceptedResponseModelIds[1] !== MODEL_IDS[1]) return fail("invalid_request");
+      expected.acceptedResponseModelIds[0] !== models[0] || expected.acceptedResponseModelIds[1] !== models[1]) return fail("invalid_request");
   // Retain no caller-owned array across the asynchronous transport boundary.
-  return { generationId: expected.generationId, providerName: "Azure", requestedEndpoint: "azure/us", acceptedResponseModelIds: [...MODEL_IDS] };
+  return { generationId: expected.generationId, providerName: expected.providerName, requestedEndpoint: endpoint, acceptedResponseModelIds: [...models] };
 }
 
 function canonical(value: unknown): string {
@@ -86,7 +90,7 @@ export function qualifyGenerationRouteProof(raw: unknown, expectation: Generatio
   const data = raw.data;
   if (data.id !== expected.generationId) return fail("generation_mismatch");
   if (data.provider_name !== expected.providerName) return fail("provider_mismatch");
-  if (!acceptedModel(data.model)) return fail("model_mismatch");
+  if (!acceptedModel(data.model, expected)) return fail("model_mismatch");
   let providerResponses: readonly GenerationRouteProviderResponse[] = Object.freeze([]);
   if (data.provider_responses !== undefined && data.provider_responses !== null) {
     if (!Array.isArray(data.provider_responses) || data.provider_responses.length > 64) return fail("provider_responses_invalid");
@@ -95,11 +99,11 @@ export function qualifyGenerationRouteProof(raw: unknown, expectation: Generatio
       // is deliberately stricter for any supplied attempt: it must establish
       // the exact provider, reviewed model and successful HTTP status itself.
       if (!record(entry) || entry.status !== 200 || entry.provider_name !== expected.providerName ||
-          !acceptedModel(entry.model_permaslug)) return fail("provider_responses_invalid");
-      return Object.freeze({ providerName: "Azure" as const, modelId: entry.model_permaslug, status: 200 as const });
+          !acceptedModel(entry.model_permaslug, expected)) return fail("provider_responses_invalid");
+      return Object.freeze({ providerName: expected.providerName, modelId: entry.model_permaslug, status: 200 as const });
     }));
   }
-  const proof = { generationId: expected.generationId, providerName: "Azure" as const, modelId: data.model,
+  const proof = { generationId: expected.generationId, providerName: expected.providerName, modelId: data.model,
     requestedEndpoint: expected.requestedEndpoint, providerResponses };
   return Object.freeze({ ...proof, proofHash: createHash("sha256").update(canonical(proof)).digest("hex") });
 }

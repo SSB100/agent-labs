@@ -38,7 +38,7 @@ export type QuestAdapter = {
   workflowDefinitionId: string;
   workerDefinitionId: string;
   /** No production adapter is shipped by R07. */
-  mode: "simulation" | "production";
+  mode: "simulation" | "production" | "qualification";
   prepare(context: QuestAdapterContext): Promise<QuestPreparedCall>;
   dispatch(call: QuestPreparedCall, context: QuestAdapterContext): Promise<QuestEffectResponse>;
   reconcile(context: QuestAdapterContext): Promise<{ status: "unknown" } | { status: "found"; response: QuestEffectResponse }>;

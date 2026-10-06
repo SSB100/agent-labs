@@ -15,7 +15,7 @@ const crypto = { createHash }, types = load('src/products/types.ts');
 const core = load('src/core/contracts.ts');
 export const workflowStatuses = core.WORKFLOW_RUN_STATUSES;
 const sources = load('src/research/sources.ts', { 'node:crypto': crypto });
-const v2 = load('src/products/discovery-v2.ts', { 'node:crypto': crypto, './types': types, './discovery': { validateProductEvidence: denied }, '../research/sources': sources, './discovery-v2-knowledge': { validateDiscoveryKnowledgeV2: denied } });
+const v2 = load('src/products/discovery-v2.ts', { 'node:crypto': crypto, '../research/generation-route': { validateGenerationRouteProof: denied }, './types': types, './discovery': { validateProductEvidence: denied }, '../research/sources': sources, './discovery-v2-knowledge': { validateDiscoveryKnowledgeV2: denied } });
 const allowedV2 = Object.fromEntries(['DISCOVERY_V2', 'DISCOVERY_V2_EXECUTION_PREREQUISITES', 'DISCOVERY_V2_SNAPSHOT_BYTES', 'REVIEW_CHECKS_V2', 'discoveryV2Hash', 'discoveryV2SnapshotByteLength'].map(key => [key, v2[key]]));
 export const api = load('src/products/discovery-v2-history.ts', { 'node:crypto': crypto, './discovery-v2': new Proxy(allowedV2, { get(target, name) { assert.ok(Object.hasOwn(target, name), `Forbidden fresh runtime helper: ${String(name)}`); return target[name]; } }), './types': types, '../core/contracts': core, '../research/sources': { canonicalResearchUrl: sources.canonicalResearchUrl, validateResearchRequest: sources.validateResearchRequest } });
 export const id = n => `95000000-0000-4000-8000-${String(n).padStart(12, '0')}`;

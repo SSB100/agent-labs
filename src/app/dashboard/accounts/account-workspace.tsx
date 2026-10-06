@@ -149,7 +149,7 @@ export function CompactConnectionsWorkspace({ data, returnTo, provider = "printf
   const secureHref = run ? `/dashboard/accounts/secure?business=${data.businessId}&run=${run.id}&returnTo=${encodeURIComponent(href("printful"))}` : undefined;
   const notice = accountNoticeMessage(data, selectedProvider, runId, message);
   return <section key={connectionWorkspaceKey(data, message, resultId)} className="compactConnections" aria-label="Business connections">
-    <HistoryPager page={data.runsPage} name="account" label="Account requests"/><AccountNotice message={notice}><p>Current saved registry: {states.map(item => `${ACCOUNT_PROVIDERS[item.provider].name} · ${item.label}`).join("; ")}</p></AccountNotice>
+    <HistoryPager page={data.runsPage} name="account" label="Account requests"/><AccountNotice message={notice}><p>Legacy setup registry: {states.map(item => `${ACCOUNT_PROVIDERS[item.provider].name} · ${item.label}`).join("; ")}</p></AccountNotice>
     {data.unavailable ? <p className="accountWarning" role="alert">Account records could not be checked. Existing connections and requests may still exist. Refresh the saved registry before trying again.</p> : <div className="connectionLayout">
       <div className="connectionQuickPanel">
         <div className="connectionRows">{states.map(item => <Link href={href(item.provider)} key={item.provider} className="connectionRow" aria-current={selectedProvider === item.provider ? "true" : undefined}>

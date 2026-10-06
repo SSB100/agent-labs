@@ -564,3 +564,18 @@ test('review rationale character guidance survives provider projection and overl
   assert.throws(()=>schema.assertJsonSchemaValue(contract,response,'Compact reviewer response'),error=>error.issues.some(issue=>issue.path===`$.${field}[0].rationale`&&/no more than 240/.test(issue.message)));
  }
 });
+
+
+test('R12 qualified canonical execution keeps its actual identity and separately correlated route receipt',async()=>{
+ const {qualifyGenerationRouteProof}=await import('../.core-tests/research/generation-route.js');
+ const f=fixture(),modelId='openai/gpt-5.6-luna-20260709',providerRequestId='gen-r12-canonical-strategy';
+ const route=qualifyGenerationRouteProof({data:{id:providerRequestId,provider_name:'Azure',model:modelId}},{generationId:providerRequestId,providerName:'Azure',requestedEndpoint:'azure/us',acceptedResponseModelIds:['openai/gpt-5.6-luna',modelId]});
+ const execution={modelId,providerRequestId,primaryOnly:true,qualifiedRoute:structuredClone(route)};
+ f.assessment.execution=execution;
+ assert.doesNotThrow(()=>v2.validateStrategistAssessmentV2(f.intent,f.dossier,f.assessment,f.context,execution,now));
+ assert.equal(f.assessment.execution.modelId,modelId);
+ const unqualified={modelId,providerRequestId,primaryOnly:true};f.assessment.execution=unqualified;
+ assert.throws(()=>v2.validateStrategistAssessmentV2(f.intent,f.dossier,f.assessment,f.context,unqualified,now),/Actual primary-only/);
+ f.assessment.execution=structuredClone(execution);f.assessment.execution.qualifiedRoute.generationId='gen-other-result';
+ assert.throws(()=>v2.validateStrategistAssessmentV2(f.intent,f.dossier,f.assessment,f.context,f.assessment.execution,now));
+});

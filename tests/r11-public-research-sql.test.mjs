@@ -43,9 +43,11 @@ test('R11 public research additive SQL, source binding, collection custody and d
     installed=true;
    }
    try{await db.exec(source);}catch(e){throw Error(`${name}: ${e.message}\n${e.where??''}\n${e.internalQuery??''}`);}
+   if(name===migration){const immediatelyAfter=new Map((await db.query(functionSnapshot)).rows.map(x=>[x.id,x]));for(const row of before)assert.deepEqual(immediatelyAfter.get(row.id),row,`Existing function/ACL changed during R11: ${row.id}`);}
   }
   assert.equal(installed,true,'The additive public research migration must exist');
-  const after=new Map((await db.query(functionSnapshot)).rows.map(x=>[x.id,x]));for(const row of before)assert.deepEqual(after.get(row.id),row,`Existing function/ACL changed: ${row.id}`);
+  // Preservation belongs to the exact R11 migration above. Later reviewed
+  // migrations may extend R07/source bridges while keeping this R11 path tested.
   for(const table of tables)assert.equal(await value(db,`select count(*)::int result from private.${table}`),0,'Migration must not seed source authority');
   await setupResearchFixture(db);
   async function noSideEffects(s,operation){const before=await counts(db,s);await assert.rejects(operation(),reject);assert.deepEqual(await counts(db,s),before);}

@@ -141,7 +141,7 @@ export function findFixtureElement(tree, name) {
   return null;
 }
 
-export async function renderDashboard({ unavailable = false, empty = false, view = "overview", detail = false, sheet = false, knownZero = false, businessesUnavailable = false, mismatchedBusiness = false, businessFlow = false, omitBusinessQuery = false, records, contextOverrides = {}, queryOverrides = {}, browserRecords = {}, accountRecords, accountComponents, accountActions, observedAt = Date.parse(fixtureTime), inspect, reads = [] } = {}) {
+export async function renderDashboard({ unavailable = false, empty = false, view = "overview", detail = false, sheet = false, knownZero = false, businessesUnavailable = false, mismatchedBusiness = false, businessFlow = false, omitBusinessQuery = false, records, contextOverrides = {}, queryOverrides = {}, browserRecords = {}, accountRecords, qualifiedConnectionRecords, accountComponents, accountActions, observedAt = Date.parse(fixtureTime), inspect, reads = [] } = {}) {
   const { shell, visuals, icons, workflows, consoleShell, motion, motionUi, browserView, browserUi } = components();
   const otherBusiness = { ...business, id: "00000000-0000-4000-8000-000000000911", name: "Other authorized Business" };
   const context = ownerContext({ needsYouCount: unavailable || empty ? 0 : 1, needsYouUnavailable: unavailable && !knownZero, businessesUnavailable,
@@ -229,7 +229,8 @@ export async function renderDashboard({ unavailable = false, empty = false, view
     return {context:scoped,businessId:selectedBusiness?.id??null,unavailable:businessesUnavailable,state:selectedBusiness?{businessId:selectedBusiness.id,business:{revision:1},selected,selection:selected?'current':'none',quests:selected?[selected]:[],total:selected?1:0,limit:20,offset:0}:null};
   }};
   const workspaceOverview = loadSource("src/components/console/console-workspace-overview.tsx", {
-    "@/accounts/server":{loadAccountWorkspace:async()=>accounts},"./console-command":command,"@/components/guided/quest-kickoff":quest,"@/products/discovery-v2-data":{loadDiscoveryGoalData:async()=>({available:true})},
+    "@/products/discovery-r12-owner":{readDiscoveryR12Workspace:async()=>({available:false,record:null})}, "./console-r12-discovery":{ConsoleR12Progress:()=>null},
+    "@/connections/server":{readConnectionQualification:async()=>qualifiedConnectionRecords??({businessId:accounts.businessId,unavailable:accounts.unavailable,configured:accounts.configured,connections:[],readWindows:[]})},"./console-command":command,"@/components/guided/quest-kickoff":quest,"@/products/discovery-v2-data":{loadDiscoveryGoalData:async()=>({available:true})},
     "@/lib/core-ui/console-data":{...consoleData,loadConsoleObservationTime:async()=>observedAt,loadConsoleResearchQuote:async()=>({one:370395,two:530914,verifiedAt:fixtureTime})},
     "@/lib/core-ui/console-collections":loadSource("src/lib/core-ui/console-collections.ts", {"server-only":{},"./console-collections-query":loadSource("src/lib/core-ui/console-collections-query.ts")}),"./console-shell":consoleShell,"./console-overview":overview,
     "./console-motion":motionUi,"@/lib/core-ui/console-motion":motion,"@/lib/core-ui/data":{EMPTY_COLLECTION:workflowCollection({runs:[],definitions:[],stages:[],events:[],interventions:[],tasks:[],workerRuns:[],workerDefinitions:[],artifacts:[],errors:[]}),loadWorkflowCollection:async()=>collection,loadCurrentQuestEpisode:async(_ctx,businessId,explicit)=>({id:collection.runs.find(r=>r.business_id===businessId&&(!explicit||r.id===explicit))?.id??null,available:!unavailable})},
@@ -247,6 +248,7 @@ export async function renderDashboard({ unavailable = false, empty = false, view
     "@/lib/core-ui/data": { requireOwnerUiContext: async () => context, loadWorkflowCollection: async () => collection, loadWorkflowDetail: async (_context, id) => { assert.equal(id, run.id); return details; } },
     "@/lib/core-ui/run-outcome-data": { loadRunCostData: async () => costData },
     "@/lib/core-ui/console-data": { ...consoleData, loadConsoleObservationTime: async () => observedAt, loadConsoleResearchQuote: async () => ({ one: 370395, two: 530914, verifiedAt: fixtureTime }) },
+    "@/connections/server": { readConnectionQualification: async (_context, id) => qualifiedConnectionRecords??({businessId:id,unavailable:accounts.unavailable,configured:accounts.configured,connections:[],readWindows:[]}) },
     "@/accounts/server": { loadAccountWorkspace: async (_context, id) => { if (businessFlow) assert.equal(id, otherBusiness.id); return accounts; }, loadAccountSetupInterventions: async () => ({ records: [], unavailable: unavailable && !knownZero }) },
     "@/etsy-publication/server": { loadPublicationInterventions: async () => ({ records: [], unavailable }) },
     "@/printful/server": { loadPrintfulProductInterventions: async () => ({ records: [], unavailable }) },
@@ -415,6 +417,7 @@ export async function renderProducts() {
   const sources = loadSource("src/research/sources.ts");
   const discovery = loadSource("src/products/discovery-v2.ts", {
     "./types": productTypes, "../research/sources": sources,
+    "../research/generation-route": loadSource("src/research/generation-route.ts", { "../models/openrouter": { getOpenRouterConfig: noAction } }),
     "./discovery": { validateProductEvidence: noAction }, "./discovery-v2-knowledge": { validateDiscoveryKnowledgeV2: noAction },
   });
   const goal = loadSource("src/products/discovery-v2-goal.ts", { "./discovery-v2": discovery });
