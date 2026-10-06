@@ -20,3 +20,7 @@ test('R12 saved-review topology has one executable step and preserves cumulative
  assert.deepEqual(compileQuestPlan(p),p);
  for(const mutate of [p=>p.format='r12.unknown',p=>p.maximumDispatches=1,p=>p.maximumDispatches=6,p=>p.maximumChildren=1,p=>p.maximumChildren=5,p=>p.steps.push({...p.steps[0],key:'retry'}),p=>p.steps[0].dependsOn=['strategy'],p=>p.steps[0].dependsOn.push('other-source'),p=>p.steps[0].kind='work',p=>p.steps[0].key='strategy',p=>p.steps[0].workerDefinitionId=p.plannerWorkerDefinitionId,p=>p.maximumRepairs=1,p=>p.maximumPivots=1]){const bad=structuredClone(p);mutate(bad);assert.throws(()=>compileQuestPlan(bad),/r07_/);}
 });
+test('R12 successor topology permits one reviewer only within the existing four-plan limit',()=>{
+ for(const maximumDispatches of [6,7]){const p=discoveryPlanFixture();p.format='r12.discovery-review.1';p.steps=[p.steps[4]];p.maximumDispatches=maximumDispatches;p.maximumChildren=maximumDispatches+1;assert.deepEqual(compileQuestPlan(p),p);}
+ const excessive=discoveryPlanFixture();excessive.format='r12.discovery-review.1';excessive.steps=[excessive.steps[4]];excessive.maximumDispatches=8;excessive.maximumChildren=9;assert.throws(()=>compileQuestPlan(excessive),/discovery_topology/);
+});

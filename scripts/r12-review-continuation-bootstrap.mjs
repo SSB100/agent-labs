@@ -1,7 +1,7 @@
 /** Reviewed operator recipe; import has no side effects.
  * Caller supplies an approved, dedicated operator client. No environment,
  * credentials, provider requests, owner impersonation or automatic retry.
- * Requires the R12 saved-review continuation migration.
+ * Requires R12 response-observation and lineage-successor migrations; history length1..2, original Core plan limit unchanged.
  *
  * stage: {envelope,proposal,quote,executionReviewHash,eligibilityReviewHash}
  * activate: {businessId,scopeId,scopeHash,proposalHash,policyId,policyHash,
@@ -102,7 +102,10 @@ ${resolve}
  perform private.r12_validate_review_envelope(s);
  if v->>'scopeId' is distinct from sid::text or v->>'scopeHash' is distinct from s.amendment_hash or v->>'businessId' is distinct from b::text or v->>'goalId' is distinct from g::text then raise exception 'r12_review_staging_proposal_mismatch';end if;
  if cutoff<=clock_timestamp()+interval '1 hour' or cutoff>(e->>'createdAt')::timestamptz+interval '1 day' then raise exception 'r12_review_setup_window_insufficient';end if;
- if exists(select 1 from private.r12_discovery_scopes where id=sid or amendment->>'sourcePlanId'=e->>'sourcePlanId')
+ if exists(select 1 from private.r12_discovery_scopes where id=sid
+ or (e->>'version'='r12.discovery-review-continuation.1' and amendment->>'sourcePlanId'=e->>'sourcePlanId')
+ or (e->>'version'='r12.discovery-review-continuation.2' and amendment->>'version'='r12.discovery-review-continuation.2'
+ and amendment->>'predecessorPlanId'=e->>'predecessorPlanId'))
  or exists(select 1 from private.r05_operations registered where registered.operation_key=recipe.operation_key)
  or exists(select 1 from private.r07_adapters registered where registered.adapter_key=recipe.adapter_key) then raise exception 'r12_review_staging_identity_already_used';end if;
  stamp:=date_trunc('milliseconds',clock_timestamp());
@@ -127,7 +130,7 @@ ${input}
  if jsonb_typeof(x->field) is distinct from 'string' or x->>field !~ '^[a-f0-9]{64}$' then raise exception 'r12_review_activation_hash_invalid';end if;end loop;
  select * into s from private.r12_discovery_scopes where id=(x->>'scopeId')::uuid and business_id=(x->>'businessId')::uuid;
  select * into staged from private.r12_review_owner_proposals where scope_id=s.id and business_id=s.business_id;
- if s.id is null or s.amendment->>'version' is distinct from 'r12.discovery-review-continuation.1' or s.amendment_hash is distinct from x->>'scopeHash'
+ if s.id is null or not coalesce(s.amendment->>'version' in ('r12.discovery-review-continuation.1','r12.discovery-review-continuation.2'),false) or s.amendment_hash is distinct from x->>'scopeHash'
  or private.stage14_hash(s.amendment) is distinct from x->>'scopeHash' or staged.scope_id is null or staged.proposal_hash is distinct from x->>'proposalHash'
  or private.stage14_hash(staged.proposal) is distinct from x->>'proposalHash' then raise exception 'r12_review_exact_staged_hashes_required';end if;
  v:=staged.proposal;
@@ -203,7 +206,7 @@ export const CLOSE_SQL=`DO $r12_review_close$ DECLARE x jsonb;s private.r12_disc
  select * into s from private.r12_discovery_scopes where id=(x->>'scopeId')::uuid and business_id=(x->>'businessId')::uuid;
  select * into q from private.r12_discovery_authorities where scope_id=s.id and business_id=s.business_id;
  select * into p from private.r05_policies where id=(x->>'policyId')::uuid and business_id=s.business_id;
- if s.id is null or q.scope_id is null or p.id is null or s.amendment->>'version' is distinct from 'r12.discovery-review-continuation.1'
+ if s.id is null or q.scope_id is null or p.id is null or not coalesce(s.amendment->>'version' in ('r12.discovery-review-continuation.1','r12.discovery-review-continuation.2'),false)
  or s.amendment_hash is distinct from x->>'scopeHash' or q.plan_hash is distinct from x->>'planHash' or q.plan->>'policyId' is distinct from p.id::text
  or p.content_hash is distinct from x->>'policyHash' or q.plan->>'policyHash' is distinct from p.content_hash or not private.r12_authority_owner_current(q)
  or not exists(select 1 from private.r05_revocations where policy_id=p.id and business_id=s.business_id)

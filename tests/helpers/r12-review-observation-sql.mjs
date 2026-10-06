@@ -59,6 +59,11 @@ export async function assertR12ResponseObservationSql(db,{businessId,attemptId,s
   assert.deepEqual((await one("select payload from private.r12_discovery_response_observations where request_id=$1 and kind='received'",[requestId])).payload,oversized);await reset();
   const credential=observation('token=INERT_FIXTURE_DO_NOT_RETAIN');await assert.rejects(put('observe',credential),/content_invalid/);
   const redacted={...credential,content:null,contentState:'redacted'};assert.equal((await put('observe',redacted)).saved,true);await reset();
+  for(const content of [JSON.stringify({password:'INERT_FIXTURE_DO_NOT_RETAIN'}),'password\u00a0=INERT_FIXTURE_DO_NOT_RETAIN','password\ufeff=INERT_FIXTURE_DO_NOT_RETAIN','épassword=INERT_FIXTURE_DO_NOT_RETAIN','"password"\u00a0:"INERT_FIXTURE_DO_NOT_RETAIN"','"password"\ufeff:"INERT_FIXTURE_DO_NOT_RETAIN"','{"pass'+String.fromCharCode(92,10)+'word":"INERT_FIXTURE_DO_NOT_RETAIN"}',JSON.stringify({api_key:'INERT_FIXTURE_DO_NOT_RETAIN'}),'{"pass\\u0077ord":"INERT_FIXTURE_DO_NOT_RETAIN"}','{"nested":{"access-token":"INERT_FIXTURE_DO_NOT_RETAIN"}}','{"API Key":"INERT_FIXTURE_DO_NOT_RETAIN"','malformed {"client\\u005fsecret":"INERT_FIXTURE_DO_NOT_RETAIN",','{"invalid\\q":"INERT_FIXTURE_DO_NOT_RETAIN"}']){
+   const rejectedContent=observation(content);await assert.rejects(put('observe',rejectedContent),/content_invalid/);
+   const safeContent={...rejectedContent,content:null,contentState:'redacted'};assert.equal((await put('observe',safeContent)).saved,true);
+   const saved=(await one("select payload from private.r12_discovery_response_observations where request_id=$1 and kind='received'",[requestId])).payload;assert.deepEqual(saved,safeContent);assert.equal(JSON.stringify(saved).includes('INERT_FIXTURE_DO_NOT_RETAIN'),false);await reset();
+  }
   for(const contentState of ['missing','unsupported']){assert.equal((await put('observe',{...observation(''),contentState,content:null,contentHash:null})).saved,true);await reset();}
 
   // Exact keys, hash, identity, time and bounded safe diagnostic vocabulary.

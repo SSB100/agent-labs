@@ -32,7 +32,8 @@ CREATE OR REPLACE FUNCTION public.r12_discovery_server(p_business_id uuid, p_att
 AS $function$
 declare key_hash text;a private.r07_attempts;p private.r07_plans;s private.r12_discovery_scopes;r private.r05_requests;rb private.r07_bindings;w private.r12_discovery_wires;c private.r12_discovery_candidates;q private.r12_discovery_receipt_checks;o private.r12_discovery_receipt_observations;
  response_observation private.r12_discovery_response_observations;received private.r12_discovery_response_observations;
- response_kind text;response_hash text;response_stamp text;schema_paths text[];issue jsonb;
+ response_kind text;response_hash text;response_stamp text;schema_paths text[];issue jsonb;credential_key_match text[];credential_key text;credential_text text;
+ credential_space text:='['||chr(9)||'-'||chr(13)||chr(32)||chr(160)||chr(5760)||chr(8192)||'-'||chr(8202)||chr(8232)||chr(8233)||chr(8239)||chr(8287)||chr(12288)||chr(65279)||']';
  v jsonb;state jsonb;mark timestamptz;expiry timestamptz;retry_at timestamptz;code text;http integer;terminal boolean;max_bytes integer;models jsonb;begin
  if p_server_key is null or length(p_server_key) not between 32 and 200 then raise exception 'r12_controller_authority_required' using errcode='42501';end if;
  perform 1 from public.businesses where id=p_business_id for update;if not found then raise exception 'r12_business_unavailable';end if;
@@ -132,13 +133,25 @@ declare key_hash text;a private.r07_attempts;p private.r07_plans;s private.r12_d
  or (v->'nativeFinishReason'<>'null'::jsonb and (jsonb_typeof(v->'nativeFinishReason') is distinct from 'string' or v->>'nativeFinishReason' !~ '^[a-z][a-z0-9_]{0,47}$'))
  then raise exception 'r12_review_observation_invalid';end if;
  if v->>'contentState'='complete' then
+ credential_text:=regexp_replace(v->>'content',credential_space,' ','g');
  if jsonb_typeof(v->'content') is distinct from 'string' or octet_length(convert_to(v->>'content','UTF8'))>16384
  or (v->>'contentBytes')::numeric is distinct from octet_length(convert_to(v->>'content','UTF8'))::numeric
  or v->>'contentHash' is distinct from encode(extensions.digest(convert_to(v->>'content','UTF8'),'sha256'),'hex')
  -- Screen decoded completion text, not JSON-escaped text. Mirrors the TS
- -- credential predicate; rejected raw text is never inserted or echoed.
- or v->>'content' ~* $credential$-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----|\y(api[ _-]?key|access[ _-]?token|refresh[ _-]?token|client[ _-]?secret|password|passwd|secret[ _-]?key|secret|token|bearer)[[:space:]]*(:=|:|=|is[[:space:]]+|[[:space:]]+)[[:space:]]*[^[:space:]]+|\yauthorization[[:space:]]*:[[:space:]]*basic[[:space:]]+[^[:space:]]+|\y(sk_(live|test)_[A-Za-z0-9]{8,}|rk_live_[A-Za-z0-9]{8,}|sk-(proj-)?[A-Za-z0-9_-]{16,}|xox[baprs]-[A-Za-z0-9-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[A-Z0-9]{16}|ASIA[A-Z0-9]{16})\y|\yeyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\y|\y(postgres(ql)?|mysql|mongodb(\+srv)?)://[^[:space:]/@:]+:[^[:space:]/@]+@|\yhttps?://[^[:space:]/@:]+:[^[:space:]/@]+@$credential$
+ -- R12 credential predicate; rejected raw text is never inserted or echoed.
+ or credential_text ~* $credential$-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----|(api[ _-]?key|access[ _-]?token|refresh[ _-]?token|client[ _-]?secret|password|passwd|secret[ _-]?key|secret|token|bearer)[ ]*(:=|:|=|is[ ]+|[ ]+)[ ]*[^ ]+|authorization[ ]*:[ ]*basic[ ]+[^ ]+|(sk_(live|test)_[A-Za-z0-9]{8,}|rk_live_[A-Za-z0-9]{8,}|sk-(proj-)?[A-Za-z0-9_-]{16,}|xox[baprs]-[A-Za-z0-9-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[A-Z0-9]{16}|ASIA[A-Z0-9]{16})|eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|(postgres(ql)?|mysql|mongodb(\+srv)?)://[^ /@:]+:[^ /@]+@|https?://[^ /@:]+:[^ /@]+@$credential$
  then raise exception 'r12_review_observation_content_invalid';end if;
+ -- Inspect quoted property tokens even when the surrounding JSON is malformed.
+ -- Decode escaped key names before matching; invalid key escapes fail closed.
+ -- Explicit whitespace matches the TS scanner, independent of database locale.
+ for credential_key_match in select regexp_matches(v->>'content',$key$("(?:[^"\\]|\\.)*")$key$
+ ||credential_space||'*:', 'g') loop
+ begin
+ credential_key:=credential_key_match[1]::jsonb #>> '{}';
+ exception when others then raise exception 'r12_review_observation_content_invalid';end;
+ if lower(regexp_replace(credential_key,'[ _-]','','g')) in ('apikey','accesstoken','refreshtoken','clientsecret','password','passwd','secretkey','secret','token','bearer','authorization')
+ then raise exception 'r12_review_observation_content_invalid';end if;
+ end loop;
  elsif v->>'contentState' in ('oversized','redacted') then
  if v->'content' is distinct from 'null'::jsonb or jsonb_typeof(v->'contentHash') is distinct from 'string'
  or v->>'contentHash' !~ '^[a-f0-9]{64}$'

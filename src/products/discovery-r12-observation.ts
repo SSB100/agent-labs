@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import type { JsonObject } from "../core/contracts";
-import { containsCredentialLikeValue } from "../core/quest-intake";
 import { ModelProviderError } from "../models/types";
 import { JsonSchemaValidationError } from "../workers/schema-validator";
 
@@ -22,6 +21,24 @@ export type R12ReviewDiagnosticMetadata = Omit<R12ReviewDiagnostic, keyof Identi
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 const safe = (v: unknown, pattern: RegExp): string | null => typeof v === "string" && pattern.test(v) ? v : null;
 const digest = (v: string) => createHash("sha256").update(v).digest("hex");
+const credentialKeys = new Set(["apikey", "accesstoken", "refreshtoken", "clientsecret", "password", "passwd", "secretkey", "secret", "token", "bearer", "authorization"]);
+const credentialWhitespace = /[\u0009-\u000d\u0020\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]/g;
+// Use explicit whitespace and no locale-dependent word boundaries in both TS
+// and SQL. Conservative substring matching keeps this private retention guard
+// at least as strict as the ordinary credential predicate.
+const credentialPattern = new RegExp(String.raw`-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----|(api[ _-]?key|access[ _-]?token|refresh[ _-]?token|client[ _-]?secret|password|passwd|secret[ _-]?key|secret|token|bearer)[ ]*(:=|:|=|is[ ]+|[ ]+)[ ]*[^ ]+|authorization[ ]*:[ ]*basic[ ]+[^ ]+|(sk_(live|test)_[A-Za-z0-9]{8,}|rk_live_[A-Za-z0-9]{8,}|sk-(proj-)?[A-Za-z0-9_-]{16,}|xox[baprs]-[A-Za-z0-9-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[A-Z0-9]{16}|ASIA[A-Z0-9]{16})|eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|(postgres(ql)?|mysql|mongodb(\+srv)?)://[^ /@:]+:[^ /@]+@|https?://[^ /@:]+:[^ /@]+@`, "i");
+function hasCredentialAssignment(content: string): boolean {
+  if (credentialPattern.test(content.replace(credentialWhitespace, " "))) return true;
+  // Inspect property tokens independently of the whole JSON document, so a
+  // malformed completion cannot hide a quoted or escaped credential key.
+  for (const match of content.matchAll(/("(?:[^"\\]|\\[\s\S])*")[\u0009-\u000d\u0020\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]*:/g)) {
+    try {
+      const key: string = JSON.parse(match[1]);
+      if (credentialKeys.has(key.toLowerCase().replace(/[ _-]/g, ""))) return true;
+    } catch { return true; }
+  }
+  return false;
+}
 
 /** Unqualified private evidence only. No headers, request context, provider
  * errors or arbitrary envelope fields survive this projection. A large or
@@ -31,7 +48,7 @@ export function observeR12ReviewResponse(raw: unknown, identity: Identity, recei
   const message = object(first.message) ? first.message : {}, source = message.content;
   const content = typeof source === "string" ? source : Array.isArray(source) && source.every(part => typeof part === "string" || object(part) && typeof part.text === "string") ? source.map(part => typeof part === "string" ? part : (part as { text: string }).text).join("") : null;
   const bytes = content === null ? 0 : Buffer.byteLength(content, "utf8");
-  const contentState = content === null ? source === null || source === undefined ? "missing" : "unsupported" : bytes > R12_REVIEW_OBSERVATION_CONTENT_BYTES ? "oversized" : containsCredentialLikeValue(content) || content.includes("\0") || Buffer.from(content, "utf8").toString("utf8") !== content ? "redacted" : "complete";
+  const contentState = content === null ? source === null || source === undefined ? "missing" : "unsupported" : bytes > R12_REVIEW_OBSERVATION_CONTENT_BYTES ? "oversized" : hasCredentialAssignment(content) || content.includes("\0") || Buffer.from(content, "utf8").toString("utf8") !== content ? "redacted" : "complete";
   return { ...identity, version: "r12.review-observation.1", receivedAt,
     providerRequestId: safe(body.id, /^gen-[A-Za-z0-9_-]{1,296}$/), providerModelId: safe(body.model, /^[A-Za-z0-9][A-Za-z0-9_./:-]{0,159}$/),
     finishReason: safe(first.finish_reason, /^(stop|length|content_filter|tool_calls|error)$/), nativeFinishReason: safe(first.native_finish_reason, /^[a-z][a-z0-9_]{0,47}$/),

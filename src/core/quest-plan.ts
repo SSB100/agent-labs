@@ -93,7 +93,7 @@ export function compileQuestPlan(input: unknown): QuestPlan {
   if (!Array.isArray(p.steps) || p.steps.length < (reviewContinuation ? 1 : 2) || p.steps.length > 16 || p.steps.length > Number(p.maximumChildren) || p.steps.length > Number(p.maximumDispatches)) fail("invalid_steps");
   const steps = p.steps as Record<string, unknown>[];
   const discoveryKeys = ["plan", "search1", "select1", "strategy", "review"];
-  if (discovery && (!uuid(p.discoveryScopeId) || !hash(p.discoveryScopeHash) || steps.length !== (reviewContinuation ? 1 : 5) || p.maximumChildren !== (reviewContinuation ? 6 : 5) || p.maximumDispatches !== 5 ||
+  if (discovery && (!uuid(p.discoveryScopeId) || !hash(p.discoveryScopeHash) || steps.length !== (reviewContinuation ? 1 : 5) || p.maximumChildren !== (reviewContinuation ? Number(p.maximumDispatches) + 1 : 5) || (reviewContinuation ? !integer(p.maximumDispatches, 5, 7) : p.maximumDispatches !== 5) ||
       p.maximumRepairs !== 0 || p.maximumPivots !== 0 || JSON.stringify(p.requiredChecks) !== JSON.stringify(["review"]))) fail("discovery_topology_invalid");
   const seen = new Map<string, QuestStep>();
   let total = BigInt(0);

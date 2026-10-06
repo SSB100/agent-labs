@@ -22,6 +22,13 @@ test('review continuation derives a separate execution deadline and preserves ev
  const execution=discoveryReviewExecutionIntent(f.source,f.envelope,f.now);
  assert.deepEqual(execution,{...before.intent,expiresAt:f.envelope.expiresAt});assert.deepEqual(f.source,before);
 });
+test('lineage-aware review retains bounded prior history without changing original source intent',()=>{
+ const f=fixture(),previous=index=>({scopeId:id(70+index),scopeHash:'7'.repeat(64),planId:id(80+index),planHash:'8'.repeat(64),attemptId:id(90+index),requestId:id(100+index),settlementHash:'6'.repeat(64),actualMicrounits:'17713'});
+ for(const count of [1,2]){const reviewHistory=Array.from({length:count},(_,index)=>previous(index));const envelope={...f.envelope,version:'r12.discovery-review-continuation.2',reviewHistory,predecessorPlanId:reviewHistory.at(-1).planId,baseDispatches:4+count,baseChildren:5+count,baseKnownMicrounits:String(19268+17713*count)};
+  assert.deepEqual(validateDiscoveryReviewContinuation(envelope,f.source,f.now),envelope);assert.equal(discoveryReviewExecutionIntent(f.source,envelope,f.now).id,f.source.intent.id);
+  for(const mutate of [e=>e.reviewHistory=[],e=>e.reviewHistory.push(previous(3)),e=>e.predecessorPlanId=e.sourcePlanId,e=>e.baseDispatches=4,e=>e.baseChildren=5,e=>e.baseKnownMicrounits='0',e=>e.reviewHistory[0].actualMicrounits='-1',e=>e.reviewHistory[0].attemptId=e.sourcePhases[0].attemptId,e=>e.reviewHistory[0].settlementHash='bad',e=>e.reviewHistory[0].unapprovedField=true]){const bad=structuredClone(envelope);mutate(bad);assert.throws(()=>validateDiscoveryReviewContinuation(bad,f.source,f.now));}
+ }
+});
 for(const [label,change] of [
  ['unknown format',e=>e.version='r12.generic.1'],['new source query',e=>e.approvedQuery+=' More sources'],['new domain',e=>e.allowedDomains=['other.example']],['omitted restriction',e=>e.excludedDomains=[]],['other Goal',e=>e.goalId=id(99)],['other root',e=>e.budgetAuthorityRootId=id(99)],['source hash',e=>e.sourceScopeHash='0'.repeat(64)],['missing phase',e=>e.sourcePhases.pop()],['phase substitution',e=>e.sourcePhases[3].stepKey='review'],['duplicate attempt',e=>e.sourcePhases[1].attemptId=e.sourcePhases[0].attemptId],['unsent source',e=>e.sourcePhases[3].attemptId=e.sourceReviewAttemptId],['reset count',e=>e.baseDispatches=0],['more children',e=>e.baseChildren=6],['negative cost',e=>e.baseKnownMicrounits='-1'],['invented permission',e=>e.executionAuthorized=true],['expired window',e=>e.expiresAt=e.createdAt],
 ])test(`review continuation rejects ${label}`,()=>{const f=fixture();change(f.envelope);assert.throws(()=>validateDiscoveryReviewContinuation(f.envelope,f.source,f.now));});

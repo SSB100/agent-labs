@@ -60,6 +60,11 @@ function ownInputs(ctx: QuestAdapterContext, input: DiscoveryR12PhaseInputs) {
     }
     qualifyDiscoveryR12Candidate(dep.candidate, dep.binding, dep.proof);
   }
+  if (continuation) {
+    const previous = continuation.envelope.version === "r12.discovery-review-continuation.2" ? continuation.envelope.reviewHistory : [];
+    const known = state.dependencies.reduce((total, phase) => total + Number(phase.candidate.reportedMicrousd), 0) + previous.reduce((total, review) => total + Number(review.actualMicrounits), 0);
+    if (Number(continuation.envelope.baseKnownMicrounits) !== known || ctx.plan.maximumDispatches !== continuation.envelope.baseDispatches + 1 || ctx.plan.maximumChildren !== continuation.envelope.baseChildren + 1) return fail();
+  }
   return state;
 }
 /** Validate the exact server read before using its saved records as evidence. */

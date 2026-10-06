@@ -29,6 +29,12 @@ test('oversized or credential-like observations retain no text prefix',()=>{
  const secretLike='sk-or-v1-'+ 'a'.repeat(64),b=observeR12ReviewResponse(body(secretLike),identity,stamp);assert.equal(b.contentState,'redacted');assert.equal(b.content,null);assert.ok(!JSON.stringify(b).includes(secretLike));
  for(const text of ['a\0b','unpaired\ud800']){const value=observeR12ReviewResponse(body(text),identity,stamp);assert.equal(value.contentState,'redacted');assert.equal(value.content,null);assert.ok(value.contentHash);}
 });
+test('quoted and escaped credential keys are redacted even in malformed JSON',()=>{
+ for(const content of [JSON.stringify({password:'INERT_FIXTURE_DO_NOT_RETAIN'}),'password\u00a0=INERT_FIXTURE_DO_NOT_RETAIN','password\ufeff=INERT_FIXTURE_DO_NOT_RETAIN','épassword=INERT_FIXTURE_DO_NOT_RETAIN','"password"\u00a0:"INERT_FIXTURE_DO_NOT_RETAIN"','"password"\ufeff:"INERT_FIXTURE_DO_NOT_RETAIN"','{"pass'+String.fromCharCode(92,10)+'word":"INERT_FIXTURE_DO_NOT_RETAIN"}',JSON.stringify({api_key:'INERT_FIXTURE_DO_NOT_RETAIN'}),'{"pass\\u0077ord":"INERT_FIXTURE_DO_NOT_RETAIN"}','{"nested":{"access-token":"INERT_FIXTURE_DO_NOT_RETAIN"}}','{"API Key":"INERT_FIXTURE_DO_NOT_RETAIN"','malformed {"client\\u005fsecret":"INERT_FIXTURE_DO_NOT_RETAIN",','{"invalid\\q":"INERT_FIXTURE_DO_NOT_RETAIN"}']){
+  const value=observeR12ReviewResponse(body(content),identity,stamp);assert.equal(value.contentState,'redacted');assert.equal(value.content,null);assert.equal(value.contentBytes,Buffer.byteLength(content));assert.equal(value.contentHash,createHash('sha256').update(content).digest('hex'));assert.equal(JSON.stringify(value).includes('INERT_FIXTURE_DO_NOT_RETAIN'),false);
+ }
+ assert.equal(observeR12ReviewResponse(body('{"rationale":"No credential data in this ordinary research explanation."}'),identity,stamp).contentState,'complete');
+});
 test('reviewer output limits communicate constraints omitted by the supported provider grammar',()=>{
  const schema=discoveryR12StaticSchema('review'),projected=projectProviderJsonSchema(schema),output=r12PhaseOutputFixture('Inert adult audience').review;
  assert.equal(projected.properties.checks.items.properties.rationale.maxLength,undefined);

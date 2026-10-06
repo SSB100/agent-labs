@@ -7,7 +7,7 @@ import { discoveryV2Hash } from "./discovery-v2";
 import { createDiscoveryR12Candidate, discoveryR12ReceiptExpectation, qualifyDiscoveryR12Candidate, validateDiscoveryR12Candidate, type DiscoveryR12CandidateBinding } from "./discovery-r12-receipt";
 import { inspectDiscoveryR12Wire, routeDiscoveryR12Request, type DiscoveryR12Phase } from "./discovery-r12-wire";
 import type { DiscoveryR12Quote } from "./discovery-r12-quote";
-import type { DiscoveryR12ExecutionScope } from "./discovery-r12-review-continuation";
+import { isDiscoveryReviewContinuation, type DiscoveryR12ExecutionScope } from "./discovery-r12-review-continuation";
 import { observeR12ReviewResponse, r12ReviewDiagnostic, type R12ReviewObservation, type R12ReviewDiagnosticCode } from "./discovery-r12-observation";
 
 type Request = StructuredModelRequest | WebSearchModelRequest;
@@ -42,7 +42,7 @@ export function createDiscoveryR12QuestAdapter(options: {
   const scope = structuredClone(options.scope), identity = structuredClone(options.identity), phase = options.phase;
   const scopeHash = discoveryV2Hash(scope), now = options.now ?? Date.now;
   function context(ctx: QuestAdapterContext) {
-    if (ctx.plan.format !== (scope.version === "r12.discovery-review-continuation.1" ? "r12.discovery-review.1" : "r12.discovery.1") || (scope.version === "r12.discovery-review-continuation.1" && phase !== "review") || ctx.plan.discoveryScopeId !== scope.id || ctx.plan.discoveryScopeHash !== scopeHash || ctx.plan.businessId !== scope.businessId || ctx.plan.goalId !== scope.goalId || ctx.step.key !== phase ||
+    if (ctx.plan.format !== (isDiscoveryReviewContinuation(scope) ? "r12.discovery-review.1" : "r12.discovery.1") || (isDiscoveryReviewContinuation(scope) && phase !== "review") || ctx.plan.discoveryScopeId !== scope.id || ctx.plan.discoveryScopeHash !== scopeHash || ctx.plan.businessId !== scope.businessId || ctx.plan.goalId !== scope.goalId || ctx.step.key !== phase ||
       ctx.step.adapter !== `r12.discovery.${scope.id}.${phase}` || ctx.step.operationKey !== `research.r12.${scope.id}.${phase}` || ctx.step.qualificationHash !== identity.qualificationHash || ctx.step.workflowDefinitionId !== identity.workflowDefinitionId || ctx.step.workerDefinitionId !== identity.workerDefinitionId) return fail();
   }
   function descriptor(ctx: QuestAdapterContext, request: Request, body: string): QuestPreparedCall {
