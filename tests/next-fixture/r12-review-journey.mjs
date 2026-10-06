@@ -117,7 +117,16 @@ export async function runR12ReviewJourney({origin,noKeyOrigin,boundary,output,di
     await page.getByText('Reviewed additional public observations',{exact:true}).waitFor();
     const saved=(await r12OwnerRpc(boundary.state(),'r12_discovery_owner_read',{p_business_id:fixture().businessId,p_scope_id:fixture().scopeId,p_activation:false})).data;
     assert.equal(saved.planVersion,4);assert.equal(saved.cost.knownMicrousd,'80');assert.equal(saved.priorStrategy.knownMicrousd,'10');assert.equal(saved.priorReviews.length,2);
-    await page.getByRole('link',{name:'Inspect the earlier saved decision',exact:true}).click();await page.getByRole('heading',{name:'Needs more evidence',exact:true}).waitFor();await page.goBack();await page.getByText('Reviewed additional public observations',{exact:true}).waitFor();
+    const currentResultUrl=origin+researchRoute(),previousLink=page.getByRole('link',{name:'Inspect the earlier saved decision',exact:true});
+    const previousHref=await previousLink.getAttribute('href');assert.ok(previousHref);
+    // Both results have the same NME heading. Wait for the destination and its
+    // active scope identity before Back, so the test cannot interrupt that visit.
+    await Promise.all([page.waitForURL(origin+previousHref),previousLink.click()]);
+    await page.getByRole('region',{name:'Qualified discovery progress',exact:true}).locator(`input[name="scopeId"][value="${fixture().predecessorScopeId}"]`).first().waitFor({state:'attached'});
+    await page.getByRole('heading',{name:'Needs more evidence',exact:true}).waitFor();
+    await page.goBack();await page.waitForURL(currentResultUrl);
+    await page.getByRole('region',{name:'Qualified discovery progress',exact:true}).locator(`input[name="scopeId"][value="${fixture().scopeId}"]`).first().waitFor({state:'attached'});
+    await page.getByText('Reviewed additional public observations',{exact:true}).waitFor();
     for(const [width,height] of [[1280,900],[390,844]]){await page.setViewportSize({width,height});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));await page.screenshot({path:path.join(output,`r12-evidence-result-${width}.png`),fullPage:true});}
     await action('Stop research',()=>page.getByRole('button',{name:'Stop research',exact:true}).waitFor());await page.reload();assert.equal(await page.getByRole('button',{name:'Stop research',exact:true}).isDisabled(),true);assert.deepEqual(fixture().calls,['strategy','review']);
    });
