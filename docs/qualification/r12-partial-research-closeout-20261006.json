@@ -1,0 +1,41 @@
+{
+  "version": "r12.partial-research-closeout.1",
+  "productionCommit": "95efd4341e7796846ef48af64dd747b35b0af17a",
+  "scopeId": "33bbb31d-b7ef-4ac2-9937-a282a550c209",
+  "observedAt": "2026-10-06T07:27:08.72912+00:00",
+  "outcome": "independent_review_not_dispatched",
+  "completedPhases": [
+    "plan",
+    "search1",
+    "select1",
+    "strategy"
+  ],
+  "knownMicrousd": 19268,
+  "receiptGets": 8,
+  "dispatches": 4,
+  "policyRevoked": true,
+  "controllerRevoked": true,
+  "admissionRevoked": true,
+  "activeAuthority": false,
+  "unknownCost": false,
+  "businessExposureMicrousd": 666119,
+  "originalFundingKnownMicrousd": 128748,
+  "originalFundingRemainingMicrousd": 1871252,
+  "failure": {
+    "stage": "before_reservation",
+    "code": "complete_review_request_exceeds_bound",
+    "routedRequestBytesBefore": 33620,
+    "maximumRequestBytes": 32768
+  },
+  "offlineRepairReplay": {
+    "canonicalReplaySha256": "5ce66115e27d7f6f14e80edf95e41d0aa0b12dea5f6d9368322a28e983d2fef7",
+    "losslessRoundTrip": true,
+    "questionCount": 17,
+    "completeRequestBytes": 32216,
+    "routedRequestBytes": 32182,
+    "wireBytes": 30915,
+    "wireHash": "266b21f0f8ec92ccebe1ea3b32f4140c83262bfb2ebdc269146fe41e0a737668"
+  },
+  "newAuthorityCreated": false,
+  "newProviderCalls": 0
+}

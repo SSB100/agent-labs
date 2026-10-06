@@ -100,6 +100,39 @@ function compactReview(f) {
     sufficiencyRationale: f.review.sufficiencyRationale, dimensions: f.review.dimensions.map(d => ({ dimension: d.dimension, verdict: d.verdict, rationale: d.rationale, evidence: d.evidenceRefs.map(key) })), checks: f.review.checks, additionalUncertainties: [] };
 }
 
+function decodeAssessmentRows(encoded) {
+  const row = (names, values) => Object.fromEntries(names.map((name, index) => [name, values[index]]));
+  const restored = { ...encoded,
+    marketComparisons: encoded.marketComparisons.map(values => {
+      const market = row(encoded.rowEncoding.marketComparisons, values);
+      market.feeScenarios = market.feeScenarios.map(values => row(encoded.rowEncoding.feeScenarios, values));
+      return market;
+    }),
+    candidates: encoded.candidates.map(candidate => ({ candidateKey: candidate.candidateKey, dimensions: candidate.dimensions.map(values => {
+      const dimension = row(encoded.rowEncoding.dimensions, values);
+      dimension.facts = dimension.facts.map(values => row(encoded.rowEncoding.facts, values));
+      dimension.uncertainties = dimension.uncertainties.map(values => row(encoded.rowEncoding.uncertainties, values));
+      return dimension;
+    }) })) };
+  delete restored.rowEncoding;
+  return restored;
+}
+function resolveMissingQuestions(input) {
+  assert.equal(input.missingQuestions.rowPath, 'assessment.candidates[c].dimensions[d][5][u][0]');
+  return input.missingQuestions.refs.map(([c, d, u]) => input.assessment.candidates[c].dimensions[d][5][u][0]);
+}
+
+test('missing question indexes preserve verbatim text, order and repeated references or fail closed', () => {
+  const f = preparedFixture();
+  const questions = [...f.assessment.missingQuestions].reverse();
+  questions.push(questions[0]);
+  const before = JSON.stringify(f.compact);
+  const input = { assessment: worker.tabulateStrategistAssessmentV2(f.compact), missingQuestions: worker.indexStrategistMissingQuestionsV2(f.compact, questions) };
+  assert.deepEqual(resolveMissingQuestions(input), questions);
+  assert.equal(JSON.stringify(f.compact), before);
+  assert.throws(() => worker.indexStrategistMissingQuestionsV2(f.compact, ['A question absent from all stored uncertainty rows?']), /no exact uncertainty row; nothing was omitted/);
+});
+
 test('compact strategy uses deterministic short keys and restores immutable identities, spans and actual receipts', () => {
   const f = preparedFixture();
   const reversed = worker.prepareDiscoveryWorkerContextV2(f.intent, f.dossier, f.context, [...f.refs].reverse(), now);
@@ -325,14 +358,46 @@ test('three complete concept alternatives and four geographies fit the unchanged
   assert.ok(Buffer.byteLength(JSON.stringify(request), 'utf8') <= 32768);
   assert.equal(request.maxOutputTokens, 4000);
   const encoded = JSON.parse(request.messages[1].content).assessment;
-  const restoredCompact = { ...encoded, candidates: encoded.candidates.map(c => ({ candidateKey: c.candidateKey, dimensions: c.dimensions.map(row => {
-    const d = Object.fromEntries(encoded.rowEncoding.dimensions.map((name, i) => [name, row[i]]));
-    d.facts = d.facts.map(row => Object.fromEntries(encoded.rowEncoding.facts.map((name, i) => [name, row[i]])));
-    d.uncertainties = d.uncertainties.map(row => Object.fromEntries(encoded.rowEncoding.uncertainties.map((name, i) => [name, row[i]])));
-    return d;
-  }) })) };
-  delete restoredCompact.rowEncoding;
+  const restoredCompact = decodeAssessmentRows(encoded);
   assert.deepEqual(restoredCompact, compact, 'every assessment fact, rationale, flag and uncertainty survives row encoding');
+});
+
+test('observed-size synthetic reviewer packet keeps seventeen complete questions under the same request and wire caps', async () => {
+  const f = threeCandidateFixture();
+  // Reproduce the observed breadth without publishing private provider output.
+  const questions = Array.from({ length: 17 }, (_, i) => `What adult buyer evidence resolves this geographic uncertainty ${String(i + 1).padStart(2, '0')}?`);
+  let index = 0;
+  for (const candidate of f.assessment.candidates) for (const dimension of candidate.dimensions) {
+    dimension.rationale = 'The cited contextual observation leaves this candidate-specific commercial conclusion unresolved. Scope remains narrow.';
+    dimension.uncertainties = [{ question: questions[index++ % questions.length], blockingForTest: false, reason: 'This question needs candidate-specific measurement before any commercial claim.' }];
+  }
+  f.assessment.missingQuestions = questions;
+  f.assessment.recommendation.proposedOutcome = 'NEEDS_MORE_EVIDENCE';
+  f.assessment.testPlan = null;
+  for (const market of f.assessment.marketComparisons) market.assessment = (prose + ' Country-specific willingness to pay and applicable operating costs remain unknown.').padEnd(260, ' ');
+  const prepared = worker.prepareDiscoveryWorkerContextV2(f.intent, f.dossier, f.context, f.refs, now);
+  const before = JSON.stringify(f.assessment), compact = worker.compactStrategistAssessmentV2(prepared, f.assessment);
+  schema.assertJsonSchemaValue(worker.strategistResponseSchemaV2(prepared), compact, 'observed-size synthetic strategy');
+  const request = worker.buildReviewerRequestV2(prepared, f.assessment, f.execution, now), input = JSON.parse(request.messages[1].content);
+  assert.deepEqual(decodeAssessmentRows(input.assessment), compact);
+  assert.deepEqual(resolveMissingQuestions(input), questions);
+  assert.deepEqual(input.evidence, prepared.evidencePool.map(({ key, quote, url, retrievedAt, expiresAt }) => ({ key, quote, url, retrievedAt, expiresAt })));
+  assert.equal(JSON.stringify(f.assessment), before);
+  const legacy = structuredClone(request), oldInput = JSON.parse(legacy.messages[1].content);
+  oldInput.assessment.marketComparisons = compact.marketComparisons;
+  delete oldInput.assessment.rowEncoding.marketComparisons; delete oldInput.assessment.rowEncoding.feeScenarios;
+  oldInput.missingQuestions = questions;
+  legacy.messages[1].content = JSON.stringify(oldInput);
+  legacy.messages[0].content = legacy.messages[0].content.replace('including markets, fee scenarios, facts and uncertainties', 'including nested facts and uncertainties').replace('Resolve missingQuestions refs [c,d,u] with rowPath. Keep every question; add new missing questions explicitly.', 'Keep every unresolved question; add new missing questions explicitly.');
+  const bytes = value => Buffer.byteLength(JSON.stringify(value), 'utf8');
+  assert.ok(bytes(legacy) > 32768, `The prior representation must reproduce the failure: ${bytes(legacy)}`);
+  assert.ok(bytes(legacy) >= 33500, 'Regression includes the observed request breadth, not a toy packet');
+  assert.ok(bytes(request) <= 32768);
+  const { routeDiscoveryR12Request, inspectDiscoveryR12Wire } = await import('../.core-tests/products/discovery-r12-wire.js');
+  const routed = routeDiscoveryR12Request(request, 'review', { modelId: 'anthropic/claude-haiku-4.5', endpoint: 'amazon-bedrock/us', priceLimit: { prompt: 1, completion: 5, request: 0 } });
+  const inspected = await inspectDiscoveryR12Wire(routed, 'review');
+  assert.ok(bytes(routed) <= 32768); assert.ok(inspected.wireBytes <= 32768);
+  assert.equal(inspected.maximumOutputTokens, 4000);
 });
 
 test('four-pack three-candidate requests preserve all twelve evidence spans within unchanged bounds', () => {
@@ -399,7 +464,7 @@ test('three-candidate normalized evidence can exceed 32 KiB while the complete r
   assert.equal(request.maxOutputTokens, 4000);
   const input = JSON.parse(request.messages[1].content);
   assert.deepEqual(input.assessment, worker.tabulateStrategistAssessmentV2(compact));
-  assert.deepEqual(input.missingQuestions, restored.missingQuestions);
+  assert.deepEqual(resolveMissingQuestions(input), restored.missingQuestions);
   assert.deepEqual(input.evidence, prepared.evidencePool.map(({ key, quote, url, retrievedAt, expiresAt }) => ({ key, quote, url, retrievedAt, expiresAt })));
 });
 

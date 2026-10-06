@@ -204,6 +204,7 @@ test('R12 actual scope loader and migrated SQL preserve original funding without
   await assert.rejects(ownerActions.continueDiscoveryR12(ownerContext,business,scopeId),/owner_action_unavailable/,'SQL ownership defeats stale owner context');
   await db.query("select set_config('request.jwt.claim.sub',$1,false)",[R07_OWNER]);
   assert.deepEqual(await ownerActions.prepareDiscoveryR12Authority(ownerContext,business,scopeId),{controllerKeyHash:createHash('sha256').update(R07_KEY).digest('hex'),admissionKeyHash:createHash('sha256').update(R05_KEY).digest('hex'),authorityCreated:false});
+  const ownerApi=source('src/products/discovery-r12-owner.ts',{'server-only':{},'../lib/core-ui/owner-business':owner,'./discovery-r12-runtime':require('../.core-tests/products/discovery-r12-runtime.js')});
   for(const phase of phaseKeys.slice(1)){
    const phaseStep=plan.steps.find(step=>step.key===phase);
    phaseFetchers[phase]=async(url,init)=>{
@@ -217,7 +218,18 @@ test('R12 actual scope loader and migrated SQL preserve original funding without
     return new Response(JSON.stringify({data:{id,provider_name:phase==='review'?'Amazon Bedrock':'Azure',model}}),{status:200});
    };
    adapters[phaseStep.adapter]=createDiscoveryR12QuestAdapter({...options,phase,dataClasses:phaseData(phase),identity:{qualificationHash:phaseStep.qualificationHash,workflowDefinitionId:phaseStep.workflowDefinitionId,workerDefinitionId:phaseStep.workerDefinitionId,mode:'qualification'},fetcher:phaseFetchers[phase]});
-   if(phase==='review'){assert.equal((await ownerActions.continueDiscoveryR12(ownerContext,business,scopeId)).status,'completed');continue;}
+   if(phase==='review'){
+    assert.equal((await driveQuestOnce(store,{adapters})).reason,'scheduled');
+    const saved=(await ownerContext.supabase.rpc('r12_discovery_owner_read',{p_business_id:business,p_scope_id:scopeId,p_activation:false})).data;
+    const scheduled=ownerApi.parseDiscoveryR12Workspace(saved,business,scopeId);
+    assert.equal(scheduled.phases[4].status,'scheduled');assert.equal(scheduled.phases[4].reason,phaseStep.reason);
+    assert.equal(scheduled.phases.filter(p=>p.status==='completed').length,4);assert.equal(scheduled.cost.knownMicrousd,'40');
+    assert.equal(ownerApi.discoveryR12CanContinue(scheduled),true);
+    for(const value of ['', ' ', 'x'.repeat(241), 1, {}]){const bad=structuredClone(saved);bad.phases[4].reason=value;assert.throws(()=>ownerApi.parseDiscoveryR12Workspace(bad,business,scopeId));}
+    for(const target of ['reason','diagnostic']){const bad=structuredClone(saved);if(target==='reason')bad.reason='A sentence is not a state code';else bad.phases[0].receipt.diagnostic={code:'Not a diagnostic code',httpStatus:404};assert.throws(()=>ownerApi.parseDiscoveryR12Workspace(bad,business,scopeId));}
+    await captureNext('scheduled-review');
+    assert.equal((await ownerActions.continueDiscoveryR12(ownerContext,business,scopeId)).status,'completed');continue;
+   }
    assert.equal((await driveQuestOnce(store,{adapters})).reason,'scheduled',`${phase} schedule`);
    assert.equal((await driveQuestOnce(store,{adapters})).reason,'reserved',`${phase} reserve`);
    assert.equal((await driveQuestOnce(store,{adapters})).reason,'response_persisted',`${phase} response`);
@@ -249,7 +261,6 @@ test('R12 actual scope loader and migrated SQL preserve original funding without
    assert.equal(projectDiscoveryR12Phase(reviewContext,inputs,qualified,JSON.parse(readback.binding.requestJson)).result.reviewHash,decision.reviewHash);
    assert.throws(()=>buildDiscoveryR12PhaseRequest(reviewContext,inputs),/inputs_unverified/,'Receipt reconstruction grants no new request authority');
   }finally{Date.now=originalClock;}
-  const ownerApi=source('src/products/discovery-r12-owner.ts',{'server-only':{},'../lib/core-ui/owner-business':owner,'./discovery-r12-runtime':require('../.core-tests/products/discovery-r12-runtime.js')});
   await db.query("select set_config('request.jwt.claim.sub',$1,false)",[R07_OWNER]);
   const ownerRead=async(activation=false)=>{await db.exec('set role authenticated');try{return(await db.query('select public.r12_discovery_owner_read($1,$2,$3) result',[business,scopeId,activation])).rows[0].result;}finally{await db.exec('reset role');}};
   const historyRead=async()=>{await db.exec('set role authenticated');try{return(await db.query('select public.r12_discovery_result_read($1,$2) result',[business,scopeId])).rows[0].result;}finally{await db.exec('reset role');}};

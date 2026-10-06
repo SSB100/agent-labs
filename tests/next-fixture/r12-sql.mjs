@@ -8,7 +8,7 @@ import {r12QuoteFixture} from '../helpers/r12-provider-fixture.mjs';
 export const R12_INERT_ROOT='inert-r12-owner-root-configuration-0123456789';
 const tables=['businesses','goals','workflow_runs','workflow_definitions','workflow_stage_runs','worker_definitions','worker_runs','task_contracts','artifacts','installed_packs','product_experiments'];
 export async function loadR12NextFixture(state,scenario,directory,host){
- assert.ok(['current','pending','completed','bootstrap'].includes(scenario));assert.ok(path.basename(directory).startsWith('r12-next-'));
+ assert.ok(['current','pending','scheduled-review','completed','bootstrap'].includes(scenario));assert.ok(path.basename(directory).startsWith('r12-next-'));
  if(state.r12)await closeR12Fixture(state);
  const require=createRequire(path.join(host,'package.json')),{PGlite}=require('@electric-sql/pglite'),{pgcrypto}=require('@electric-sql/pglite/contrib/pgcrypto');
  const metadata=JSON.parse(await readFile(path.join(directory,scenario==='bootstrap'?'bootstrap-metadata.json':'metadata.json'),'utf8')),dump=await readFile(path.join(directory,`${scenario}.tgz`));
