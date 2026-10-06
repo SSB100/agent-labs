@@ -1,0 +1,138 @@
+/** Inert isolated rehearsal. No network or Production connection. Only the
+ * explicit target IDs/full-row hash literals are rendered to fixture pins;
+ * production exports, financial baselines, limits, predicates and SQL logic stay unchanged. */
+import assert from 'node:assert/strict';
+import {createRequire} from 'node:module';
+import {readFileSync,readdirSync} from 'node:fs';
+import {randomUUID,createHash} from 'node:crypto';
+import * as recipes from '../../scripts/r12-research-bootstrap.mjs';
+import {r04SqlBootstrap} from './r04-sql-bootstrap.mjs';
+import {sessionBootstrap} from './r10-sql-fixture.mjs';
+import {r07FixtureSetup,R07_OWNER} from './r07-sql-fixture.mjs';
+import {discoveryKnowledgeFixture} from '../discovery-v2-fixtures.mjs';
+import {r12QuoteFixture} from './r12-provider-fixture.mjs';
+const root=process.cwd(), req=createRequire(root+'/package.json'),ts=req('typescript');
+const sqlReq=createRequire((process.env.R12_SQL_TEST_HOST??process.env.R11_SQL_TEST_HOST)+'/package.json'),{PGlite}=sqlReq('@electric-sql/pglite'),{pgcrypto}=sqlReq('@electric-sql/pglite/contrib/pgcrypto');
+const db=new PGlite({extensions:{pgcrypto}}),log=[],sqlErrors=[],calls=[];let actor=R07_OWNER;
+const sha=s=>createHash('sha256').update(s).digest('hex');
+const value=async(sql,args=[]) => (await db.query(sql,args)).rows[0];
+function source(file,deps){const m={exports:{}};new Function('require','module','exports',ts.transpileModule(readFileSync(root+'/'+file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)(name=>{assert.ok(name in deps,name);return deps[name];},m,m.exports);return m.exports;}
+const ownerClient={auth:{getClaims:async()=>({data:{claims:{sub:actor}},error:null})},rpc:async(name,args)=>{
+ const fields={r04_quest_transition:['p_business_id','p_operation','p_payload','p_submission_id'],r04_research_link_preview:['p_business_id','p_experiment_id'],r05_policy_owner:['p_business_id','p_operation','p_payload','p_submission_id'],r05_admission_read:['p_business_id','p_policy_id','p_limit','p_offset']}[name];assert.ok(fields,name);
+ calls.push({name,operation:args.p_operation,actor});await db.query("select set_config('request.jwt.claim.sub',$1,false)",[actor]);await db.exec('set role authenticated');
+ try{return{data:(await db.query(`select public.${name}(${fields.map((_,i)=>'$'+(i+1)).join(',')}) result`,fields.map(k=>args[k]??null))).rows[0].result,error:null};}
+ catch(error){sqlErrors.push(error.message);return{data:null,error};}finally{await db.exec('reset role');}
+}};
+const deps={'@/lib/supabase/server':{createClient:async()=>ownerClient},'@/core/quest-intake':req(root+'/.core-tests/core/quest-intake.js'),'@/core/quest-contract':req(root+'/.core-tests/core/quest-contract.js'),'@/core/admission-contract':req(root+'/.core-tests/core/admission-contract.js')};
+const questApi=source('src/app/dashboard/quests/actions.ts',deps),policyApi=source('src/app/dashboard/quests/controls/actions.ts',deps);
+const sendQuest=body=>questApi.saveQuestIntent(body.p_business_id,body.p_operation,body.p_payload,body.p_submission_id);
+const sendPolicy=body=>policyApi.saveOperatingControl(body.p_business_id,body.p_operation,body.p_payload,body.p_submission_id);
+const qok=async body=>{const r=await sendQuest(body);assert.equal(r.ok,true,sqlErrors.at(-1));return r.result;};
+let business;
+const owned=body=>({...body,p_business_id:business});
+const {buildDiscoveryIntentFromGoal}=req(root+'/.core-tests/products/discovery-v2-goal.js');
+const {discoveryV2Hash}=req(root+'/.core-tests/products/discovery-v2.js');
+try{
+ await db.exec(r04SqlBootstrap+sessionBootstrap);
+ for(const file of readdirSync(root+'/supabase/migrations').filter(f=>f.endsWith('.sql')).sort())await db.exec(readFileSync(root+'/supabase/migrations/'+file,'utf8'));
+ await db.exec("set timezone='UTC'");await db.exec(r07FixtureSetup(root));business=(await value('select public.r05_seed(848063) b')).b;
+ const f=await value('select * from public.r05_fixture where b=$1',[business]);
+ const body=(await value('select content from private.r04_business_versions where business_id=$1 and revision=1',[business])).content;
+ for(let revision=1;revision<6;revision++)await qok({p_business_id:business,p_operation:'business.save',p_payload:{expectedRevision:revision,content:body,preference:'setup'},p_submission_id:randomUUID()});
+ const businessHash=(await value('select content_hash hash from private.r04_business_versions where business_id=$1 and revision=6',[business])).hash;
+ // Register actual repository manifests, without status promotion or an installation.
+ const knowledge=discoveryKnowledgeFixture();for(const release of knowledge.snapshot.releases)await db.query('select private.stage10_register_pack($1)',[release.manifest]);
+ const pack=(await value("select id from public.packs where pack_key='workflow.product-discovery-v2' and version='1.0.0'")).id;
+ const fd=await value("select id,private.r04_hash(to_jsonb(w)) hash from public.workflow_definitions w where workflow_key='product.discovery-v2.one'");
+ const workers=(await db.query("select id,worker_key,private.r04_hash(to_jsonb(w)) hash from public.worker_definitions w where worker_key like 'product.discovery-v2.%'")).rows;
+ const snapshotHash=(await value('select private.r04_hash(jsonb_build_object(\'rootPackId\',$1::uuid,\'releases\',private.stage10_resolve($1,true))) hash',[pack])).hash;
+ const roots=[];let rootIntent,priorIntent;
+ for(let n=0;n<9;n++){
+  const id=randomUUID(),wf=randomUUID(),intent=buildDiscoveryIntentFromGoal({id,businessId:business,goal:recipes.TARGET.objective,maximumMicrousd:n?2000000:400000,maximumCollections:1,now:Date.now()-4*86400000});
+  if(n===8)intent.limits.maximumNewCollections=0;
+  await db.query("insert into public.workflow_runs(id,business_id,workflow_definition_id,idempotency_key,status,input) values($1,$2,$3,$4,'failed',$5)",[wf,business,fd.id,'inert-bootstrap-history-'+n,{intentId:id}]);
+  const variables={intent,policyHash:discoveryV2Hash(intent),semanticGoalHash:'a'.repeat(64),budgetAuthorityRootId:n?roots[0].id:id,ownerKickoff:{followUpBasis:n?{rootId:roots[n-1].id,reason:'retry_after_known_failed_call'}:null}};
+  await db.query(`insert into public.product_experiments(id,business_id,workflow_run_id,fingerprint,hypothesis,variables,audience,status,measurement_plan,discovery_version,failure,completed_at) values($1,$2,$3,$4,'Synthetic preserved research root',$5,'Adult outdoor and nature enthusiasts','failed','{"version":"pod-discovery-2.0","testPlan":null}','pod-discovery-2.0','Historical inert failure',clock_timestamp())`,[id,business,wf,sha(id),variables]);
+  roots.push({id,wf});if(n===0){rootIntent=intent;await db.query("select set_config('request.jwt.claim.sub',$1,false)",[R07_OWNER]);await db.exec('set role authenticated');try{await db.query('select public.approve_product_research_funding($1,$2,400000,2000000,$3)',[id,randomUUID(),'Inert owner-approved cumulative research funding fixture']);}finally{await db.exec('reset role');}}
+  priorIntent=intent;
+ }
+ const rootId=roots[0].id,priorId=roots[8].id;
+ // Synthetic retained root charge plus unrelated same-Business legacy charge.
+ async function cost(experiment,wf,key,actual){const rid=randomUUID();await db.query('insert into public.product_research_cost_reservations(id,business_id,experiment_id,workflow_run_id,attempt_key,reserved_microusd,request_hash,estimate) values($1,$2,$3,$4,$5,$6,$7,$8)',[rid,business,experiment,wf,key,actual,'1'.repeat(64),{version:'discovery-estimate-2.0'}]);const receipt='gen-inert-'+rid;await db.query('insert into private.r05_legacy_attestations(business_id,workflow_run_id,source_key,reported_microusd,provider_request_id,receipt_hash) values($1,$2,$3,$4,$5,$6)',[business,wf,'research:'+rid,actual,receipt,'2'.repeat(64)]);await db.query('insert into public.product_research_cost_settlements(business_id,reservation_id,reported_microusd,provider_request_id,fingerprint) values($1,$2,$3,$4,$5)',[business,rid,actual,receipt,'3'.repeat(64)]);}
+ await cost(rootId,roots[0].wf,'plan:1',109480);
+ const unrelated=(await value('select public.r05_legacy($1,$2,537371) id',[business,'selector:luna.standard'])).id;const unrelatedReceipt='gen-inert-unrelated-'+unrelated;await db.query('insert into private.r05_legacy_attestations(business_id,workflow_run_id,source_key,reported_microusd,provider_request_id,receipt_hash) values($1,$2,$3,537371,$4,$5)',[business,f.w,'research:'+unrelated,unrelatedReceipt,'4'.repeat(64)]);await db.query('insert into public.product_research_cost_settlements(business_id,reservation_id,reported_microusd,provider_request_id,fingerprint) values($1,$2,537371,$3,$4)',[business,unrelated,unrelatedReceipt,'5'.repeat(64)]);
+ for(let revision=1;revision<6;revision++){
+  const payload={...f.payload,businessRevision:6,expectedCapRevision:revision,expectedExposureMicrounits:'646851'};
+  const proposed=await ownerClient.rpc('r05_policy_owner',{p_business_id:business,p_operation:'propose',p_payload:payload,p_submission_id:randomUUID()});assert.equal(proposed.error,null);
+  const confirmed=await ownerClient.rpc('r05_policy_owner',{p_business_id:business,p_operation:'confirm',p_payload:{policyId:proposed.data.id,policyHash:proposed.data.hash},p_submission_id:randomUUID()});assert.equal(confirmed.error,null);
+ }
+ const cutoff=new Date(Math.floor((Date.now()+2*3600000)/1000)*1000).toISOString();
+ const created=await qok(owned(recipes.ownerGoalCreateBody(cutoff,randomUUID())));
+ const ready=await qok(owned(recipes.ownerReadyBody(created.id,created.revision,randomUUID())));
+ const preview=await questApi.previewResearchLink(business,priorId);assert.equal(preview.status,'linkable');assert.equal(preview.authorityRootId,rootId);
+ const linked=recipes.ownerLinkBody(created.id,ready.revision,randomUUID());linked.p_payload.experimentId=priorId;await qok(owned(linked));
+ const goalHash=(await value('select content_hash hash from private.r04_goal_versions where goal_id=$1 and revision=$2',[created.id,ready.revision])).hash;
+ const pins=new Map([
+ [recipes.TARGET.businessId,business],[recipes.TARGET.rootId,rootId],[recipes.TARGET.priorId,priorId],[recipes.TARGET.packId,pack],[recipes.TARGET.workflowId,fd.id],
+ ['97441d08503e1640763a6da50c191ae13aa4b23e86ffe0e2b25b3789005ead12',businessHash],['92894207fbcc149e7e4cf91c924c5feb9adae732321966f86a70b8fa5d8b75fa',discoveryV2Hash(rootIntent)],['f6be5c7bfde7b19fb4bb09a10f13b9d30d519785f7f9a8508a00b3cfe46d8170',discoveryV2Hash(priorIntent)],['6e174b6a90ce9515abe3d27043501b01329f65dc8f25e93ed814b00f917cfcd7','a'.repeat(64)],['6fe1a97c3667b5a9074a53a5156c2357c362871cd2ebd5735c19c39a9f344db0',snapshotHash],['937e21bb9863a31de0cfbb48d97ae675b7a6a540cb05a029ad83e1dbb876e993',fd.hash]
+ ]);
+ const prodWorkers=[['plan','98b4ff1e-8791-4403-8cec-0b4fd7fdaa79','3dc803226210cbf285e35791fec8d0b91de987442e0d4d7f38cbf1b5d8575f8a'],['research','c1551958-a0fd-47cc-bf86-fa0398a5261b','f5f7ff8b09c98c1c5fd96146547372e821fe8545c73cdf98a7210d5fc88167e0'],['strategy','ebba060f-6f95-4a3f-93ff-c62b3809d7d2','7537fdf72bdab5857de4549fe713bd9307b5c0ec5c23d0a9c6de1b7468e4451f'],['review','b4632bb9-28b0-4e42-baea-5e661dea2952','bf4b9fc6cc86ba4acb0b9fdb0c9d3406129dfda4e3a90fee48f2ff1d567beaa5']];
+ for(const [key,id,hash] of prodWorkers){const worker=workers.find(w=>w.worker_key==='product.discovery-v2.'+key);assert.ok(worker);pins.set(id,worker.id);pins.set(hash,worker.hash);}
+ const render=sql=>{for(const [from,to] of pins){assert.ok(sql.includes(from),'Missing fixed source pin '+from);sql=sql.replaceAll(from,to);}return sql;};
+ const stageSQL=render(recipes.STAGING_SQL),activationSQL=render(recipes.ACTIVATION_SQL);
+ const input={ownerId:R07_OWNER,goalId:created.id,goalRevision:ready.revision,goalHash,scopeId:randomUUID(),installationId:randomUUID(),sourceCutoff:cutoff,approvalHash:sha('inert-approved-packet'),ipsosReviewHash:sha('inert-ipsos-review'),mdpiReviewHash:sha('inert-mdpi-review'),independentReviewHash:sha('inert-independent-review'),executionReviewHash:sha('inert-execution-review'),eligibilityReviewHash:sha('inert-eligibility-review'),quote:r12QuoteFixture()};
+ async function run(sql,input,before){
+  const kind=sql===stageSQL?'stage':'activate',original=kind==='stage'?recipes.STAGING_SQL:recipes.ACTIVATION_SQL;
+  const client={query:async(statement,args)=>{
+   if(statement==='begin'){const result=await db.exec(statement);if(before)await before();return result;}
+   if(statement===original)return db.exec(sql);
+   return args?db.query(statement,args):(/^\s*(DO|set local|create temporary)/.test(statement)?db.exec(statement):db.query(statement));
+  }};
+  return recipes.runOperatorRecipe(client,kind,input);
+ }
+ async function rejected(label,fn,pattern){await assert.rejects(fn,pattern);log.push({check:label,status:'passed'});}
+ await rejected('staging owner mismatch',()=>run(stageSQL,{...input,ownerId:'95050000-0000-4000-8000-000000000002'}),/bootstrap_owner_changed/);
+ await rejected('staging Goal hash drift',()=>run(stageSQL,{...input,goalHash:'0'.repeat(64)}),/bootstrap_goal_pin_changed/);
+ await rejected('staging actual Business transfer rolls back',()=>run(stageSQL,input,()=>db.query('update public.businesses set owner_user_id=$1 where id=$2',['95050000-0000-4000-8000-000000000002',business])),/bootstrap_owner_changed/);
+ await rejected('staging actual definition status/hash drift rolls back',()=>run(stageSQL,input,()=>db.query("update public.worker_definitions set status='qualified' where id=$1",[workers.find(w=>w.worker_key==='product.discovery-v2.plan').id])),/bootstrap_worker_definition_drift/);
+ await rejected('staging quote ceiling drift',()=>run(stageSQL,{...input,quote:{...input.quote,ceilings:{...input.quote.ceilings,plan:23247}}}),/bootstrap_fresh_exact_quote_required/);
+ const appendCapDrift=()=>db.query("insert into private.r05_cap_versions(business_id,currency,revision,maximum_microunits,policy_id) select business_id,currency,revision+1,maximum_microunits+1,policy_id from private.r05_cap_versions where business_id=$1 and currency='USD' order by revision desc limit 1",[business]);
+ await rejected('staging actual cap-state drift rolls back',()=>run(stageSQL,input,appendCapDrift),/bootstrap_business_financial_drift/);
+ const staged=await run(stageSQL,input);log.push({check:'positive staging, five operations/adapters and zero authority',status:'passed'});
+ assert.equal((await value('select count(*)::int n from private.r12_discovery_authorities')).n,0);
+ assert.equal((await value('select count(*)::int n from private.r05_operations where operation_key like $1',['research.r12.'+input.scopeId+'.%'])).n,5);
+ await rejected('staging replay',()=>run(stageSQL,input),/bootstrap_staging_identity_already_used/);
+ actor='95050000-0000-4000-8000-000000000002';assert.equal((await sendPolicy(owned(recipes.ownerPolicyProposeBody(staged,randomUUID())))).ok,false);actor=R07_OWNER;log.push({check:'actual owner policy API rejects other owner',status:'passed'});
+ assert.equal((await sendPolicy(owned(recipes.ownerPolicyProposeBody(staged,randomUUID())))).ok,true,sqlErrors.at(-1));
+ const read=await ownerClient.rpc('r05_admission_read',{p_business_id:business,p_policy_id:null,p_limit:20,p_offset:0});assert.equal(read.error,null);const proposed=read.data.policies.find(p=>p.policy.goalId===created.id);assert.ok(proposed);
+ assert.equal((await sendPolicy(owned(recipes.ownerPolicyConfirmBody(proposed.id,proposed.hash,randomUUID())))).ok,true,sqlErrors.at(-1));log.push({check:'actual authenticated owner policy server APIs propose/confirm',status:'passed'});
+ // Exercise the actual owner-only prepare route and server HMAC boundary.
+ process.env.VERCEL_ENV='production';process.env.R05_ADMISSION_SERVER_KEY='inert-bootstrap-only-root-01234567890123456789';process.env.OPENROUTER_API_KEY='inert-never-used-provider-value';
+ const ownerCheck=source('src/lib/core-ui/owner-business.ts',{});
+ const server=source('src/products/discovery-r12-server.ts',{'server-only':{},'node:crypto':req('node:crypto'),'../lib/core-ui/owner-business':ownerCheck,'../core/quest-plan':req(root+'/.core-tests/core/quest-plan.js'),'../core/quest-controller':req(root+'/.core-tests/core/quest-controller.js'),'./discovery-v2':req(root+'/.core-tests/products/discovery-v2.js'),'./discovery-r12-runtime':req(root+'/.core-tests/products/discovery-r12-runtime.js'),'./discovery-r12-adapter':req(root+'/.core-tests/products/discovery-r12-adapter.js'),'./discovery-r12-wire':req(root+'/.core-tests/products/discovery-r12-wire.js'),'./discovery-r12-server-dependencies':{discoveryR12ServerDependencies:()=>{throw Error('Prepare must not construct runtime dependencies');}}});
+ await db.exec('set role authenticated');let verifiedBusiness;try{verifiedBusiness=await value('select id,name from public.businesses where id=$1 and owner_user_id=$2',[business,R07_OWNER]);}finally{await db.exec('reset role');}assert.equal(verifiedBusiness.id,business);
+ const ownerContext={userId:R07_OWNER,businesses:[verifiedBusiness],supabase:ownerClient};
+ const prepareRoute=source('src/app/api/research/r12/prepare/route.ts',{'@/lib/core-ui/data':{requireOwnerUiContext:async()=>ownerContext},'@/products/discovery-r12-server':server});
+ const prepareRequest=origin=>new Request('https://r12-bootstrap.invalid/api/research/r12/prepare',{method:'POST',headers:{origin,'content-type':'application/json'},body:JSON.stringify({businessId:business,scopeId:input.scopeId})});
+ assert.equal((await prepareRoute.POST(prepareRequest('https://foreign.invalid'))).status,403);
+ actor='95050000-0000-4000-8000-000000000002';assert.equal((await prepareRoute.POST(prepareRequest('https://r12-bootstrap.invalid'))).status,403);actor=R07_OWNER;
+ const preparedResponse=await prepareRoute.POST(prepareRequest('https://r12-bootstrap.invalid'));assert.equal(preparedResponse.status,200);const prepared=await preparedResponse.json();assert.equal(prepared.authorityCreated,false);assert.notEqual(prepared.controllerKeyHash,prepared.admissionKeyHash);
+ log.push({check:'actual preparation route/server returns distinct nonsecret hashes; foreign origin/claims rejected',status:'passed'});
+ const activation={...input,quote:r12QuoteFixture(),amendmentHash:staged.amendmentHash,policyId:proposed.id,policyHash:proposed.hash,policyInterpretationHash:sha('inert-policy-review'),controllerKeyHash:prepared.controllerKeyHash,admissionKeyHash:prepared.admissionKeyHash};
+ await rejected('activation owner mismatch',()=>run(activationSQL,{...activation,ownerId:'95050000-0000-4000-8000-000000000002'}),/bootstrap_owner_changed/);
+ await rejected('activation Goal hash drift',()=>run(activationSQL,{...activation,goalHash:'0'.repeat(64)}),/bootstrap_goal_pin_changed/);
+ await rejected('activation policy hash drift',()=>run(activationSQL,{...activation,policyHash:'0'.repeat(64)}),/bootstrap_exact_owner_policy_required/);
+ await rejected('activation stale quote',()=>run(activationSQL,{...activation,quote:r12QuoteFixture(Date.now()-600000)}),/bootstrap_fresh_exact_quote_required/);
+ const changedQuote=structuredClone(activation.quote);changedQuote.luna.sourceHashes.modelCatalog='0'.repeat(64);const changedQuoteBody={...changedQuote};for(const key of ['quoteHash','verifiedAt','validUntil'])delete changedQuoteBody[key];changedQuote.quoteHash=discoveryV2Hash(changedQuoteBody);
+ await rejected('activation fresh quote facts drift with unchanged ceilings',()=>run(activationSQL,{...activation,quote:changedQuote}),/bootstrap_staged_registration_changed/);
+ await rejected('activation actual cap-state drift rolls back',()=>run(activationSQL,activation,appendCapDrift),/bootstrap_business_financial_drift/);
+ const activated=await run(activationSQL,activation);log.push({check:'positive activation, exact five-step authority',status:'passed'});
+ req(root+'/.core-tests/core/quest-plan.js').compileQuestPlan(activated.plan);assert.equal(activated.plan.maximumMicrounits,'406736');assert.equal(activated.plan.steps.length,5);assert.equal(Date.parse(activated.dispatchUntil)-Date.parse(activated.activatedAt),1800000);assert.equal(Date.parse(activated.receiptUntil)-Date.parse(activated.dispatchUntil),1800000);
+ assert.equal((await value('select count(*)::int n from private.r07_plans')).n,0);
+ await rejected('activation replay refuses enrolled verifiers',()=>run(activationSQL,activation),/bootstrap_fresh_separate_verifier_hashes_required/);
+ const workspace=await ownerClient.rpc('r05_admission_read',{p_business_id:business,p_policy_id:proposed.id,p_limit:20,p_offset:0});assert.equal(workspace.error,null);
+ assert.equal((await value('select max(revision)::int revision,max(maximum_microunits)::int maximum from private.r05_cap_versions where business_id=$1',[business])).revision,7);
+ assert.equal((await value('select count(*)::int n from private.r05_markers')).n,0);assert.equal((await value('select count(*)::int n from private.r12_discovery_transport_claims')).n,0);
+ assert.equal(recipes.TARGET.businessId,'91ff7c87-60e4-4dbb-8e84-be63b53c2c79');
+ console.log(JSON.stringify({status:'passed',checks:log,ownerApiCalls:calls.length,pinSubstitutions:pins.size}));
+}catch(error){console.error(error);process.exitCode=1;}finally{await db.close();}

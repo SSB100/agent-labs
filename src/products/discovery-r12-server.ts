@@ -65,7 +65,9 @@ export async function continueDiscoveryR12(context:OwnerUiContext,businessId:str
  const started=Date.now();
  // Existing Core takes one finite transition at a time. This request can make
  // at most the approved five effects; pause/receipt-wait returns to the owner.
- for(let transitions=0;transitions<24&&Date.now()-started<240000;transitions++){
+ // Stop starting transitions at 200s, leaving room for the bounded 45s model
+ // transport, 20s receipt and persistence within the 300s dashboard limit.
+ for(let transitions=0;transitions<24&&Date.now()-started<200000;transitions++){
   try{const result=await driveQuestOnce(controller,{adapters,reconcile:true});if(result.status!=='progress')return result;}
   catch(error){if(error instanceof DiscoveryR12ReceiptPending){const wake=error.receipt.nextCheckAt;return{status:'waiting',reason:'receipt_pending',...(typeof wake==='string'?{wakeAt:wake}:{})};}throw error;}
  }

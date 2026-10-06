@@ -31,6 +31,8 @@ import "./accounts/accounts.css";
 import "./products/products.css";
 
 export const dynamic = "force-dynamic";
+// Bounded owner-driven research may stage a response and then verify its receipt.
+export const maxDuration = 300;
 const first = (value: string | string[] | undefined) => Array.isArray(value) ? value[0] : value;
 const views = new Set<ConsoleView>(["overview", "work", "library", "research", "decisions", "connections", "activity", "advanced", "products-catalog", "knowledge", "decision-log"]);
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

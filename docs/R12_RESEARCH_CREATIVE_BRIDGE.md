@@ -85,3 +85,11 @@ The minimum first-live proposal remains five paid calls with one collection, no 
 3. Run the smallest useful one-collection round, with genuine TEST/REJECT/NEEDS_MORE_EVIDENCE and a predeclared learning plan. REJECT/NME stops creative work
 4. Only after an eligible current TEST, qualify one production-purpose creative through the existing brief, independent screen, original-byte retention and independent pixel/print/IP review pipeline
 5. Freeze one final full gate, review, merge and verify Production. R13 product/draft execution stays outside R12
+
+## First hosted gate candidate
+
+The clean compatibility rerun passed 1,095 tests, zero failures, with 16 explicit optional/browser/real-PostgreSQL skips. Repository lint and typecheck pass. The actual owner bootstrap APIs now create a separate Goal, mark it ready, preview/link the original research root, and propose/confirm R05 through authenticated migrated SQL before the five-phase replay; the unrelated Goal remains unchanged.
+
+A production-Next HTTP journey using the same actual SQL snapshots passed preparation, delayed-output persistence, duplicate denial, five-phase completion, key-free Stop, foreign-scope/auth rejection and external-network denial. Only public-catalog/provider transport is inert; owner actions, Core, SQL admission, serialization and historical reconstruction remain actual source. The harness includes hydrated navigation/action, desktop/mobile and real 200% zoom checks for CI. Local installed Chromium cannot launch because its process-singleton socket is denied, including under supported escalation; local browser acceptance is unrun. A dedicated fresh-loopback PostgreSQL CI job covers the full R12 runtime rehearsal.
+
+The [first-live proposal](R12_FIRST_RESEARCH_PACKET.md) and [exact bootstrap/security review](R12_BOOTSTRAP_REVIEW.md) are prepared. Parameterized operator recipes and all 19 isolated positive/drift/replay checks now pass, including actual owner API confirmation and preparation-route hashes; the artifact remains unactivated and requires approval. Hosted CI, live qualification and conditional production-purpose creative remain pending. This research-only release candidate does not close R12.
