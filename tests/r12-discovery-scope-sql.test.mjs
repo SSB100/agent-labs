@@ -12,6 +12,7 @@ import {fileURLToPath} from 'node:url';
 import {r12PhaseOutputFixture} from './helpers/r12-phase-output-fixture.mjs';
 import {discoveryKnowledgeFixture} from './discovery-v2-fixtures.mjs';
 import {r12QuoteFixture} from './helpers/r12-provider-fixture.mjs';
+import {prepareR12EvidenceFixture} from './helpers/r12-evidence-fixture.mjs';
 import {prepareR12ReviewFixture} from './helpers/r12-review-fixture.mjs';
 import {exerciseR12ReviewRuntime} from './helpers/r12-review-runtime.mjs';
 import {r04SqlBootstrap} from './helpers/r04-sql-bootstrap.mjs';
@@ -236,7 +237,7 @@ test('R12 actual owner workflows preserve funding, bounded dispatch and immutabl
      try{
       await exerciseR12ReviewRuntime(db,continuation.metadata,{nested:true,failureCase:'response_schema'});
       const successor=await prepareR12ReviewFixture(db,{quote,outputs},{nested:true,reviewSuccessor:true});assert.equal(successor.envelope.reviewHistory.length,1);assert.equal(successor.envelope.baseKnownMicrounits,'50');
-      await db.exec('savepoint accepted_successor');try{assert.deepEqual(await exerciseR12ReviewRuntime(db,successor.metadata,{nested:true}),{providerCalls:0,inertPosts:1,inertReceiptGets:2,outcome:'NEEDS_MORE_EVIDENCE',phaseReceipts:5,dispatches:6,children:7});}finally{await db.exec('rollback to savepoint accepted_successor');await db.exec('release savepoint accepted_successor');}
+      await db.exec('savepoint accepted_successor');try{assert.deepEqual(await exerciseR12ReviewRuntime(db,successor.metadata,{nested:true}),{providerCalls:0,inertPosts:1,inertReceiptGets:2,outcome:'NEEDS_MORE_EVIDENCE',phaseReceipts:5,dispatches:6,children:7});const evidence=await prepareR12EvidenceFixture(db,{quote,outputs},{nested:true});assert.deepEqual(await exerciseR12ReviewRuntime(db,evidence.metadata,{nested:true}),{providerCalls:0,inertPosts:2,inertReceiptGets:3,outcome:'NEEDS_MORE_EVIDENCE',phaseReceipts:5,dispatches:8,children:9});}finally{await db.exec('rollback to savepoint accepted_successor');await db.exec('release savepoint accepted_successor');}
       await exerciseR12ReviewRuntime(db,successor.metadata,{nested:true,failureCase:'json_parse'});
       const last=await prepareR12ReviewFixture(db,{quote,outputs},{nested:true,reviewSuccessor:true});assert.equal(last.envelope.reviewHistory.length,2);assert.equal(last.envelope.baseKnownMicrounits,'60');
       await exerciseR12ReviewRuntime(db,last.metadata,{nested:true,failureCase:'response_schema'});

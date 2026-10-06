@@ -5,6 +5,8 @@ import {validateDiscoveryReviewContinuation,discoveryReviewExecutionIntent} from
 import {parseR12ReviewOwnerWorkspace} from '../.core-tests/products/discovery-r12-review-preparation-contract.js';
 import {buildDiscoveryIntentFromGoal,DISCOVERY_GOAL_DEFAULT} from '../.core-tests/products/discovery-v2-goal.js';
 import {discoveryV2Hash} from '../.core-tests/products/discovery-v2.js';
+import {validateDiscoveryEvidenceContinuation,discoveryEvidenceExecutionIntent} from '../.core-tests/products/discovery-r12-evidence-continuation.js';
+import {r12AddendumFixture} from './helpers/r12-addendum-fixture.mjs';
 const id=n=>`12000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
 const at=Date.parse('2026-10-06T07:00:00Z');
 function fixture(){
@@ -16,6 +18,16 @@ function fixture(){
  const now=at+7200000,envelope={version:'r12.discovery-review-continuation.1',id:id(20),businessId:id(1),goalId:id(5),budgetAuthorityRootId:id(3),priorRoundId:id(2),sourceScopeId:id(4),sourceScopeHash:source.amendmentHash,sourcePlanId:id(21),sourcePlanHash:'e'.repeat(64),sourceReviewAttemptId:id(22),sourcePhases:['plan','search1','select1','strategy'].map((stepKey,i)=>({stepKey,attemptId:id(30+i),artifactId:id(40+i),responseHash:String(i+1).repeat(64)})),baseDispatches:4,baseChildren:5,baseKnownMicrounits:'19268',allowedDomains:amendment.allowedDomains,excludedDomains:amendment.excludedDomains,approvedQuery:query,approvalHash:'f'.repeat(64),independentReviewHash:'9'.repeat(64),createdAt:new Date(now-60000).toISOString(),expiresAt:new Date(now+1800000).toISOString()};
  return{source,envelope,now};
 }
+test('factual continuation preserves source identity and both consumed reviews in the last plan slot',()=>{
+ const f=fixture(),history=[0,1].map(i=>({scopeId:id(70+i),scopeHash:String(7+i).repeat(64),planId:id(80+i),planHash:'8'.repeat(64),attemptId:id(90+i),requestId:id(100+i),settlementHash:'6'.repeat(64),actualMicrounits:'10'}));
+ const addendum=r12AddendumFixture(f.source.intent,f.now);addendum.goalId=f.envelope.goalId;addendum.predecessorScopeId=history[1].scopeId;
+ const e={...f.envelope,version:'r12.discovery-evidence-continuation.1',reviewHistory:history,predecessorPlanId:history[1].planId,predecessorScopeId:history[1].scopeId,predecessorScopeHash:history[1].scopeHash,baseDispatches:6,baseChildren:7,baseKnownMicrounits:'19288',addendum,addendumHash:discoveryV2Hash(addendum),executionSourceDomains:[...f.source.amendment.allowedDomains,'example.org'].sort()};
+ assert.deepEqual(validateDiscoveryEvidenceContinuation(e,f.source,f.now),e);
+ assert.deepEqual(discoveryEvidenceExecutionIntent(f.source,e,f.now),{...f.source.intent,expiresAt:e.expiresAt});
+ for(const mutate of [e=>e.reviewHistory.pop(),e=>e.predecessorScopeHash='0'.repeat(64),e=>e.addendum.observations[0].limitations=[],e=>e.executionSourceDomains=e.allowedDomains,e=>e.baseDispatches=0,e=>e.baseChildren=2,e=>e.addendumHash='0'.repeat(64),e=>e.addendum.goalId=id(300),e=>e.allowedDomains=['example.org'],e=>e.extraAuthority=true]){
+  const bad=structuredClone(e);mutate(bad);assert.throws(()=>validateDiscoveryEvidenceContinuation(bad,f.source,f.now));
+ }
+});
 test('review continuation derives a separate execution deadline and preserves every original source field',()=>{
  const f=fixture(),before=structuredClone(f.source);assert.ok(Date.parse(f.source.intent.expiresAt)<f.now);
  assert.deepEqual(validateDiscoveryReviewContinuation(f.envelope,f.source,f.now),f.envelope);

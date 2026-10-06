@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import {readFile,writeFile} from 'node:fs/promises';
 import {createRequire} from 'node:module';
+import {prepareR12EvidenceFixture} from './r12-evidence-fixture.mjs';
 import {prepareR12ReviewFixture} from './r12-review-fixture.mjs';
 import {exerciseR12ReviewRuntime} from './r12-review-runtime.mjs';
 const directory=path.resolve(process.env.R12_REVIEW_NEXT_OUTPUT??'');
@@ -17,5 +18,8 @@ try{
  await exerciseR12ReviewRuntime(db,prepared.metadata,{failureCase:'json_parse'});
  const successorCapture=async(name,successor)=>{assert.ok(['review-preparation','review-ready'].includes(name));const blob=await db.dumpDataDir('gzip');await writeFile(path.join(directory,name.replace('review-','review-successor-')+'.tgz'),Buffer.from(await blob.arrayBuffer()));if(successor)await writeFile(path.join(directory,'successor-metadata.json'),JSON.stringify(successor));};
  const successor=await prepareR12ReviewFixture(db,metadata,{reviewSuccessor:true,capture:successorCapture});assert.equal(successor.activated.providerCalls,0);assert.equal(successor.envelope.reviewHistory.length,1);
+ await exerciseR12ReviewRuntime(db,successor.metadata);
+ const evidenceCapture=async(name,evidence)=>{assert.ok(['evidence-preparation','evidence-ready'].includes(name));const blob=await db.dumpDataDir('gzip');await writeFile(path.join(directory,name+'.tgz'),Buffer.from(await blob.arrayBuffer()));if(evidence)await writeFile(path.join(directory,'evidence-metadata.json'),JSON.stringify(evidence));};
+ const evidence=await prepareR12EvidenceFixture(db,metadata,{capture:evidenceCapture});assert.equal(evidence.activated.providerCalls,0);assert.equal(evidence.envelope.reviewHistory.length,2);
  console.log('PASS: original outputs staged, genuine owner permission confirmed and actual continuation recipe initialized; zero provider calls');
 }finally{await db.close();}

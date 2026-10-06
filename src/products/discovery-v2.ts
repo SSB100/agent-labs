@@ -1,10 +1,12 @@
 import { validateGenerationRouteProof, type GenerationRouteProof } from "../research/generation-route";
 import { createHash } from "node:crypto";
+import type { JsonObject } from "../core/contracts";
 import { DIMENSIONS, type Dimension } from "./types";
 import { validateProductEvidence } from "./discovery";
 import { validateResearchRequest } from "../research/sources";
 import type { EvidencePack } from "../research/types";
 import { validateDiscoveryKnowledgeV2, type DiscoveryKnowledgeContextV2 } from "./discovery-v2-knowledge";
+import { discoveryAddendumObservation, validateDiscoveryEvidenceAddendum, type DiscoveryAddendumRef, type DiscoveryEvidenceAddendum } from "./discovery-r12-evidence-addendum";
 
 /** Parallel contract. No v1 score, historical assessment, or authority is rewritten. */
 export const DISCOVERY_V2 = "pod-discovery-2.0" as const;
@@ -39,6 +41,7 @@ export type DossierPackRefV2 = {
 export type DiscoveryDossierV2 = {
   version: typeof DISCOVERY_V2; intentId: string; businessId: string;
   packRefs: DossierPackRefV2[]; shortlist: CandidateIdentityV2[]; comparisonRationale: string;
+  addendumRef?: DiscoveryAddendumRef;
 };
 /** Loaded from persisted records, never accepted from a worker as its own attestation. */
 export type PersistedResearchEvidenceV2 = {
@@ -59,6 +62,10 @@ export type DiscoveryValidationContextV2 = {
   sellerBankCountry?: string | null;
   /** Conservative already-committed research/worker cost, supplied by the root ledger. */
   committedMicrousd: number;
+  /** Distinct owner-reviewed public observations, never provider source receipts. */
+  evidenceAddendum?: DiscoveryEvidenceAddendum;
+  /** Accepted predecessor output loaded from the independently verified history. */
+  previousDecision?: JsonObject;
 };
 export type EvidenceFactV2 = { reference: EvidenceRefV2; relevance: string };
 export type UncertaintyV2 = { question: string; blockingForTest: boolean; reason: string };
@@ -185,9 +192,17 @@ export function validateDiscoveryDossierV2(intent: DiscoveryIntentV2, dossier: D
   validateDiscoveryIntentV2(intent, now);
   integer(context.committedMicrousd, 0, intent.limits.maximumMicrousd, "root committed cost");
   validateDiscoveryKnowledgeV2(context.knowledge, now);
-  shape(dossier, "version,intentId,businessId,packRefs,shortlist,comparisonRationale", "discovery dossier");
+  shape(dossier, "version,intentId,businessId,packRefs,shortlist,comparisonRationale" + (dossier.addendumRef ? ",addendumRef" : ""), "discovery dossier");
   if (dossier.version !== DISCOVERY_V2 || dossier.intentId !== intent.id || dossier.businessId !== intent.businessId) fail("Dossier intent/Business mismatch.");
   snapshotBytes(dossier, DISCOVERY_V2_SNAPSHOT_BYTES.dossier, "Dossier");
+  if (dossier.addendumRef || context.evidenceAddendum) {
+    shape(dossier.addendumRef, "artifactId,sha256", "reviewed addendum reference");
+    const addendum = context.evidenceAddendum;
+    if (!addendum || dossier.addendumRef.artifactId !== addendum.id || dossier.addendumRef.sha256 !== discoveryV2Hash(addendum) ||
+        dossier.packRefs.some(ref => ref.artifactId === addendum.id) || (context.sellerBankCountry ?? null) !== addendum.sellerBankCountry) fail("Reviewed addendum identity or owner declaration mismatch.");
+    validateDiscoveryEvidenceAddendum(addendum, intent, now);
+  }
+  if (context.previousDecision && (!context.evidenceAddendum || context.previousDecision.outcome !== "NEEDS_MORE_EVIDENCE")) fail("Only the accepted NME predecessor belongs to an evidence continuation.");
   prose(dossier.comparisonRationale, "comparison rationale", 40);
   list(dossier.packRefs, 1, 6, "immutable dossier packs");
   if (new Set(dossier.packRefs.map(p => p.artifactId)).size !== dossier.packRefs.length || new Set(dossier.packRefs.map(p => p.query.id)).size !== dossier.packRefs.length) fail("Duplicate pack or query lineage.");
@@ -227,6 +242,13 @@ export function validateDiscoveryDossierV2(intent: DiscoveryIntentV2, dossier: D
 function refKey(ref: EvidenceRefV2) { return `${ref.artifactId}:${ref.evidenceId}:${ref.sourceContentHash}:${ref.start}:${ref.end}`; }
 function evidence(ref: EvidenceRefV2, dossier: DiscoveryDossierV2, context: DiscoveryValidationContextV2) {
   shape(ref, "artifactId,evidenceId,sourceId,sourceContentHash,start,end", "evidence reference");
+  if (dossier.addendumRef?.artifactId === ref.artifactId) {
+    const addendum = context.evidenceAddendum;
+    if (!addendum || discoveryV2Hash(addendum) !== dossier.addendumRef.sha256) fail("Reviewed addendum changed after binding.");
+    const observation = discoveryAddendumObservation(addendum, ref), quote = Array.from(observation.context).slice(ref.start, ref.end).join("");
+    return { entry: { id: observation.id, sourceId: observation.sourceId, quote },
+      source: { id: observation.sourceId, url: observation.url, contentHash: observation.contentHash, excerpt: observation.context, retrievedAt: observation.retrievedAt, retrievalExpiresAt: observation.expiresAt }, quote, observation };
+  }
   if (!dossier.packRefs.some(p => p.artifactId === ref.artifactId)) fail("Evidence artifact is outside this dossier.");
   const pack = context.packs.get(ref.artifactId)?.evidencePack;
   const entry = pack?.evidence.find(e => e.id === ref.evidenceId);
@@ -239,17 +261,25 @@ function evidence(ref: EvidenceRefV2, dossier: DiscoveryDossierV2, context: Disc
   integer(ref.end, ref.start + 1, Math.min(characters.length, ref.start + 320), "evidence span end");
   const quote = characters.slice(ref.start, ref.end).join("");
   if (!quote.trim()) fail("Empty evidence span.");
-  return { entry, source, quote };
+  return { entry, source, quote, observation: undefined };
 }
 /** Materialize quotations instead of making models echo source text, IDs or hashes as facts. */
 export function resolveDiscoveryEvidenceV2(ref: EvidenceRefV2, dossier: DiscoveryDossierV2, context: DiscoveryValidationContextV2) {
   const found = evidence(ref, dossier, context);
-  return { reference: { ...ref }, quote: found.quote, url: found.source.url, retrievedAt: found.source.retrievedAt, expiresAt: found.source.retrievalExpiresAt };
+  return { reference: { ...ref }, quote: found.quote, url: found.source.url, retrievedAt: found.source.retrievedAt, expiresAt: found.source.retrievalExpiresAt,
+    ...(found.observation ? { sourceContext: { access: found.observation.access, kind: found.observation.kind, context: found.observation.context, geographyRole: found.observation.geographyRole, countries: found.observation.countries, dimensions: found.observation.dimensions, limitations: found.observation.limitations } } : {}) };
 }
 function references(refs: EvidenceRefV2[], dossier: DiscoveryDossierV2, context: DiscoveryValidationContextV2, min = 0) {
   list(refs, min, 8, "evidence references");
   if (new Set(refs.map(refKey)).size !== refs.length) fail("Duplicate evidence reference.");
   refs.forEach(ref => evidence(ref, dossier, context));
+}
+function geographicReferences(refs: EvidenceRefV2[], market: string, seller: string | null, dossier: DiscoveryDossierV2, context: DiscoveryValidationContextV2) {
+  for (const ref of refs) {
+    const observation = evidence(ref, dossier, context).observation;
+    if (observation?.geographyRole === "buyer_market" && !observation.countries.includes(market)) fail("Observed market evidence belongs to a different country.");
+    if (seller && observation?.geographyRole === "seller_jurisdiction" && !observation.countries.includes(seller)) fail("Seller fee evidence belongs to a different jurisdiction.");
+  }
 }
 function marketSource(url: string) {
   const source = new URL(url);
@@ -274,6 +304,7 @@ function dimensionEvaluation(d: DimensionEvaluationV2, dossier: DiscoveryDossier
   const market = ["demand", "competition", "seasonality", "marketing_potential"].includes(d.dimension);
   for (const fact of d.facts) {
     shape(fact, "reference,relevance", "source fact"); const found = evidence(fact.reference, dossier, context);
+    if (found.observation && !found.observation.dimensions.includes(d.dimension)) fail("Reviewed observation cannot support an unapproved evidence role.");
     prose(fact.relevance, "fact relevance", 20, 240);
     if (market && d.evidenceStrength !== "guidance" && !marketSource(found.source.url)) fail("Policy/guidance cannot substantiate observed market interest.");
   }
@@ -308,6 +339,7 @@ export function validateStrategistAssessmentV2(intent: DiscoveryIntentV2, dossie
     const scope = intent.comparisonUniverse.markets.find(m => m.countryCode === market.countryCode);
     if (!scope || scope.currency !== market.currency) fail("Market comparison changed geography/currency scope.");
     prose(market.assessment, "market comparison reasoning", 40); references(market.evidenceRefs, dossier, context);
+    geographicReferences(market.evidenceRefs, market.countryCode, context.sellerBankCountry ?? null, dossier, context);
     strings(market.assumptions, 0, 8, "market assumptions", 15); strings(market.limitations, 1, 8, "market limitations", 15);
     if (market.sellerBankCountry !== (context.sellerBankCountry ?? null)) fail("Unknown seller bank country cannot be inferred.");
     list(market.feeScenarios, market.sellerBankCountry === null ? 1 : 0, 4, "fee scenarios");
@@ -315,6 +347,7 @@ export function validateStrategistAssessmentV2(intent: DiscoveryIntentV2, dossie
       shape(scenario, "sellerBankCountry,hypothetical,explanation,evidenceRefs", "hypothetical fee scenario");
       if (!/^[A-Z]{2}$/.test(scenario.sellerBankCountry) || scenario.hypothetical !== true) fail("Fee scenario is an assumption, not a discovered bank fact.");
       prose(scenario.explanation, "fee scenario limitation", 30); references(scenario.evidenceRefs, dossier, context);
+      geographicReferences(scenario.evidenceRefs, market.countryCode, scenario.sellerBankCountry, dossier, context);
     }
   }
   list(assessment.candidates, dossier.shortlist.length, dossier.shortlist.length, "compared candidates");
@@ -340,6 +373,23 @@ export function validateStrategistAssessmentV2(intent: DiscoveryIntentV2, dossie
     prose(alternative.rationale, "alternative tradeoff", 30); references(alternative.evidenceRefs, dossier, context);
   }
   checkQuestions(assessment.missingQuestions, assessment.candidates.flatMap(c => c.dimensions.flatMap(d => d.uncertainties.map(u => u.question))));
+  if (context.previousDecision) {
+    const previousQuestions = context.previousDecision.missingQuestions;
+    if (!Array.isArray(previousQuestions) || previousQuestions.some(question => typeof question !== "string" || !assessment.missingQuestions.includes(question))) fail("Prior reviewed questions cannot disappear from an evidence continuation.");
+    const priorCandidates = context.previousDecision.priorCandidateUncertainties, added = context.previousDecision.additionalUncertainties;
+    if (!Array.isArray(priorCandidates) || !Array.isArray(added)) fail("Prior classified question scope is required.");
+    const retains = (candidateId: unknown, dimension: unknown, question: unknown) => assessment.candidates.find(candidate => candidate.candidateId === candidateId)?.dimensions.find(item => item.dimension === dimension)?.uncertainties.some(item => item.question === question) === true;
+    for (const candidate of priorCandidates) {
+      if (!record(candidate) || !Array.isArray(candidate.dimensions)) fail("Prior classified question scope is required.");
+      for (const dimension of candidate.dimensions) {
+        if (!record(dimension) || !Array.isArray(dimension.uncertainties) || dimension.uncertainties.some(u => !record(u) || !retains(candidate.candidateId, dimension.dimension, u.question))) fail("Prior questions must retain their original candidate and dimension.");
+      }
+    }
+    for (const uncertainty of added) {
+      const candidateId = context.previousDecision.candidateId ?? recommendation.candidateId;
+      if (!record(uncertainty) || (candidateId ? !retains(candidateId, uncertainty.dimension, uncertainty.question) : !assessment.candidates.some(candidate => retains(candidate.candidateId, uncertainty.dimension, uncertainty.question)))) fail("Prior reviewer questions must retain their candidate or explicit Goal-level scope and dimension.");
+    }
+  }
   if (recommendation.proposedOutcome !== "TEST") { if (assessment.testPlan !== null) fail("A learning plan requires an explicit TEST proposal."); return; }
   const selected = selectedAssessment(assessment);
   if (!selected || !assessment.testPlan) fail("TEST needs a named candidate and explicit bounded learning experiment.");
@@ -352,6 +402,7 @@ export function validateStrategistAssessmentV2(intent: DiscoveryIntentV2, dossie
   if (plan.budgetStatus !== "proposal_only" || plan.generationAuthorized !== false || plan.spendingAuthorized !== false) fail("A future test budget is a proposal, never spending or generation authority.");
   if (![1, 2].includes(plan.maximumGenerations) || plan.maximumGenerations > intent.limits.maximumGenerations) fail("Test generation bound exceeds intent.");
   references(plan.evidenceRefs, dossier, context, 1);
+  geographicReferences(plan.evidenceRefs, recommendation.marketCountryCode!, context.sellerBankCountry ?? null, dossier, context);
   const facts = new Set(selected.dimensions.flatMap(d => d.facts.map(f => refKey(f.reference))));
   if (plan.evidenceRefs.some(ref => !facts.has(refKey(ref)))) fail("Test cites evidence unrelated to its candidate evaluation.");
   // The independent reviewer may reject this proposal. This validator never promotes it.
@@ -403,6 +454,10 @@ export function validateReviewerDecisionV2(intent: DiscoveryIntentV2, dossier: D
   const marketComparison = assessment.marketComparisons.find(m => m.countryCode === review.marketCountryCode);
   if (!marketComparison?.evidenceRefs.length) fail("Starting geography needs cited support and explicit comparison limitations.");
   const testRefs = new Set(assessment.testPlan.evidenceRefs.map(refKey));
-  const marketBasis = selected.dimensions.some(d => ["demand", "competition", "marketing_potential", "differentiation"].includes(d.dimension) && ["direct", "adjacent"].includes(d.evidenceStrength) && d.facts.some(f => testRefs.has(refKey(f.reference)) && marketSource(evidence(f.reference, dossier, context).source.url)));
+  const marketBasis = selected.dimensions.some(d => ["demand", "competition", "marketing_potential", "differentiation"].includes(d.dimension) && ["direct", "adjacent"].includes(d.evidenceStrength) && d.facts.some(f => {
+    const found = evidence(f.reference, dossier, context), observation = found.observation;
+    return testRefs.has(refKey(f.reference)) && marketSource(found.source.url) && (!observation ||
+      observation.geographyRole === "buyer_market" && observation.countries.includes(review.marketCountryCode!));
+  }));
   if (!marketBasis) fail("TEST needs relevant observed market evidence, not generic guidance alone.");
 }

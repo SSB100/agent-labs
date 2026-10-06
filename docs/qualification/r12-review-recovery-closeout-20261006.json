@@ -1,0 +1,127 @@
+{
+  "version": "r12.review-recovery-closeout.1",
+  "status": "technical_research_path_qualified_business_evidence_incomplete",
+  "date": "2026-10-06",
+  "release": {
+    "pullRequest": 66,
+    "head": "4742663cc55824dab2df68ab2baa692ccaed140d",
+    "main": "94146eb33714416407a2c21e0af9bf44db77a833",
+    "tree": "bb05a015f6457384d13c654bc75f259d273d7443",
+    "ciRun": 37518290957,
+    "ciResult": "all12success",
+    "quality": {
+      "total": 3351,
+      "passed": 3323,
+      "failed": 0,
+      "explicitSkips": 28
+    },
+    "independentScreenshotsReviewed": 19,
+    "deployment": "dpl_4SMD6UbBnqDd5KB8JZdmGme9FEDd",
+    "productionHealth": 200,
+    "duplicateMainCiCanceled": 37524316671
+  },
+  "migrations": [
+    {
+      "file": "20261006102924_r12_review_response_observations.sql",
+      "historyVersion": "20261006194232",
+      "sha256": "a7a07640fb7c2bae0be21110a13a909d187d688f131770332d21813dc8789821"
+    },
+    {
+      "file": "20261006105644_r12_review_lineage_successors.sql",
+      "historyVersion": "20261006200314",
+      "sha256": "c3a61cf85b7ad108c037f8ad7b7915c8a01596885f106be66d84148d4edebe16"
+    }
+  ],
+  "businessId": "91ff7c87-60e4-4dbb-8e84-be63b53c2c79",
+  "goalId": "3548865c-238a-48ed-8469-6b0f32ac0f95",
+  "sourceScopeId": "33bbb31d-b7ef-4ac2-9937-a282a550c209",
+  "predecessorScopeId": "31335a87-c2a4-492e-878b-65f4b3257b35",
+  "scopeId": "88ff7f09-b5bc-4915-ac17-d4c75cabccea",
+  "scopeHash": "ce8482e6ffd43a8a71ab5403f485a62aff7a6e8c008317f7e54a97617a2a6941",
+  "planId": "52ce716f-1ed1-48c2-89b5-bb7394527075",
+  "planHash": "fd1e4201ff789006e2e482167296ef58dbd41bd547e5ccb2122888423dd7c3a9",
+  "planVersion": 3,
+  "attemptId": "7c093ea0-9b68-4954-a63a-c781ee163364",
+  "requestId": "d8655758-5b8d-4a14-842e-a26c87116a05",
+  "artifactId": "29ce8644-cde7-56c2-a02a-ae441712d4ff",
+  "generationId": "gen-1791318175-Azud1ooRpXFtJjYltI1u",
+  "outcome": "NEEDS_MORE_EVIDENCE",
+  "candidateSelected": false,
+  "acceptedResponseHash": "b76f7b18ef33f689101d415aaf4f2fd2541de9dcae79161af6962470c8d33aa7",
+  "reviewHash": "cce1c90e829f8f88c0ccf3a1ebf47384c3c043d0e9a33b483122cfe0c5021bec",
+  "routeProofHash": "ee50eb6b2af61c338a54c21de45bb0dc899b2a5af127ff0c060927ebbbe4a83c",
+  "provider": {
+    "requestedEndpoint": "amazon-bedrock/us",
+    "observedProviderName": "Amazon Bedrock",
+    "observedCanonicalModel": "anthropic/claude-4.5-haiku-20251001"
+  },
+  "dispatches": 1,
+  "receiptChecks": [
+    {
+      "proof": null,
+      "ordinal": 1,
+      "createdAt": "2026-10-06T20:23:09.617955+00:00",
+      "diagnostic": {
+        "code": "api_failure",
+        "httpStatus": 404
+      },
+      "retryAfterAt": null
+    },
+    {
+      "proof": {
+        "modelId": "anthropic/claude-4.5-haiku-20251001",
+        "proofHash": "ee50eb6b2af61c338a54c21de45bb0dc899b2a5af127ff0c060927ebbbe4a83c",
+        "generationId": "gen-1791318175-Azud1ooRpXFtJjYltI1u",
+        "providerName": "Amazon Bedrock",
+        "providerResponses": [
+          {
+            "status": 200,
+            "modelId": "anthropic/claude-4.5-haiku-20251001",
+            "providerName": "Amazon Bedrock"
+          }
+        ],
+        "requestedEndpoint": "amazon-bedrock/us"
+      },
+      "ordinal": 2,
+      "createdAt": "2026-10-06T20:26:18.479593+00:00",
+      "diagnostic": null,
+      "retryAfterAt": null
+    }
+  ],
+  "newChargeMicrousd": 13831,
+  "settlementObservationCount": 2,
+  "settlementNote": "Two observations of the same generation and same charge; not two paid generations. Canonical exposure counts this charge once.",
+  "originalFourPhaseMicrousd": 19268,
+  "priorFailedReviewMicrousd": 17713,
+  "totalR12Microusd": 50812,
+  "businessKnownMicrousd": 697663,
+  "businessLifetimeCapMicrousd": 1053587,
+  "businessHeadroomMicrousd": 355924,
+  "rootKnownMicrousd": 160292,
+  "rootMaximumMicrousd": 2000000,
+  "rootRemainingMicrousd": 1839708,
+  "unknownCost": false,
+  "heldMicrousd": 0,
+  "authority": {
+    "policyRevoked": true,
+    "controllerRevoked": true,
+    "admissionRevoked": true,
+    "active": false,
+    "verifiedAt": "2026-10-06T20:34:01.217018+00:00"
+  },
+  "observation": {
+    "bytes": 4675,
+    "sha256": "21070e5227110bc9c9ecec898ff5cd07c473335ccd3c92d87e2a3b5e926939b4",
+    "state": "complete",
+    "diagnostic": null,
+    "privateTextPublished": false
+  },
+  "limits": [
+    "Original source expiry remains2026-10-07T07:06:31.677Z; no evidence timestamp renewed",
+    "No demand or profitability claim established; no candidate or learning test selected",
+    "No creative generation, store mutation, publication or commerce authorized",
+    "Technical acceptance is distinct from business evidence sufficiency; R12 is not complete",
+    "No automatic targeted follow-up or budget increase/continue convenience flow was qualified",
+    "The same Goal is at plan revision3 of the existing4-revision limit; money does not reset attempts"
+  ]
+}
