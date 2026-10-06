@@ -2,7 +2,7 @@
 import {createQuestControllerStore} from '@/lib/quest-controller-runtime';
 import {createRuntimeClient} from '@/lib/supabase/runtime';
 import {createDiscoveryR12QuestAdapter} from '@/products/discovery-r12-adapter';
-import type {DiscoveryR12Quote} from '@/products/discovery-r12-quote';
+import type {DiscoveryR12ExecutionQuote} from '@/products/discovery-r12-quote';
 async function post(path:string,value:unknown){const url=new URL(process.env.R03_BOUNDARY!);if(url.protocol!=='http:'||url.hostname!=='127.0.0.1')throw Error('inert_boundary_required');const r=await fetch(url.origin+path,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(value),signal:AbortSignal.timeout(10000)});if(!r.ok)throw Error('inert_transport_failed');return r.json();}
-export function discoveryR12ServerDependencies(){return{createController:createQuestControllerStore,createClient:createRuntimeClient,quote:async()=>await post('/r12/quote',{}) as DiscoveryR12Quote,
+export function discoveryR12ServerDependencies(){return{createController:createQuestControllerStore,createClient:createRuntimeClient,quote:async(options:{evidenceContinuation?:boolean}={})=>await post('/r12/quote',options) as DiscoveryR12ExecutionQuote,
  createAdapter:(options:Parameters<typeof createDiscoveryR12QuestAdapter>[0])=>createDiscoveryR12QuestAdapter({...options,config:{apiKey:'inert-r12-provider-placeholder',baseUrl:'https://openrouter.ai/api/v1',appUrl:'https://example.invalid',appName:'Inert R12 Next test'},fetcher:async(url,init)=>{if(!['GET','POST'].includes(init?.method??'')||!String(url).startsWith('https://openrouter.ai/api/v1/'))throw Error('inert_wire_required');const r=await post('/r12/provider',{phase:options.phase,method:init?.method,url:String(url),...(init?.body?{body:JSON.parse(String(init.body))}:{})});return new Response(JSON.stringify(r.body),{status:r.status,headers:{'content-type':'application/json'}});}})};}

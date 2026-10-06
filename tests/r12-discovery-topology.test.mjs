@@ -24,3 +24,11 @@ test('R12 successor topology permits one reviewer only within the existing four-
  for(const maximumDispatches of [6,7]){const p=discoveryPlanFixture();p.format='r12.discovery-review.1';p.steps=[p.steps[4]];p.maximumDispatches=maximumDispatches;p.maximumChildren=maximumDispatches+1;assert.deepEqual(compileQuestPlan(p),p);}
  const excessive=discoveryPlanFixture();excessive.format='r12.discovery-review.1';excessive.steps=[excessive.steps[4]];excessive.maximumDispatches=8;excessive.maximumChildren=9;assert.throws(()=>compileQuestPlan(excessive),/discovery_topology/);
 });
+
+test('R12 factual successor admits exactly strategy and review with three preserved source dependencies',()=>{
+ const p=discoveryPlanFixture();p.format='r12.discovery-evidence.1';p.steps=p.steps.slice(3);p.maximumDispatches=8;p.maximumChildren=9;
+ assert.deepEqual(compileQuestPlan(p),p);
+ for(const mutate of [p=>p.steps=p.steps.slice(1),p=>p.steps[0].dependsOn.push('strategy'),p=>p.steps[1].dependsOn=['strategy'],p=>p.maximumDispatches=2,p=>p.maximumChildren=2,p=>p.maximumDispatches=9,p=>p.maximumRepairs=1,p=>p.maximumPivots=1,p=>p.steps[1].workerDefinitionId=p.steps[0].workerDefinitionId,p=>p.steps[0].key='search1']){
+  const bad=structuredClone(p);mutate(bad);assert.throws(()=>compileQuestPlan(bad),/r07_/);
+ }
+});

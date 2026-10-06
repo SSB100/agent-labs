@@ -4,16 +4,17 @@ import {createRequire} from 'node:module';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
 import {runOperatorRecipe,STAGING_SQL,ACTIVATION_SQL} from '../../scripts/r12-research-bootstrap.mjs';
+import {runOperatorRecipe as runEvidenceRecipe} from '../../scripts/r12-evidence-continuation-bootstrap.mjs';
 import {runOperatorRecipe as runReviewRecipe} from '../../scripts/r12-review-continuation-bootstrap.mjs';
 import {reviewRecipeClient} from '../helpers/r12-review-fixture.mjs';
 import {r12QuoteFixture} from '../helpers/r12-provider-fixture.mjs';
 export const R12_INERT_ROOT='inert-r12-owner-root-configuration-0123456789';
 const tables=['businesses','goals','workflow_runs','workflow_definitions','workflow_stage_runs','worker_definitions','worker_runs','task_contracts','artifacts','installed_packs','product_experiments'];
 export async function loadR12NextFixture(state,scenario,directory,host){
- assert.ok(['current','pending','scheduled-review','completed','bootstrap','review-preparation','review-ready','review-successor-preparation','review-successor-ready'].includes(scenario));assert.ok(path.basename(directory).startsWith('r12-next-'));
+ assert.ok(['current','pending','scheduled-review','completed','bootstrap','review-preparation','review-ready','review-successor-preparation','review-successor-ready','evidence-preparation','evidence-ready'].includes(scenario));assert.ok(path.basename(directory).startsWith('r12-next-'));
  if(state.r12)await closeR12Fixture(state);
  const require=createRequire(path.join(host,'package.json')),{PGlite}=require('@electric-sql/pglite'),{pgcrypto}=require('@electric-sql/pglite/contrib/pgcrypto');
- const metadata=JSON.parse(await readFile(path.join(directory,scenario==='bootstrap'?'bootstrap-metadata.json':scenario.startsWith('review-successor-')?'successor-metadata.json':scenario.startsWith('review-')?'continuation-metadata.json':'metadata.json'),'utf8')),dump=await readFile(path.join(directory,`${scenario}.tgz`));
+ const metadata=JSON.parse(await readFile(path.join(directory,scenario==='bootstrap'?'bootstrap-metadata.json':scenario.startsWith('evidence-')?'evidence-metadata.json':scenario.startsWith('review-successor-')?'successor-metadata.json':scenario.startsWith('review-')?'continuation-metadata.json':'metadata.json'),'utf8')),dump=await readFile(path.join(directory,`${scenario}.tgz`));
  const db=new PGlite({extensions:{pgcrypto},loadDataDir:new Blob([dump])});await db.waitReady;await db.exec("set timezone='UTC'");
  state.r12={...metadata,db,scenario,calls:[],receipts:[],quoteReads:0,generations:Object.fromEntries((await db.query("select candidate->>'phase' phase,candidate->>'providerRequestId' id from private.r12_discovery_candidates")).rows.map(r=>[r.phase,r.id]))};state.owner=metadata.ownerId;
  await db.query("select set_config('request.jwt.claim.sub',$1,false)",[state.owner]);
@@ -31,9 +32,9 @@ export async function controlR12(state,input){
  if(input.r12BootstrapStage){assert.equal(r.scenario,'bootstrap');assert.ok(!r.staged);const receipt=input.r12BootstrapStage;assert.equal(receipt.businessId,r.businessId);assert.equal(receipt.priorId,r.priorRoundId);assert.equal(receipt.rootId,r.budgetAuthorityRootId);assert.equal(receipt.authorityCreated,false);const hash=label=>createHash('sha256').update('inert-'+label).digest('hex');r.setup={...receipt,approvalHash:hash('approved-packet'),ipsosReviewHash:hash('ipsos-review'),mdpiReviewHash:hash('mdpi-review'),independentReviewHash:hash('independent-review'),executionReviewHash:hash('execution-review'),eligibilityReviewHash:hash('eligibility-review'),quote:r12QuoteFixture()};r.staged=await operatorRecipe(r,'stage',r.setup);r.scopeId=receipt.scopeId;r.goalId=receipt.goalId;await mirrorR12(state);}
  if(input.r12BootstrapActivate){assert.equal(r.scenario,'bootstrap');assert.ok(r.staged&&!r.activated);const p=(await r.db.query('select id,content_hash hash from private.r05_policies where business_id=$1 and payload=$2::jsonb',[r.businessId,r.staged.policyPayload])).rows;assert.equal(p.length,1);r.activated=await operatorRecipe(r,'activate',{...r.setup,quote:r12QuoteFixture(),amendmentHash:r.staged.amendmentHash,policyId:p[0].id,policyHash:p[0].hash,policyInterpretationHash:createHash('sha256').update('inert-policy-review').digest('hex')});r.plan=r.activated.plan;await mirrorR12(state);}
  if(input.r12ReviewActivate){
-  assert.ok(['review-preparation','review-successor-preparation'].includes(r.scenario));assert.ok(!r.activated);const receipt=input.r12ReviewActivate;assert.equal(receipt.businessId,r.businessId);assert.equal(receipt.scopeId,r.scopeId);assert.equal(receipt.goalId,r.goalId);assert.equal(receipt.executionAuthorized,false);
+  assert.ok(['review-preparation','review-successor-preparation','evidence-preparation'].includes(r.scenario));assert.ok(!r.activated);const receipt=input.r12ReviewActivate;assert.equal(receipt.businessId,r.businessId);assert.equal(receipt.scopeId,r.scopeId);assert.equal(receipt.goalId,r.goalId);assert.equal(receipt.executionAuthorized,false);
   const staged=(await r.db.query('select s.amendment_hash,q.proposal_hash from private.r12_discovery_scopes s join private.r12_review_owner_proposals q on q.scope_id=s.id where s.id=$1',[r.scopeId])).rows[0];assert.equal(receipt.proposalHash,staged.proposal_hash);
-  r.activated=await runReviewRecipe(reviewRecipeClient(r.db),'activate',{businessId:r.businessId,scopeId:r.scopeId,scopeHash:staged.amendment_hash,proposalHash:receipt.proposalHash,policyId:receipt.policyId,policyHash:receipt.policyHash,quote:r12QuoteFixture(),executionReviewHash:r.executionReviewHash,eligibilityReviewHash:r.eligibilityReviewHash,controllerKeyHash:receipt.controllerKeyHash,admissionKeyHash:receipt.admissionKeyHash});r.plan=r.activated.plan;await mirrorR12(state);
+  r.activated=await (r.scenario==='evidence-preparation'?runEvidenceRecipe:runReviewRecipe)(reviewRecipeClient(r.db),'activate',{businessId:r.businessId,scopeId:r.scopeId,scopeHash:staged.amendment_hash,proposalHash:receipt.proposalHash,policyId:receipt.policyId,policyHash:receipt.policyHash,quote:r12QuoteFixture(Date.now(),r.scenario==='evidence-preparation'),executionReviewHash:r.executionReviewHash,eligibilityReviewHash:r.eligibilityReviewHash,controllerKeyHash:receipt.controllerKeyHash,admissionKeyHash:receipt.admissionKeyHash});r.plan=r.activated.plan;await mirrorR12(state);
  }
  if(input.r12Pause){await r.db.query("select public.r05_policy_owner($1,'pause',$2,$3)",[r.businessId,{kind:'business',id:r.businessId},crypto.randomUUID()]);}
  });
@@ -70,7 +71,7 @@ export async function r12RuntimeRpc(state,name,args){
  assert.ok(['r07_controller','r12_discovery_server'].includes(name));
  return sqlRpc(r,name,keys.map(k=>args[k]??null),'anon',()=>mirrorR12(state));
 }
-export function r12Quote(state){state.r12.quoteReads++;return r12QuoteFixture(Date.now());}
+export function r12Quote(state){state.r12.quoteReads++;return r12QuoteFixture(Date.now(),state.r12.scenario.startsWith('evidence-'));}
 export function r12Provider(state,input,control,effects){
  const r=state.r12;assert.ok(r);const phase=input.phase;assert.ok(['plan','search1','select1','strategy','review'].includes(phase));
  const model=phase==='review'?'anthropic/claude-4.5-haiku-20251001':'openai/gpt-5.6-luna-20260709',id=`gen-r12-next-${phase}`;
@@ -83,6 +84,6 @@ export function r12Provider(state,input,control,effects){
   return{status:200,body:{id,model,choices:[{finish_reason:'stop',message}],usage:{prompt_tokens:100,completion_tokens:50,total_tokens:150,cost:.00001,...(phase==='search1'?{server_tool_use_details:{web_search_requests:1}}:{})}}};
  }
  assert.equal(input.method,'GET');const generationId=r.generations[phase];assert.ok(generationId);assert.equal(input.url,`https://openrouter.ai/api/v1/generation?id=${generationId}`);r.receipts.push(phase);
- if(control.r12DelayReceipt&&phase===(r.scenario.startsWith('review-')?'review':'plan'))return{status:404,body:{error:{message:'Synthetic receipt not yet indexed'}}};
+ if(control.r12DelayReceipt&&phase===(r.scenario.startsWith('evidence-')?'strategy':r.scenario.startsWith('review-')?'review':'plan'))return{status:404,body:{error:{message:'Synthetic receipt not yet indexed'}}};
  return{status:200,body:{data:{id:generationId,provider_name:phase==='review'?'Amazon Bedrock':'Azure',model}}};
 }

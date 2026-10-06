@@ -43,6 +43,18 @@ export async function runR12ReviewJourney({origin,noKeyOrigin,boundary,output,di
   assert.equal(saved.phases[4].responseDiagnostic.code,'json_parse');assert.equal(saved.phases[4].responseObservation.contentState,'complete');assert.equal(saved.phases[4].candidateSaved,false);assert.equal(saved.cost.knownMicrousd,'50');assert.deepEqual(fixture().calls,['review']);assert.deepEqual(fixture().receipts,[]);
   const rendered=await(await fetch(origin+researchRoute(),{signal:AbortSignal.timeout(30000)})).text();assert.match(researchHtmlText(rendered),/Review response was not accepted/);assert.match(researchHtmlText(rendered),/required JSON object/);assert.doesNotMatch(rendered,/UNQUALIFIED_NEXT_JSON_SENTINEL/);
  });
+ await check('Rendered factual addendum confirmation and final two-call execution preserve the accepted predecessor',async()=>{
+  await control({r12Scenario:'evidence-preparation',r12Directory:directory,r12DelayReceipt:false,r12ReviewFailure:null});
+  const before=(await workspace()).data,page=await read();assert.match(researchHtmlText(page),/Review additional research evidence/);assert.match(researchHtmlText(page),/two-call financial permission/);assert.match(researchHtmlText(page),/Synthetic nature shirt offer/);assert.equal(fixture().calls.length,0);
+  const bad=renderedResearchForm(page,'Confirm additional evidence analysis',fixture().scopeId);bad.set('reviewed','on');bad.set('proposalHash','0'.repeat(64));await post(bad);assert.deepEqual((await workspace()).data,before);
+  const form=renderedResearchForm(page,'Confirm additional evidence analysis',fixture().scopeId);form.set('reviewed','on');await post(form);const confirmed=(await workspace()).data;assert.equal(confirmed.proposal.operatingPolicy.maximumDispatches,2);assert.ok(confirmed.confirmation);await post(form);assert.deepEqual((await workspace()).data.confirmation,confirmed.confirmation);
+  const recovery=renderedResearchForm(await read(),'Recover confirmed setup receipt',fixture().scopeId);recovery.set('reviewed','on');const html=await post(recovery,origin,true),match=html.match(/<label>Setup receipt<textarea[^>]*>([\s\S]*?)<\/textarea>/);assert.ok(match);const receipt=JSON.parse(researchHtmlText(match[1]));
+  await control({r12ReviewActivate:receipt});const research=await(await fetch(origin+researchRoute(),{signal:AbortSignal.timeout(30000)})).text();const run=renderedResearchForm(research,'Continue approved research',fixture().scopeId);
+  const sent=await fetch(origin+researchRoute(),{method:'POST',headers:{origin,accept:'text/html'},body:run,redirect:'manual',signal:AbortSignal.timeout(30000)});assert.ok([200,303].includes(sent.status));await sent.body?.cancel();
+  const saved=(await r12OwnerRpc(boundary.state(),'r12_discovery_owner_read',{p_business_id:fixture().businessId,p_scope_id:fixture().scopeId,p_activation:false})).data;
+  assert.equal(saved.state,'completed');assert.equal(saved.planVersion,4);assert.equal(saved.cost.knownMicrousd,'80');assert.equal(saved.priorStrategy.knownMicrousd,'10');assert.equal(saved.priorReviews.length,2);assert.deepEqual(fixture().calls,['strategy','review']);assert.deepEqual(fixture().receipts,['strategy','review']);
+  const result=await(await fetch(origin+researchRoute(),{signal:AbortSignal.timeout(30000)})).text();assert.match(researchHtmlText(result),/Reviewed additional public observations/);assert.match(researchHtmlText(result),/Needs more evidence/);
+ });
  if(!httpOnly){
   await reset();const browser=await chromium.launch({headless:true,executablePath:process.env.GUIDED_UI_CHROMIUM_PATH,args:['--no-sandbox']});
   try{
@@ -82,6 +94,32 @@ export async function runR12ReviewJourney({origin,noKeyOrigin,boundary,output,di
     await page.getByRole('link',{name:'Review attempt 1',exact:true}).click();await page.getByText('Review response was not accepted.',{exact:true}).waitFor();await page.goBack();await page.getByRole('heading',{name:'Needs more evidence',exact:true}).waitFor();
     for(const [width,height] of [[1280,900],[390,844]]){await page.setViewportSize({width,height});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));await page.screenshot({path:path.join(output,`r12-review-successor-${width}.png`),fullPage:true});}
     await action('Stop research',()=>page.getByRole('button',{name:'Stop research',exact:true}).waitFor());await page.reload();assert.equal(await page.getByRole('button',{name:'Stop research',exact:true}).isDisabled(),true);assert.deepEqual(fixture().calls,['review']);
+   });
+   await check('Owner reviews factual addendum and completes exactly strategy plus review in the final plan slot',async()=>{
+    await control({r12Scenario:'evidence-preparation',r12Directory:directory,r12DelayReceipt:false,r12ReviewFailure:null});
+    for(const [width,height] of [[1280,900],[390,844],[320,800]]){
+     await page.setViewportSize({width,height});await page.goto(origin+route());await page.getByRole('heading',{name:'Review additional research evidence',exact:true}).waitFor();
+     await page.getByRole('region',{name:'Additional public observations',exact:true}).waitFor();assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+     await page.screenshot({path:path.join(output,`r12-evidence-preparation-${width}.png`),fullPage:true});
+    }
+    await page.setViewportSize({width:1280,height:900});await page.getByRole('checkbox',{name:/I reviewed the public-source observations/}).check();
+    await action('Confirm additional evidence analysis',()=>page.getByRole('heading',{name:'Additional analysis prepared',exact:true}).waitFor());
+    await page.getByText('Nonsecret operator setup receipt',{exact:true}).click();const prepared=JSON.parse(await page.getByRole('textbox',{name:'Setup receipt',exact:true}).inputValue());assert.equal(prepared.executionAuthorized,false);
+    await page.getByRole('link',{name:'Inspect the saved decision and earlier research',exact:true}).click();await page.getByRole('heading',{name:'Needs more evidence',exact:true}).waitFor();
+    await page.getByRole('link',{name:'Review additional evidence analysis',exact:true}).click();await page.getByRole('heading',{name:'Review additional research evidence',exact:true}).waitFor();
+    await page.getByRole('checkbox',{name:/I reviewed the public-source observations/}).check();await action('Recover confirmed setup receipt',()=>page.getByRole('heading',{name:'Additional analysis prepared',exact:true}).waitFor());
+    await page.getByText('Nonsecret operator setup receipt',{exact:true}).click();assert.deepEqual(JSON.parse(await page.getByRole('textbox',{name:'Setup receipt',exact:true}).inputValue()),prepared);assert.deepEqual(fixture().calls,[]);
+    await control({r12ReviewActivate:prepared,r12DelayReceipt:true});await page.goto(origin+researchRoute());
+    await action('Continue approved research',()=>page.getByText(/Output saved.*Awaiting provider receipt/).waitFor());assert.deepEqual(fixture().calls,['strategy']);assert.deepEqual(fixture().receipts,['strategy']);
+    await page.reload();assert.equal(await page.getByRole('button',{name:'Continue approved research',exact:true}).isDisabled(),true);
+    await control({r12Due:true,r12DelayReceipt:false});await page.reload();await action('Continue approved research',()=>page.getByRole('heading',{name:'Needs more evidence',exact:true}).waitFor());
+    assert.deepEqual(fixture().calls,['strategy','review']);assert.deepEqual(fixture().receipts,['strategy','strategy','review']);
+    await page.getByText('Reviewed additional public observations',{exact:true}).waitFor();
+    const saved=(await r12OwnerRpc(boundary.state(),'r12_discovery_owner_read',{p_business_id:fixture().businessId,p_scope_id:fixture().scopeId,p_activation:false})).data;
+    assert.equal(saved.planVersion,4);assert.equal(saved.cost.knownMicrousd,'80');assert.equal(saved.priorStrategy.knownMicrousd,'10');assert.equal(saved.priorReviews.length,2);
+    await page.getByRole('link',{name:'Inspect the earlier saved decision',exact:true}).click();await page.getByRole('heading',{name:'Needs more evidence',exact:true}).waitFor();await page.goBack();await page.getByText('Reviewed additional public observations',{exact:true}).waitFor();
+    for(const [width,height] of [[1280,900],[390,844]]){await page.setViewportSize({width,height});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));await page.screenshot({path:path.join(output,`r12-evidence-result-${width}.png`),fullPage:true});}
+    await action('Stop research',()=>page.getByRole('button',{name:'Stop research',exact:true}).waitFor());await page.reload();assert.equal(await page.getByRole('button',{name:'Stop research',exact:true}).isDisabled(),true);assert.deepEqual(fixture().calls,['strategy','review']);
    });
    await context.close();
   }finally{await browser.close();}

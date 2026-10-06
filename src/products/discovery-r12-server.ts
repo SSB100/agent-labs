@@ -7,7 +7,7 @@ import { driveQuestOnce, type QuestAdapter, type QuestTickResult } from "../core
 import { discoveryV2Hash } from "./discovery-v2";
 import { buildDiscoveryR12PhaseRequest, projectDiscoveryR12Phase, readDiscoveryR12PhaseInputs } from "./discovery-r12-runtime";
 import { DiscoveryR12ReceiptPending, type DiscoveryR12EffectStore } from "./discovery-r12-adapter";
-import type { DiscoveryR12Quote } from "./discovery-r12-quote";
+import type { DiscoveryR12ExecutionQuote } from "./discovery-r12-quote";
 import type { DiscoveryR12ExecutionScope } from "./discovery-r12-review-continuation";
 import { DISCOVERY_R12_PHASES, type DiscoveryR12Phase } from "./discovery-r12-wire";
 import { discoveryR12ServerDependencies } from "./discovery-r12-server-dependencies";
@@ -45,8 +45,8 @@ export async function continueDiscoveryR12(context:OwnerUiContext,businessId:str
   if(response.error||!object(response.data))return fail();return response.data;
  };
  const effects:DiscoveryR12EffectStore={operation,settle:async(attemptId,settlement)=>{await controller.command('settle',{attemptId,settlement});},dispatchedAt:async attemptId=>{const data=await operation(attemptId,'load',{});if(typeof data.dispatchedAt!=='string'||!Number.isFinite(Date.parse(data.dispatchedAt)))return fail();return data.dispatchedAt;}};
- let quote:DiscoveryR12Quote|null=null;
- const freshQuote=async()=>{if(!quote||Date.parse(quote.validUntil)<=Date.now())quote=await dependencies.quote();return quote;};
+ let quote:DiscoveryR12ExecutionQuote|null=null;
+ const freshQuote=async()=>{if(!quote||Date.parse(quote.validUntil)<=Date.now())quote=await dependencies.quote({evidenceContinuation:plan.format==='r12.discovery-evidence.1'});return quote;};
  const adapters:Record<string,QuestAdapter>={};
  for(const step of plan.steps){
   if(!DISCOVERY_R12_PHASES.includes(step.key as DiscoveryR12Phase))return fail();
@@ -59,7 +59,7 @@ export async function continueDiscoveryR12(context:OwnerUiContext,businessId:str
  const saved=await controller.read();
  if(saved&&saved.planHash!==activation.planHash)return fail();
  if(!saved){
-  if(row.activeWindow!==true||plan.format==='r12.discovery-review.1')return fail();
+  if(row.activeWindow!==true||plan.format==='r12.discovery-review.1'||plan.format==='r12.discovery-evidence.1')return fail();
   await controller.command('plan',{plan,expectedVersion:0,reason:'Approved bounded nature-shirt discovery',evidenceHash:scope.independentReviewHash});
  }
  const started=Date.now();

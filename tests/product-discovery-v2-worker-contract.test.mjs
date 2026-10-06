@@ -11,6 +11,8 @@ import research from '../.core-tests/research/sources.js';
 import knowledge from '../.core-tests/products/discovery-v2-knowledge.js';
 import etsyKnowledge from '../.core-tests/packs/etsy-knowledge.js';
 import discoveryPacks from '../.core-tests/products/discovery-v2-packs.js';
+import addenda from '../.core-tests/products/discovery-r12-evidence-addendum.js';
+import { r12AddendumFixture } from './helpers/r12-addendum-fixture.mjs';
 
 // Synthetic contract fixtures only. No provider call or commercial qualification.
 const id = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -99,6 +101,77 @@ function compactReview(f) {
   return { marketCountryCode: f.review.marketCountryCode, candidateKey: f.prepared.candidateKeys.find(c => c.candidateId === f.review.candidateId).key, outcome: f.review.outcome,
     sufficiencyRationale: f.review.sufficiencyRationale, dimensions: f.review.dimensions.map(d => ({ dimension: d.dimension, verdict: d.verdict, rationale: d.rationale, evidence: d.evidenceRefs.map(key) })), checks: f.review.checks, additionalUncertainties: [] };
 }
+
+test('reviewed public addendum retains exact provenance and limitations in actual strategist and reviewer inputs', () => {
+  const f = fixture(), addendum = r12AddendumFixture(f.intent, now);
+  f.dossier.addendumRef = { artifactId: addendum.id, sha256: v2.discoveryV2Hash(addendum) };
+  f.context.evidenceAddendum = addendum;
+  f.assessment.dossierHash = v2.discoveryV2Hash(f.dossier);
+  const prepared = worker.prepareDiscoveryWorkerContextV2(f.intent, f.dossier, f.context, [...f.refs, ...addenda.discoveryAddendumReferences(addendum)], now);
+  for (const request of [worker.buildStrategistRequestV2(prepared, now), worker.buildReviewerRequestV2(prepared, f.assessment, f.execution, now)]) {
+    const encoded = JSON.parse(request.messages[1].content);
+    const decode = value => Array.isArray(value) ? value.map(decode) : value && typeof value === 'object' ? Object.keys(value).length === 1 && '$text' in value ? encoded.sharedText[value.$text] : Object.fromEntries(Object.entries(value).map(([key, child]) => [key, decode(child)])) : value;
+    const input = decode(encoded), observed = input.evidence.find(e => e.sourceContext);
+    assert.equal(observed.sourceContext.access, 'public_document_read');
+    assert.equal(observed.sourceContext.kind, 'retail_offer');
+    assert.equal(observed.sourceContext.context, addendum.observations[0].context);
+    assert.deepEqual(observed.sourceContext.limitations, addendum.observations[0].limitations);
+    assert.deepEqual(observed.sourceContext.countries, ['US']);
+    assert.match(input.reviewStage.unknowns, /unresolved for launch/);
+    assert.match(input.reviewStage.safety, /Reject known IP or production failures/);
+    assert.ok(Buffer.byteLength(JSON.stringify(request)) <= 32768);
+  }
+  assert.equal(f.persisted.lineage.provider, 'openrouter.exa');
+  assert.equal(prepared.validation.evidenceAddendum.observations[0].access, 'public_document_read');
+});
+
+test('offer observations cannot be repurposed as demand evidence, even with a valid addendum hash', () => {
+  const f = fixture(), addendum = r12AddendumFixture(f.intent, now);
+  f.dossier.addendumRef = { artifactId: addendum.id, sha256: v2.discoveryV2Hash(addendum) }; f.context.evidenceAddendum = addendum;
+  f.assessment.dossierHash = v2.discoveryV2Hash(f.dossier);
+  const demand = f.assessment.candidates[0].dimensions.find(d => d.dimension === 'demand');
+  demand.facts = [{ reference: addenda.discoveryAddendumReferences(addendum)[0], relevance: 'The listed offer is incorrectly asserted to establish buyer interest.' }];
+  assert.throws(() => v2.validateStrategistAssessmentV2(f.intent, f.dossier, f.assessment, f.context, f.execution, now), /unapproved evidence role/);
+});
+
+test('changing source limitations or owner bank declaration invalidates bound worker context', () => {
+  const f = fixture(), addendum = r12AddendumFixture(f.intent, now);
+  f.dossier.addendumRef = { artifactId: addendum.id, sha256: v2.discoveryV2Hash(addendum) }; f.context.evidenceAddendum = addendum;
+  const prepared = worker.prepareDiscoveryWorkerContextV2(f.intent, f.dossier, f.context, [...f.refs, ...addenda.discoveryAddendumReferences(addendum)], now);
+  prepared.validation.evidenceAddendum.observations[0].limitations = ['This replacement tries to remove the recorded limitation on buyer demand.'];
+  assert.throws(() => worker.buildStrategistRequestV2(prepared, now), /addendum/);
+  f.context.sellerBankCountry = 'GB';
+  assert.throws(() => worker.prepareDiscoveryWorkerContextV2(f.intent, f.dossier, f.context, f.refs, now), /declaration mismatch/);
+});
+
+test('new public evidence cannot transfer buyer-market support across countries or erase an earlier question',()=>{
+ const f=fixture(),addendum=r12AddendumFixture(f.intent,now),ref=addenda.discoveryAddendumReferences(addendum)[0];
+ f.dossier.addendumRef={artifactId:addendum.id,sha256:v2.discoveryV2Hash(addendum)};f.context.evidenceAddendum=addendum;f.assessment.dossierHash=v2.discoveryV2Hash(f.dossier);
+ f.assessment.marketComparisons.find(m=>m.countryCode==='GB').evidenceRefs=[ref];
+ assert.throws(()=>v2.validateStrategistAssessmentV2(f.intent,f.dossier,f.assessment,f.context,f.execution,now),/different country/);
+ f.assessment.marketComparisons.find(m=>m.countryCode==='GB').evidenceRefs=[];
+ f.context.previousDecision={outcome:'NEEDS_MORE_EVIDENCE',missingQuestions:['Which unresolved candidate-specific risk remains before the private test?']};
+ assert.throws(()=>v2.validateStrategistAssessmentV2(f.intent,f.dossier,f.assessment,f.context,f.execution,now),/Prior reviewed questions/);
+});
+
+test('seller jurisdiction supports its exact hypothetical bank scenario without becoming buyer-market evidence',()=>{
+ const f=fixture(),addendum=r12AddendumFixture(f.intent,now),o=addendum.observations[0];o.kind='official_operating_fact';o.geographyRole='seller_jurisdiction';o.dimensions=['estimated_margin'];
+ f.dossier.addendumRef={artifactId:addendum.id,sha256:v2.discoveryV2Hash(addendum)};f.context.evidenceAddendum=addendum;f.assessment.dossierHash=v2.discoveryV2Hash(f.dossier);
+ const market=f.assessment.marketComparisons.find(m=>m.countryCode==='GB');market.feeScenarios=[{sellerBankCountry:'US',hypothetical:true,explanation:'A US-bank scenario is hypothetical and does not assert the owner bank country.',evidenceRefs:addenda.discoveryAddendumReferences(addendum)}];
+ assert.doesNotThrow(()=>v2.validateStrategistAssessmentV2(f.intent,f.dossier,f.assessment,f.context,f.execution,now));
+ market.feeScenarios[0].sellerBankCountry='GB';
+ assert.throws(()=>v2.validateStrategistAssessmentV2(f.intent,f.dossier,f.assessment,f.context,f.execution,now),/different jurisdiction/);
+});
+
+test('retaining an old question under another candidate or dimension cannot clear the selected concept',()=>{
+ const f=fixture(),addendum=r12AddendumFixture(f.intent,now);f.dossier.addendumRef={artifactId:addendum.id,sha256:v2.discoveryV2Hash(addendum)};f.context.evidenceAddendum=addendum;f.assessment.dossierHash=v2.discoveryV2Hash(f.dossier);
+ const candidate=f.assessment.candidates[0],dimension=candidate.dimensions.find(d=>d.dimension==='demand');
+ f.context.previousDecision={outcome:'NEEDS_MORE_EVIDENCE',candidateId:null,missingQuestions:[dimension.uncertainties[0].question],priorCandidateUncertainties:[{candidateId:candidate.candidateId,dimensions:[{dimension:'demand',uncertainties:structuredClone(dimension.uncertainties)}]}],additionalUncertainties:[]};
+ assert.doesNotThrow(()=>v2.validateStrategistAssessmentV2(f.intent,f.dossier,f.assessment,f.context,f.execution,now));
+ dimension.uncertainties[0].question='A different uncertainty replaces the original issue on this selected candidate.';
+ f.assessment.missingQuestions=[...new Set(f.assessment.candidates.flatMap(c=>c.dimensions.flatMap(d=>d.uncertainties.map(u=>u.question))))];
+ assert.throws(()=>v2.validateStrategistAssessmentV2(f.intent,f.dossier,f.assessment,f.context,f.execution,now),/original candidate and dimension/);
+});
 
 function decodeAssessmentRows(encoded) {
   const row = (names, values) => Object.fromEntries(names.map((name, index) => [name, values[index]]));
@@ -432,7 +505,7 @@ test('four-pack three-candidate requests preserve all twelve evidence spans with
   assert.ok(!review.messages[0].content.includes('recommendation.alternatives must explain'));
   const oversized = worker.prepareDiscoveryWorkerContextV2(f.intent, f.dossier, f.context, [...refs, ...refs.map(ref => ({ ...ref, end: ref.end - 1 }))], now);
   const before = JSON.stringify(oversized.evidencePool);
-  assert.throws(() => worker.buildStrategistRequestV2(oversized, now), /byte bound; nothing was truncated/);
+  assert.throws(() => worker.buildStrategistRequestV2(oversized, now), /byte bound(?: \([0-9]+\/[0-9]+\))?; nothing was truncated/);
   assert.equal(JSON.stringify(oversized.evidencePool), before);
 });
 

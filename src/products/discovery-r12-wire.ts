@@ -5,6 +5,7 @@ import { R11_RESTRICTED_SOURCE_DOMAINS } from "../research/qualification";
 import { DISCOVERY_V2_BUDGET, discoveryV2Model, type DiscoveryV2Call } from "./discovery-v2-budget";
 import { discoveryR12StaticSchema } from "./discovery-r12-schemas";
 import { discoveryV2Hash } from "./discovery-v2";
+import { DISCOVERY_R12_EVIDENCE_REQUEST_BYTES } from "./discovery-r12-quote";
 
 export type DiscoveryR12Phase = "plan" | "search1" | "select1" | "strategy" | "review";
 export const DISCOVERY_R12_PHASES = ["plan", "search1", "select1", "strategy", "review"] as const;
@@ -39,12 +40,13 @@ export function routeDiscoveryR12Request(request: StructuredModelRequest | WebSe
 
 /** Runs the real adapter serializer up to a deliberately denied admission.
  * No credential lookup, network transport or authority mutation can occur. */
-export async function inspectDiscoveryR12Wire(request: StructuredModelRequest | WebSearchModelRequest, phase: DiscoveryR12Phase): Promise<DiscoveryR12Wire> {
+export async function inspectDiscoveryR12Wire(request: StructuredModelRequest | WebSearchModelRequest, phase: DiscoveryR12Phase, evidenceContinuation = false): Promise<DiscoveryR12Wire> {
   const owned = structuredClone(request);
   if (!DISCOVERY_R12_PHASES.includes(phase) || !owned.providerOnly || owned.providerOnly.length !== 1 || owned.providerDataCollection !== "deny" || owned.providerZdr !== true || owned.requireReturnedModel !== true || !owned.providerPriceLimit) return fail();
   if (discoveryV2Hash(routeDiscoveryR12Request(owned, phase, { modelId: owned.model.providerModelId, endpoint: owned.providerOnly[0], priceLimit: owned.providerPriceLimit })) !== discoveryV2Hash(owned)) return fail();
   const kind = phase === "select1" ? "select" : phase;
-  const maximumRequestBytes = kind === "search1" ? DISCOVERY_V2_BUDGET.maximumSearchRequestBytes : DISCOVERY_V2_BUDGET.phases[kind].maximumRequestBytes;
+  if (evidenceContinuation && phase !== "strategy" && phase !== "review") return fail();
+  const maximumRequestBytes = evidenceContinuation ? DISCOVERY_R12_EVIDENCE_REQUEST_BYTES : kind === "search1" ? DISCOVERY_V2_BUDGET.maximumSearchRequestBytes : DISCOVERY_V2_BUDGET.phases[kind].maximumRequestBytes;
   const tokens = kind === "search1" ? 4000 : DISCOVERY_V2_BUDGET.phases[kind].outputTokens;
   if (Buffer.byteLength(JSON.stringify(owned), "utf8") > maximumRequestBytes) return fail();
   let captured: DiscoveryR12Wire | null = null;
