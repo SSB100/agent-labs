@@ -33,12 +33,12 @@ test('R12 main Connections scopes unavailable status and keeps qualified Details
  const businessId='00000000-0000-4000-8000-000000000001';
  const html=await renderDashboard({view:'connections',contextOverrides:{businesses:[{id:businessId,name:'Exact Business'}]},queryOverrides:{business:businessId},qualifiedConnectionRecords:{...workspace(),businessId,unavailable:true}});
  assert.match(html,new RegExp(`href="/dashboard/connections\\?business=${businessId}"[^>]*>Details`));
- assert.match(html,/Connection records unavailable/);assert.match(html,/<details><summary>Legacy setup requests/);assert.doesNotMatch(html,/Verified on record/);
+ assert.match(html,/Connection records unavailable/);assert.match(html,/<section class="connectionLegacyWorkspace" aria-labelledby="legacy-connection-heading"><h2 id="legacy-connection-heading">Legacy setup requests/);assert.doesNotMatch(html,/Verified on record/);
 });
-test('R12 provider-only return leaves the selected legacy flow open without asserting its health',async()=>{
+test('R12 provider-only return keeps the selected legacy flow visible without asserting its health',async()=>{
  const {renderDashboard}=await import('./helpers/guided-ui.mjs');
  const html=await renderDashboard({view:'connections',queryOverrides:{provider:'etsy'}});
- assert.match(html,/<details open=""><summary>Legacy setup requests/);assert.match(html,/Legacy setup registry:/);
+ assert.match(html,/<section class="connectionLegacyWorkspace" aria-labelledby="legacy-connection-heading"><h2 id="legacy-connection-heading">Legacy setup requests/);assert.match(html,/Legacy setup registry:/);
 });
 test('R12 empty outputs and legacy cost ledgers keep separate qualified research discoverable',async()=>{
  const {renderDashboard}=await import('./helpers/guided-ui.mjs');

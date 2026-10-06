@@ -15,7 +15,8 @@ test('R09 actual reviewed proposal, immutable promotion, scoped applications and
  const require=createRequire(path.resolve(host??root,'package.json'));let db,Client,config;
  if(required){assert.ok(process.env.R09_POSTGRES_URL);({Client}=require('pg'));config={connectionString:fixtureUrl(process.env.R09_POSTGRES_URL),statement_timeout:15000};const c=new Client(config);await c.connect();db={exec:s=>c.query(s),query:(s,p)=>c.query(s,p),close:()=>c.end()};assert.equal((await db.query("select count(*)::int n from pg_namespace where nspname in ('auth','private','storage')")).rows[0].n,0,'Fresh isolated cluster required');}
  else{const{PGlite}=require('@electric-sql/pglite'),{pgcrypto}=require('@electric-sql/pglite/contrib/pgcrypto');db=new PGlite({extensions:{pgcrypto}});}
- const functions="select p.oid::regprocedure::text id,pg_get_functiondef(p.oid) body,p.proacl::text acl from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname in ('public','private') and p.prokind='f' order by 1";
+ const functions="select p.oid::regprocedure::text id,pg_get_functiondef(p.oid) body,p.proacl::text acl,p.proowner::text owner,p.prosecdef security_definer,p.proconfig config,p.provolatile volatility,p.proparallel parallel,p.proisstrict strict,p.proleakproof leakproof,p.proretset returns_set,pg_get_function_result(p.oid) result,pg_get_function_arguments(p.oid) arguments from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname in ('public','private') and p.prokind='f' order by 1";
+ const functionContract=row=>{const contract={...row};delete contract.body;return contract;};
  const tables="select c.oid::regclass::text id,c.relacl::text acl,c.relrowsecurity rls from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname in ('public','private') and c.relkind in ('r','v','p') order by 1";
  try{
  await db.exec(r04SqlBootstrap);let oldFunctions,oldTables,legacy,legacySnapshot,beforeRows;
@@ -28,6 +29,9 @@ test('R09 actual reviewed proposal, immutable promotion, scoped applications and
  await assert.rejects(db.exec(sql.replace(/commit;\s*$/,()=>"do $$ begin raise exception 'r09_rollback'; end $$; commit;")),/r09_rollback/);await db.exec('rollback');assert.deepEqual((await db.query(functions)).rows,oldFunctions);assert.deepEqual((await db.query(tables)).rows,oldTables);assert.deepEqual(await preservedRows(),beforeRows);
  }
  await db.exec(sql);
+ if(file.endsWith('_r09_reviewed_knowledge.sql')){
+ const after=new Map((await db.query(functions)).rows.map(x=>[x.id,x]));for(const row of oldFunctions){if(row.id==='private.r07_snapshot(uuid,uuid,uuid)')assert.equal(after.get(row.id).acl,row.acl);else if(row.id==='r07_controller(uuid,uuid,text,jsonb,uuid,text,text,bigint,text)'){const changed=after.get(row.id);assert.equal(changed.acl,row.acl);assert.equal(changed.body.replace(" if p_operation='plan' or result->>'status' in ('scheduled','reserved') or result->'shouldDispatch'='true'::jsonb then\n perform private.r09_assert_pins(coalesce((select snapshot from private.r09_run_pins where workflow_run_id=a.id and business_id=p_business_id),(select snapshot from private.r09_plan_pins where plan_id=p.id and business_id=p_business_id)));\n end if;\n",''),row.body);}else assert.deepEqual(after.get(row.id),row);}
+ }
  }
  // Later additive migrations may seed new inert pack definitions. Every
  // pre-R09 row must still be present byte-for-byte; this does not exempt edits.
@@ -36,7 +40,9 @@ test('R09 actual reviewed proposal, immutable promotion, scoped applications and
   const ids=new Set(before.map(row=>row.id));
   assert.deepEqual(preservedAfter[table].filter(row=>ids.has(row.id)),before);
  }
- const after=new Map((await db.query(functions)).rows.map(x=>[x.id,x]));for(const row of oldFunctions){if(row.id==='private.r07_snapshot(uuid,uuid,uuid)')assert.equal(after.get(row.id).acl,row.acl);else if(row.id==='r07_controller(uuid,uuid,text,jsonb,uuid,text,text,bigint,text)'){const changed=after.get(row.id);assert.equal(changed.acl,row.acl);assert.equal(changed.body.replace(" if p_operation='plan' or result->>'status' in ('scheduled','reserved') or result->'shouldDispatch'='true'::jsonb then\n perform private.r09_assert_pins(coalesce((select snapshot from private.r09_run_pins where workflow_run_id=a.id and business_id=p_business_id),(select snapshot from private.r09_plan_pins where plan_id=p.id and business_id=p_business_id)));\n end if;\n",''),row.body);}else assert.deepEqual(after.get(row.id),row);}
+ // R09's exact body changes are checked at its own migration boundary above.
+ // Later scoped migrations may extend bodies; prior function ACLs stay unchanged.
+ const after=new Map((await db.query(functions)).rows.map(x=>[x.id,x]));for(const row of oldFunctions)assert.deepEqual(functionContract(after.get(row.id)),functionContract(row));
  const rels=new Map((await db.query(tables)).rows.map(x=>[x.id,x]));for(const row of oldTables)assert.deepEqual(rels.get(row.id),row);
  const afterLegacy=await controller(db,legacy,'read');assert.deepEqual(afterLegacy.knowledge.pins,[]);delete afterLegacy.knowledge;assert.deepEqual(afterLegacy,legacySnapshot);
  await db.exec(readFileSync('supabase/tests/r09_reviewed_knowledge.sql','utf8'));

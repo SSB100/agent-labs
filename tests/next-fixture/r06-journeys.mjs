@@ -9,9 +9,12 @@ export async function runHistoryJourneys({page,context,origin,boundary,output,ch
   const control=values=>fetch(boundary.origin+'/control',{method:'POST',body:JSON.stringify(values)});
   await control({history:true});
   const started=boundary.log.length;
-  const rpc=(dataset,offset=0,b=business)=>boundary.log.filter(c=>c.rpc==='r06_read'&&c.dataset===dataset&&c.business===b&&c.query.offset===offset).at(-1);
+  let navigationLogStart=boundary.log.length;
+  // Link prefetch may also read the separate qualified-connections page. Match
+  // account history to the visible page's exact selection, not an unrelated prefetch.
+  const rpc=(dataset,offset=0,b=business)=>boundary.log.slice(navigationLogStart).filter(c=>c.rpc==='r06_read'&&c.dataset===dataset&&c.business===b&&c.query.offset===offset&&(dataset!=='account_runs'||(c.query.selectedId??null)===(new URL(page.url()).searchParams.get('connectionRun')??null))).at(-1);
   const pager=label=>page.getByRole('navigation',{name:`${label} pages`,exact:true});
-  const goto=route=>page.goto(origin+route);
+  const goto=route=>{navigationLogStart=boundary.log.length;return page.goto(origin+route);};
   const route=(url,params={})=>{const target=new URL(url,origin);for(const [key,value]of Object.entries({business,...params}))target.searchParams.set(key,value);return target.pathname+target.search;};
   const clickNext=async(label,key,pageNumber=2)=>{await pager(label).getByRole('link',{name:`Next ${label}`,exact:true}).click();await page.waitForURL(url=>url.searchParams.get(`${key}Page`)===String(pageNumber));await pager(label).getByText(new RegExp(`page ${pageNumber}$`)).waitFor();};
   const total=async(label,number)=>{await pager(label).waitFor();assert.match(await pager(label).innerText(),new RegExp(`${number} total`));};

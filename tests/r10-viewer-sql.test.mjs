@@ -14,7 +14,8 @@ test('R10 isolated SQL lifecycle, exact authenticated scope, one-shot epochs and
  const require=createRequire(path.resolve(host??root,'package.json'));let db,Client,config;
  if(required){assert.ok(process.env.R10_POSTGRES_URL);({Client}=require('pg'));config={connectionString:fixtureUrl(process.env.R10_POSTGRES_URL),statement_timeout:15000};const c=new Client(config);await c.connect();db={exec:s=>c.query(s),query:(s,p)=>c.query(s,p),close:()=>c.end()};assert.equal((await db.query("select count(*)::int n from pg_namespace where nspname in ('auth','private','storage')")).rows[0].n,0,'Fresh isolated cluster required');}
  else{const{PGlite}=require('@electric-sql/pglite'),{pgcrypto}=require('@electric-sql/pglite/contrib/pgcrypto');db=new PGlite({extensions:{pgcrypto}});}
- const functions="select p.oid::regprocedure::text id,pg_get_functiondef(p.oid) body,p.proacl::text acl from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname in ('public','private') and p.prokind='f' order by 1";
+ const functions="select p.oid::regprocedure::text id,pg_get_functiondef(p.oid) body,p.proacl::text acl,p.proowner::text owner,p.prosecdef security_definer,p.proconfig config,p.provolatile volatility,p.proparallel parallel,p.proisstrict strict,p.proleakproof leakproof,p.proretset returns_set,pg_get_function_result(p.oid) result,pg_get_function_arguments(p.oid) arguments from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname in ('public','private') and p.prokind='f' order by 1";
+ const functionContract=row=>{const contract={...row};delete contract.body;return contract;};
  const tables="select c.oid::regclass::text id,c.relacl::text acl,c.relrowsecurity rls from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname in ('public','private') and c.relkind in ('r','v','p') order by 1";
  try{
  await db.exec(r04SqlBootstrap+sessionBootstrap);let beforeFns,beforeTables,beforeRows;
@@ -23,8 +24,10 @@ test('R10 isolated SQL lifecycle, exact authenticated scope, one-shot epochs and
  const sql=readFileSync(`supabase/migrations/${file}`,'utf8');
  if(file.endsWith('_r10_private_browser_viewer.sql')){beforeFns=(await db.query(functions)).rows;beforeTables=(await db.query(tables)).rows;beforeRows=await preservedRows();await assert.rejects(db.exec(sql.replace(/commit;\s*$/,()=>"do $$ begin raise exception 'r10_rollback'; end $$; commit;")),/r10_rollback/);await db.exec('rollback');assert.deepEqual((await db.query(functions)).rows,beforeFns);assert.deepEqual((await db.query(tables)).rows,beforeTables);assert.deepEqual(await preservedRows(),beforeRows);}
  await db.exec(sql);
+ if(file.endsWith('_r10_private_browser_viewer.sql')){const afterFns=new Map((await db.query(functions)).rows.map(x=>[x.id,x]));for(const x of beforeFns)assert.deepEqual(afterFns.get(x.id),x);}
  }
- assert.deepEqual(await preservedRows(),beforeRows);const afterFns=new Map((await db.query(functions)).rows.map(x=>[x.id,x]));for(const x of beforeFns)assert.deepEqual(afterFns.get(x.id),x);const afterTables=new Map((await db.query(tables)).rows.map(x=>[x.id,x]));for(const x of beforeTables)assert.deepEqual(afterTables.get(x.id),x);
+ // Exact R10 byte preservation is checked above; later scoped bodies may change.
+ assert.deepEqual(await preservedRows(),beforeRows);const afterFns=new Map((await db.query(functions)).rows.map(x=>[x.id,x]));for(const x of beforeFns)assert.deepEqual(functionContract(afterFns.get(x.id)),functionContract(x));const afterTables=new Map((await db.query(tables)).rows.map(x=>[x.id,x]));for(const x of beforeTables)assert.deepEqual(afterTables.get(x.id),x);
  for(const table of ['r10_server_keys','r10_enrollments','r10_writers','r10_close_audits'])assert.equal(await value(db,`select count(*)::int result from private.${table}`),0,'No key, enrollment or grant seeded');
  await db.exec(readFileSync('supabase/tests/r10_private_browser_viewer.sql','utf8'));await setupR10(db,root);
  let s=await seedR10(db),other=await seedR10(db);assert.equal((await owner(db,s)).status,'available');assert.deepEqual(await enroll(db,s),await owner(db,s));

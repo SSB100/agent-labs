@@ -9,7 +9,8 @@ import { r04SqlBootstrap } from './helpers/r04-sql-bootstrap.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const sql = file => readFileSync(path.join(root, file), 'utf8').replaceAll('\r\n', '\n');
 const fingerprintFunctions = `select p.oid::text id,n.nspname,p.proname,pg_get_function_identity_arguments(p.oid) args,
- pg_get_functiondef(p.oid) definition,p.proacl::text acl,p.proowner::text owner
+ pg_get_functiondef(p.oid) definition,p.proacl::text acl,p.proowner::text owner,
+ p.prosecdef security_definer,p.proconfig config,p.provolatile volatility,p.proparallel parallel,p.proisstrict strict,p.proleakproof leakproof,p.proretset returns_set,pg_get_function_result(p.oid) result,pg_get_function_arguments(p.oid) arguments
  from pg_proc p join pg_namespace n on n.oid=p.pronamespace
  where n.nspname in ('public','private') and p.prokind='f' order by p.oid`;
 const fingerprintTables = `select c.oid::text id,n.nspname,c.relname,c.relacl::text acl,c.relowner::text owner,c.relrowsecurity,c.relforcerowsecurity
@@ -120,11 +121,21 @@ test('R06 replays all migrations without changing old functions/grants and passe
       }
       await db.exec(sql(`supabase/migrations/${file}`));
       replayed++;
+      if (file.endsWith('_r06_bounded_reads.sql')) {
+        const installedFunctions = new Map((await db.query(fingerprintFunctions)).rows.map(row => [row.id, row]));
+        for (const prior of oldFunctions) assert.deepEqual(installedFunctions.get(prior.id), prior, `R06 preserves legacy function: ${prior.nspname}.${prior.proname}(${prior.args})`);
+      }
     }
     assert.ok(oldFunctions?.length && oldTables?.length, 'R06 migration was included in full replay');
     const currentFunctions = new Map((await db.query(fingerprintFunctions)).rows.map(row => [row.id, row]));
     const currentTables = new Map((await db.query(fingerprintTables)).rows.map(row => [row.id, row]));
-    for (const prior of oldFunctions) assert.deepEqual(currentFunctions.get(prior.id), prior, `Legacy function unchanged: ${prior.nspname}.${prior.proname}(${prior.args})`);
+    // Byte preservation belongs to the exact R06 install above. Later reviewed
+    // migrations may extend bodies, but must preserve legacy signatures/ACLs/owners.
+    for (const prior of oldFunctions) {
+      const beforeContract = { ...prior }, afterContract = { ...currentFunctions.get(prior.id) };
+      delete beforeContract.definition; delete afterContract.definition;
+      assert.deepEqual(afterContract, beforeContract, `Legacy function contract unchanged: ${prior.nspname}.${prior.proname}(${prior.args})`);
+    }
     for (const prior of oldTables) assert.deepEqual(currentTables.get(prior.id), prior, `Legacy relation ACL/RLS/owner unchanged: ${prior.nspname}.${prior.relname}`);
 
     const functions = (await db.query(`select p.proname,p.provolatile,p.prosecdef,p.proconfig,p.proowner=(select oid from pg_roles where rolname=current_user) reviewed_owner,
@@ -148,7 +159,7 @@ test('R06 replays all migrations without changing old functions/grants and passe
       await db.exec(source.replace(/rollback;\s*$/, () => `${populatedLaneAssertions(lane)}\nrollback;`));
     }
     const restoredFunctions = new Map((await db.query(fingerprintFunctions)).rows.map(row => [row.id, row]));
-    for (const prior of oldFunctions) assert.deepEqual(restoredFunctions.get(prior.id), prior, 'Synthetic fixture helper replacements roll back');
+    for (const prior of currentFunctions.values()) assert.deepEqual(restoredFunctions.get(prior.id), prior, 'Synthetic fixture helper replacements roll back to the fully migrated function');
 
     // A committed, isolated fixture lets every read execute in a real READ ONLY
     // transaction. This catches mutation-admission wrappers and FOR UPDATE paths.
@@ -166,6 +177,6 @@ test('R06 replays all migrations without changing old functions/grants and passe
     for (const table of ['listing_mutation_admissions','etsy_publication_mutation_admissions','printful_product_mutation_admissions']) {
       assert.equal((await db.query(`select count(*)::int n from private.${table}`)).rows[0].n, 0, `${table} remains empty`);
     }
-    t.diagnostic(`${backend}: ${replayed} migrations replayed; ${oldFunctions.length} legacy functions and ${oldTables.length} ACL/RLS definitions unchanged; ${datasets.length} datasets pass READ ONLY`);
+    t.diagnostic(`${backend}: ${replayed} migrations replayed; ${oldFunctions.length} legacy function contracts and ${oldTables.length} ACL/RLS definitions unchanged; ${datasets.length} datasets pass READ ONLY`);
   } finally { await db.close(); }
 });

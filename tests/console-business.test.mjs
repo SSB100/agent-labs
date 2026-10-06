@@ -52,7 +52,7 @@ test("overview research and connection shortcuts preserve the selected Business"
   assert.ok(connections);
   const links = [...connections.matchAll(/href="([^"]+)"/g)].map(match => match[1]);
   assert.ok(links.length >= 3, "Manage and both connection cards are present");
-  assert.ok(links.every(href => href === `/dashboard?view=connections&amp;business=${businessFlow.businessId}`));
+  assert.ok(links.every(href => href === `/dashboard/connections?business=${businessFlow.businessId}`), "Qualified connection details retain the selected Business");
 });
 
 test("Work header research retains Business B and closing aggregate detail preserves its list", async () => {

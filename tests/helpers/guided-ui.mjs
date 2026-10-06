@@ -417,6 +417,7 @@ export async function renderProducts() {
   const sources = loadSource("src/research/sources.ts");
   const discovery = loadSource("src/products/discovery-v2.ts", {
     "./types": productTypes, "../research/sources": sources,
+    "../research/generation-route": loadSource("src/research/generation-route.ts", { "../models/openrouter": { getOpenRouterConfig: noAction } }),
     "./discovery": { validateProductEvidence: noAction }, "./discovery-v2-knowledge": { validateDiscoveryKnowledgeV2: noAction },
   });
   const goal = loadSource("src/products/discovery-v2-goal.ts", { "./discovery-v2": discovery });
