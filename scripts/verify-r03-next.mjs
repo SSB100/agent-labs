@@ -10,6 +10,7 @@ import { startFixtureBoundary } from '../tests/next-fixture/server.mjs';
 import { runNextJourneys } from '../tests/next-fixture/journeys.mjs';
 import { runResearchQualificationJourneys } from '../tests/next-fixture/r11-runner.mjs';
 import {runR12Journeys} from '../tests/next-fixture/r12-journeys.mjs';
+import {runR12BootstrapJourney} from '../tests/next-fixture/r12-bootstrap-journey.mjs';
 import {R12_INERT_ROOT} from '../tests/next-fixture/r12-sql.mjs';
 import { R11_INERT_SERVER_KEY } from '../tests/next-fixture/r11-research.mjs';
 
@@ -79,9 +80,12 @@ try {
     const capture=spawn(process.execPath,['--test','tests/r12-discovery-scope-sql.test.mjs'],{cwd:root,env:{...process.env,R12_NEXT_FIXTURE_OUTPUT:directory,R12_POSTGRES_URL:'',R12_REQUIRE_POSTGRES:'0'},stdio:['ignore','pipe','pipe']});
     processes.push(capture);
     const stream=log('r12-sql-capture.log');capture.stdout.pipe(stream);capture.stderr.pipe(stream);await completion(capture);
+    const bootstrapCapture=spawn(process.execPath,['tests/helpers/r12-bootstrap-rehearsal.mjs'],{cwd:root,env:{...process.env,R12_BOOTSTRAP_NEXT_OUTPUT:directory},stdio:['ignore','pipe','pipe']});processes.push(bootstrapCapture);
+    const bootstrapStream=log('r12-bootstrap-capture.log');bootstrapCapture.stdout.pipe(bootstrapStream);bootstrapCapture.stderr.pipe(bootstrapStream);await completion(bootstrapCapture);
     const r12Probe=createServer();await new Promise(resolve=>r12Probe.listen(0,'127.0.0.1',resolve));const r12Port=r12Probe.address().port;await new Promise(resolve=>r12Probe.close(resolve));
     start(['start','-p',String(r12Port),'-H','127.0.0.1'],'r12-server.log',{VERCEL_ENV:'production',R05_ADMISSION_SERVER_KEY:R12_INERT_ROOT,OPENROUTER_API_KEY:'inert-r12-provider-placeholder'});
     const r12Origin=`http://localhost:${r12Port}`;let r12Ready=false;for(let attempt=0;attempt<120;attempt++){try{const response=await fetch(r12Origin+'/login',{redirect:'manual'});if(response.status<500){r12Ready=true;break;}}catch{}await new Promise(resolve=>setTimeout(resolve,250));}assert.ok(r12Ready,'R12 Next fixture did not start');
+    await runR12BootstrapJourney({origin:r12Origin,noKeyOrigin:origin,boundary,output,directory,httpOnly:process.argv.includes('--http-only')});
     await runR12Journeys({origin:r12Origin,noKeyOrigin:origin,boundary,output,directory,httpOnly:process.argv.includes('--http-only')});
     }finally{await rm(directory,{recursive:true,force:true});}
   }

@@ -16,3 +16,6 @@
 @media(max-width:760px) { .r12DiscoveryDetails { height:auto; }.r12DiscoveryScroll { overflow:visible; }.r12Controls button { min-height:44px; }.r12ActionStatus { max-height:none; overflow:visible; } }
 
 .r12SavedResult{display:grid;gap:.6rem;min-width:0}.r12SavedResult details{border-top:1px solid var(--border,#d9ddd9);padding:.6rem 0}.r12SavedResult summary{cursor:pointer;font-weight:600}.r12SavedResult article{padding:.4rem 0}.r12SavedResult h3,.r12SavedResult h4{font-size:inherit;margin:.65rem 0 .25rem}.r12SavedResult ul{padding-left:1.3rem}.r12SavedResult blockquote{margin:.5rem 0;padding:.35rem .7rem;border-left:3px solid currentColor}.r12EvidenceLinks{display:flex;gap:.7rem;flex-wrap:wrap;font-size:.85rem}.r12SavedResult [id]{scroll-margin-top:1rem}
+
+.r12Preparation{overflow:auto;display:block;padding:16px}.r12Preparation form{display:grid;gap:12px;margin:16px 0}.r12Preparation label{display:block;line-height:1.5}.r12Preparation textarea{display:block;width:100%;font-family:monospace;resize:vertical}.r12Preparation a,.r12Preparation summary{display:inline-flex;align-items:center;min-height:32px}.r12Preparation :is(p,li){overflow-wrap:anywhere;line-height:1.5}.r12Preparation li{margin:8px 0}
+@media(max-width:900px){.r12Preparation{overflow:visible}.r12Preparation a,.r12Preparation summary,.r12Preparation button{min-height:44px}}
