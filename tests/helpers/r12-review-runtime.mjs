@@ -1,0 +1,49 @@
+/** Actual owner/controller/SQL/admission/serializer fixture. Only network transport is inert. */
+import {createRequire} from 'node:module';
+import {readFileSync} from 'node:fs';
+import {createHmac,randomUUID} from 'node:crypto';
+import assert from 'node:assert/strict';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {r12QuoteFixture} from './r12-provider-fixture.mjs';
+import {runOperatorRecipe} from '../../scripts/r12-review-continuation-bootstrap.mjs';
+import {reviewRecipeClient} from './r12-review-fixture.mjs';
+const repo=path.resolve(fileURLToPath(new URL('../..',import.meta.url))),require=createRequire(import.meta.url),ts=require('typescript');
+export async function exerciseR12ReviewRuntime(db,metadata,{nested=false}={}){
+const source=(file,deps)=>{const m={exports:{}};new Function('require','module','exports',ts.transpileModule(readFileSync(repo+'/'+file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)(name=>{assert.ok(name in deps,name);return deps[name];},m,m.exports);return m.exports;};
+const root='inert-r12-owner-root-configuration-0123456789',derive=role=>createHmac('sha256',root).update(JSON.stringify({version:'r12.scoped-authority.1',role,businessId:metadata.businessId,ownerId:metadata.ownerId,scopeId:metadata.scopeId})).digest('base64url'),controller=derive('controller'),admission=derive('admission');
+const rpc=async(name,args,role='anon')=>{await db.exec('set role '+role);try{return{data:(await db.query(`select public.${name}(${args.map((_,i)=>'$'+(i+1)).join(',')}) result`,args)).rows[0].result,error:null};}catch(error){return{data:null,error};}finally{await db.exec('reset role');}};
+const command=async(op,payload,epoch=null)=>{const r=await rpc('r07_controller',[metadata.businessId,metadata.goalId,op,payload,randomUUID(),controller,'inert-review-runtime-lease-0123456789',epoch,admission]);if(r.error)throw r.error;return r.data;};
+const store={read:()=>command('read',{}),command:(op,payload,epoch)=>command(op,['schedule','reserve'].includes(op)?{...payload,runtimeCapability:'inert-review-runtime-capability-0123456789'}:payload,epoch)};
+const {createDiscoveryR12QuestAdapter}=require(repo+'/.core-tests/products/discovery-r12-adapter.js');let posts=0,gets=0,delayReceipt=true;
+const fetcher=async(url,init)=>{if(init.method==='POST'){posts++;assert.equal(posts,1);assert.equal(JSON.parse(init.body).model,'anthropic/claude-haiku-4.5');return new Response(JSON.stringify({id:'gen-r12-only-review-inert',model:'anthropic/claude-4.5-haiku-20251001',choices:[{finish_reason:'stop',message:{content:JSON.stringify(metadata.outputs.review)}}],usage:{prompt_tokens:100,completion_tokens:50,total_tokens:150,cost:.00001}}),{status:200});}gets++;if(delayReceipt)return new Response(JSON.stringify({error:{message:'Inert delayed receipt'}}),{status:404});return new Response(JSON.stringify({data:{id:'gen-r12-only-review-inert',provider_name:'Amazon Bedrock',model:'anthropic/claude-4.5-haiku-20251001'}}),{status:200});};
+const deps={'server-only':{},'node:crypto':require('node:crypto'),'../lib/core-ui/owner-business':source('src/lib/core-ui/owner-business.ts',{}),'../core/quest-plan':require(repo+'/.core-tests/core/quest-plan.js'),'../core/quest-controller':require(repo+'/.core-tests/core/quest-controller.js'),'./discovery-v2':require(repo+'/.core-tests/products/discovery-v2.js'),'./discovery-r12-runtime':require(repo+'/.core-tests/products/discovery-r12-runtime.js'),'./discovery-r12-adapter':require(repo+'/.core-tests/products/discovery-r12-adapter.js'),'./discovery-r12-wire':require(repo+'/.core-tests/products/discovery-r12-wire.js'),'./discovery-r12-server-dependencies':{discoveryR12ServerDependencies:()=>({createController:()=>store,createClient:()=>({rpc:async(name,args)=>rpc(name,[args.p_business_id,args.p_attempt_id,args.p_operation,args.p_payload,args.p_server_key])}),quote:async()=>r12QuoteFixture(),createAdapter:opts=>createDiscoveryR12QuestAdapter({...opts,config:{apiKey:'inert-review-fixture',baseUrl:'https://openrouter.ai/api/v1',appUrl:'https://agent-labs-two.vercel.app',appName:'Agent Labs'},fetcher})})}};
+const server=source('src/products/discovery-r12-server.ts',deps),context={userId:metadata.ownerId,businesses:[{id:metadata.businessId,name:'Inert Business'}],supabase:{auth:{getClaims:async()=>({data:{claims:{sub:metadata.ownerId}},error:null})},rpc:async(name,args)=>rpc(name,name==='r05_policy_owner'?[args.p_business_id,args.p_operation,args.p_payload,args.p_submission_id]:[args.p_business_id,args.p_scope_id,args.p_activation],'authenticated')}};
+
+const before={VERCEL_ENV:process.env.VERCEL_ENV,R05_ADMISSION_SERVER_KEY:process.env.R05_ADMISSION_SERVER_KEY,OPENROUTER_API_KEY:process.env.OPENROUTER_API_KEY};Object.assign(process.env,{VERCEL_ENV:'production',R05_ADMISSION_SERVER_KEY:root,OPENROUTER_API_KEY:'inert-review-api-config'});
+try{
+ await db.query("select set_config('request.jwt.claim.sub',$1,false),set_config('request.jwt.claims',$2,false)",[metadata.ownerId,JSON.stringify({sub:metadata.ownerId,session_id:metadata.authSessionId})]);
+ const first=await server.continueDiscoveryR12(context,metadata.businessId,metadata.scopeId);assert.equal(first.status,'waiting');assert.equal(first.reason,'receipt_pending');assert.equal(posts,1);assert.equal(gets,1);
+ const waiting=(await rpc('r12_discovery_owner_read',[metadata.businessId,metadata.scopeId,false],'authenticated')).data;
+ const owner=source('src/products/discovery-r12-owner.ts',{'server-only':{},'../lib/core-ui/owner-business':deps['../lib/core-ui/owner-business'],'./discovery-r12-runtime':deps['./discovery-r12-runtime']});
+ const parsed=owner.parseDiscoveryR12Workspace(waiting,metadata.businessId,metadata.scopeId);assert.equal(parsed.phases.filter(p=>p.status==='completed').length,4);assert.equal(parsed.phases[4].candidateSaved,true);assert.equal(parsed.cost.knownMicrousd,'50');assert.equal(owner.discoveryR12CanContinue(parsed),false);
+ await server.continueDiscoveryR12(context,metadata.businessId,metadata.scopeId);assert.equal(posts,1);assert.equal(gets,1,'Immediate repeat cannot check a receipt or regenerate');
+ await db.exec("alter table private.r12_discovery_receipt_checks disable trigger r12_discovery_history_guard");
+ await db.query("update private.r12_discovery_receipt_checks set created_at=clock_timestamp()-interval '121 seconds' where request_id in (select request_id from private.r12_discovery_wires where scope_id=$1)",[metadata.scopeId]);
+ await db.exec("alter table private.r12_discovery_receipt_checks enable trigger r12_discovery_history_guard");delayReceipt=false;
+ const complete=await server.continueDiscoveryR12(context,metadata.businessId,metadata.scopeId);assert.equal(complete.status,'completed');assert.equal(posts,1);assert.equal(gets,2);
+ assert.equal((await server.continueDiscoveryR12(context,metadata.businessId,metadata.scopeId)).status,'completed');assert.equal(posts,1);assert.equal(gets,2);
+ const resultRead=await rpc('r12_discovery_result_read',[metadata.businessId,metadata.scopeId],'authenticated');if(resultRead.error)throw resultRead.error;
+ const runtime=deps['./discovery-r12-runtime'],full=runtime.reconstructDiscoveryR12Result(resultRead.data,metadata.businessId,metadata.scopeId);
+ assert.equal(full.review.outcome,'NEEDS_MORE_EVIDENCE');assert.equal(full.phaseReceipts.length,5);assert.equal(full.dossier.intentId,metadata.sourceScopeId);assert.equal(full.scopeId,metadata.scopeId);
+ const head=(await db.query('select dispatches,children_created,repairs_used,pivots_used from private.r07_heads where goal_id=$1',[metadata.goalId])).rows[0];assert.deepEqual(head,{dispatches:5,children_created:6,repairs_used:0,pivots_used:0});
+ const exposed=(await db.query('select count(*)::int n,sum(actual)::integer actual from private.r12_discovery_exposure((select budget_authority_root_id from private.r12_discovery_scopes where id=$1))',[metadata.scopeId])).rows[0];assert.deepEqual(exposed,{n:5,actual:50});
+ const finalView=owner.parseDiscoveryR12Workspace((await rpc('r12_discovery_owner_read',[metadata.businessId,metadata.scopeId,false],'authenticated')).data,metadata.businessId,metadata.scopeId);assert.equal(finalView.state,'completed');assert.equal(finalView.cost.knownMicrousd,'50');
+ assert.deepEqual(await server.stopDiscoveryR12(context,metadata.businessId,metadata.scopeId),{stopped:true});
+ const pins=(await db.query('select plan_hash from private.r12_discovery_authorities where scope_id=$1',[metadata.scopeId])).rows[0];const close=await runOperatorRecipe(reviewRecipeClient(db,nested),'close',{businessId:metadata.businessId,scopeId:metadata.scopeId,scopeHash:metadata.plan.discoveryScopeHash,policyId:metadata.plan.policyId,policyHash:metadata.plan.policyHash,planHash:pins.plan_hash});assert.equal(close.activeAuthority,false);assert.equal(close.controllerRevoked,true);assert.equal(close.admissionRevoked,true);
+ const stoppedHistory=(await rpc('r12_discovery_result_read',[metadata.businessId,metadata.scopeId],'authenticated')).data;assert.deepEqual(runtime.reconstructDiscoveryR12Result(stoppedHistory,metadata.businessId,metadata.scopeId),full);
+ const clock=Date.now;try{Date.now=()=>clock()+2*86400000;assert.deepEqual(runtime.reconstructDiscoveryR12Result(stoppedHistory,metadata.businessId,metadata.scopeId),full,'Expired result stays historical without renewing its evidence');}finally{Date.now=clock;}
+ await assert.rejects(server.continueDiscoveryR12(context,metadata.businessId,metadata.scopeId));assert.equal(posts,1);assert.equal(gets,2);
+ return{providerCalls:0,inertPosts:posts,inertReceiptGets:gets,outcome:full.review.outcome,phaseReceipts:5,dispatches:head.dispatches,children:head.children_created};
+}finally{for(const [key,value] of Object.entries(before)){if(value===undefined)delete process.env[key];else process.env[key]=value;}}
+}

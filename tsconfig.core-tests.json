@@ -74,6 +74,7 @@
     "src/products/discovery-r12-owner.ts",
     "src/products/discovery-r12-server.ts",
     "src/products/discovery-r12-server-dependencies.ts",
-    "src/products/discovery-r12-preparation-server.ts"
+    "src/products/discovery-r12-preparation-server.ts",
+    "src/products/discovery-r12-review-preparation-server.ts"
   ]
 }

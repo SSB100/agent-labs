@@ -8,6 +8,8 @@ import path from 'node:path';
 import {r12PhaseOutputFixture} from './r12-phase-output-fixture.mjs';
 import {randomUUID,createHash} from 'node:crypto';
 import * as recipes from '../../scripts/r12-research-bootstrap.mjs';
+import {REBIND,REBOUND_ACTIVATION_SQL} from '../../scripts/r12-business-scope-rebind.mjs';
+const rebindRehearsal=process.env.R12_REBIND_REHEARSAL==='1';
 import {r04SqlBootstrap} from './r04-sql-bootstrap.mjs';
 import {sessionBootstrap} from './r10-sql-fixture.mjs';
 import {r07FixtureSetup,R07_OWNER} from './r07-sql-fixture.mjs';
@@ -40,7 +42,7 @@ try{
  for(const file of readdirSync(root+'/supabase/migrations').filter(f=>f.endsWith('.sql')).sort())await db.exec(readFileSync(root+'/supabase/migrations/'+file,'utf8'));
  await db.exec("set timezone='UTC'");await db.exec(r07FixtureSetup(root));business=(await value('select public.r05_seed(848063) b')).b;
  const f=await value('select * from public.r05_fixture where b=$1',[business]);
- const body=(await value('select content from private.r04_business_versions where business_id=$1 and revision=1',[business])).content;
+ const body=rebindRehearsal?structuredClone(REBIND.previousContent):(await value('select content from private.r04_business_versions where business_id=$1 and revision=1',[business])).content;
  for(let revision=1;revision<6;revision++)await qok({p_business_id:business,p_operation:'business.save',p_payload:{expectedRevision:revision,content:body,preference:'setup'},p_submission_id:randomUUID()});
  const businessHash=(await value('select content_hash hash from private.r04_business_versions where business_id=$1 and revision=6',[business])).hash;
  // Register actual repository manifests, without status promotion or an installation.
@@ -136,6 +138,38 @@ try{
  const preparedResponse=await prepareRoute.POST(prepareRequest('https://r12-bootstrap.invalid'));assert.equal(preparedResponse.status,200);const prepared=await preparedResponse.json();assert.equal(prepared.authorityCreated,false);assert.notEqual(prepared.controllerKeyHash,prepared.admissionKeyHash);
  log.push({check:'actual preparation route/server returns distinct nonsecret hashes; foreign origin/claims rejected',status:'passed'});
  const activation={...input,quote:r12QuoteFixture(),amendmentHash:staged.amendmentHash,policyId:proposed.id,policyHash:proposed.hash,policyInterpretationHash:sha('inert-policy-review'),controllerKeyHash:prepared.controllerKeyHash,admissionKeyHash:prepared.admissionKeyHash};
+ if(rebindRehearsal){
+  const content=JSON.parse(JSON.stringify(REBIND.content).replaceAll(recipes.TARGET.rootId,rootId).replaceAll('3548865c-238a-48ed-8469-6b0f32ac0f95',created.id).replaceAll('33bbb31d-b7ef-4ac2-9937-a282a550c209',input.scopeId));
+  const newHash=(await value('select private.r04_hash($1::jsonb) hash',[content])).hash;
+  const replacementPins=new Map([...pins,[REBIND.expectedResultHash,newHash],['3548865c-238a-48ed-8469-6b0f32ac0f95',created.id],['33bbb31d-b7ef-4ac2-9937-a282a550c209',input.scopeId],[REBIND.policyRebind.oldPolicyId,proposed.id],[REBIND.policyRebind.oldPolicyHash,proposed.hash]]);
+  let reboundSQL=REBOUND_ACTIVATION_SQL;for(const [from,to] of replacementPins){assert.ok(reboundSQL.includes(from),'Missing exact rebind pin '+from);reboundSQL=reboundSQL.replaceAll(from,to);}
+  await rejected('rebound activation rejects unchanged R11-only Business6',()=>run(reboundSQL,activation),/bootstrap_business_pin_changed/);
+  assert.equal((await sendPolicy({p_business_id:business,p_operation:'revoke',p_payload:{policyId:proposed.id,policyHash:proposed.hash},p_submission_id:randomUUID()})).ok,true,sqlErrors.at(-1));
+  log.push({check:'actual owner revokes unused old policy without removing history',status:'passed'});
+  const amended=await qok({p_business_id:business,p_operation:'business.save',p_payload:{expectedRevision:6,content,preference:'setup'},p_submission_id:randomUUID()});assert.equal(amended.revision,7);
+  assert.equal((await value('select content_hash hash from private.r04_business_versions where business_id=$1 and revision=7',[business])).hash,newHash);
+  assert.equal((await value('select content_hash hash from private.r04_business_versions where business_id=$1 and revision=6',[business])).hash,businessHash);
+  log.push({check:'actual owner saves exact Business7 rules and preserves Business6',status:'passed'});
+  await rejected('rebound activation rejects unrebound cap7 and old policy',()=>run(reboundSQL,activation),/bootstrap_business_financial_drift/);
+  const policy={...staged.policyPayload,businessRevision:7,expectedCapRevision:7};
+  assert.equal((await sendPolicy({p_business_id:business,p_operation:'propose',p_payload:policy,p_submission_id:randomUUID()})).ok,true,sqlErrors.at(-1));
+  const after=await ownerClient.rpc('r05_admission_read',{p_business_id:business,p_policy_id:null,p_limit:20,p_offset:0});assert.equal(after.error,null);const rebound=after.data.policies.find(p=>p.policy.goalId===created.id&&p.policy.businessRevision===7);assert.ok(rebound);
+  assert.equal((await sendPolicy(owned(recipes.ownerPolicyConfirmBody(rebound.id,rebound.hash,randomUUID())))).ok,true,sqlErrors.at(-1));
+  log.push({check:'actual owner confirms Business7 policy at cap8 with unchanged amount',status:'passed'});
+  const live={...activation,quote:r12QuoteFixture(),policyId:rebound.id,policyHash:rebound.hash,policyInterpretationHash:sha('inert-exact-Business7-interpretation')};
+  await rejected('rebound activation rejects old revoked policy identity',()=>run(reboundSQL,{...live,policyId:proposed.id,policyHash:proposed.hash}),/bootstrap_exact_owner_policy_required/);
+  await rejected('rebound activation rejects new Business revision drift',()=>run(reboundSQL,live,()=>qok({p_business_id:business,p_operation:'business.save',p_payload:{expectedRevision:7,content,preference:'setup'},p_submission_id:randomUUID()})),/bootstrap_business_pin_changed/);
+  await rejected('rebound activation rejects stale quote',()=>run(reboundSQL,{...live,quote:r12QuoteFixture(Date.now()-600000)}),/bootstrap_fresh_exact_quote_required/);
+  await rejected('rebound activation rejects cap drift',()=>run(reboundSQL,live,appendCapDrift),/bootstrap_business_financial_drift/);
+  const qualified=await run(reboundSQL,live);assert.equal(qualified.plan.businessRevision,7);assert.equal(qualified.plan.businessHash,newHash);assert.equal(qualified.plan.policyId,rebound.id);assert.equal(qualified.plan.policyHash,rebound.hash);assert.equal(qualified.plan.maximumMicrounits,'406736');assert.equal(qualified.plan.steps.length,5);
+  assert.equal(Date.parse(qualified.dispatchUntil)-Date.parse(qualified.activatedAt),1800000);assert.equal(Date.parse(qualified.receiptUntil)-Date.parse(qualified.dispatchUntil),1800000);
+  assert.equal((await value('select revision from private.r04_business_state where business_id=$1',[business])).revision,7);
+  const finalCap=await value("select revision,maximum_microunits from private.r05_cap_versions where business_id=$1 and currency='USD' order by revision desc limit 1",[business]);assert.equal(finalCap.revision,8);assert.equal(Number(finalCap.maximum_microunits),1053587);
+  assert.equal((await value('select count(*)::int n from private.r05_markers')).n,0);assert.equal((await value('select count(*)::int n from private.r12_discovery_transport_claims')).n,0);
+  await rejected('rebound activation replay cannot renew verifiers',()=>run(reboundSQL,live),/bootstrap_fresh_separate_verifier_hashes_required/);
+  log.push({check:'rebound exact scoped authority has correct Business7 and final30+30 clock with zero provider work',status:'passed'});
+  console.log(JSON.stringify({status:'passed',checks:log,ownerApiCalls:calls.length,pinSubstitutions:replacementPins.size,rebound:true}));
+ }else{
  await rejected('activation owner mismatch',()=>run(activationSQL,{...activation,ownerId:'95050000-0000-4000-8000-000000000002'}),/bootstrap_owner_changed/);
  await rejected('activation Goal hash drift',()=>run(activationSQL,{...activation,goalHash:'0'.repeat(64)}),/bootstrap_goal_pin_changed/);
  await rejected('activation policy hash drift',()=>run(activationSQL,{...activation,policyHash:'0'.repeat(64)}),/bootstrap_exact_owner_policy_required/);
@@ -153,4 +187,5 @@ try{
  assert.equal(recipes.TARGET.businessId,'91ff7c87-60e4-4dbb-8e84-be63b53c2c79');
  assert.equal((await value('select revision from private.r04_business_state where business_id=$1',[business])).revision,6);
  console.log(JSON.stringify({status:'passed',checks:log,ownerApiCalls:calls.length,pinSubstitutions:pins.size}));
+ }
 }catch(error){console.error(error);process.exitCode=1;}finally{await db.close();}

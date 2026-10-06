@@ -16,7 +16,8 @@
       "feat/r10-private-browser-viewer": false,
       "feat/r11-external-eligibility": false,
       "feat/r12-research-creative": false,
-      "feat/r12-owner-preparation": false
+      "feat/r12-owner-preparation": false,
+      "fix/r12-business-scope-rebind": false
     }
   },
   "buildCommand": "npm run deploy:build"

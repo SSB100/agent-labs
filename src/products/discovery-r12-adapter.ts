@@ -7,7 +7,7 @@ import { discoveryV2Hash } from "./discovery-v2";
 import { createDiscoveryR12Candidate, discoveryR12ReceiptExpectation, qualifyDiscoveryR12Candidate, validateDiscoveryR12Candidate, type DiscoveryR12CandidateBinding } from "./discovery-r12-receipt";
 import { inspectDiscoveryR12Wire, routeDiscoveryR12Request, type DiscoveryR12Phase } from "./discovery-r12-wire";
 import type { DiscoveryR12Quote } from "./discovery-r12-quote";
-import type { DiscoverySourceScopeAmendment } from "./discovery-r12-scope";
+import type { DiscoveryR12ExecutionScope } from "./discovery-r12-review-continuation";
 
 type Request = StructuredModelRequest | WebSearchModelRequest;
 type WireBinding = { version: "r12.discovery-wire.1"; scopeId: string; scopeHash: string; attemptId: string; requestId: string; phase: DiscoveryR12Phase;
@@ -29,7 +29,7 @@ const hash = (text: string) => createHash("sha256").update(text).digest("hex");
  * validation, never a browser/worker-supplied wire or registry entry. SQL still
  * requires exact adapter enrollment, R05 authority, source review and lineage. */
 export function createDiscoveryR12QuestAdapter(options: {
-  scope: DiscoverySourceScopeAmendment; phase: DiscoveryR12Phase;
+  scope: DiscoveryR12ExecutionScope; phase: DiscoveryR12Phase;
   identity: Pick<QuestAdapter, "qualificationHash" | "workflowDefinitionId" | "workerDefinitionId" | "mode">;
   dataClasses: string[]; store: DiscoveryR12EffectStore;
   request(context: QuestAdapterContext): Promise<Request>;
@@ -41,7 +41,7 @@ export function createDiscoveryR12QuestAdapter(options: {
   const scope = structuredClone(options.scope), identity = structuredClone(options.identity), phase = options.phase;
   const scopeHash = discoveryV2Hash(scope), now = options.now ?? Date.now;
   function context(ctx: QuestAdapterContext) {
-    if (ctx.plan.format !== "r12.discovery.1" || ctx.plan.discoveryScopeId !== scope.id || ctx.plan.discoveryScopeHash !== scopeHash || ctx.plan.businessId !== scope.businessId || ctx.plan.goalId !== scope.goalId || ctx.step.key !== phase ||
+    if (ctx.plan.format !== (scope.version === "r12.discovery-review-continuation.1" ? "r12.discovery-review.1" : "r12.discovery.1") || (scope.version === "r12.discovery-review-continuation.1" && phase !== "review") || ctx.plan.discoveryScopeId !== scope.id || ctx.plan.discoveryScopeHash !== scopeHash || ctx.plan.businessId !== scope.businessId || ctx.plan.goalId !== scope.goalId || ctx.step.key !== phase ||
       ctx.step.adapter !== `r12.discovery.${scope.id}.${phase}` || ctx.step.operationKey !== `research.r12.${scope.id}.${phase}` || ctx.step.qualificationHash !== identity.qualificationHash || ctx.step.workflowDefinitionId !== identity.workflowDefinitionId || ctx.step.workerDefinitionId !== identity.workerDefinitionId) return fail();
   }
   function descriptor(ctx: QuestAdapterContext, request: Request, body: string): QuestPreparedCall {

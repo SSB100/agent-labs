@@ -41,6 +41,12 @@ export async function runR12Journeys({origin,noKeyOrigin,boundary,output,directo
  await check('R12 key-free Stop fences a pending paid response even after receipt cooldown',async()=>{
   await reset('pending');await post('Stop research',noKeyOrigin);assert.equal((await read()).policyRevoked,true);assert.equal((await read()).phases[0].candidateSaved,true);await control({r12Due:true});await post('Continue approved research');assert.equal(fixture().calls.length,0);assert.equal(fixture().receipts.length,0);assert.equal((await read()).phases[0].knownMicrousd,'10');
  });
+ await check('R12 scheduled reviewer interruption stays readable and key-free Stop preserves four paid outputs',async()=>{
+  await reset('scheduled-review');const before=await read();assert.equal(before.phases[4].status,'scheduled');assert.equal(before.phases.filter(p=>p.status==='completed').length,4);assert.equal(before.cost.knownMicrousd,'40');
+  const loaded=await html();assert.equal(loaded.status,200);assert.match(researchHtmlText(loaded.body),/Independent review/);assert.match(loaded.body,/Continue approved research/);assert.match(loaded.body,/Stop research/);
+  await post('Stop research',noKeyOrigin);const stopped=await read();assert.equal(stopped.policyRevoked,true);assert.equal(stopped.state,'stopped');assert.equal(stopped.cost.knownMicrousd,'40');assert.equal(stopped.phases[4].outcome,null);
+  await post('Continue approved research');assert.equal(fixture().calls.length,0);assert.equal(fixture().receipts.length,0);assert.match(researchHtmlText((await html()).body),/Research stopped/);
+ });
  if(!httpOnly){
   try{browser=await chromium.launch({headless:true,executablePath:process.env.GUIDED_UI_CHROMIUM_PATH,args:['--no-sandbox']});browserStatus='actual Chromium against production Next';}catch(error){browserStatus='blocked before browser launch; browser journeys unrun';results.push({name:'R12 Chromium launch',status:'blocked',error:String(error)});await report();throw error;}
   try{
@@ -79,6 +85,15 @@ export async function runR12Journeys({origin,noKeyOrigin,boundary,output,directo
    await check('R12 hydrated key-free Stop retains results and malformed route cannot substitute another scope',async()=>{
     await page.goto(noKeyOrigin+route());await action('Stop research',()=>progress().getByRole('button',{name:'Stop research',exact:true}).waitFor({state:'visible'}));await until(async()=>(await read()).policyRevoked);await page.reload();assert.equal(await progress().getByRole('button',{name:'Stop research',exact:true}).isDisabled(),true);await page.getByRole('heading',{name:'Needs more evidence',exact:true}).waitFor();
     for(const suffix of [`&selected=${fixture().scopeId}`,`&quest=${crypto.randomUUID()}`]){await page.goto(origin+route()+suffix);assert.equal(await page.getByRole('heading',{name:'Needs more evidence',exact:true}).count(),0);}assert.equal(fixture().calls.length,5);
+   });
+   await check('R12 hydrated scheduled reviewer preserves four outputs through Back, reload and Stop',async()=>{
+    await reset('scheduled-review');await page.goto(noKeyOrigin+route());await progress().waitFor();await progress().getByText('5/5 · Independent review',{exact:true}).waitFor();
+    assert.equal(await progress().getByRole('button',{name:'Continue approved research',exact:true}).isDisabled(),false);
+    await page.getByRole('link',{name:'Business Overview',exact:true}).click();await page.waitForURL(u=>u.searchParams.get('view')==='overview');await page.goBack();await progress().waitFor();await page.reload();await progress().waitFor();
+    await action('Stop research',()=>progress().getByText('Research stopped',{exact:true}).waitFor());
+    const stopped=await read();assert.equal(stopped.phases.filter(p=>p.status==='completed').length,4);assert.equal(stopped.phases[4].outcome,null);assert.equal(stopped.cost.knownMicrousd,'40');assert.equal(stopped.policyRevoked,true);
+    assert.equal(await progress().getByRole('button',{name:'Continue approved research',exact:true}).isDisabled(),true);
+    assert.equal(fixture().calls.length,0);assert.equal(fixture().receipts.length,0);await page.screenshot({path:path.join(output,'r12-scheduled-review-stopped.png'),fullPage:true});
    });
    await context.close();
   }finally{await browser.close();}

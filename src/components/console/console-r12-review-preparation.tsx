@@ -1,0 +1,30 @@
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import type { OwnerUiContext } from "@/lib/core-ui/data";
+import { formatResearchUsd } from "@/app/dashboard/research-qualification/presentation";
+import { readR12ReviewPreparation } from "@/products/discovery-r12-review-preparation-server";
+import { r12ReviewUuid } from "@/products/discovery-r12-review-preparation-contract";
+import { ConsoleShell } from "./console-shell";
+import { ConsoleR12ReviewPreparationForm } from "./console-r12-review-preparation-form";
+import "./console-workspace.css";
+export async function ConsoleR12ReviewPreparation({ context, query }: { context: OwnerUiContext; query: Record<string, string | string[] | undefined> }) {
+  if (Object.entries(query).some(([key, value]) => value !== undefined && (!["view", "type", "business", "selected"].includes(key) || typeof value !== "string")) || query.view !== "research" || query.type !== "r12-review-prepare" || !r12ReviewUuid(query.business) || !r12ReviewUuid(query.selected)) notFound();
+  let workspace;
+  try { workspace = await readR12ReviewPreparation(context, query.business, query.selected); }
+  catch { return <ConsoleShell active="research" context={context} navigationBusinessId={query.business}><section className="r08Workspace r12Preparation"><p role="alert">This exact remaining-review proposal is unavailable. Its saved permission and research could not be verified; reload this proposal before confirming.</p></section></ConsoleShell>; }
+  if (!workspace || workspace.scopeId !== query.selected) notFound();
+  const { proposal, scope } = workspace, policy = proposal.operatingPolicy, parsed = proposal.goalContent.parsed;
+  const stops = Array.isArray(parsed.stopConstraints) ? parsed.stopConstraints.filter((value): value is string => typeof value === "string") : [];
+  return <ConsoleShell active="research" context={context} navigationBusinessId={workspace.businessId}><section className="r08Workspace r12Preparation"><h1>Prepare the remaining review</h1><p>{context.businesses.find(business => business.id === workspace.businessId)?.name ?? "This Business"} · Existing owner profile and original research Goal</p>
+    <p>Four completed phases are preserved, with {formatResearchUsd(Number(scope.baseKnownMicrounits))} already recorded. This permission covers one independent reviewer call using those saved outputs.</p>
+    <p>Additional review limit: {formatResearchUsd(Number(policy.policyLimitMicrounits))}. Business lifetime ceiling: {formatResearchUsd(Number(policy.businessLifetimeLimitMicrounits))}. The original cumulative USD 2 research allowance and all earlier charges remain included.</p>
+    <p>Review uses the existing original objective, hypotheses, public evidence and analysis through OpenRouter’s Bedrock-US reviewer with no-training/ZDR inference and no fallback. No new search, repeated generation, image or store action is included.</p>
+    <p>Preparation cutoff: <time dateTime={scope.expiresAt}>{scope.expiresAt}</time>. Final activation grants at most 30 minutes to dispatch and 30 more minutes for that call’s receipt, with at most three lookups separated by 120 seconds or a longer Retry-After.</p>
+    <p>Confirming appends Business and Goal revisions and confirms the exact one-call financial permission. Temporary verifier enrollment and final activation remain separate.</p>
+    <section aria-label="Exact remaining-review financial permission"><h2>Financial permission</h2><p>One dispatch through {policy.operations[0].provider}; maximum {formatResearchUsd(Number(policy.policyLimitMicrounits))}. Current recorded exposure: {formatResearchUsd(Number(policy.expectedExposureMicrounits))} against the unchanged lifetime ceiling.</p><p>Policy starts <time dateTime={policy.startsAt}>{policy.startsAt}</time> and ends <time dateTime={policy.expiresAt}>{policy.expiresAt}</time>. Final activation must fit both finite windows inside this policy.</p><p>Business revision {proposal.expectedBusinessRevision} becomes {policy.businessRevision}; Goal revision {proposal.expectedGoalRevision} becomes {policy.goalRevision}. The current budget revision is {policy.expectedCapRevision}.</p><details><summary>Inspect the exact proposal and confirmation hash</summary><p>Proposal hash: {workspace.proposalHash}</p><label>Exact remaining-review proposal<textarea readOnly rows={16} value={JSON.stringify(proposal,null,2)}/></label></details></section>
+    <details open><summary>Business rules for this remaining review</summary>{Object.entries(proposal.businessContent).map(([key, value]) => <p key={key}>{value}</p>)}</details>
+    <details><summary>Original Goal, scope and stop rules</summary><h2>{proposal.goalContent.title}</h2><p>{proposal.goalContent.originalIntent}</p><p>{proposal.goalContent.objective}</p><p>{typeof parsed.scope === "string" ? parsed.scope : ""}</p><ul>{stops.map(rule => <li key={rule}>{rule}</li>)}</ul></details>
+    {workspace.confirmation ? <p>This exact proposal is already confirmed. Recover its setup receipt without creating another permission.</p> : !workspace.eligible ? <p role="alert">This proposal cannot currently be confirmed: {workspace.reason?.replaceAll("_", " ") ?? "current records could not be verified"}.</p> : null}
+    <ConsoleR12ReviewPreparationForm workspace={{businessId:workspace.businessId,scopeId:workspace.scopeId,proposalHash:workspace.proposalHash,eligible:workspace.eligible,goalId:scope.goalId,confirmed:workspace.confirmation!==null}}/><nav className="r08Links"><Link href={`/dashboard?view=research&type=r12&business=${workspace.businessId}&selected=${scope.sourceScopeId}&quest=${scope.goalId}`}>Inspect the four saved phases</Link><Link href={`/dashboard/quests/controls?business=${workspace.businessId}&quest=${scope.goalId}`}>Operating controls</Link></nav>
+  </section></ConsoleShell>;
+}

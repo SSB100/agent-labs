@@ -12,6 +12,8 @@ import {fileURLToPath} from 'node:url';
 import {r12PhaseOutputFixture} from './helpers/r12-phase-output-fixture.mjs';
 import {discoveryKnowledgeFixture} from './discovery-v2-fixtures.mjs';
 import {r12QuoteFixture} from './helpers/r12-provider-fixture.mjs';
+import {prepareR12ReviewFixture} from './helpers/r12-review-fixture.mjs';
+import {exerciseR12ReviewRuntime} from './helpers/r12-review-runtime.mjs';
 import {r04SqlBootstrap} from './helpers/r04-sql-bootstrap.mjs';
 import {sessionBootstrap} from './helpers/r10-sql-fixture.mjs';
 import {r07FixtureSetup,R07_OWNER,R07_LEASE} from './helpers/r07-sql-fixture.mjs';
@@ -21,7 +23,7 @@ function validatePg(value){const u=new URL(value);assert.ok(u.protocol==='postgr
 test('R12 SQL harness refuses remote, wrong-identity and options-bearing database targets',()=>{for(const url of ['postgresql://r12_test:x@production.example/r12_test','postgresql://postgres:x@127.0.0.1/r12_test','postgresql://r12_test:x@127.0.0.1/production','postgresql://r12_test:x@127.0.0.1/r12_test?options=-csearch_path%3Dpublic'])assert.throws(()=>validatePg(url));});
 
 function source(file,deps){const m={exports:{}};new Function('require','module','exports',ts.transpileModule(readFileSync(path.join(root,file),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)(name=>{assert.ok(name in deps,name);return deps[name];},m,m.exports);return m.exports;}
-test('R12 actual scope loader and migrated SQL preserve original funding without creating authority',{skip:!host,timeout:120000},async()=>{
+test('R12 actual owner workflows preserve funding, bounded dispatch and immutable historical results',{skip:!host,timeout:120000},async()=>{
  const sqlRequire=createRequire(path.resolve(host,'package.json'));let db;
  if(process.env.R12_REQUIRE_POSTGRES==='1')assert.ok(process.env.R12_POSTGRES_URL,'Actual PostgreSQL is required by this gate');
  if(process.env.R12_POSTGRES_URL){validatePg(process.env.R12_POSTGRES_URL);const {Client}=sqlRequire('pg');db=new Client({connectionString:process.env.R12_POSTGRES_URL});await db.connect();assert.equal(Number((await db.query("select count(*) from pg_tables where schemaname in ('public','private')")).rows[0].count),0,'Fresh fixture database required');db.exec=sql=>db.query(sql);db.close=()=>db.end();}
@@ -33,6 +35,7 @@ test('R12 actual scope loader and migrated SQL preserve original funding without
  const scope=require('../.core-tests/products/discovery-r12-scope.js');
  const owner=source('src/lib/core-ui/owner-business.ts',{}),server=source('src/products/discovery-r12-scope-server.ts',{'server-only':{},'../lib/core-ui/owner-business':owner,'./discovery-r12-scope':scope});
  try{
+  await db.exec("set timezone='UTC'");
   await db.exec(r04SqlBootstrap+sessionBootstrap);
   for(const file of readdirSync(path.join(root,'supabase/migrations')).filter(x=>x.endsWith('.sql')).sort())try{await db.exec(readFileSync(path.join(root,'supabase/migrations',file),'utf8'));}catch(error){throw new Error(`${file}: ${error.message}`,{cause:error});}
   assert.equal((await db.query('select count(*)::int n from private.r12_discovery_scopes')).rows[0].n,0);
@@ -121,7 +124,7 @@ test('R12 actual scope loader and migrated SQL preserve original funding without
   assert.equal((await db.query('select count(*)::int n from private.r07_attempts')).rows[0].n,0);
   assert.equal((await db.query('select count(*)::int n from public.product_research_cost_reservations')).rows[0].n,1);
   await db.query("insert into private.r05_policy_proofs values($1,$2,$3,clock_timestamp()+interval '1 hour')",[proposed.id,proposed.hash,'4'.repeat(64)]);
-  for(const step of plan.steps)await db.query(`insert into private.r07_adapters(adapter_key,qualification_hash,workflow_definition_id,worker_definition_id,workflow_hash,worker_hash,operation_key,role,purpose,artifact_type,mode,valid_from,valid_until,knowledge_valid_until) select $1,$2,fd.id,wd.id,private.r04_hash(to_jsonb(fd)),private.r04_hash(to_jsonb(wd)),$3,$4,$5,$6,'qualification',clock_timestamp()-interval '1 minute',clock_timestamp()+interval '1 hour',clock_timestamp()+interval '1 hour' from public.workflow_definitions fd cross join public.worker_definitions wd where fd.id=$7 and wd.id=$8`,[step.adapter,step.qualificationHash,step.operationKey,step.role,step.purpose,step.expectedArtifactType,step.workflowDefinitionId,step.workerDefinitionId]);
+  for(const step of plan.steps)await db.query(`insert into private.r07_adapters(adapter_key,qualification_hash,workflow_definition_id,worker_definition_id,workflow_hash,worker_hash,operation_key,role,purpose,artifact_type,mode,valid_from,valid_until,knowledge_valid_until) select $1,$2,fd.id,wd.id,private.r04_hash(to_jsonb(fd)),private.r04_hash(to_jsonb(wd)),$3,$4,$5,$6,'qualification',clock_timestamp()-interval '1 minute',clock_timestamp()+interval '1 hour',clock_timestamp()+interval '1 day' from public.workflow_definitions fd cross join public.worker_definitions wd where fd.id=$7 and wd.id=$8`,[step.adapter,step.qualificationHash,step.operationKey,step.role,step.purpose,step.expectedArtifactType,step.workflowDefinitionId,step.workerDefinitionId]);
   await db.query("insert into private.r12_discovery_authorities(scope_id,business_id,goal_id,controller_key_hash,admission_key_hash,plan,plan_hash,mode,approval_hash,execution_review_hash,valid_until,receipt_until) values($1,$2,$3,encode(extensions.digest(convert_to($4,'UTF8'),'sha256'),'hex'),encode(extensions.digest(convert_to($5,'UTF8'),'sha256'),'hex'),$6,private.r04_hash($6),'qualification',$7,$8,$9,$10)",[scopeId,business,f.g,R07_KEY,R05_KEY,plan,'9'.repeat(64),'8'.repeat(64),paidUntil,receiptUntil]);
   await db.query('select private.r07_validate_plan($1,$2,$3)',[business,f.g,plan]);
   assert.equal((await db.query("select count(*)::int n from public.worker_definitions where id=any($1::uuid[]) and status='experimental'",[[...new Set(plan.steps.map(s=>s.workerDefinitionId))]])).rows[0].n,4,'The scoped grant does not promote underlying definitions');
@@ -204,6 +207,7 @@ test('R12 actual scope loader and migrated SQL preserve original funding without
   await assert.rejects(ownerActions.continueDiscoveryR12(ownerContext,business,scopeId),/owner_action_unavailable/,'SQL ownership defeats stale owner context');
   await db.query("select set_config('request.jwt.claim.sub',$1,false)",[R07_OWNER]);
   assert.deepEqual(await ownerActions.prepareDiscoveryR12Authority(ownerContext,business,scopeId),{controllerKeyHash:createHash('sha256').update(R07_KEY).digest('hex'),admissionKeyHash:createHash('sha256').update(R05_KEY).digest('hex'),authorityCreated:false});
+  const ownerApi=source('src/products/discovery-r12-owner.ts',{'server-only':{},'../lib/core-ui/owner-business':owner,'./discovery-r12-runtime':require('../.core-tests/products/discovery-r12-runtime.js')});
   for(const phase of phaseKeys.slice(1)){
    const phaseStep=plan.steps.find(step=>step.key===phase);
    phaseFetchers[phase]=async(url,init)=>{
@@ -217,7 +221,21 @@ test('R12 actual scope loader and migrated SQL preserve original funding without
     return new Response(JSON.stringify({data:{id,provider_name:phase==='review'?'Amazon Bedrock':'Azure',model}}),{status:200});
    };
    adapters[phaseStep.adapter]=createDiscoveryR12QuestAdapter({...options,phase,dataClasses:phaseData(phase),identity:{qualificationHash:phaseStep.qualificationHash,workflowDefinitionId:phaseStep.workflowDefinitionId,workerDefinitionId:phaseStep.workerDefinitionId,mode:'qualification'},fetcher:phaseFetchers[phase]});
-   if(phase==='review'){assert.equal((await ownerActions.continueDiscoveryR12(ownerContext,business,scopeId)).status,'completed');continue;}
+   if(phase==='review'){
+    assert.equal((await driveQuestOnce(store,{adapters})).reason,'scheduled');
+    const saved=(await ownerContext.supabase.rpc('r12_discovery_owner_read',{p_business_id:business,p_scope_id:scopeId,p_activation:false})).data;
+    const scheduled=ownerApi.parseDiscoveryR12Workspace(saved,business,scopeId);
+    assert.equal(scheduled.phases[4].status,'scheduled');assert.equal(scheduled.phases[4].reason,phaseStep.reason);
+    assert.equal(scheduled.phases.filter(p=>p.status==='completed').length,4);assert.equal(scheduled.cost.knownMicrousd,'40');
+    assert.equal(ownerApi.discoveryR12CanContinue(scheduled),true);
+    for(const value of ['', ' ', 'x'.repeat(241), 1, {}]){const bad=structuredClone(saved);bad.phases[4].reason=value;assert.throws(()=>ownerApi.parseDiscoveryR12Workspace(bad,business,scopeId));}
+    for(const target of ['reason','diagnostic']){const bad=structuredClone(saved);if(target==='reason')bad.reason='A sentence is not a state code';else bad.phases[0].receipt.diagnostic={code:'Not a diagnostic code',httpStatus:404};assert.throws(()=>ownerApi.parseDiscoveryR12Workspace(bad,business,scopeId));}
+    await captureNext('scheduled-review');
+    await db.exec('begin');
+    try{const continuation=await prepareR12ReviewFixture(db,{quote,outputs},{nested:true});const replay=await exerciseR12ReviewRuntime(db,continuation.metadata,{nested:true});assert.deepEqual(replay,{providerCalls:0,inertPosts:1,inertReceiptGets:2,outcome:'NEEDS_MORE_EVIDENCE',phaseReceipts:5,dispatches:5,children:6});}
+    finally{await db.exec('rollback');}
+    assert.equal((await ownerActions.continueDiscoveryR12(ownerContext,business,scopeId)).status,'completed');continue;
+   }
    assert.equal((await driveQuestOnce(store,{adapters})).reason,'scheduled',`${phase} schedule`);
    assert.equal((await driveQuestOnce(store,{adapters})).reason,'reserved',`${phase} reserve`);
    assert.equal((await driveQuestOnce(store,{adapters})).reason,'response_persisted',`${phase} response`);
@@ -249,7 +267,6 @@ test('R12 actual scope loader and migrated SQL preserve original funding without
    assert.equal(projectDiscoveryR12Phase(reviewContext,inputs,qualified,JSON.parse(readback.binding.requestJson)).result.reviewHash,decision.reviewHash);
    assert.throws(()=>buildDiscoveryR12PhaseRequest(reviewContext,inputs),/inputs_unverified/,'Receipt reconstruction grants no new request authority');
   }finally{Date.now=originalClock;}
-  const ownerApi=source('src/products/discovery-r12-owner.ts',{'server-only':{},'../lib/core-ui/owner-business':owner,'./discovery-r12-runtime':require('../.core-tests/products/discovery-r12-runtime.js')});
   await db.query("select set_config('request.jwt.claim.sub',$1,false)",[R07_OWNER]);
   const ownerRead=async(activation=false)=>{await db.exec('set role authenticated');try{return(await db.query('select public.r12_discovery_owner_read($1,$2,$3) result',[business,scopeId,activation])).rows[0].result;}finally{await db.exec('reset role');}};
   const historyRead=async()=>{await db.exec('set role authenticated');try{return(await db.query('select public.r12_discovery_result_read($1,$2) result',[business,scopeId])).rows[0].result;}finally{await db.exec('reset role');}};
