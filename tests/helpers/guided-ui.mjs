@@ -419,6 +419,7 @@ export async function renderProducts() {
     "./types": productTypes, "../research/sources": sources,
     "../research/generation-route": loadSource("src/research/generation-route.ts", { "../models/openrouter": { getOpenRouterConfig: noAction } }),
     "./discovery": { validateProductEvidence: noAction }, "./discovery-v2-knowledge": { validateDiscoveryKnowledgeV2: noAction },
+    "./discovery-r12-evidence-addendum": { discoveryAddendumObservation: noAction, validateDiscoveryEvidenceAddendum: noAction },
   });
   const goal = loadSource("src/products/discovery-v2-goal.ts", { "./discovery-v2": discovery });
   const quoteModels = [];
