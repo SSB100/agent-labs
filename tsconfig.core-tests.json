@@ -73,6 +73,7 @@
     "src/products/discovery-r12-scope-server.ts",
     "src/products/discovery-r12-owner.ts",
     "src/products/discovery-r12-server.ts",
-    "src/products/discovery-r12-server-dependencies.ts"
+    "src/products/discovery-r12-server-dependencies.ts",
+    "src/products/discovery-r12-preparation-server.ts"
   ]
 }

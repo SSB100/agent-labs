@@ -31,6 +31,7 @@ function unavailablePage(q: ConsoleResearchQuery): ConsoleResearchPage {
 
 /** Saved metadata entry point. Ordinary browsing makes no quote, catalogue or action call. */
 export async function ConsoleResearchDashboard({ context, query }: { context: OwnerUiContext; query: Search }) {
+  if(query.type==="r12-prepare"){const {ConsoleR12Preparation}=await import("./console-r12-preparation");return <ConsoleR12Preparation context={context} query={query}/>;}
   if(query.type==="r12"){const {ConsoleR12Discovery}=await import("./console-r12-discovery");return <ConsoleR12Discovery context={context} query={query}/>;}
   let q: ConsoleResearchQuery;
   try { const kind = query.type === "records" ? "records" : "roots"; q = consoleResearchQuery(kind, consoleResearchOptionsFromSearch(query, kind)); }
@@ -61,7 +62,7 @@ export async function ConsoleResearchDashboard({ context, query }: { context: Ow
   return <ConsoleShell active="research" context={displayContext} globalDecisionCount={!context.workspaceQuest} aggregateContext={!q.businessId} navigationBusinessId={commandBusinessId}
     commandBar={<ConsoleCommandBar ownerId={context.userId} businessId={commandBusinessId} businessSelectionAvailable={context.businesses.length > 0} returnTo={returnTo} unavailable={context.businessesUnavailable}/> }>
     <ConsoleResearchPane data={data} evidence={null} evidenceContent={evidenceContent} ownerId={context.userId} businesses={context.businesses} searchParams={params}
-      researchHref={consoleResearchHref(params, { sheet: "research" })} scopeHref={returnTo} viewport={<ConsoleCollectionViewport ownerId={context.userId} scopeHref={returnTo}/>}/>
+      researchHref={consoleResearchHref(params, { sheet: "research" })} preparationHref={exact?.discovery_version==="pod-discovery-2.0"&&exact.candidate_id===null&&["failed","completed"].includes(exact.status??"")?`/dashboard?view=research&type=r12-prepare&business=${exact.business_id}&prior=${exact.id}`:undefined} scopeHref={returnTo} viewport={<ConsoleCollectionViewport ownerId={context.userId} scopeHref={returnTo}/>}/>
     {researchSheet ? <ConsoleResearchSheet returnTo={returnTo}><QuestKickoff ownerId={context.userId} businesses={commandBusinesses} businessesUnavailable={context.businessesUnavailable} available={catalog?.available === true} quote={quote}/></ConsoleResearchSheet> : null}
   </ConsoleShell>;
 }

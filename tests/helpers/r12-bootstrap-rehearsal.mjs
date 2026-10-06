@@ -3,7 +3,9 @@
  * production exports, financial baselines, limits, predicates and SQL logic stay unchanged. */
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
-import {readFileSync,readdirSync} from 'node:fs';
+import {readFileSync,readdirSync,writeFileSync} from 'node:fs';
+import path from 'node:path';
+import {r12PhaseOutputFixture} from './r12-phase-output-fixture.mjs';
 import {randomUUID,createHash} from 'node:crypto';
 import * as recipes from '../../scripts/r12-research-bootstrap.mjs';
 import {r04SqlBootstrap} from './r04-sql-bootstrap.mjs';
@@ -13,16 +15,17 @@ import {discoveryKnowledgeFixture} from '../discovery-v2-fixtures.mjs';
 import {r12QuoteFixture} from './r12-provider-fixture.mjs';
 const root=process.cwd(), req=createRequire(root+'/package.json'),ts=req('typescript');
 const sqlReq=createRequire((process.env.R12_SQL_TEST_HOST??process.env.R11_SQL_TEST_HOST)+'/package.json'),{PGlite}=sqlReq('@electric-sql/pglite'),{pgcrypto}=sqlReq('@electric-sql/pglite/contrib/pgcrypto');
-const db=new PGlite({extensions:{pgcrypto}}),log=[],sqlErrors=[],calls=[];let actor=R07_OWNER;
+const db=new PGlite({extensions:{pgcrypto}}),log=[],sqlErrors=[],calls=[];let actor=R07_OWNER,interruptOperation=null;
 const sha=s=>createHash('sha256').update(s).digest('hex');
 const value=async(sql,args=[]) => (await db.query(sql,args)).rows[0];
 function source(file,deps){const m={exports:{}};new Function('require','module','exports',ts.transpileModule(readFileSync(root+'/'+file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)(name=>{assert.ok(name in deps,name);return deps[name];},m,m.exports);return m.exports;}
 const ownerClient={auth:{getClaims:async()=>({data:{claims:{sub:actor}},error:null})},rpc:async(name,args)=>{
- const fields={r04_quest_transition:['p_business_id','p_operation','p_payload','p_submission_id'],r04_research_link_preview:['p_business_id','p_experiment_id'],r05_policy_owner:['p_business_id','p_operation','p_payload','p_submission_id'],r05_admission_read:['p_business_id','p_policy_id','p_limit','p_offset']}[name];assert.ok(fields,name);
+ const fields={r04_quest_transition:['p_business_id','p_operation','p_payload','p_submission_id'],r04_research_link_preview:['p_business_id','p_experiment_id'],r04_quest_read:['p_business_id','p_goal_id','p_limit','p_offset'],r05_policy_owner:['p_business_id','p_operation','p_payload','p_submission_id'],r05_admission_read:['p_business_id','p_policy_id','p_limit','p_offset']}[name];assert.ok(fields,name);
  calls.push({name,operation:args.p_operation,actor});await db.query("select set_config('request.jwt.claim.sub',$1,false)",[actor]);await db.exec('set role authenticated');
- try{return{data:(await db.query(`select public.${name}(${fields.map((_,i)=>'$'+(i+1)).join(',')}) result`,fields.map(k=>args[k]??null))).rows[0].result,error:null};}
+ try{const data=(await db.query(`select public.${name}(${fields.map((_,i)=>'$'+(i+1)).join(',')}) result`,fields.map(k=>args[k]??null))).rows[0].result;if(name==='r04_quest_transition'&&args.p_operation===interruptOperation){interruptOperation=null;throw Error('inert_saved_response_lost');}return{data,error:null};}
  catch(error){sqlErrors.push(error.message);return{data:null,error};}finally{await db.exec('reset role');}
 }};
+ownerClient.from=table=>{assert.ok(['businesses','product_experiments'].includes(table));const filters=[];let columns='';const q={select:fields=>{assert.match(fields,/^[a-z_,]+$/);columns=fields;return q;},eq:(key,v)=>{assert.ok(['id','business_id','owner_user_id'].includes(key));filters.push([key,v]);return q;},maybeSingle:async()=>{await db.query("select set_config('request.jwt.claim.sub',$1,false)",[actor]);await db.exec('set role authenticated');try{const rows=(await db.query(`select ${columns} from public.${table} where ${filters.map(([key],i)=>key+'=$'+(i+1)).join(' and ')} limit 2`,filters.map(([,v])=>v))).rows;return{data:rows.length===1?rows[0]:null,error:rows.length>1?Error('ambiguous'):null};}finally{await db.exec('reset role');}}};return q;};
 const deps={'@/lib/supabase/server':{createClient:async()=>ownerClient},'@/core/quest-intake':req(root+'/.core-tests/core/quest-intake.js'),'@/core/quest-contract':req(root+'/.core-tests/core/quest-contract.js'),'@/core/admission-contract':req(root+'/.core-tests/core/admission-contract.js')};
 const questApi=source('src/app/dashboard/quests/actions.ts',deps),policyApi=source('src/app/dashboard/quests/controls/actions.ts',deps);
 const sendQuest=body=>questApi.saveQuestIntent(body.p_business_id,body.p_operation,body.p_payload,body.p_submission_id);
@@ -66,12 +69,31 @@ try{
   const proposed=await ownerClient.rpc('r05_policy_owner',{p_business_id:business,p_operation:'propose',p_payload:payload,p_submission_id:randomUUID()});assert.equal(proposed.error,null);
   const confirmed=await ownerClient.rpc('r05_policy_owner',{p_business_id:business,p_operation:'confirm',p_payload:{policyId:proposed.data.id,policyHash:proposed.data.hash},p_submission_id:randomUUID()});assert.equal(confirmed.error,null);
  }
+ // Exercise the actual owner-only prepare route and server HMAC boundary.
+ process.env.VERCEL_ENV='production';process.env.R05_ADMISSION_SERVER_KEY='inert-bootstrap-only-root-01234567890123456789';process.env.OPENROUTER_API_KEY='inert-never-used-provider-value';
+ const ownerCheck=source('src/lib/core-ui/owner-business.ts',{});
+ const server=source('src/products/discovery-r12-server.ts',{'server-only':{},'node:crypto':req('node:crypto'),'../lib/core-ui/owner-business':ownerCheck,'../core/quest-plan':req(root+'/.core-tests/core/quest-plan.js'),'../core/quest-controller':req(root+'/.core-tests/core/quest-controller.js'),'./discovery-v2':req(root+'/.core-tests/products/discovery-v2.js'),'./discovery-r12-runtime':req(root+'/.core-tests/products/discovery-r12-runtime.js'),'./discovery-r12-adapter':req(root+'/.core-tests/products/discovery-r12-adapter.js'),'./discovery-r12-wire':req(root+'/.core-tests/products/discovery-r12-wire.js'),'./discovery-r12-server-dependencies':{discoveryR12ServerDependencies:()=>{throw Error('Prepare must not construct runtime dependencies');}}});
+ await db.exec('set role authenticated');let verifiedBusiness;try{verifiedBusiness=await value('select id,name from public.businesses where id=$1 and owner_user_id=$2',[business,R07_OWNER]);}finally{await db.exec('reset role');}assert.equal(verifiedBusiness.id,business);
+ const ownerContext={userId:R07_OWNER,businesses:[verifiedBusiness],supabase:ownerClient};
+ const captureDirectory=process.env.R12_BOOTSTRAP_NEXT_OUTPUT;
+ if(captureDirectory)assert.ok(path.isAbsolute(captureDirectory)&&path.basename(captureDirectory).startsWith('r12-next-'));
+ const bootstrapDump=captureDirectory?await db.dumpDataDir('gzip'):null;
  const cutoff=new Date(Math.floor((Date.now()+2*3600000)/1000)*1000).toISOString();
- const created=await qok(owned(recipes.ownerGoalCreateBody(cutoff,randomUUID())));
- const ready=await qok(owned(recipes.ownerReadyBody(created.id,created.revision,randomUUID())));
- const preview=await questApi.previewResearchLink(business,priorId);assert.equal(preview.status,'linkable');assert.equal(preview.authorityRootId,rootId);
- const linked=recipes.ownerLinkBody(created.id,ready.revision,randomUUID());linked.p_payload.experimentId=priorId;await qok(owned(linked));
- const goalHash=(await value('select content_hash hash from private.r04_goal_versions where goal_id=$1 and revision=$2',[created.id,ready.revision])).hash;
+ const preparationContract=req(root+'/.core-tests/products/discovery-r12-preparation-contract.js');
+ assert.deepEqual(preparationContract.r12PreparationGoalContent(cutoff),recipes.ownerGoalCreateBody(cutoff,randomUUID()).p_payload.content);
+ const preparation=source('src/products/discovery-r12-preparation-server.ts',{'server-only':{},'node:crypto':req('node:crypto'),'../lib/core-ui/owner-business':ownerCheck,'../core/quest-contract':req(root+'/.core-tests/core/quest-contract.js'),'./discovery-v2':req(root+'/.core-tests/products/discovery-v2.js'),'./discovery-r12-server':server,'./discovery-r12-preparation-contract':preparationContract});
+ const setupInput={businessId:business,priorRoundId:priorId,preparationId:randomUUID(),sourceCutoff:cutoff};
+ const goalCount=async()=>Number((await value('select count(*)::int n from private.r04_goal_state where business_id=$1',[business])).n);
+ const beforePreparation=await goalCount();
+ process.env.VERCEL_ENV='preview';await assert.rejects(preparation.prepareR12OwnerSetup(ownerContext,setupInput));assert.equal(await goalCount(),beforePreparation);process.env.VERCEL_ENV='production';log.push({check:'preparation configuration failure writes no Goal',status:'passed'});
+ actor='95050000-0000-4000-8000-000000000002';await assert.rejects(preparation.prepareR12OwnerSetup(ownerContext,setupInput));actor=R07_OWNER;assert.equal(await goalCount(),beforePreparation);log.push({check:'preparation foreign owner cannot write intent',status:'passed'});
+ for(const operation of ['quest.save','quest.preference','research.link']){await db.exec('begin');try{interruptOperation=operation;await assert.rejects(preparation.prepareR12OwnerSetup(ownerContext,setupInput));const recovered=await preparation.prepareR12OwnerSetup(ownerContext,setupInput);assert.equal(recovered.goalRevision,2);assert.equal(await goalCount(),beforePreparation+1);assert.deepEqual(await preparation.readR12Preparation(ownerContext,setupInput),recovered);}finally{interruptOperation=null;await db.exec('rollback');}log.push({check:'preparation recovers saved response loss after '+operation,status:'passed'});}
+ await db.exec('begin');try{interruptOperation='quest.save';await assert.rejects(preparation.prepareR12OwnerSetup(ownerContext,setupInput));const recovered=await preparation.prepareR12OwnerSetup(ownerContext,{...setupInput,priorRoundId:roots[7].id,preparationId:randomUUID()});assert.equal(recovered.goalRevision,2);assert.equal(await goalCount(),beforePreparation+1);}finally{interruptOperation=null;await db.exec('rollback');}log.push({check:'different prior round in the same original root cannot duplicate an interrupted Goal save',status:'passed'});
+ const preparedSetup=await preparation.prepareR12OwnerSetup(ownerContext,setupInput);
+ assert.deepEqual(await preparation.prepareR12OwnerSetup(ownerContext,setupInput),preparedSetup);assert.equal(await goalCount(),beforePreparation+1);assert.equal(preparedSetup.authorityCreated,false);
+ const otherTab=await preparation.prepareR12OwnerSetup(ownerContext,{...setupInput,preparationId:randomUUID()});assert.equal(otherTab.goalId,preparedSetup.goalId);assert.equal(await goalCount(),beforePreparation+1);assert.notEqual(otherTab.scopeId,preparedSetup.scopeId);
+ await assert.rejects(preparation.prepareR12OwnerSetup(ownerContext,{...setupInput,sourceCutoff:new Date(Date.parse(cutoff)+60000).toISOString()}));assert.equal(await goalCount(),beforePreparation+1);log.push({check:'preparation retries and different tabs retain one original Goal; changed cutoff is rejected',status:'passed'});
+ const created={id:preparedSetup.goalId},ready={revision:preparedSetup.goalRevision},goalHash=preparedSetup.goalHash;
  const pins=new Map([
  [recipes.TARGET.businessId,business],[recipes.TARGET.rootId,rootId],[recipes.TARGET.priorId,priorId],[recipes.TARGET.packId,pack],[recipes.TARGET.workflowId,fd.id],
  ['97441d08503e1640763a6da50c191ae13aa4b23e86ffe0e2b25b3789005ead12',businessHash],['92894207fbcc149e7e4cf91c924c5feb9adae732321966f86a70b8fa5d8b75fa',discoveryV2Hash(rootIntent)],['f6be5c7bfde7b19fb4bb09a10f13b9d30d519785f7f9a8508a00b3cfe46d8170',discoveryV2Hash(priorIntent)],['6e174b6a90ce9515abe3d27043501b01329f65dc8f25e93ed814b00f917cfcd7','a'.repeat(64)],['6fe1a97c3667b5a9074a53a5156c2357c362871cd2ebd5735c19c39a9f344db0',snapshotHash],['937e21bb9863a31de0cfbb48d97ae675b7a6a540cb05a029ad83e1dbb876e993',fd.hash]
@@ -80,7 +102,8 @@ try{
  for(const [key,id,hash] of prodWorkers){const worker=workers.find(w=>w.worker_key==='product.discovery-v2.'+key);assert.ok(worker);pins.set(id,worker.id);pins.set(hash,worker.hash);}
  const render=sql=>{for(const [from,to] of pins){assert.ok(sql.includes(from),'Missing fixed source pin '+from);sql=sql.replaceAll(from,to);}return sql;};
  const stageSQL=render(recipes.STAGING_SQL),activationSQL=render(recipes.ACTIVATION_SQL);
- const input={ownerId:R07_OWNER,goalId:created.id,goalRevision:ready.revision,goalHash,scopeId:randomUUID(),installationId:randomUUID(),sourceCutoff:cutoff,approvalHash:sha('inert-approved-packet'),ipsosReviewHash:sha('inert-ipsos-review'),mdpiReviewHash:sha('inert-mdpi-review'),independentReviewHash:sha('inert-independent-review'),executionReviewHash:sha('inert-execution-review'),eligibilityReviewHash:sha('inert-eligibility-review'),quote:r12QuoteFixture()};
+ if(captureDirectory){const outputs=r12PhaseOutputFixture(priorIntent.comparisonUniverse.audiences[0]);outputs.search1.annotations.forEach((item,index)=>{item.url_citation.url=index?'https://www.mdpi.com/inert-fixture-report':'https://www.ipsos.com/inert-fixture-report';});writeFileSync(path.join(captureDirectory,'bootstrap.tgz'),Buffer.from(await bootstrapDump.arrayBuffer()));writeFileSync(path.join(captureDirectory,'bootstrap-metadata.json'),JSON.stringify({businessId:business,goalId:null,scopeId:setupInput.preparationId,ownerId:R07_OWNER,priorRoundId:priorId,budgetAuthorityRootId:rootId,sourceCutoff:cutoff,outputs,bootstrapPins:[...pins]}));}
+ const input={ownerId:R07_OWNER,goalId:created.id,goalRevision:ready.revision,goalHash,scopeId:preparedSetup.scopeId,installationId:preparedSetup.installationId,sourceCutoff:cutoff,approvalHash:sha('inert-approved-packet'),ipsosReviewHash:sha('inert-ipsos-review'),mdpiReviewHash:sha('inert-mdpi-review'),independentReviewHash:sha('inert-independent-review'),executionReviewHash:sha('inert-execution-review'),eligibilityReviewHash:sha('inert-eligibility-review'),quote:r12QuoteFixture()};
  async function run(sql,input,before){
   const kind=sql===stageSQL?'stage':'activate',original=kind==='stage'?recipes.STAGING_SQL:recipes.ACTIVATION_SQL;
   const client={query:async(statement,args)=>{
@@ -106,12 +129,6 @@ try{
  assert.equal((await sendPolicy(owned(recipes.ownerPolicyProposeBody(staged,randomUUID())))).ok,true,sqlErrors.at(-1));
  const read=await ownerClient.rpc('r05_admission_read',{p_business_id:business,p_policy_id:null,p_limit:20,p_offset:0});assert.equal(read.error,null);const proposed=read.data.policies.find(p=>p.policy.goalId===created.id);assert.ok(proposed);
  assert.equal((await sendPolicy(owned(recipes.ownerPolicyConfirmBody(proposed.id,proposed.hash,randomUUID())))).ok,true,sqlErrors.at(-1));log.push({check:'actual authenticated owner policy server APIs propose/confirm',status:'passed'});
- // Exercise the actual owner-only prepare route and server HMAC boundary.
- process.env.VERCEL_ENV='production';process.env.R05_ADMISSION_SERVER_KEY='inert-bootstrap-only-root-01234567890123456789';process.env.OPENROUTER_API_KEY='inert-never-used-provider-value';
- const ownerCheck=source('src/lib/core-ui/owner-business.ts',{});
- const server=source('src/products/discovery-r12-server.ts',{'server-only':{},'node:crypto':req('node:crypto'),'../lib/core-ui/owner-business':ownerCheck,'../core/quest-plan':req(root+'/.core-tests/core/quest-plan.js'),'../core/quest-controller':req(root+'/.core-tests/core/quest-controller.js'),'./discovery-v2':req(root+'/.core-tests/products/discovery-v2.js'),'./discovery-r12-runtime':req(root+'/.core-tests/products/discovery-r12-runtime.js'),'./discovery-r12-adapter':req(root+'/.core-tests/products/discovery-r12-adapter.js'),'./discovery-r12-wire':req(root+'/.core-tests/products/discovery-r12-wire.js'),'./discovery-r12-server-dependencies':{discoveryR12ServerDependencies:()=>{throw Error('Prepare must not construct runtime dependencies');}}});
- await db.exec('set role authenticated');let verifiedBusiness;try{verifiedBusiness=await value('select id,name from public.businesses where id=$1 and owner_user_id=$2',[business,R07_OWNER]);}finally{await db.exec('reset role');}assert.equal(verifiedBusiness.id,business);
- const ownerContext={userId:R07_OWNER,businesses:[verifiedBusiness],supabase:ownerClient};
  const prepareRoute=source('src/app/api/research/r12/prepare/route.ts',{'@/lib/core-ui/data':{requireOwnerUiContext:async()=>ownerContext},'@/products/discovery-r12-server':server});
  const prepareRequest=origin=>new Request('https://r12-bootstrap.invalid/api/research/r12/prepare',{method:'POST',headers:{origin,'content-type':'application/json'},body:JSON.stringify({businessId:business,scopeId:input.scopeId})});
  assert.equal((await prepareRoute.POST(prepareRequest('https://foreign.invalid'))).status,403);
@@ -134,5 +151,6 @@ try{
  assert.equal((await value('select max(revision)::int revision,max(maximum_microunits)::int maximum from private.r05_cap_versions where business_id=$1',[business])).revision,7);
  assert.equal((await value('select count(*)::int n from private.r05_markers')).n,0);assert.equal((await value('select count(*)::int n from private.r12_discovery_transport_claims')).n,0);
  assert.equal(recipes.TARGET.businessId,'91ff7c87-60e4-4dbb-8e84-be63b53c2c79');
+ assert.equal((await value('select revision from private.r04_business_state where business_id=$1',[business])).revision,6);
  console.log(JSON.stringify({status:'passed',checks:log,ownerApiCalls:calls.length,pinSubstitutions:pins.size}));
 }catch(error){console.error(error);process.exitCode=1;}finally{await db.close();}

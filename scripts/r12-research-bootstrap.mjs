@@ -111,7 +111,9 @@ const addExpectedOperation=`
  expected_ops:=expected_ops||jsonb_build_array(jsonb_build_object('operationKey',operation_key,'installationId',iid,'workflowDefinitionId',workflow_id,'purpose',purpose,'provider','openrouter','category','model','accountId',null,'accountRevision',null,'sourceDomains',source_domains,'dataClasses',data_classes,'maximumPerOperationMicrounits',phase.amount::text));
 `;
 const buildPolicy=`
- policy:=jsonb_build_object('version','r05.1','goalId',g,'goalRevision',goal.revision,'businessRevision',6,'currency','USD','businessLifetimeLimitMicrounits','1053587','policyLimitMicrounits','406736','categoryLimits',jsonb_build_array(jsonb_build_object('category','model','microunits','406736')),'expectedCapRevision',6,'expectedExposureMicrounits','646851','startsAt',amendment->>'createdAt','expiresAt',amendment->>'expiresAt','maximumDispatches',5,'minimumIntervalSeconds',0,'stopOnTarget',false,'operations',expected_ops,'financialMode','bounded_model_cost_only');
+ -- Match the existing genuine-owner form's stable operation order and ISO UTC precision.
+ select jsonb_agg(item order by item->>'operationKey') into expected_ops from jsonb_array_elements(expected_ops) item;
+ policy:=jsonb_build_object('version','r05.1','goalId',g,'goalRevision',goal.revision,'businessRevision',6,'currency','USD','businessLifetimeLimitMicrounits','1053587','policyLimitMicrounits','406736','categoryLimits',jsonb_build_array(jsonb_build_object('category','model','microunits','406736')),'expectedCapRevision',6,'expectedExposureMicrounits','646851','startsAt',to_char((amendment->>'createdAt')::timestamptz at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),'expiresAt',to_char((amendment->>'expiresAt')::timestamptz at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),'maximumDispatches',5,'minimumIntervalSeconds',0,'stopOnTarget',false,'operations',expected_ops,'financialMode','bounded_model_cost_only');
 `;
 export const STAGING_SQL=`DO $r12_bootstrap$ <<recipe>> DECLARE ${declarations} BEGIN
 ${sharedChecks(6,848063)}

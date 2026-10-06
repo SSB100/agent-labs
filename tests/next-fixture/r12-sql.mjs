@@ -2,14 +2,16 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {createRequire} from 'node:module';
 import path from 'node:path';
+import {createHash} from 'node:crypto';
+import {runOperatorRecipe,STAGING_SQL,ACTIVATION_SQL} from '../../scripts/r12-research-bootstrap.mjs';
 import {r12QuoteFixture} from '../helpers/r12-provider-fixture.mjs';
 export const R12_INERT_ROOT='inert-r12-owner-root-configuration-0123456789';
 const tables=['businesses','goals','workflow_runs','workflow_definitions','workflow_stage_runs','worker_definitions','worker_runs','task_contracts','artifacts','installed_packs','product_experiments'];
 export async function loadR12NextFixture(state,scenario,directory,host){
- assert.ok(['current','pending','completed'].includes(scenario));assert.ok(path.basename(directory).startsWith('r12-next-'));
+ assert.ok(['current','pending','completed','bootstrap'].includes(scenario));assert.ok(path.basename(directory).startsWith('r12-next-'));
  if(state.r12)await closeR12Fixture(state);
  const require=createRequire(path.join(host,'package.json')),{PGlite}=require('@electric-sql/pglite'),{pgcrypto}=require('@electric-sql/pglite/contrib/pgcrypto');
- const metadata=JSON.parse(await readFile(path.join(directory,'metadata.json'),'utf8')),dump=await readFile(path.join(directory,`${scenario}.tgz`));
+ const metadata=JSON.parse(await readFile(path.join(directory,scenario==='bootstrap'?'bootstrap-metadata.json':'metadata.json'),'utf8')),dump=await readFile(path.join(directory,`${scenario}.tgz`));
  const db=new PGlite({extensions:{pgcrypto},loadDataDir:new Blob([dump])});await db.waitReady;
  state.r12={...metadata,db,scenario,calls:[],receipts:[],quoteReads:0,generations:Object.fromEntries((await db.query("select candidate->>'phase' phase,candidate->>'providerRequestId' id from private.r12_discovery_candidates")).rows.map(r=>[r.phase,r.id]))};state.owner=metadata.ownerId;
  await db.query("select set_config('request.jwt.claim.sub',$1,false)",[state.owner]);await mirrorR12(state);
@@ -23,16 +25,24 @@ export async function mirrorR12(state){for(const table of tables)state.db[table]
 export async function controlR12(state,input){
  const r=state.r12;assert.ok(r);return exclusive(r,async()=>{await r.db.exec('reset role');
  if(input.r12Due){await r.db.exec("alter table private.r12_discovery_receipt_checks disable trigger r12_discovery_history_guard; update private.r12_discovery_receipt_checks set created_at=clock_timestamp()-interval '121 seconds'; alter table private.r12_discovery_receipt_checks enable trigger r12_discovery_history_guard; update private.r07_heads set lease_expires_at=clock_timestamp()-interval '1 second'");}
+ if(input.r12BootstrapStage){assert.equal(r.scenario,'bootstrap');assert.ok(!r.staged);const receipt=input.r12BootstrapStage;assert.equal(receipt.businessId,r.businessId);assert.equal(receipt.priorId,r.priorRoundId);assert.equal(receipt.rootId,r.budgetAuthorityRootId);assert.equal(receipt.authorityCreated,false);const hash=label=>createHash('sha256').update('inert-'+label).digest('hex');r.setup={...receipt,approvalHash:hash('approved-packet'),ipsosReviewHash:hash('ipsos-review'),mdpiReviewHash:hash('mdpi-review'),independentReviewHash:hash('independent-review'),executionReviewHash:hash('execution-review'),eligibilityReviewHash:hash('eligibility-review'),quote:r12QuoteFixture()};r.staged=await operatorRecipe(r,'stage',r.setup);r.scopeId=receipt.scopeId;r.goalId=receipt.goalId;await mirrorR12(state);}
+ if(input.r12BootstrapActivate){assert.equal(r.scenario,'bootstrap');assert.ok(r.staged&&!r.activated);const p=(await r.db.query('select id,content_hash hash from private.r05_policies where business_id=$1 and payload=$2::jsonb',[r.businessId,r.staged.policyPayload])).rows;assert.equal(p.length,1);r.activated=await operatorRecipe(r,'activate',{...r.setup,quote:r12QuoteFixture(),amendmentHash:r.staged.amendmentHash,policyId:p[0].id,policyHash:p[0].hash,policyInterpretationHash:createHash('sha256').update('inert-policy-review').digest('hex')});r.plan=r.activated.plan;await mirrorR12(state);}
  if(input.r12Pause){await r.db.query("select public.r05_policy_owner($1,'pause',$2,$3)",[r.businessId,{kind:'business',id:r.businessId},crypto.randomUUID()]);}
  });
 }
+async function operatorRecipe(r,kind,input){
+ const original=kind==='stage'?STAGING_SQL:ACTIVATION_SQL;let rendered=original;
+ for(const [from,to] of r.bootstrapPins){assert.ok(rendered.includes(from));rendered=rendered.replaceAll(from,to);}
+ const client={query:(statement,args)=>{if(statement===original)return r.db.exec(rendered);return args?r.db.query(statement,args):(/^\s*(DO|set local|create temporary)/.test(statement)?r.db.exec(statement):r.db.query(statement));}};
+ return runOperatorRecipe(client,kind,input);
+}
 export async function closeR12Fixture(state){const r=state.r12;if(!r)return;r.closing=true;await exclusive(r,()=>r.db.close());if(state.r12===r)delete state.r12;}
-const ownedNames=['r12_discovery_owner_read','r12_discovery_result_read','r04_quest_read','r07_quest_read','r05_admission_read','r05_policy_owner'];
+const ownedNames=['r04_quest_transition','r04_research_link_preview','r12_discovery_owner_read','r12_discovery_result_read','r04_quest_read','r07_quest_read','r05_admission_read','r05_policy_owner'];
 export async function r12OwnerRpc(state,name,args,mode='normal'){
  const r=state.r12;if(!r||!ownedNames.includes(name))return null;
  if(mode==='unavailable')return{data:null,error:{message:'Inert owner metadata unavailable'}};
- const signatures={r12_discovery_owner_read:['p_business_id','p_scope_id','p_activation'],r12_discovery_result_read:['p_business_id','p_scope_id'],r04_quest_read:['p_business_id','p_goal_id','p_limit','p_offset'],r07_quest_read:['p_business_id','p_goal_id','p_plan_id','p_limit','p_offset'],r05_admission_read:['p_business_id','p_policy_id','p_limit','p_offset'],r05_policy_owner:['p_business_id','p_operation','p_payload','p_submission_id']};
- return sqlRpc(r,name,signatures[name].map(k=>args[k]??null),'authenticated');
+ const signatures={r04_quest_transition:['p_business_id','p_operation','p_payload','p_submission_id'],r04_research_link_preview:['p_business_id','p_experiment_id'],r12_discovery_owner_read:['p_business_id','p_scope_id','p_activation'],r12_discovery_result_read:['p_business_id','p_scope_id'],r04_quest_read:['p_business_id','p_goal_id','p_limit','p_offset'],r07_quest_read:['p_business_id','p_goal_id','p_plan_id','p_limit','p_offset'],r05_admission_read:['p_business_id','p_policy_id','p_limit','p_offset'],r05_policy_owner:['p_business_id','p_operation','p_payload','p_submission_id']};
+ return sqlRpc(r,name,signatures[name].map(k=>args[k]??null),'authenticated',['r04_quest_transition','r05_policy_owner'].includes(name)?()=>mirrorR12(state):undefined);
 }
 async function exclusive(r,fn){
  const previous=r.queue??Promise.resolve();let release;r.queue=new Promise(resolve=>release=resolve);await previous;
