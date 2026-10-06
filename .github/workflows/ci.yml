@@ -524,8 +524,6 @@ jobs:
   r03-next:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    env:
-      R12_SQL_TEST_HOST: ${{ runner.temp }}/r12-next-sql-host
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -540,6 +538,8 @@ jobs:
           npm install --prefix "$RUNNER_TEMP/r12-next-sql-host" --no-audit --no-fund --ignore-scripts @electric-sql/pglite@0.5.8 pg@8.16.3
           npm run pretest
       - name: Verify real production Next navigation and actions
+        env:
+          R12_SQL_TEST_HOST: ${{ runner.temp }}/r12-next-sql-host
         run: |
           node tests/next-fixture/knowledge-contracts.mjs
           node scripts/verify-r03-next.mjs
