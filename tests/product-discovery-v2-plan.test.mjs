@@ -59,3 +59,10 @@ test('query-focus suffix guidance survives provider projection while assembled q
     assert.throws(()=>normalizeDiscoveryPlanV2(f.intent,{...atLimit,queryFocus:Array(count).fill('x'.repeat(focus.items.maxLength+1))}),/JSON schema/);
   }
 });
+
+test('R12 public-source planner schema never caches private audience text and enforces it locally',()=>{
+ const f=fixture();f.intent.comparisonUniverse.sourceDomains=['adult-outdoors.example'];f.intent.comparisonUniverse.audiences=['PRIVATE_AUDIENCE_CANARY'];
+ const schema=discoveryPlanModelSchemaV2(f.intent,'qualified_public');assert.equal(JSON.stringify(schema).includes('PRIVATE_AUDIENCE_CANARY'),false);assert.equal(schema.properties.proposals.items.properties.audience.enum,undefined);
+ const other=structuredClone(f.intent);other.comparisonUniverse.audiences=['A different adult audience'];assert.deepEqual(discoveryPlanModelSchemaV2(other,'qualified_public'),schema);
+ const output={...f.output,queryFocus:['Dated adult outdoor participation by country']};assert.throws(()=>normalizeDiscoveryPlanV2(f.intent,output,'qualified_public'),/outside/);
+});

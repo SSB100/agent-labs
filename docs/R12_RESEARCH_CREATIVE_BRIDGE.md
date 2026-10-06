@@ -21,8 +21,10 @@ No canonical Goal for the original discovery intent has yet been created. The se
 - Immutable source-only amendment: original intent/hash, terminal/latest round, funding root, country set, reviewed public sources and expiry remain bound. Preparation explicitly returns no execution authority
 - One narrowly versioned five-effect controller topology: plan, one search, one selector, strategist, independent reviewer. Exact per-scope operation/adapter keys prevent implicit cross-scope qualification. No retries, repairs or pivots
 - New R05 liabilities read through to the original shared research allowance exactly once. Legacy cost rows remain unchanged. Registration/reservation/marker boundaries recheck current original scope under the shared lock
-- Dispatch is still deliberately closed with `r12_source_dispatch_bridge_unavailable` until exact qualified source/wire/output persistence is complete
+- Exact R12-only source/wire admission now requires a registered scope, matching R07/R05 bindings, static schemas, current quoted route and one-shot transport claim. Missing bindings remain closed; no production registry or authority has been enrolled
 - Existing planner request construction and actual OpenRouter serialization are reused. Qualified-public query framing avoids marketplace collection and retains population/context/demand limitations
+- Private bounded response candidates are saved before receipt lookup; durable claims allow at most three single metadata GETs per phase with a 120-second minimum interval, Retry-After and the original 30-minute grace. Restart never repeats generation. Stop/currentness and known-cost publication checks remain separate from paid quote validity
+- Provider-facing schemas are fixed for all structured phases; exact dynamic candidate/geography/evidence membership remains local. Both logical and provider-projected schema hashes are SQL-pinned
 - Endpoint-specific fixed-point price calculation and bounded generation-receipt qualification support the independent reviewer route without rewriting actual model identity
 
 ## Provider proposal, not current authority
@@ -45,6 +47,14 @@ Checkpoint checks passed typecheck, core-test compilation, lint on changed files
 Focused tests exercise actual migrated SQL, owner scope loading, real planner request/adapter serialization, R07 scheduling and R05 reservation, original-budget read-through, verified unsent release and a denied pre-provider dispatch. No provider network runs in these fixtures. Existing R07 SQL and fresh-process recovery regressions pass.
 
 Independent reviews corrected source-exclusion NULL handling, current scope checks, domain-label bounds, reviewer UUID identity equivalence and four connection-summary/navigation details. Local browser verification could not launch Chromium because this execution sandbox denies its socket operation, including after standard escalation. Visual acceptance and the exact final full gate remain pending.
+
+### Second WIP slice, October 6
+
+The actual R07 controller → R05 SQL → exact R12 wire/source guard → real OpenRouter serializer → inert transport path now passes for the planner. The fixture saves output before a simulated 404 receipt, proves cooldown and duplicate-click denial, resumes with a fresh adapter, records the route proof and completes without another POST. Original-root known cost is counted once across repeated settlement.
+
+The second focused run passed 170 tests (zero failures/skips), including nine fixed-schema tests, thirteen candidate tests and actual migrated SQL/controller/adapter checks. Typecheck and changed-file lint passed. Source-schema privacy and a legacy Business/root lock-order inversion were corrected; real PostgreSQL lock concurrency assertions remain for CI. Further independent review corrected post-lock quote rechecks, receipt Stop parity, staged-output failure accounting and SQL exact-wire fields. The full five-phase replay, owner-facing continuation, production enrollment and creative bridge are still unfinished.
+
+Candidate source review now includes published outdoor-apparel buyer surveys (NZTE US regional sample and UK sample), nature-motif search trends (Pinterest), and AU/NZ apparel transactions. These improve the relevance of possible research; publisher and API reuse terms, exact pages, geographical limits and disclosure still need an explicit source packet. None is silently approved, relabelled as GB/national US data or treated as proven nature-shirt demand.
 
 ## Remaining sequence
 

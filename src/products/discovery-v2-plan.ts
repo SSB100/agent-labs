@@ -1,3 +1,4 @@
+import { discoveryR12StaticSchema } from "./discovery-r12-schemas";
 import { createHash } from "node:crypto";
 import type { JsonObject } from "../core/contracts";
 import { resolveModelRoute } from "../models/registry";
@@ -17,14 +18,16 @@ export type DiscoveryPlanV2={version:typeof DISCOVERY_V2;intentId:string;compari
   queries:{queryId:string;ordinal:1|2;question:string;sourceDomains:string[]}[];proposals:DiscoveryPlanProposalV2[]};
 export type DiscoverySourceMode = "legacy" | "qualified_public";
 function queryPrefix(intent:DiscoveryIntentV2,index:number,sourceMode:DiscoverySourceMode="legacy"){
-  if(sourceMode==="qualified_public")return `Compare ${intent.comparisonUniverse.markets.map(m=>m.countryCode).join(", ")} for original nature T-shirt research for ${intent.comparisonUniverse.audiences.join("; ")}. Find dated nonpersonal adult outdoor-participation or consumer-preference evidence. Preserve country, population, occasion, sample and denominator context; label relevance to shirt demand and missing operating costs as unknown. Use only approved public sources, never marketplace listings or individual reviews. Focus: `;
+  if(sourceMode==="qualified_public")return `Compare ${intent.comparisonUniverse.markets.map(m=>m.countryCode).join(", ")} for original nature T-shirt research for ${intent.comparisonUniverse.audiences.join("; ")}. Find dated nonpersonal adult outdoor-apparel buying criteria and nature-design consumer interest. Preserve country, population, occasion, sample and denominator context; distinguish direct demand evidence from adjacent interest and unknown operating costs. Use only approved public sources, never marketplace listings or individual reviews. Focus: `;
   return `Compare ${intent.comparisonUniverse.markets.map(m=>m.countryCode).join(", ")} as starting selling markets for original print-on-demand T-shirts for ${intent.comparisonUniverse.audiences.join("; ")}. ${index===0?"Find dated marketplace observations, buyer language, destination-specific delivered-price and fulfilment constraints, and unknown fee scenarios. Separate country evidence from worldwide totals.":"Find current production, shipping, currency, fee and print constraints; seller bank country is unknown, so label fee scenarios."} Focus: `;
 }
 const QUERY_SUFFIX=" Do not infer sales from listing or shop counts. Return inspectable public source excerpts only.";
 export function discoveryPlanModelSchemaV2(intent:DiscoveryIntentV2,sourceMode:DiscoverySourceMode="legacy"):JsonObject{
   if (intent.limits.maximumNewCollections === 0) throw new Error("Evidence-reuse rounds cannot plan new collections.");
-  const maximumFocus=Math.min(300,...Array.from({length:intent.limits.maximumNewCollections},(_,index)=>800-queryPrefix(intent,index,sourceMode).length-QUERY_SUFFIX.length));
-  if(maximumFocus<30)throw new Error("The declared audience context leaves insufficient room for a bounded research question.");
+  const availableFocus=Math.min(300,...Array.from({length:intent.limits.maximumNewCollections},(_,index)=>800-queryPrefix(intent,index,sourceMode).length-QUERY_SUFFIX.length));
+  if(availableFocus<30 || (sourceMode==="qualified_public" && (intent.limits.maximumNewCollections!==1 || availableFocus<80)))throw new Error("The declared audience context leaves insufficient room for a bounded research question.");
+  if(sourceMode==="qualified_public")return discoveryR12StaticSchema("plan");
+  const maximumFocus=availableFocus;
   const properties=DISCOVERY_PLAN_MODEL_SCHEMA_V2.properties as JsonObject;
   const proposals=properties.proposals as JsonObject,proposal=proposals.items as JsonObject;
   return{...DISCOVERY_PLAN_MODEL_SCHEMA_V2,properties:{...properties,

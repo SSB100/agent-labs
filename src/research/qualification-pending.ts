@@ -49,7 +49,7 @@ const within = (host: string, domain: string) => host === domain || host.endsWit
 
 /** Project only bounded, normalized public source data. Nothing else from the
  * provider envelope, headers, prompt or free-form provider label is retained. */
-export function normalizeReceiptSearchOutput(raw: unknown, policy: PublicResearchPolicy): JsonObject[] {
+export function normalizeReceiptSearchOutput(raw: unknown, policy: Pick<PublicResearchPolicy, "allowedDomains" | "excludedDomains">): JsonObject[] {
   if (!Array.isArray(raw) || raw.length < 1 || raw.length > 4) return fail();
   const output = raw.map(annotation => {
     if (!record(annotation) || annotation.type !== "url_citation" || !record(annotation.url_citation)) return fail();

@@ -1,0 +1,145 @@
+import { createHash } from "node:crypto";
+import type { QuestAdapter, QuestAdapterContext, QuestEffectResponse, QuestPreparedCall, QuestSettlement } from "../core/quest-controller";
+import { OpenRouterAdapter, type OpenRouterConfig } from "../models/openrouter";
+import { ModelProviderError, type ModelProviderResponse, type StructuredModelRequest, type WebSearchModelRequest } from "../models/types";
+import { fetchGenerationRouteProofOnce, GenerationRouteProofError, type GenerationRouteProof } from "../research/generation-route";
+import { discoveryV2Hash } from "./discovery-v2";
+import { createDiscoveryR12Candidate, discoveryR12ReceiptExpectation, qualifyDiscoveryR12Candidate, validateDiscoveryR12Candidate, type DiscoveryR12CandidateBinding } from "./discovery-r12-receipt";
+import { inspectDiscoveryR12Wire, routeDiscoveryR12Request, type DiscoveryR12Phase } from "./discovery-r12-wire";
+import type { DiscoveryR12Quote } from "./discovery-r12-quote";
+import type { DiscoverySourceScopeAmendment } from "./discovery-r12-scope";
+
+type Request = StructuredModelRequest | WebSearchModelRequest;
+type WireBinding = { version: "r12.discovery-wire.1"; scopeId: string; scopeHash: string; attemptId: string; requestId: string; phase: DiscoveryR12Phase;
+  requestJson: string; requestHash: string; wireBody: string; wireHash: string; quote: DiscoveryR12Quote; dependencyPins: QuestAdapterContext["attempt"]["dependencyPins"] };
+export type DiscoveryR12EffectStore = {
+  operation(attemptId: string, operation: "load" | "bind" | "send" | "stage" | "claim" | "record", payload: Record<string, unknown>): Promise<Record<string, unknown>>;
+  settle(attemptId: string, settlement: QuestSettlement): Promise<void>;
+  /** Reads the committed R07/R05 marker timestamp, not the process clock. */
+  dispatchedAt(attemptId: string): Promise<string>;
+};
+export class DiscoveryR12ReceiptPending extends Error {
+  constructor(readonly receipt: Readonly<Record<string, unknown>>) { super("r12_discovery_receipt_pending"); }
+}
+const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
+const fail = (): never => { throw new Error("r12_discovery_adapter_binding_invalid"); };
+const hash = (text: string) => createHash("sha256").update(text).digest("hex");
+
+/** Scoped implementation only. The caller supplies Core-built requests/domain
+ * validation, never a browser/worker-supplied wire or registry entry. SQL still
+ * requires exact adapter enrollment, R05 authority, source review and lineage. */
+export function createDiscoveryR12QuestAdapter(options: {
+  scope: DiscoverySourceScopeAmendment; phase: DiscoveryR12Phase;
+  identity: Pick<QuestAdapter, "qualificationHash" | "workflowDefinitionId" | "workerDefinitionId" | "mode">;
+  dataClasses: string[]; store: DiscoveryR12EffectStore;
+  request(context: QuestAdapterContext): Promise<Request>;
+  quote(): Promise<DiscoveryR12Quote>;
+  project(qualified: ReturnType<typeof qualifyDiscoveryR12Candidate>, context: QuestAdapterContext): Promise<Omit<QuestEffectResponse, "settlement">>;
+  /** Inert transport/config overrides are also used by the actual SQL fixture. */
+  config?: OpenRouterConfig; fetcher?: typeof fetch; now?: () => number;
+}): QuestAdapter {
+  const scope = structuredClone(options.scope), identity = structuredClone(options.identity), phase = options.phase;
+  const scopeHash = discoveryV2Hash(scope), now = options.now ?? Date.now;
+  function context(ctx: QuestAdapterContext) {
+    if (ctx.plan.format !== "r12.discovery.1" || ctx.plan.discoveryScopeId !== scope.id || ctx.plan.discoveryScopeHash !== scopeHash || ctx.plan.businessId !== scope.businessId || ctx.plan.goalId !== scope.goalId || ctx.step.key !== phase ||
+      ctx.step.adapter !== `r12.discovery.${scope.id}.${phase}` || ctx.step.operationKey !== `research.r12.${scope.id}.${phase}` || ctx.step.qualificationHash !== identity.qualificationHash || ctx.step.workflowDefinitionId !== identity.workflowDefinitionId || ctx.step.workerDefinitionId !== identity.workerDefinitionId) return fail();
+  }
+  function descriptor(ctx: QuestAdapterContext, request: Request, body: string): QuestPreparedCall {
+    return { wire: { url: "https://openrouter.ai/api/v1/chat/completions", method: "POST", body }, descriptor: {
+      workflowRunId: ctx.attempt.id, operationKey: ctx.step.operationKey, requestHash: discoveryV2Hash(request), idempotencyKey: `r07:${ctx.attempt.id}`,
+      providerModelId: request.model.providerModelId, wireRequestHash: hash(body), wireRequestBytes: Buffer.byteLength(body), maximumOutputTokens: JSON.parse(body).max_tokens,
+      accounting: { kind: "r05" }, sourceDomains: [...scope.allowedDomains], dataClasses: [...options.dataClasses], accountId: null, accountRevision: null, currency: "USD", liabilityMicrounits: ctx.step.maximumMicrounits,
+    } };
+  }
+  async function load(ctx: QuestAdapterContext): Promise<{ binding: WireBinding | null; candidate?: unknown; proof?: unknown; receipt?: unknown }> {
+    context(ctx);const saved = await options.store.operation(ctx.attempt.id, "load", {});
+    if (!record(saved.binding)) return { ...saved, binding: null };
+    const binding = saved.binding as WireBinding;
+    if (binding.version !== "r12.discovery-wire.1" || binding.scopeId !== scope.id || binding.scopeHash !== scopeHash || binding.attemptId !== ctx.attempt.id || binding.requestId !== ctx.attempt.requestId || binding.phase !== phase ||
+      binding.requestHash !== discoveryV2Hash(JSON.parse(binding.requestJson)) || binding.wireHash !== hash(binding.wireBody) || binding.wireHash !== ctx.attempt.wireHash || discoveryV2Hash(binding.dependencyPins) !== discoveryV2Hash(ctx.attempt.dependencyPins)) return fail();
+    const inspected = await inspectDiscoveryR12Wire(JSON.parse(binding.requestJson) as Request, phase);
+    if (inspected.wire.body !== binding.wireBody) return fail();
+    return { ...saved, binding };
+  }
+  async function candidateBinding(ctx: QuestAdapterContext, binding: WireBinding): Promise<DiscoveryR12CandidateBinding> {
+    const dispatchedAt = await options.store.dispatchedAt(ctx.attempt.id);
+    return { scopeId: scope.id, attemptId: ctx.attempt.id, requestId: binding.requestId, phase, request: JSON.parse(binding.requestJson) as Request, maximumMicrousd: Number(ctx.step.maximumMicrounits), dispatchedAt,
+      receiptExpiresAt: new Date(Math.min(Date.parse(ctx.plan.expiresAt) + 30 * 60_000, Date.parse(dispatchedAt) + 60 * 60_000)).toISOString() };
+  }
+  async function reconcile(ctx: QuestAdapterContext): Promise<QuestEffectResponse | null> {
+    const saved = await load(ctx);if (!saved.binding || !saved.candidate || !record(saved.receipt) || ["stopped", "expired", "terminal", "exhausted"].includes(String(saved.receipt.status))) return null;
+    const bound = await candidateBinding(ctx, saved.binding), candidate = validateDiscoveryR12Candidate(saved.candidate, bound), candidateHash = discoveryV2Hash(candidate);
+    let proof: unknown = saved.proof;
+    if (!proof) {
+      const claim = await options.store.operation(ctx.attempt.id, "claim", { candidateHash });
+      if (claim.claimed !== true || typeof claim.claimId !== "string") return null;
+      try {
+        proof = await fetchGenerationRouteProofOnce({ ...discoveryR12ReceiptExpectation(candidate), config: options.config, fetcher: options.fetcher, now });
+      } catch (error) {
+        if (!(error instanceof GenerationRouteProofError)) throw error;
+        await options.store.operation(ctx.attempt.id, "record", { candidateHash, claimId: claim.claimId, proof: null, diagnostic: { code: error.code, httpStatus: error.httpStatus }, retryAfterAt: error.retryAfterAt });
+        return null;
+      }
+      await options.store.operation(ctx.attempt.id, "record", { candidateHash, claimId: claim.claimId, proof, diagnostic: null, retryAfterAt: null });
+    }
+    const qualified = qualifyDiscoveryR12Candidate(candidate, bound, proof as GenerationRouteProof);
+    const projected = await options.project(qualified, ctx);
+    return { ...projected, result: { ...projected.result, output: qualified.candidate.output, candidateHash, routeProofHash: qualified.route.proofHash },
+      settlement: { actualMicrounits: String(candidate.reportedMicrousd), providerRequestId: candidate.providerRequestId, receiptHash: candidateHash } };
+  }
+  async function settle(ctx: QuestAdapterContext, response: ModelProviderResponse | null, error?: unknown) {
+    const failed = error instanceof ModelProviderError && record(error.details.providerReceipt) ? error.details.providerReceipt : null;
+    const receipt = response ?? failed, usage = receipt && record(receipt.usage) ? receipt.usage : null;
+    const amount = usage?.reportedCostUsd, id = receipt?.providerRequestId;
+    // Unknown identity cannot be invented for R05; its marked liability stays held.
+    if (typeof id !== "string" || !/^gen-[A-Za-z0-9_-]{1,296}$/.test(id)) return;
+    const actualMicrounits = typeof amount === "number" && Number.isFinite(amount) && amount >= 0 ? String(Math.ceil(amount * 1e6)) : null;
+    await options.store.settle(ctx.attempt.id, { actualMicrounits, providerRequestId: id, receiptHash: discoveryV2Hash({ phase, providerRequestId: id, actualMicrounits }) });
+  }
+  return { ...identity,
+    async prepare(ctx) {
+      context(ctx);
+      if (ctx.attempt.requestId) { const saved = await load(ctx);if (saved.binding) return descriptor(ctx, JSON.parse(saved.binding.requestJson) as Request, saved.binding.wireBody); }
+      const quote = await options.quote();
+      if (Date.parse(quote.validUntil) <= now() || quote.ceilings[phase] > Number(ctx.step.maximumMicrounits)) return fail();
+      const route = phase === "review" ? quote.reviewer : quote.luna;
+      const request = routeDiscoveryR12Request(await options.request(ctx), phase, route), wire = await inspectDiscoveryR12Wire(request, phase);
+      const call = descriptor(ctx, request, wire.wire.body);
+      if (ctx.attempt.requestId) {
+        const binding: WireBinding = { version: "r12.discovery-wire.1", scopeId: scope.id, scopeHash, attemptId: ctx.attempt.id, requestId: ctx.attempt.requestId, phase,
+          requestJson: JSON.stringify(request), requestHash: wire.requestHash, wireBody: wire.wire.body, wireHash: wire.wireHash, quote, dependencyPins: structuredClone(ctx.attempt.dependencyPins) };
+        await options.store.operation(ctx.attempt.id, "bind", { binding, bindingHash: discoveryV2Hash(binding) });
+      }
+      return call;
+    },
+    async dispatch(call, ctx) {
+      const saved = await load(ctx);if (!saved.binding || call.wire.body !== saved.binding.wireBody) return fail();
+      const adapter = new OpenRouterAdapter({ config: options.config, fetcher: options.fetcher, admitDispatch: async wire => {
+        if (wire.url !== call.wire.url || wire.method !== call.wire.method || wire.body !== call.wire.body) return fail();
+        const result = await options.store.operation(ctx.attempt.id, "send", { wireHash: saved.binding!.wireHash });
+        if (result.shouldDispatch !== true) return fail();
+      } });
+      let response: ModelProviderResponse;
+      try { response = phase === "search1" ? await adapter.invokeWebSearch(JSON.parse(saved.binding.requestJson) as WebSearchModelRequest) : await adapter.invokeStructured(JSON.parse(saved.binding.requestJson) as StructuredModelRequest); }
+      catch (error) { await settle(ctx, null, error);throw error; }
+      // Save the useful bounded response before receipt GET. Record real cost even
+      // when candidate/schema validation fails; never retry its paid generation.
+      const bound = await candidateBinding(ctx, saved.binding);
+      let candidate;
+      try { candidate = createDiscoveryR12Candidate(bound, response, new Date(now()).toISOString()); }
+      catch (error) { await settle(ctx, response);throw error; }
+      try { await options.store.operation(ctx.attempt.id, "stage", { candidate, candidateHash: discoveryV2Hash(candidate) }); }
+      catch (error) {
+        // A storage failure cannot suppress an already observed charge. Preserve
+        // the first error if accounting is independently unavailable as well.
+        try { await settle(ctx, response); } catch { /* R05 marker remains held. */ }
+        throw error;
+      }
+      await settle(ctx, response);
+      const result = await reconcile(ctx);if (result) return result;
+      const pending = await options.store.operation(ctx.attempt.id, "load", {});
+      throw new DiscoveryR12ReceiptPending(record(pending.receipt) ? pending.receipt : {});
+    },
+    async reconcile(ctx) { const response = await reconcile(ctx);return response ? { status: "found", response } : { status: "unknown" }; },
+  };
+}
