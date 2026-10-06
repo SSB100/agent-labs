@@ -1,10 +1,14 @@
 # R12 reviewer response recovery
 
+**Released and technically qualified (2026-10-06):** PR66 / main `94146eb33714416407a2c21e0af9bf44db77a833` passed all 12 hosted jobs and 19 independently reviewed screenshots. Both migration hashes below match Production history exactly. A separately approved replacement review completed with verified Bedrock metadata and **NEEDS_MORE_EVIDENCE**, not TEST. It cost USD 0.013831 and used two receipt GETs; the saved output survived delayed metadata without regeneration. All authority is revoked. The [closeout receipt](qualification/r12-review-recovery-closeout-20261006.json) records exact release, route, cost and lineage evidence. Business evidence and creative qualification remain incomplete.
+
+The earlier failure and frozen approval packet below remain historical context; the old response cause was never recovered or inferred.
+
 The first four research outputs remain verified, with USD 0.019268 recorded. PR65 released the lossless request repair and a separately approved one-review continuation. Production `e4a23c32215aed837231a8ae7355e7c7bdd7474a` ran that reviewer once on 2026-10-06. It cost USD 0.017713, but no accepted private candidate or independent research decision was saved. No receipt GET ran and no generation was repeated. The owner policy and both verifier enrollments were revoked at closeout.
 
 The provider's existing metadata shows Amazon Bedrock, the expected canonical Haiku model, HTTP 200, normalized finish reason `stop`, native reason `end_turn`, and 1,690 native output tokens. This does not identify the local rejection. The application discarded rejected content and its error details before persistence; provider I/O logging was disabled. No response text can be recovered from the inspected records. The missing diagnostic is a confirmed implementation gap. Malformed JSON, local schema rejection and storage failure reproduce the same old visible state; none is asserted as the live cause.
 
-Current known totals are USD 0.036981 for R12, USD 0.146461 for the original USD 2 research root, and USD 0.683832 for the Business against its unchanged USD 1.053587 lifetime ceiling. There is no unknown liability. Research and creative qualification remain incomplete.
+At the first failed-review closeout, known totals were USD 0.036981 for R12, USD 0.146461 for the original USD 2 research root, and USD 0.683832 for the Business against its unchanged USD 1.053587 lifetime ceiling. There is no unknown liability. Research and creative qualification remain incomplete.
 
 ## Frozen repair scope
 
@@ -28,7 +32,9 @@ Apply in this order, before deploying the corresponding runtime:
 
 The migrations create no authority, credential, paid operation, policy confirmation or accepted result. Existing keyed RPCs retain exact owner, Business, Goal, plan, attempt, marked request, transport claim and finite receipt-window checks. The successor migration updates narrowly enumerated review-version guards and adds a private historical-lineage verifier; its execute privilege is revoked from API roles. Whole-Goal funding/exposure remains cumulative. Only the one-step plan allowance excludes already settled predecessor costs, avoiding an incorrect charge against the new one-call policy.
 
-## Proposed next activation, not yet authorized
+## Historical replacement-review approval packet
+
+The owner approved this packet on 2026-10-06 at11:27UTC. The final reviewed setup cutoff was23:00UTC, with actual activation20:21:25UTC, dispatch deadline20:51:25UTC and receipt deadline21:21:25UTC. The16:00 draft below never created active authority. The call completed and all permission was closed well before those deadlines.
 
 After hosted checks, independent review and Production readback pass, request approval for these two migrations, the corresponding same-Goal owner amendment/confirmation, experimental review registration and two separate finite verifier enrollments, and **one** replacement reviewer dispatch. Use the four preserved outputs through OpenRouter `anthropic/claude-haiku-4.5`, pinned to `amazon-bedrock/us` with the existing no-training/ZDR inference constraints and no fallback. The fixed nonprivate schema, approved original objective, permitted public excerpts and saved strategy are the same data scope. No new search or private customer data is added.
 
@@ -42,4 +48,4 @@ Use a fresh five-minute public quote and new setup/Goal/policy cutoff after rele
 
 The focused suite passed 133 tests before the final retention edge cases; the updated 53-test security/lineage subset passed with no skips. The actual isolated SQL/owner/controller/admission/serializer fixture exercised one billed invalid review, a separately confirmed successful successor, a failed successor through plan revision 4, and terminal refusal without creating a fifth plan or scope. It preserves all prior costs, observation rows, original evidence and revocations. The actual saved production inputs replay to 32,291 routed bytes and 31,024 wire bytes, inside the unchanged 32,768-byte bound.
 
-Independent source-transpiled TS and isolated SQL scanner review agreed on 397 ordinary and adversarial cases. Local production Next builds and initial HTTP checks passed; local Chromium launch was blocked by the environment's socket permission, so browser assertions and screenshots require the frozen hosted gate. No live recovery migration, successor authority or new reviewer call has occurred. This document is the review/activation packet, not a release or research qualification receipt.
+Independent source-transpiled TS and isolated SQL scanner review agreed on 397 ordinary and adversarial cases. Local production Next builds and initial HTTP checks passed; local Chromium launch was blocked by the environment's socket permission, so browser assertions and screenshots require the frozen hosted gate. The subsequent hosted run37518290957 passed all 12 jobs on head4742663/treebb05a015. Production migration, merge, deployment, one live review and complete revocation are recorded in the closeout receipt above. The actual accepted NME is not creative or commercial qualification.
