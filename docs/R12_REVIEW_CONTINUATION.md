@@ -1,5 +1,7 @@
 # R12 remaining independent review
 
+**Update after PR65:** The separately approved reviewer ran once and its cost was settled, but its response was not accepted and the local rejection details were not retained. All authority is closed. The current work is [reviewer response recovery](R12_REVIEW_RESPONSE_RECOVERY.md); the initial request-size failure described below is historical.
+
 The first live research packet completed planning, one public search, evidence selection and strategy. All four outputs and eight receipt lookups were verified, costing **USD 0.019268**. The reviewer was never reserved or dispatched: its complete request was 33,620 bytes against the approved 32,768-byte bound. The original policy and both verifier enrollments were revoked at closeout. There is no independent research decision and no creative qualification yet. The [nonsecret closeout receipt](qualification/r12-partial-research-closeout-20261006.json) preserves these limits.
 
 The repair indexes repeated question strings and market/fee fields without removing facts, reasons, limitations, evidence or alternatives. Exact saved-input replay yields 32,182 request bytes and 30,915 wire bytes; the original saved inputs remain unchanged. Scheduled phase reasons now use their actual bounded text contract, so an interrupted reviewer no longer hides the four saved phases or Stop controls.

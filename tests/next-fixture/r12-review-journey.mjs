@@ -10,7 +10,7 @@ export async function runR12ReviewJourney({origin,noKeyOrigin,boundary,output,di
  const results=[],external=[],actions=[];
  const report=()=>writeFile(path.join(output,'r12-review-continuation-acceptance.json'),JSON.stringify({results,external,actions,browser:httpOnly?'unrun HTTP-only':'actual Chromium'},null,2));
  const control=async input=>{const response=await fetch(boundary.origin+'/control',{method:'POST',body:JSON.stringify(input),signal:AbortSignal.timeout(30000)});assert.equal(response.status,200,await response.text());};
- const fixture=()=>boundary.state().r12,reset=()=>control({r12Scenario:'review-preparation',r12Directory:directory,r12DelayReceipt:false});
+ const fixture=()=>boundary.state().r12,reset=()=>control({r12Scenario:'review-preparation',r12Directory:directory,r12DelayReceipt:false,r12ReviewFailure:null});
  const route=()=>'/dashboard?'+new URLSearchParams({view:'research',type:'r12-review-prepare',business:fixture().businessId,selected:fixture().scopeId});
  const researchRoute=()=>'/dashboard?'+new URLSearchParams({view:'research',type:'r12',business:fixture().businessId,selected:fixture().scopeId,quest:fixture().goalId});
  const read=async(base=origin)=>{const response=await fetch(base+route(),{signal:AbortSignal.timeout(30000)});assert.equal(response.status,200);return response.text();};
@@ -35,6 +35,14 @@ export async function runR12ReviewJourney({origin,noKeyOrigin,boundary,output,di
   const sent=await fetch(origin+researchRoute(),{method:'POST',headers:{origin,accept:'text/html'},body:form,redirect:'manual',signal:AbortSignal.timeout(30000)});assert.ok([200,303].includes(sent.status));await sent.body?.cancel();
   const final=await r12OwnerRpc(boundary.state(),'r12_discovery_owner_read',{p_business_id:fixture().businessId,p_scope_id:fixture().scopeId,p_activation:false});assert.equal(final.data.state,'completed');assert.equal(final.data.cost.knownMicrousd,'50');assert.deepEqual(fixture().calls,['review']);assert.deepEqual(fixture().receipts,['review']);
  });
+ await check('Billed malformed reviewer response remains private and disables another generation',async()=>{
+  await control({r12Scenario:'review-ready',r12Directory:directory,r12DelayReceipt:false,r12ReviewFailure:'json'});
+  const page=await(await fetch(origin+researchRoute(),{signal:AbortSignal.timeout(30000)})).text(),form=renderedResearchForm(page,'Continue approved research',fixture().scopeId);
+  const sent=await fetch(origin+researchRoute(),{method:'POST',headers:{origin,accept:'text/html'},body:form,signal:AbortSignal.timeout(30000)});assert.equal(sent.status,200);await sent.body?.cancel();
+  const saved=(await r12OwnerRpc(boundary.state(),'r12_discovery_owner_read',{p_business_id:fixture().businessId,p_scope_id:fixture().scopeId,p_activation:false})).data;
+  assert.equal(saved.phases[4].responseDiagnostic.code,'json_parse');assert.equal(saved.phases[4].responseObservation.contentState,'complete');assert.equal(saved.phases[4].candidateSaved,false);assert.equal(saved.cost.knownMicrousd,'50');assert.deepEqual(fixture().calls,['review']);assert.deepEqual(fixture().receipts,[]);
+  const rendered=await(await fetch(origin+researchRoute(),{signal:AbortSignal.timeout(30000)})).text();assert.match(researchHtmlText(rendered),/Review response was not accepted/);assert.match(researchHtmlText(rendered),/required JSON object/);assert.doesNotMatch(rendered,/UNQUALIFIED_NEXT_JSON_SENTINEL/);
+ });
  if(!httpOnly){
   await reset();const browser=await chromium.launch({headless:true,executablePath:process.env.GUIDED_UI_CHROMIUM_PATH,args:['--no-sandbox']});
   try{
@@ -54,10 +62,29 @@ export async function runR12ReviewJourney({origin,noKeyOrigin,boundary,output,di
     await page.reload();await page.getByText(/Output saved.*Awaiting provider receipt/).waitFor();assert.equal(await page.getByRole('button',{name:'Continue approved research',exact:true}).isDisabled(),true);
     await control({r12Due:true,r12DelayReceipt:false});await page.reload();await action('Continue approved research',()=>page.getByRole('heading',{name:'Needs more evidence',exact:true}).waitFor());assert.deepEqual(fixture().calls,['review']);assert.deepEqual(fixture().receipts,['review','review']);
     await action('Stop research',()=>page.getByRole('button',{name:'Stop research',exact:true}).waitFor());await page.reload();await page.getByRole('heading',{name:'Needs more evidence',exact:true}).waitFor();assert.equal(await page.getByRole('button',{name:'Stop research',exact:true}).isDisabled(),true);
-    const saved=await r12OwnerRpc(boundary.state(),'r12_discovery_owner_read',{p_business_id:fixture().businessId,p_scope_id:fixture().scopeId,p_activation:false});assert.equal(saved.data.cost.knownMicrousd,'50');assert.equal(saved.data.phases.filter(p=>p.status==='completed').length,5);assert.equal(saved.data.policyRevoked,true);await page.screenshot({path:path.join(output,'r12-review-continuation-result.png'),fullPage:true});
+   const saved=await r12OwnerRpc(boundary.state(),'r12_discovery_owner_read',{p_business_id:fixture().businessId,p_scope_id:fixture().scopeId,p_activation:false});assert.equal(saved.data.cost.knownMicrousd,'50');assert.equal(saved.data.phases.filter(p=>p.status==='completed').length,5);assert.equal(saved.data.policyRevoked,true);await page.screenshot({path:path.join(output,'r12-review-continuation-result.png'),fullPage:true});
+   });
+   await check('Owner sees the exact failed output constraint, preserved cost and Stop without unqualified text',async()=>{
+    await control({r12Scenario:'review-ready',r12Directory:directory,r12DelayReceipt:false,r12ReviewFailure:'schema'});await page.goto(origin+researchRoute());
+    await action('Continue approved research',()=>page.getByText('Review response was not accepted.',{exact:true}).waitFor());
+    await page.getByText('Validation details',{exact:true}).click();await page.getByText('$.checks[0].rationale: max length 240',{exact:true}).waitFor();assert.equal(await page.getByRole('button',{name:'Continue approved research',exact:true}).isDisabled(),true);
+    assert.deepEqual(fixture().calls,['review']);assert.deepEqual(fixture().receipts,[]);assert.equal(await page.getByRole('heading',{name:'Needs more evidence',exact:true}).count(),0);assert.doesNotMatch(await page.locator('body').innerText(),/x{241}/);
+    for(const [width,height] of [[1280,900],[390,844]]){await page.setViewportSize({width,height});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));await page.screenshot({path:path.join(output,`r12-review-rejected-${width}.png`),fullPage:true});}
+    await action('Stop research',()=>page.getByText('Research stopped',{exact:true}).waitFor());await page.reload();await page.getByText('Review response was not accepted.',{exact:true}).waitFor();assert.equal(await page.getByRole('button',{name:'Stop research',exact:true}).isDisabled(),true);assert.deepEqual(fixture().calls,['review']);assert.deepEqual(fixture().receipts,[]);
+   });
+   await check('A separately confirmed successor retains the failed review charge and original evidence through the owner journey',async()=>{
+    await control({r12Scenario:'review-successor-preparation',r12Directory:directory,r12DelayReceipt:false,r12ReviewFailure:null});await page.setViewportSize({width:1280,height:900});
+    const previous=fixture().reviewEnvelope.reviewHistory[0];await page.goto(origin+'/dashboard?'+new URLSearchParams({view:'research',type:'r12',business:fixture().businessId,selected:previous.scopeId,quest:fixture().goalId}));
+    await page.getByText('Research stopped',{exact:true}).waitFor();await page.getByRole('link',{name:'Review the remaining independent call',exact:true}).click();await page.getByRole('heading',{name:'Prepare the remaining review',exact:true}).waitFor();await page.getByText(/including 1 closed review attempt/).waitFor();
+    await page.getByRole('checkbox',{name:/I reviewed the Business and Goal changes/}).check();await action('Confirm remaining review',()=>page.getByRole('heading',{name:'Remaining review prepared',exact:true}).waitFor());await page.getByText('Nonsecret operator setup receipt',{exact:true}).click();const nextReceipt=JSON.parse(await page.getByRole('textbox',{name:'Setup receipt',exact:true}).inputValue());
+    await control({r12ReviewActivate:nextReceipt});await page.goto(origin+researchRoute());await page.getByRole('heading',{name:'Earlier closed reviews',exact:true}).waitFor();await action('Continue approved research',()=>page.getByRole('heading',{name:'Needs more evidence',exact:true}).waitFor());assert.deepEqual(fixture().calls,['review']);assert.deepEqual(fixture().receipts,['review']);
+    const saved=(await r12OwnerRpc(boundary.state(),'r12_discovery_owner_read',{p_business_id:fixture().businessId,p_scope_id:fixture().scopeId,p_activation:false})).data;assert.equal(saved.planVersion,3);assert.equal(saved.priorReviews.length,1);assert.equal(saved.cost.knownMicrousd,'60');assert.equal(saved.priorReviews[0].knownMicrousd,'10');
+    await page.getByRole('link',{name:'Review attempt 1',exact:true}).click();await page.getByText('Review response was not accepted.',{exact:true}).waitFor();await page.goBack();await page.getByRole('heading',{name:'Needs more evidence',exact:true}).waitFor();
+    for(const [width,height] of [[1280,900],[390,844]]){await page.setViewportSize({width,height});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));await page.screenshot({path:path.join(output,`r12-review-successor-${width}.png`),fullPage:true});}
+    await action('Stop research',()=>page.getByRole('button',{name:'Stop research',exact:true}).waitFor());await page.reload();assert.equal(await page.getByRole('button',{name:'Stop research',exact:true}).isDisabled(),true);assert.deepEqual(fixture().calls,['review']);
    });
    await context.close();
   }finally{await browser.close();}
  }
- assert.deepEqual(external,[]);assert.deepEqual(boundary.denied,[]);await report();
+ await control({r12ReviewFailure:null});assert.deepEqual(external,[]);assert.deepEqual(boundary.denied,[]);await report();
 }

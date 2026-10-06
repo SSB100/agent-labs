@@ -15,26 +15,42 @@ import { runAdmissionJourneys } from './admission-journeys.mjs';
 import { runHistoryJourneys } from './r06-journeys.mjs';
 import { bounded, observe, withReleasedGate, FIXTURE_ACTION_TIMEOUT_MS } from './async-bounds.mjs';
 
-/** This check owns the page's sole temporary route. Drain it before removing
- * interception, so the context allowlist cannot continue an already-aborted RSC. */
-export async function interruptBusinessesRsc(page){
-  let interrupted,finishAbort;
-  const abortDone=new Promise(resolve=>{finishAbort=resolve;});
-  const failed=observe(page.waitForEvent('requestfailed',{predicate:request=>request===interrupted,timeout:FIXTURE_ACTION_TIMEOUT_MS}));
-  await page.route('**/dashboard/settings?*panel=businesses*',async route=>{
-    if(route.request().headers().rsc!=='1')return route.fallback();
-    interrupted=route.request();
-    // Deliver abort errors to the awaited check, never discard them in an async listener.
-    const result=await observe(route.abort('aborted'));finishAbort(result);
-  });
-  await withReleasedGate(async()=>{
-    await page.getByRole('link',{name:'Businesses',exact:true}).click({timeout:FIXTURE_ACTION_TIMEOUT_MS});
-    const aborted=await bounded(abortDone,'R03 interrupted RSC abort',FIXTURE_ACTION_TIMEOUT_MS);
-    if(!aborted.ok)throw aborted.error;
-    const failure=await bounded(failed,'R03 exact interrupted RSC failure',FIXTURE_ACTION_TIMEOUT_MS);
-    if(!failure.ok)throw failure.error;
-    assert.equal(failure.value,interrupted);assert.equal(interrupted.failure()?.errorText,'net::ERR_ABORTED');
-  },()=>bounded(page.unrouteAll({behavior:'wait'}),'R03 interrupted route cleanup',FIXTURE_ACTION_TIMEOUT_MS));
+/** Keep one context interceptor installed throughout navigation. The deliberate
+ * RSC interruption is a one-request branch of the same origin guard, without
+ * installing or removing page interception while context routes are active. */
+export function createFixtureRequestRouter(origin,external){
+  let interruption=null;
+  const handle=async route=>{
+    const request=route.request(),url=new URL(request.url());
+    if(['http:','https:'].includes(url.protocol)&&url.origin!==origin){external.push(url.origin);return route.abort('blockedbyclient');}
+    const state=interruption;
+    if(state&&!state.request&&url.pathname==='/dashboard/settings'&&url.searchParams.get('panel')==='businesses'&&request.headers().rsc==='1'){
+      state.request=request;
+      // Route errors are delivered to the awaited assertion, never detached.
+      state.finish(await observe(route.abort('aborted')));return;
+    }
+    return route.continue();
+  };
+  const interruptBusinessesRsc=async page=>{
+    assert.equal(interruption,null,'Only one intentional interruption may be armed');
+    let finish;const abortDone=new Promise(resolve=>{finish=resolve;});
+    const state={request:null,finish};interruption=state;let abortReported=false;
+    const failed=observe(page.waitForEvent('requestfailed',{predicate:request=>request===state.request,timeout:FIXTURE_ACTION_TIMEOUT_MS}));
+    await withReleasedGate(async()=>{
+      await page.getByRole('link',{name:'Businesses',exact:true}).click({timeout:FIXTURE_ACTION_TIMEOUT_MS});
+      const aborted=await bounded(abortDone,'R03 interrupted RSC abort',FIXTURE_ACTION_TIMEOUT_MS);abortReported=true;
+      if(!aborted.ok)throw aborted.error;
+      const failure=await bounded(failed,'R03 exact interrupted RSC failure',FIXTURE_ACTION_TIMEOUT_MS);
+      if(!failure.ok)throw failure.error;
+      assert.equal(failure.value,state.request);assert.equal(state.request.failure()?.errorText,'net::ERR_ABORTED');
+    },async()=>{
+      interruption=null;
+      // A failed click must still await any abort it already started. The
+      // stable context handler is never removed or replaced during cleanup.
+      if(state.request&&!abortReported){const aborted=await bounded(abortDone,'R03 interrupted abort cleanup',FIXTURE_ACTION_TIMEOUT_MS);if(!aborted.ok)throw aborted.error;}
+    });
+  };
+  return{handle,interruptBusinessesRsc};
 }
 
 export async function runNextJourneys({origin,boundary,output,httpOnly=false,questsOnly=false,controlsOnly=false,historyOnly=false,workspaceOnly=false,knowledgeOnly=false,browserWatchOnly=false}) {
@@ -83,7 +99,8 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false,que
   try {
     const context=await browser.newContext({viewport:{width:1280,height:720},reducedMotion:'reduce'});
     const page=await context.newPage(), requests=[], actions=[], external=[];
-    await context.route('**/*',route=>{const u=new URL(route.request().url());if(['http:','https:'].includes(u.protocol)&&u.origin!==origin){external.push(u.origin);return route.abort('blockedbyclient');}return route.continue();});
+    const requestRouter=createFixtureRequestRouter(origin,external);
+    await context.route('**/*',requestRouter.handle);
     page.on('response',r=>{if(r.headers()['content-type']?.includes('text/x-component'))requests.push({url:r.url(),status:r.status()});if(r.request().method()==='POST'&&r.request().headers()['next-action'])actions.push({url:r.url(),status:r.status(),revalidated:r.headers()['x-action-revalidated']??null,redirect:r.headers()['x-action-redirect']??null});});
     const business=id(1);
     if(browserWatchOnly){
@@ -145,7 +162,7 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false,que
     });
     await check('interrupted real RSC request permits a subsequent destination',async()=>{
       await page.goto(origin+`/dashboard/settings?business=${business}`);
-      await interruptBusinessesRsc(page);
+      await requestRouter.interruptBusinessesRsc(page);
       await page.getByRole('link',{name:'Events',exact:true}).click();
       await page.waitForURL(/view=work/);await page.getByRole('heading',{name:'Events',exact:true}).waitFor();
     });

@@ -7,6 +7,7 @@ import { discoveryV2Hash } from "./discovery-v2";
 import { DISCOVERY_R12_PHASES, discoveryR12Call, type DiscoveryR12Phase } from "./discovery-r12-wire";
 import { discoveryV2Model } from "./discovery-v2-budget";
 import { DISCOVERY_R12_REVIEWER } from "./discovery-r12-quote";
+import { R12ReviewResponseError, type R12ReviewDiagnosticCode } from "./discovery-r12-observation";
 
 export const DISCOVERY_R12_OUTPUT_BYTES = { plan: 16_384, search1: 24_576, select1: 16_384, strategy: 65_536, review: 16_384 } as const;
 export type DiscoveryR12Candidate = {
@@ -22,7 +23,7 @@ export type DiscoveryR12CandidateBinding = {
 };
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
 const GEN = /^gen-[A-Za-z0-9_-]{1,296}$/;
-const fail = (): never => { throw new Error("r12_discovery_response_unverified"); };
+const fail = (code: R12ReviewDiagnosticCode = "candidate_binding"): never => { throw new R12ReviewResponseError(code); };
 const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 function models(phase: DiscoveryR12Phase): readonly string[] {
   return phase === "review" ? [DISCOVERY_R12_REVIEWER.modelId, DISCOVERY_R12_REVIEWER.canonicalModelId] : ["openai/gpt-5.6-luna", "openai/gpt-5.6-luna-20260709"];
@@ -34,7 +35,7 @@ function bind(binding: DiscoveryR12CandidateBinding) {
       Date.parse(binding.receiptExpiresAt) - Date.parse(binding.dispatchedAt) > 60 * 60_000) return fail();
 }
 function projectOutput(output: unknown, binding: DiscoveryR12CandidateBinding): JsonObject {
-  if (!record(output)) return fail();
+  if (!record(output)) return fail("response_schema");
   if (binding.phase === "search1") {
     if (!("query" in binding.request) || !binding.request.excludedDomains) return fail();
     return { annotations: normalizeReceiptSearchOutput(output.annotations, { allowedDomains: binding.request.allowedDomains, excludedDomains: [...binding.request.excludedDomains] }) };
@@ -50,17 +51,18 @@ function projectOutput(output: unknown, binding: DiscoveryR12CandidateBinding): 
 export function createDiscoveryR12Candidate(binding: DiscoveryR12CandidateBinding, response: ModelProviderResponse, receivedAt = new Date().toISOString()): DiscoveryR12Candidate {
   binding = structuredClone(binding); bind(binding);
   const received = Date.parse(receivedAt), start = Date.parse(binding.dispatchedAt);
-  if (!response || typeof response.providerRequestId !== "string" || !GEN.test(response.providerRequestId) || !models(binding.phase).includes(response.providerModelId) || response.metadata.finishReason !== "stop" ||
-      !Number.isFinite(received) || received < start || received >= Date.parse(binding.receiptExpiresAt) ||
-      (binding.phase === "search1" && response.metadata.searchRequests !== 1)) return fail();
+  if (!response || typeof response.providerRequestId !== "string" || !GEN.test(response.providerRequestId) || !models(binding.phase).includes(response.providerModelId)) return fail("response_identity");
+  if (response.metadata.finishReason !== "stop") return fail("finish_reason");
+  if (!Number.isFinite(received) || received < start || received >= Date.parse(binding.receiptExpiresAt)) return fail("response_time");
+  if (binding.phase === "search1" && response.metadata.searchRequests !== 1) return fail("response_schema");
   const cost = response.usage.reportedCostUsd;
-  const reportedMicrousd = cost === null || cost === undefined ? null : typeof cost === "number" && Number.isFinite(cost) && cost >= 0 ? Math.ceil(cost * 1_000_000) : fail();
-  if (reportedMicrousd !== null && (!Number.isSafeInteger(reportedMicrousd) || reportedMicrousd > binding.maximumMicrousd)) return fail();
+  const reportedMicrousd = cost === null || cost === undefined ? null : typeof cost === "number" && Number.isFinite(cost) && cost >= 0 ? Math.ceil(cost * 1_000_000) : fail("response_cost");
+  if (reportedMicrousd !== null && (!Number.isSafeInteger(reportedMicrousd) || reportedMicrousd > binding.maximumMicrousd)) return fail("response_cost");
   const output = projectOutput(response.output, binding);
   const candidate: DiscoveryR12Candidate = { version: "r12.discovery-response.1", scopeId: binding.scopeId, attemptId: binding.attemptId, requestId: binding.requestId,
     phase: binding.phase, requestHash: discoveryV2Hash(binding.request), providerRequestId: response.providerRequestId, providerModelId: response.providerModelId,
     receivedAt: new Date(received).toISOString(), reportedMicrousd, output };
-  if (Buffer.byteLength(JSON.stringify(candidate), "utf8") > DISCOVERY_R12_OUTPUT_BYTES[binding.phase]) return fail();
+  if (Buffer.byteLength(JSON.stringify(candidate), "utf8") > DISCOVERY_R12_OUTPUT_BYTES[binding.phase]) return fail("response_size");
   return candidate;
 }
 
