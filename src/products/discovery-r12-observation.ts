@@ -93,12 +93,12 @@ export function r12ReviewDiagnosticSummary(code: R12ReviewDiagnosticCode): strin
 /** Owner projection contains metadata only; never accept a raw completion or
  * arbitrary provider error through this display contract. Older rows may omit
  * both fields until the observation migration is applied. */
-export function validateR12ReviewOwnerEvidence(observation: unknown, diagnostic: unknown, phase: string): void {
+export function validateR12ReviewOwnerEvidence(observation: unknown, diagnostic: unknown, phase: string, focusedSuccessor = false): void {
   const fail = (): never => { throw Error("r12_review_owner_evidence_invalid"); };
   const date = (v: unknown) => typeof v === "string" && v.length <= 40 && Number.isFinite(Date.parse(v));
   const keys = (v: Record<string, unknown>, names: string) => Object.keys(v).sort().join(",") === names.split(",").sort().join(",");
   const present = observation !== null && observation !== undefined, rejected = diagnostic !== null && diagnostic !== undefined;
-  if ((present || rejected) && phase !== "review") return fail();
+  if ((present || rejected) && phase !== "review" && !(phase === "strategy" && focusedSuccessor)) return fail();
   if (present) {
     if (!object(observation) || !keys(observation, "receivedAt,finishReason,nativeFinishReason,contentState,contentBytes,contentHash") || !date(observation.receivedAt) ||
       !(observation.finishReason === null || safe(observation.finishReason, /^(stop|length|content_filter|tool_calls|error)$/)) || !(observation.nativeFinishReason === null || safe(observation.nativeFinishReason, /^[a-z][a-z0-9_]{0,47}$/)) ||

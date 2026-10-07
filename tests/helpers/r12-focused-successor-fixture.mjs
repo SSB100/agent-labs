@@ -1,0 +1,12 @@
+import {fixture as pilotFixture,now} from '../r12-focused-pilot-runtime.test.mjs';
+import {discoveryV2Hash as hash} from '../../.core-tests/products/discovery-v2.js';
+import {R12_FOCUSED_SUCCESSOR_LIMITS as limits} from '../../.core-tests/products/discovery-r12-focused-successor.js';
+const id=n=>`dddddddd-dddd-4ddd-8ddd-${String(n).padStart(12,'0')}`;
+export function focusedSuccessorFixture(){
+ const f=pilotFixture();f.p.researchAllocationMicrousd=limits.maximumMicrousd;f.envelope.profileHash=hash(f.p);f.ctx.plan.discoveryScopeHash=hash(f.envelope);f.ctx.planHash=hash(f.ctx.plan);
+ const closure={version:'r12.focused-pilot-closure.1',businessId:f.p.businessId,scopeId:id(1),scopeHash:'1'.repeat(64),goalId:id(2),planId:f.envelope.closedPlanId,planHash:f.envelope.closedPlanHash,policyId:id(3),policyHash:'2'.repeat(64),profileHash:'3'.repeat(64),budgetAuthorityRootId:f.p.budgetAuthorityRootId,priorRoundId:f.p.priorRoundId,originalGoalId:f.p.originalGoalId,originalClosedPlanId:id(4),originalClosedPlanHash:'4'.repeat(64),acceptedReviewScopeId:f.p.history.acceptedReviewScopeId,acceptedReviewHash:f.p.history.acceptedReviewHash,controllerKeyHash:'5'.repeat(64),admissionKeyHash:'6'.repeat(64),dispatches:2,childrenCreated:2,repairsUsed:0,pivotsUsed:0,authorityClosed:true,knownMicrousd:'21932',phases:['strategy','review'].map((phase,index)=>({phase,attemptId:id(10+index),requestId:id(20+index),wireBindingHash:'7'.repeat(64),candidateHash:'8'.repeat(64),routeProofHash:'9'.repeat(64),settlementHash:'a'.repeat(64),actualMicrousd:index?'10000':'11932',acceptedResponseHash:index?null:'b'.repeat(64),artifactId:index?null:id(30),receivedObservationHash:index?'c'.repeat(64):null,rejectedDiagnosticHash:index?'d'.repeat(64):null}))};
+ const authorization={version:'r12.focused-pilot-successor-authorization.1',businessId:f.p.businessId,ownerId:id(40),scopeId:f.p.id,scopeHash:hash(f.envelope),goalId:f.p.goalId,preparedGoalRevision:2,preparedGoalHash:'e'.repeat(64),profileHash:hash(f.p),ownerApprovalEvidenceHash:f.envelope.approvalHash,predecessorClosure:closure,limits:structuredClone(limits),createdAt:f.p.createdAt,expiresAt:f.p.expiresAt};
+ const successor={authorization,authorizationHash:hash(authorization)},baseRaw=f.raw;
+ f.raw=(ctx,dependencies=[])=>{const raw=baseRaw(ctx,dependencies);raw.focusedPilot.successor=structuredClone(successor);return raw;};f.value=f.raw(f.ctx);
+ return {...f,successor,closure,now,pins:{businessId:f.p.businessId,scopeId:f.p.id,goalId:f.p.goalId,ownerId:authorization.ownerId,scope:f.envelope}};
+}
