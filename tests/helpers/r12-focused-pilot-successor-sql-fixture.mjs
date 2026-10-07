@@ -1,14 +1,14 @@
 /** Isolated fixture only: no live database, provider or enrollment access. */
 import assert from 'node:assert/strict';
 import {exerciseFocusedPilotLifecycle} from './r12-focused-pilot-sql-fixture.mjs';
-export async function createClosedFocusedPredecessor(db,closedBroad,{nested=false}={}){
- const result=await exerciseFocusedPilotLifecycle(db,closedBroad,{nested,reviewFailure:true});
+export async function createClosedFocusedPredecessor(db,closedBroad,{nested=false,...options}={}){
+ const result=await exerciseFocusedPilotLifecycle(db,closedBroad,{nested,reviewFailure:true,...options});
  await assertClosedFocusedSuccessorGuards(db,result);
  assert.equal(result.inertPosts,2);assert.equal(result.activeAuthority,false);assert.equal(result.closure.authorityClosed,true);
  return {...result,closedPlanId:result.planId};
 }
-export async function exerciseFocusedPilotSuccessorLifecycle(db,closedFocused,{nested=false,ownerPreparationReceipt=null,stageOnly=false,strategyOutcome='TEST'}={}){
- return exerciseFocusedPilotLifecycle(db,closedFocused.closedBroad,{nested,ownerPreparationReceipt,stageOnly,successor:closedFocused,strategyOutcome});
+export async function exerciseFocusedPilotSuccessorLifecycle(db,closedFocused,{nested=false,ownerPreparationReceipt=null,stageOnly=false,strategyOutcome='TEST',...options}={}){
+ return exerciseFocusedPilotLifecycle(db,closedFocused.closedBroad,{nested,ownerPreparationReceipt,stageOnly,successor:closedFocused,strategyOutcome,...options});
 }
 
 async function assertClosedFocusedSuccessorGuards(db,closed){
