@@ -27,7 +27,7 @@ function validatePg(value){const u=new URL(value);assert.ok(u.protocol==='postgr
 test('R12 SQL harness refuses remote, wrong-identity and options-bearing database targets',()=>{for(const url of ['postgresql://r12_test:x@production.example/r12_test','postgresql://postgres:x@127.0.0.1/r12_test','postgresql://r12_test:x@127.0.0.1/production','postgresql://r12_test:x@127.0.0.1/r12_test?options=-csearch_path%3Dpublic'])assert.throws(()=>validatePg(url));});
 
 function source(file,deps){const m={exports:{}};new Function('require','module','exports',ts.transpileModule(readFileSync(path.join(root,file),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)(name=>{assert.ok(name in deps,name);return deps[name];},m,m.exports);return m.exports;}
-test('R12 actual owner workflows preserve funding, bounded dispatch and immutable historical results',{skip:!host,timeout:120000},async()=>{
+async function exerciseR12OwnerWorkflows(){
  const sqlRequire=createRequire(path.resolve(host,'package.json'));let db;
  if(process.env.R12_REQUIRE_POSTGRES==='1')assert.ok(process.env.R12_POSTGRES_URL,'Actual PostgreSQL is required by this gate');
  if(process.env.R12_POSTGRES_URL){validatePg(process.env.R12_POSTGRES_URL);const {Client}=sqlRequire('pg');db=new Client({connectionString:process.env.R12_POSTGRES_URL});await db.connect();assert.equal(Number((await db.query("select count(*) from pg_tables where schemaname in ('public','private')")).rows[0].count),0,'Fresh fixture database required');db.exec=sql=>db.query(sql);db.close=()=>db.end();}
@@ -143,8 +143,9 @@ test('R12 actual owner workflows preserve funding, bounded dispatch and immutabl
    if(!process.env.R12_NEXT_FIXTURE_OUTPUT)return;
    assert.ok(!process.env.R12_POSTGRES_URL,'Next snapshots use an isolated PGlite database only');
    const out=path.resolve(process.env.R12_NEXT_FIXTURE_OUTPUT);assert.ok(path.basename(out).startsWith('r12-next-'),'Designated temporary fixture directory required');await mkdir(out,{recursive:true});
-   const blob=await db.dumpDataDir('gzip');await writeFile(path.join(out,`${name}.tgz`),Buffer.from(await blob.arrayBuffer()));
+   const started=performance.now(),blob=await db.dumpDataDir('gzip');await writeFile(path.join(out,`${name}.tgz`),Buffer.from(await blob.arrayBuffer()));
    await writeFile(path.join(out,'metadata.json'),JSON.stringify({businessId:business,goalId:f.g,scopeId,ownerId:R07_OWNER,plan,quote,outputs:r12PhaseOutputFixture(result.intent.comparisonUniverse.audiences[0])}));
+   console.log(`R12 Next snapshot ${name}: ${blob.size} bytes in ${Math.round(performance.now()-started)}ms`);
   };
   const rpc=async(operation,payload,epoch=null)=>{await db.exec('set role anon');try{return(await db.query('select public.r07_controller($1,$2,$3,$4,$5,$6,$7,$8,$9) result',[business,f.g,operation,payload,randomUUID(),R07_KEY,R07_LEASE,epoch,R05_KEY])).rows[0].result;}finally{await db.exec('reset role');}};
   assert.equal(await rpc('read',{}),null,'Exact scoped read before plan creation remains supported');
@@ -341,4 +342,16 @@ test('R12 actual owner workflows preserve funding, bounded dispatch and immutabl
 
 
  }finally{for(const [key,value] of Object.entries(priorEnv)){if(value===undefined)delete process.env[key];else process.env[key]=value;}await db.close();}
-});
+}
+
+if(process.argv.includes('--r12-next-capture')){
+ assert.ok(host,'Isolated SQL fixture host is required');
+ assert.ok(process.env.R12_NEXT_FIXTURE_OUTPUT&&path.basename(path.resolve(process.env.R12_NEXT_FIXTURE_OUTPUT)).startsWith('r12-next-'),'Designated temporary fixture directory required');
+ assert.ok(!process.env.R12_POSTGRES_URL&&process.env.R12_REQUIRE_POSTGRES!=='1','Next snapshots use an isolated PGlite database only');
+ const started=performance.now();
+ console.log('Preparing R12 Next snapshots with every owner-workflow assertion; the Next setup subprocess owns the deadline.');
+ await exerciseR12OwnerWorkflows();
+ console.log(`PASS: R12 Next snapshot setup and all owner-workflow assertions completed in ${Math.round(performance.now()-started)}ms`);
+}else{
+ test('R12 actual owner workflows preserve funding, bounded dispatch and immutable historical results',{skip:!host,timeout:120000},exerciseR12OwnerWorkflows);
+}

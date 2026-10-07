@@ -90,9 +90,15 @@ try {
     if(!process.env.R12_SQL_TEST_HOST)throw Error('R12 isolated SQL fixture host is required');
     const directory=await mkdtemp(path.join(temporaryRoot,'r12-next-'));
     try{
-    const capture=spawn(process.execPath,['--test','tests/r12-discovery-scope-sql.test.mjs'],{cwd:root,env:{...process.env,R12_NEXT_FIXTURE_OUTPUT:directory,R12_POSTGRES_URL:'',R12_REQUIRE_POSTGRES:'0'},stdio:['ignore','pipe','pipe']});
+    // The measured full lifecycle takes about 100s without four gzip snapshots.
+    // Give this setup-only subprocess a finite serialization/runner margin;
+    // the ordinary SQL test keeps its independent 120s assertion deadline.
+    const captureTimeoutMs=240000,captureStarted=performance.now();
+    console.log(`Preparing R12 Next SQL snapshots (setup deadline ${captureTimeoutMs}ms).`);
+    const capture=spawn(process.execPath,['tests/r12-discovery-scope-sql.test.mjs','--r12-next-capture'],{cwd:root,env:{...process.env,R12_NEXT_FIXTURE_OUTPUT:directory,R12_POSTGRES_URL:'',R12_REQUIRE_POSTGRES:'0'},stdio:['ignore','pipe','pipe'],timeout:captureTimeoutMs,killSignal:'SIGKILL'});
     processes.push(capture);
     const stream=log('r12-sql-capture.log');capture.stdout.pipe(stream);capture.stderr.pipe(stream);await completion(capture);
+    console.log(`R12 Next SQL snapshot setup completed in ${Math.round(performance.now()-captureStarted)}ms.`);
     const reviewCapture=spawn(process.execPath,['tests/helpers/r12-review-next-capture.mjs'],{cwd:root,env:{...process.env,R12_REVIEW_NEXT_OUTPUT:directory,R12_POSTGRES_URL:''},stdio:['ignore','pipe','pipe']});processes.push(reviewCapture);
     const reviewStream=log('r12-review-capture.log');reviewCapture.stdout.pipe(reviewStream);reviewCapture.stderr.pipe(reviewStream);await completion(reviewCapture);
     const bootstrapCapture=spawn(process.execPath,['tests/helpers/r12-bootstrap-rehearsal.mjs'],{cwd:root,env:{...process.env,R12_BOOTSTRAP_NEXT_OUTPUT:directory},stdio:['ignore','pipe','pipe']});processes.push(bootstrapCapture);
