@@ -20,7 +20,8 @@
       "fix/r12-business-scope-rebind": false,
       "fix/r12-review-response-diagnostics": false,
       "feat/r12-targeted-evidence": false,
-      "docs/r12-evidence-closeout": false
+      "docs/r12-evidence-closeout": false,
+      "feat/r12-focused-pilot": false
     }
   },
   "buildCommand": "npm run deploy:build"

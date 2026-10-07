@@ -2,6 +2,8 @@ import type { OperatingPolicy } from "../core/admission-contract";
 import type { R04BusinessContent, R04QuestContent } from "../core/quest-contract";
 import { containsCredentialLikeValue } from "../core/quest-intake";
 import { discoveryV2Hash } from "./discovery-v2";
+import {isDiscoveryFocusedPilot,type DiscoveryFocusedPilot} from "./discovery-r12-focused-pilot-scope";
+import {validateFocusedPilotProfile} from "./discovery-r12-focused-pilot-contract";
 import type { DiscoveryReviewContinuation } from "./discovery-r12-review-continuation";
 import { isDiscoveryEvidenceContinuation, type DiscoveryEvidenceContinuation } from "./discovery-r12-evidence-continuation";
 import { validateDiscoveryEvidenceAddendum } from "./discovery-r12-evidence-addendum";
@@ -14,7 +16,7 @@ export type R12ReviewOwnerProposal = {
 };
 export type R12ReviewConfirmation = { policyId: string; policyHash: string; businessRevision: number; goalRevision: number };
 export type R12ReviewOwnerWorkspace = {
-  version: "r12.review-owner-workspace.1"; businessId: string; scopeId: string; scope: DiscoveryReviewContinuation | DiscoveryEvidenceContinuation;
+  version: "r12.review-owner-workspace.1"; businessId: string; scopeId: string; scope: DiscoveryReviewContinuation | DiscoveryEvidenceContinuation | DiscoveryFocusedPilot;
   proposalHash: string; proposal: R12ReviewOwnerProposal; confirmation: R12ReviewConfirmation | null; eligible: boolean; reason: string | null;
 };
 export type R12ReviewSetupReceipt = R12ReviewConfirmation & { businessId: string; scopeId: string; goalId: string; proposalHash: string; controllerKeyHash: string; admissionKeyHash: string; executionAuthorized: false };
@@ -29,12 +31,13 @@ export function parseR12ReviewOwnerWorkspace(raw: unknown, businessId: string, r
   if (!object(raw) || raw.version !== "r12.review-owner-workspace.1" || raw.businessId !== businessId || !r12ReviewUuid(raw.scopeId) || !hash(raw.proposalHash) || !object(raw.scope) || !object(raw.proposal) || typeof raw.eligible !== "boolean" ||
       !(raw.reason === null || typeof raw.reason === "string" && /^[a-z][a-z0-9_]{0,100}$/.test(raw.reason)) || containsCredentialLikeValue(raw)) return fail();
   const s = raw.scope, p = raw.proposal;
+  const pilot = isDiscoveryFocusedPilot(s);
   const evidence = s.version === "r12.discovery-evidence-continuation.1";
   const successor = s.version === "r12.discovery-review-continuation.2" || evidence, history = successor && Array.isArray(s.reviewHistory) ? s.reviewHistory : [];
   if (successor && (history.length < 1 || history.length > 2 || !r12ReviewUuid(s.predecessorPlanId) || history.some(item => !object(item) || !r12ReviewUuid(item.scopeId) || !r12ReviewUuid(item.planId) || !money(item.actualMicrounits)) || s.predecessorPlanId !== (history.at(-1) as Record<string, unknown>).planId)) return fail();
   if (raw.proposalHash !== discoveryV2Hash(p)) return fail();
-  if (!["r12.discovery-review-continuation.1", "r12.discovery-review-continuation.2", "r12.discovery-evidence-continuation.1"].includes(String(s.version)) || s.id !== raw.scopeId || s.businessId !== businessId || !r12ReviewUuid(s.goalId) || !r12ReviewUuid(s.sourceScopeId) || ![raw.scopeId, s.sourceScopeId, ...(evidence ? [s.predecessorScopeId] : [])].includes(requestedScopeId) ||
-      s.baseDispatches !== 4 + history.length || s.baseChildren !== 5 + history.length || !money(s.baseKnownMicrounits) || !Array.isArray(s.sourcePhases) || s.sourcePhases.length !== 4 || s.sourcePhases.some((phase, index) => !object(phase) || phase.stepKey !== ["plan", "search1", "select1", "strategy"][index]) ||
+  if (!["r12.discovery-review-continuation.1", "r12.discovery-review-continuation.2", "r12.discovery-evidence-continuation.1", "r12.discovery-focused-pilot.1"].includes(String(s.version)) || s.id !== raw.scopeId || s.businessId !== businessId || !r12ReviewUuid(s.goalId) || (pilot ? requestedScopeId!==raw.scopeId : !r12ReviewUuid(s.sourceScopeId) || ![raw.scopeId, s.sourceScopeId, ...(evidence ? [s.predecessorScopeId] : [])].includes(requestedScopeId)) ||
+      !pilot && (s.baseDispatches !== 4 + history.length || s.baseChildren !== 5 + history.length || !money(s.baseKnownMicrounits) || !Array.isArray(s.sourcePhases) || s.sourcePhases.length !== 4 || s.sourcePhases.some((phase, index) => !object(phase) || phase.stepKey !== ["plan", "search1", "select1", "strategy"][index])) ||
       typeof s.approvedQuery !== "string" || s.approvedQuery.length > 800 || typeof s.expiresAt !== "string" || !Number.isFinite(Date.parse(s.expiresAt)) ||
       p.version !== "r12.review-owner-proposal.1" || p.scopeId !== raw.scopeId || p.scopeHash !== discoveryV2Hash(s) || p.businessId !== businessId || p.ownerId !== ownerId || p.goalId !== s.goalId ||
       !revision(p.expectedBusinessRevision) || !revision(p.expectedGoalRevision) || ![p.expectedBusinessHash, p.expectedGoalHash, p.interpretationHash].every(hash) || !object(p.businessContent) || !object(p.goalContent) || !object(p.operatingPolicy)) return fail();
@@ -42,12 +45,23 @@ export function parseR12ReviewOwnerWorkspace(raw: unknown, businessId: string, r
   if (["brandContext", "operatingRules", "allowedActivity", "restrictions"].some(key => typeof businessContent[key] !== "string" || String(businessContent[key]).length > 12000) ||
       ["title", "originalIntent", "objective"].some(key => typeof goalContent[key] !== "string") || !object(p.goalContent.parsed) || !Array.isArray(p.goalContent.ambiguities)) return fail();
   const policy = p.operatingPolicy;
-  const phases = evidence ? ["strategy", "review"] : ["review"];
+  const phases = evidence || pilot ? ["strategy", "review"] : ["review"];
   if (policy.version !== "r05.1" || policy.goalId !== s.goalId || policy.businessRevision !== p.expectedBusinessRevision + 1 || policy.goalRevision !== p.expectedGoalRevision + 2 || policy.currency !== "USD" || policy.maximumDispatches !== phases.length ||
       !money(policy.policyLimitMicrounits) || Number(policy.policyLimitMicrounits) <= 0 || !money(policy.businessLifetimeLimitMicrounits) || !Array.isArray(policy.operations) || policy.operations.length !== phases.length ||
       policy.operations.some((op, index) => !object(op) || op.operationKey !== `research.r12.${s.id}.${phases[index]}` || !money(op.maximumPerOperationMicrounits) || Number(op.maximumPerOperationMicrounits) <= 0) ||
       policy.operations.reduce((sum, op) => sum + Number((op as Record<string, unknown>).maximumPerOperationMicrounits), 0) !== Number(policy.policyLimitMicrounits) ||
       typeof policy.expiresAt !== "string" || !Number.isFinite(Date.parse(policy.expiresAt))) return fail();
+  if (pilot) {
+    const scope=s as unknown as DiscoveryFocusedPilot;
+    if (!hash(scope.profileHash) || !hash(scope.closedPlanHash) || !r12ReviewUuid(scope.closedPlanId) || !r12ReviewUuid(scope.originalGoalId) ||
+        scope.id!==scope.profile.id || scope.createdAt!==scope.profile.createdAt || scope.expiresAt!==scope.profile.expiresAt ||
+        discoveryV2Hash(scope.allowedDomains)!==discoveryV2Hash(scope.profile.intent.comparisonUniverse.sourceDomains) || scope.approvedQuery!==scope.profile.learningQuestion ||
+        goalContent.objective!==scope.profile.intent.objective || Number(policy.policyLimitMicrounits)>scope.profile.researchAllocationMicrousd) return fail();
+    validateFocusedPilotProfile(scope.profile,{profileHash:scope.profileHash,businessId,goalId:scope.goalId,originalGoalId:scope.originalGoalId,
+      budgetAuthorityRootId:scope.budgetAuthorityRootId,priorRoundId:scope.priorRoundId,originalIntentHash:scope.originalIntentHash,
+      originalSemanticGoalHash:scope.originalSemanticGoalHash,acceptedReviewScopeId:scope.acceptedReviewScopeId,acceptedReviewHash:scope.acceptedReviewHash,
+      historicalRecordHash:scope.acceptedReviewRecordHash,originalMaximumMicrousd:2000000},Date.parse(scope.createdAt));
+  }
   if (evidence) {
     const scope = s as unknown as DiscoveryEvidenceContinuation;
     if (!isDiscoveryEvidenceContinuation(scope) || history.length !== 2 || !hash(scope.predecessorScopeHash) || !hash(scope.addendumHash) ||

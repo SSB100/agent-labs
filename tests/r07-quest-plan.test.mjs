@@ -26,3 +26,22 @@ test('R07 default adapter registry has no production path or side effect',async(
  const result=await driveQuestOnce({read:async()=>snapshot,command:async(op)=>{calls++;assert.equal(op,'claim');return {epoch:1};}});
  assert.deepEqual(PRODUCTION_QUEST_ADAPTERS,{});assert.equal(result.reason,'adapter_implementation_unavailable');assert.equal(calls,1);
 });
+
+function focusedPilot(){
+ const p=fixture();p.format='r12.discovery-pilot.1';p.discoveryScopeId=id(100);p.discoveryScopeHash='f'.repeat(64);
+ p.maximumRepairs=0;p.maximumPivots=0;p.maximumChildren=2;p.maximumDispatches=2;p.requiredChecks=['review'];
+ p.steps=p.steps.slice(0,2).map((s,i)=>{const key=i?'review':'strategy';return{...s,key,kind:i?'review':'work',role:key,
+  adapter:`r12.discovery.${p.discoveryScopeId}.${key}`,operationKey:`research.r12.${p.discoveryScopeId}.${key}`,
+  expectedArtifactType:`r12.discovery.${key}`,dependsOn:i?['strategy']:[],maximumRepairs:0};});return p;
+}
+test('Focused pilot compiles only its two independent analysis effects, without inherited children',()=>{
+ const p=focusedPilot();assert.deepEqual(compileQuestPlan(p),p);assert.equal(p.steps.length,2);
+ assert.deepEqual(p.steps[0].dependsOn,[]);assert.deepEqual(p.steps[1].dependsOn,['strategy']);
+});
+for(const [name,change] of [
+ ['extra dispatch',p=>p.maximumDispatches=3],['extra child',p=>p.maximumChildren=3],
+ ['repair permission',p=>p.maximumRepairs=1],['pivot permission',p=>p.maximumPivots=1],
+ ['old dependency reuse',p=>p.steps[0].dependsOn=['plan','search1','select1']],
+ ['unreviewed strategy',p=>p.steps[1].dependsOn=[]],['same reviewer',p=>p.steps[1].workerDefinitionId=p.steps[0].workerDefinitionId],
+ ['old evidence format',p=>p.format='r12.discovery-evidence.1'],
+])test(`Focused pilot rejects ${name}`,()=>{const p=focusedPilot();change(p);assert.throws(()=>compileQuestPlan(p),/r07_/);});

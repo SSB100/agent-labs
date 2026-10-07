@@ -46,7 +46,7 @@ export async function continueDiscoveryR12(context:OwnerUiContext,businessId:str
  };
  const effects:DiscoveryR12EffectStore={operation,settle:async(attemptId,settlement)=>{await controller.command('settle',{attemptId,settlement});},dispatchedAt:async attemptId=>{const data=await operation(attemptId,'load',{});if(typeof data.dispatchedAt!=='string'||!Number.isFinite(Date.parse(data.dispatchedAt)))return fail();return data.dispatchedAt;}};
  let quote:DiscoveryR12ExecutionQuote|null=null;
- const freshQuote=async()=>{if(!quote||Date.parse(quote.validUntil)<=Date.now())quote=await dependencies.quote({evidenceContinuation:plan.format==='r12.discovery-evidence.1'});return quote;};
+ const freshQuote=async()=>{if(!quote||Date.parse(quote.validUntil)<=Date.now())quote=await dependencies.quote({evidenceContinuation:plan.format==='r12.discovery-evidence.1',focusedPilot:plan.format==='r12.discovery-pilot.1'});return quote;};
  const adapters:Record<string,QuestAdapter>={};
  for(const step of plan.steps){
   if(!DISCOVERY_R12_PHASES.includes(step.key as DiscoveryR12Phase))return fail();
