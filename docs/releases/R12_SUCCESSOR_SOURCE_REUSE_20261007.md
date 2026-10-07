@@ -132,6 +132,28 @@ disposable GitHub Actions `r12_test` service database. It checks the exact inert
 loopback connection target, CI flags, inspected service address, user, database,
 port and owner, and does not force-drop or terminate unexpected sessions.
 
+### Sequential CI reset verification
+
+The first hosted combined sequence exposed a fixture lifecycle error: dropping
+the database does not remove the cluster-wide `anon`, `authenticated` and
+`service_role` roles created by the shared bootstrap. The next bootstrap
+correctly rejected the existing roles. Production SQL was unaffected.
+
+The reset now first checks the exact three nonlogin bootstrap roles, including
+their privilege flags, password absence, memberships, role settings and absence
+of dependencies outside the disposable database. After dropping that database,
+it drops only those three validated roles and recreates the database. Unexpected
+state fails closed; there is no IF EXISTS masking, CASCADE, DROP OWNED, forced
+session termination or deletion of unrelated cluster objects.
+
+Verification used one native PostgreSQL 17.11 cluster for the actual sequence:
+standard bootstrap and all migrations, guarded database-and-role reset, then the
+complete representative full-shape suite. The latter passed in 34.0 seconds.
+Unrelated roles, role settings and tablespaces matched their initial snapshots;
+the fresh database had only its default extension before bootstrap, and pgcrypto
+and the realtime publication were recreated by the next bootstrap. The
+production migration and its SHA-256 remain unchanged.
+
 Standalone invocation against a fresh isolated native PostgreSQL fixture:
 
 ```sh

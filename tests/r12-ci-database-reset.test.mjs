@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {validateR12CiResetTarget} from '../scripts/reset-r12-ci-database.mjs';
+import {validateR12CiResetTarget,validateR12CiApiRoles} from '../scripts/reset-r12-ci-database.mjs';
 const valid={CI:'true',GITHUB_ACTIONS:'true',R12_REQUIRE_POSTGRES:'1',R12_POSTGRES_URL:'postgresql://r12_test:r12-isolated-fixture@127.0.0.1:5432/r12_test',R12_CI_POSTGRES_ADDRESS:'172.18.0.2'};
 
 test('R12 full-shape CI reset accepts only the exact inert service target',()=>{
@@ -15,4 +15,19 @@ test('R12 full-shape CI reset accepts only the exact inert service target',()=>{
   'postgresql://r12_test:other@127.0.0.1:5432/r12_test',
   'postgresql://r12_test:r12-isolated-fixture@127.0.0.1:5432/postgres',
   valid.R12_POSTGRES_URL+'?options=anything',valid.R12_POSTGRES_URL+'#other'])assert.throws(()=>validateR12CiResetTarget({...valid,R12_POSTGRES_URL:url}));
+});
+
+test('R12 CI reset rejects altered or missing cluster-wide bootstrap roles',()=>{
+ const roles=['anon','authenticated','service_role'].map(name=>({name,superuser:false,
+  inherit:true,create_role:false,create_db:false,login:false,replication:false,
+  bypass_rls:name==='service_role',connection_limit:-1,valid_until:null,settings:null,has_password:false}));
+ assert.doesNotThrow(()=>validateR12CiApiRoles(roles));
+ for(const key of ['superuser','create_role','create_db','login','replication','bypass_rls','has_password']){
+  const changed=structuredClone(roles);changed[0][key]=true;assert.throws(()=>validateR12CiApiRoles(changed));
+ }
+ for(const change of [{inherit:false},{settings:['statement_timeout=0']},{connection_limit:1},{valid_until:'infinity'}]){
+  const changed=structuredClone(roles);Object.assign(changed[0],change);assert.throws(()=>validateR12CiApiRoles(changed));
+ }
+ assert.throws(()=>validateR12CiApiRoles(roles.slice(1)));
+ assert.throws(()=>validateR12CiApiRoles([...roles,{...roles[0],name:'unrelated'}]));
 });
