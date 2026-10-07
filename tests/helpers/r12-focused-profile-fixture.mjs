@@ -13,7 +13,7 @@ export function focusedProfileFixture() {
   const productionText = 'Official Printful guidance describes the adult garment print area and minimum file resolution. This describes file constraints, not buyer demand.';
   const observation = (n, context, kind, url, dimensions, retrievedAt) => ({
     id: `evi-${String(n).repeat(24)}`, sourceId: `src-${String(n).repeat(24)}`, url, title: `Qualification fixture observation ${n}`,
-    access: 'public_document_read', kind, retrievedAt, expiresAt, captureHash: digest(`capture ${n}`), contentHash: digest(context), context,
+    access: kind === 'retail_offer' ? 'public_search_index' : 'public_document_read', kind, retrievedAt, expiresAt, captureHash: digest(`capture ${n}`), contentHash: digest(context), context,
     start: 0, end: context.length, geographyRole: kind === 'retail_offer' ? 'buyer_market' : 'general_operating_context',
     countries: kind === 'retail_offer' ? ['GB'] : [], dimensions, limitations: ['Qualification fixture only; no live fact or permission is established.'], sourceReviewHash: digest(`review ${n}`),
   });
