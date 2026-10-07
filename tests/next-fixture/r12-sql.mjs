@@ -121,12 +121,20 @@ async function sqlRpc(r,name,params,role,after){
   finally{await r.db.exec('reset role');if(after)await after();}
  });
 }
+// Shared by the HTTP boundary and SQL adapter: a newly added runtime RPC must
+// have one explicit SQL signature instead of silently falling through either list.
+export const R12_RUNTIME_RPC_ARGUMENTS=Object.freeze({
+ r07_controller:Object.freeze(['p_business_id','p_goal_id','p_operation','p_payload','p_submission_id','p_server_key','p_lease_token','p_epoch','p_admission_key']),
+ r12_recovery_dispatch:Object.freeze(['p_business_id','p_goal_id','p_scope_id','p_payload','p_submission_id','p_server_key','p_lease_token','p_epoch','p_admission_key']),
+ r12_discovery_server:Object.freeze(['p_business_id','p_attempt_id','p_operation','p_payload','p_server_key']),
+ creative_runtime_transition:Object.freeze(['p_creative_run_id','p_business_id','p_runtime_capability','p_operation','p_payload']),
+});
 export async function r12RuntimeRpc(state,name,args){
- const r=state.r12;assert.ok(r);
- const keys=name==='r07_controller'?['p_business_id','p_goal_id','p_operation','p_payload','p_submission_id','p_server_key','p_lease_token','p_epoch','p_admission_key']:name==='creative_runtime_transition'?['p_creative_run_id','p_business_id','p_runtime_capability','p_operation','p_payload']:['p_business_id','p_attempt_id','p_operation','p_payload','p_server_key'];
- assert.ok(['r07_controller','r12_discovery_server','creative_runtime_transition'].includes(name));
- if(r.simulateDispatchTimeout&&name==='r07_controller'&&args.p_operation==='dispatch')return exclusive(r,async()=>{
-  await r.db.exec('begin');try{await r.db.exec('set role anon');const marked=(await r.db.query(`select public.r07_controller(${keys.map((_,i)=>`$${i+1}`).join(',')}) result`,keys.map(k=>args[k]??null))).rows[0].result;assert.equal(marked.shouldDispatch,true);await assert.rejects(r.db.exec("do $$ begin raise exception 'Inert Next dispatch deadline before commit' using errcode='57014'; end $$"),error=>error.code==='57014');return{data:null,error:{code:'57014',message:'Inert Next dispatch deadline before commit'}};}finally{await r.db.exec('rollback');await mirrorR12(state);}
+ const r=state.r12;assert.ok(r);assert.ok(Object.hasOwn(R12_RUNTIME_RPC_ARGUMENTS,name),'Inert runtime RPC unavailable');
+ const keys=R12_RUNTIME_RPC_ARGUMENTS[name];
+ if(name==='r12_recovery_dispatch')assert.deepEqual(Object.keys(args).sort(),[...keys].sort(),'Recovery RPC accepts only its exact dispatch signature');
+ if(r.simulateDispatchTimeout&&(name==='r12_recovery_dispatch'||(name==='r07_controller'&&args.p_operation==='dispatch')))return exclusive(r,async()=>{
+  await r.db.exec('begin');try{await r.db.exec('set role anon');const marked=(await r.db.query(`select public.${name}(${keys.map((_,i)=>`$${i+1}`).join(',')}) result`,keys.map(k=>args[k]??null))).rows[0].result;assert.equal(marked.shouldDispatch,true);await assert.rejects(r.db.exec("do $$ begin raise exception 'Inert Next dispatch deadline before commit' using errcode='57014'; end $$"),error=>error.code==='57014');return{data:null,error:{code:'57014',message:'Inert Next dispatch deadline before commit'}};}finally{await r.db.exec('rollback');await mirrorR12(state);}
  });
  return sqlRpc(r,name,keys.map(k=>args[k]??null),'anon',()=>mirrorR12(state));
 }
