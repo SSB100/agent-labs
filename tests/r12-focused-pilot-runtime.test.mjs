@@ -1,18 +1,24 @@
 // Inert route receipts prove the real runtime reader/projector, never a provider call.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {discoveryKnowledgeFixture} from './discovery-v2-fixtures.mjs';
 import {r12PhaseOutputFixture} from './helpers/r12-phase-output-fixture.mjs';
 import {focusedProfileFixture,focusedStrategyOutput} from './helpers/r12-focused-profile-fixture.mjs';
 import {buildDiscoveryIntentFromGoal,DISCOVERY_GOAL_DEFAULT} from '../.core-tests/products/discovery-v2-goal.js';
-import {discoveryV2Hash as hash,REVIEW_CHECKS_V2} from '../.core-tests/products/discovery-v2.js';
+import {discoveryV2Hash as hash,REVIEW_CHECKS_V2,DISCOVERY_V2_EXECUTION_PREREQUISITES} from '../.core-tests/products/discovery-v2.js';
 import {discoveryAddendumReferences} from '../.core-tests/products/discovery-r12-evidence-addendum.js';
 import {createDiscoveryR12Candidate,qualifyDiscoveryR12Candidate,discoveryR12ReceiptExpectation} from '../.core-tests/products/discovery-r12-receipt.js';
 import {qualifyGenerationRouteProof} from '../.core-tests/research/generation-route.js';
 import {readDiscoveryR12PhaseInputs,buildDiscoveryR12PhaseRequest,projectDiscoveryR12Phase,reconstructDiscoveryR12Result} from '../.core-tests/products/discovery-r12-runtime.js';
 import {focusedPilotHistoricalRecord} from '../.core-tests/products/discovery-r12-focused-pilot-runtime.js';
-import {prepareDiscoveryWorkerContextV2} from '../.core-tests/products/discovery-v2-worker-contract.js';
+import {prepareDiscoveryWorkerContextV2,buildReviewerRequestV2,normalizeStrategistResponseV2,normalizeReviewerResponseV2,reviewerResponseSchemaV2} from '../.core-tests/products/discovery-v2-worker-contract.js';
 import {validateDiscoveryFocusedPilot} from '../.core-tests/products/discovery-r12-focused-pilot-scope.js';
+import {assertJsonSchemaValue} from '../.core-tests/workers/schema-validator.js';
+import {discoveryR12StaticSchema} from '../.core-tests/products/discovery-r12-schemas.js';
+import {focusedPilotStrategySchema} from '../.core-tests/products/discovery-r12-focused-pilot-contract.js';
+import {routeDiscoveryR12Request,inspectDiscoveryR12Wire} from '../.core-tests/products/discovery-r12-wire.js';
+import {DISCOVERY_R12_PILOT_REQUEST_BYTES} from '../.core-tests/products/discovery-r12-quote.js';
 const id=n=>`bbbbbbbb-bbbb-4bbb-8bbb-${String(n).padStart(12,'0')}`;
 const now=Date.parse('2026-10-07T00:00:00.000Z');
 const stamp=n=>new Date(n).toISOString();
@@ -77,3 +83,84 @@ test('history relevance projection preserves exact selected and global questions
 });
 test('even consistently rehashed profile cannot rename or replace the historical candidate',()=>withClock(now,()=>{const f=fixture(),raw=structuredClone(f.value);raw.amendment.profile.candidate.concept='A different new original concept';raw.amendment.profileHash=hash(raw.amendment.profile);raw.focusedPilot.profile=raw.amendment.profile;raw.focusedPilot.profileHash=raw.amendment.profileHash;const ctx=structuredClone(f.ctx);ctx.plan.discoveryScopeHash=hash(raw.amendment);ctx.planHash=hash(ctx.plan);assert.throws(()=>readDiscoveryR12PhaseInputs(ctx,raw),/inputs_unverified/);}));
 test('NME stays a nonauthorizing NME through the actual focused strategy projector',()=>withClock(now,()=>{const f=fixture(),output=focusedStrategyOutput(f.prepared);output.usesPinnedLearningPlan=false;output.recommendation.proposedOutcome='NEEDS_MORE_EVIDENCE';const first=phase(f.ctx,f.value,output,now);assert.equal(first.current.response.result.outcome,'NEEDS_MORE_EVIDENCE');assert.equal(first.current.candidate.output.testPlan,undefined);assert.equal(first.current.candidate.output.usesPinnedLearningPlan,false);}));
+
+// Frozen synthetic outputs reproduce only the rejected response's structure.
+// No private provider prose, identities, source captures or request payloads.
+function frozenReviewFixture() {
+ const saved=JSON.parse(readFileSync(new URL('./fixtures/r12-focused-review-rejected.json',import.meta.url),'utf8'));
+ const freeze=value=>{if(value&&typeof value==='object'){Object.values(value).forEach(freeze);Object.freeze(value);}return value;};
+ const {prepared}=fixture(),executions={strategist:{modelId:'openai/gpt-5.6-luna',providerRequestId:'gen-sanitized-strategy',primaryOnly:true},reviewer:{modelId:'anthropic/claude-haiku-4.5',providerRequestId:'gen-sanitized-review',primaryOnly:true}};
+ freeze(saved);
+ const assessment=normalizeStrategistResponseV2(prepared,saved.strategy,executions.strategist,now);
+ return {saved,prepared,assessment,executions};
+}
+
+test('frozen contradictory TEST passes both JSON schemas but fails the unchanged uncertainty gate without mutation',()=>{
+ const f=frozenReviewFixture(),before=hash(f.saved),{review}=f.saved;
+ assertJsonSchemaValue(discoveryR12StaticSchema('review'),review,'Frozen static response');
+ assertJsonSchemaValue(reviewerResponseSchemaV2(f.prepared,f.assessment),review,'Frozen dynamic response');
+ const input=decode(buildReviewerRequestV2(f.prepared,f.assessment,f.executions.strategist,now));
+ assert.deepEqual(input.assessment.rowEncoding.uncertainties,['question','blockingForTest','reason']);
+ assert.equal(input.assessment.candidates[0].dimensions.find(row=>row[0]==='production_complexity')[5][0][1],true);
+ assert.deepEqual([
+  review.additionalUncertainties.some(u=>u.blockingForTest),
+  review.checks.some(c=>c.outcome!=='PASS'),
+  review.dimensions.some(d=>['blocking','known_failure'].includes(d.verdict)),
+  f.assessment.candidates[0].dimensions.some(d=>d.uncertainties.some(u=>u.blockingForTest)),
+ ],[true,true,true,true]);
+ assert.throws(()=>normalizeReviewerResponseV2(f.prepared,f.assessment,review,f.executions,now),{message:'Reviewer cannot silently waive blocking uncertainty.'});
+ const outcomeOnly={...review,outcome:'NEEDS_MORE_EVIDENCE'};
+ assert.throws(()=>normalizeReviewerResponseV2(f.prepared,f.assessment,outcomeOnly,f.executions,now),{message:'Reviewer cannot silently waive blocking uncertainty.'});
+ const verdictOnly=structuredClone(review);verdictOnly.dimensions.find(d=>d.dimension==='production_complexity').verdict='blocking';
+ assert.throws(()=>normalizeReviewerResponseV2(f.prepared,f.assessment,verdictOnly,f.executions,now),{message:'TEST has an unresolved blocking review or uncertainty.'});
+ assert.equal(hash(f.saved),before);
+});
+
+test('separate internally consistent NME retains every frozen blocker, failed check, question and execution prerequisite',()=>{
+ const f=frozenReviewFixture(),before=hash(f.saved),hypothetical=structuredClone(f.saved.review);
+ hypothetical.outcome='NEEDS_MORE_EVIDENCE';
+ hypothetical.sufficiencyRationale='The retained proposal blockers and failed checks require more evidence; this synthetic alternative does not accept or modify the rejected saved response.';
+ const production=hypothetical.dimensions.find(d=>d.dimension==='production_complexity');
+ production.verdict='blocking';production.rationale='The retained production uncertainty blocks the exact proposal until the stated reproduction question is resolved.';
+ const accepted=normalizeReviewerResponseV2(f.prepared,f.assessment,hypothetical,f.executions,now);
+ assert.equal(accepted.outcome,'NEEDS_MORE_EVIDENCE');
+ assert.deepEqual(accepted.checks,f.saved.review.checks);
+ assert.deepEqual(accepted.additionalUncertainties,f.saved.review.additionalUncertainties);
+ assert.deepEqual(accepted.missingQuestions,[...new Set([...f.assessment.missingQuestions,...hypothetical.additionalUncertainties.map(u=>u.question)])]);
+ assert.deepEqual(accepted.executionPrerequisites,DISCOVERY_V2_EXECUTION_PREREQUISITES);
+ assert.equal(accepted.publicationAllowed,false);assert.equal(accepted.commerceAllowed,false);
+ assert.equal(f.assessment.testPlan.generationAuthorized,false);assert.equal(f.assessment.testPlan.spendingAuthorized,false);
+ assert.equal(hash(f.saved),before);
+});
+
+test('known focused production failure still requires REJECT rather than NME',()=>{
+ const f=frozenReviewFixture(),strategy=structuredClone(f.saved.strategy),review=structuredClone(f.saved.review);
+ const production=strategy.candidates[0].dimensions.find(d=>d.dimension==='production_complexity');
+ production.finding='unfavorable';production.hardFailure=true;
+ strategy.recommendation.proposedOutcome='REJECT';strategy.usesPinnedLearningPlan=false;
+ const assessment=normalizeStrategistResponseV2(f.prepared,strategy,f.executions.strategist,now);
+ review.dimensions.find(d=>d.dimension==='production_complexity').verdict='known_failure';review.outcome='NEEDS_MORE_EVIDENCE';
+ assert.throws(()=>normalizeReviewerResponseV2(f.prepared,assessment,review,f.executions,now),{message:'Known originality/IP/production failure requires REJECT.'});
+ review.outcome='REJECT';
+ assert.equal(normalizeReviewerResponseV2(f.prepared,assessment,review,f.executions,now).outcome,'REJECT');
+ assert.equal(assessment.testPlan,null);
+});
+
+test('focused prompt clarity retains static SQL schema pins and existing request and wire ceilings',async()=>{
+ const {first,last}=withClock(now,completed),migration=readFileSync('supabase/migrations/20261007005630_r12_focused_pilot.sql','utf8');
+ for(const [phase,current] of [['strategy',first],['review',last]]){
+  const prompt=current.request.messages[0].content;
+  assert.match(prompt,/blockingForTest means an unresolved obstacle to recommending this exact pinned learning proposal/);
+  assert.match(prompt,/their pending state alone does not make the proposal blocked/);
+  assert.match(prompt,/An IP or production unknown can still block the proposal/);
+  if(phase==='strategy')assert.match(prompt,/recommend NEEDS_MORE_EVIDENCE with usesPinnedLearningPlan false/);
+  else for(const rule of [/requires verdict blocking or known_failure/,/guidance or none cannot become sufficient/,/all five checks PASS/,/no blocking flags/,/no blocking or known_failure verdicts/,/strategist TEST with the exact pinned learning plan/,/Preserve failed checks and all missing questions/])assert.match(prompt,rule);
+  assert.deepEqual(current.request.outputSchema,phase==='strategy'?focusedPilotStrategySchema():discoveryR12StaticSchema('review'));
+  const routed=routeDiscoveryR12Request(current.request,phase,{modelId:current.request.model.providerModelId,endpoint:phase==='strategy'?'azure/us':'amazon-bedrock/us',priceLimit:{prompt:1,completion:1,request:0}},true);
+  const wire=await inspectDiscoveryR12Wire(routed,phase,false,true),body=JSON.parse(wire.wire.body);
+  assert.ok(migration.includes(hash(current.request.outputSchema)));assert.ok(migration.includes(hash(body.response_format.json_schema.schema)));
+  assert.ok(Buffer.byteLength(JSON.stringify(routed))<=DISCOVERY_R12_PILOT_REQUEST_BYTES);
+  assert.ok(Buffer.byteLength(wire.wire.body)<=DISCOVERY_R12_PILOT_REQUEST_BYTES);
+  assert.equal(current.request.maxOutputTokens,phase==='strategy'?5000:4000);
+ }
+});

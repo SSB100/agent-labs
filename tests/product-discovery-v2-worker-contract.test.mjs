@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
 import v2 from '../.core-tests/products/discovery-v2.js';
 import worker from '../.core-tests/products/discovery-v2-worker-contract.js';
 import schema from '../.core-tests/workers/schema-validator.js';
@@ -101,6 +102,20 @@ function compactReview(f) {
   return { marketCountryCode: f.review.marketCountryCode, candidateKey: f.prepared.candidateKeys.find(c => c.candidateId === f.review.candidateId).key, outcome: f.review.outcome,
     sufficiencyRationale: f.review.sufficiencyRationale, dimensions: f.review.dimensions.map(d => ({ dimension: d.dimension, verdict: d.verdict, rationale: d.rationale, evidence: d.evidenceRefs.map(key) })), checks: f.review.checks, additionalUncertainties: [] };
 }
+
+test('focused clarity instructions leave ordinary and broad-addendum system prompts byte-identical',()=>{
+ const expected=[
+  ['f5f55dfdc177e0aad4ff3265b347ef00700dac6933dfafad698221b2665aee5e','e94dcae53b5cc7395816102ca4a6ac0690d44611cdda04b5a8b432fa128a0524'],
+  ['90f6635c8a164a0b311ba47159d53b77dbeaecb22c9b2372ad87b4c5384f9f21','ad0683f5237b331296ccf62155e383437b1093d6c301410c896531fb9cc080c0'],
+ ];
+ for(const addendumEnabled of [false,true]){
+  const f=fixture();
+  if(addendumEnabled){const addendum=r12AddendumFixture(f.intent,now);f.dossier.addendumRef={artifactId:addendum.id,sha256:v2.discoveryV2Hash(addendum)};f.context.evidenceAddendum=addendum;f.assessment.dossierHash=v2.discoveryV2Hash(f.dossier);}
+  const prepared=worker.prepareDiscoveryWorkerContextV2(f.intent,f.dossier,f.context,f.refs,now);
+  const requests=[worker.buildStrategistRequestV2(prepared,now),worker.buildReviewerRequestV2(prepared,f.assessment,f.execution,now)];
+  assert.deepEqual(requests.map(r=>createHash('sha256').update(r.messages[0].content).digest('hex')),expected[Number(addendumEnabled)]);
+ }
+});
 
 test('reviewed public addendum retains exact provenance and limitations in actual strategist and reviewer inputs', () => {
   const f = fixture(), addendum = r12AddendumFixture(f.intent, now);
