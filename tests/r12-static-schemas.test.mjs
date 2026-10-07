@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {resolveModelRoute} from '../.core-tests/models/registry.js';
 import {routeDiscoveryR12Request,inspectDiscoveryR12Wire} from '../.core-tests/products/discovery-r12-wire.js';
+import {focusedPilotStrategySchema} from '../.core-tests/products/discovery-r12-focused-pilot-contract.js';
 import {discoveryR12StaticSchema} from '../.core-tests/products/discovery-r12-schemas.js';
 import {discoveryV2Hash} from '../.core-tests/products/discovery-v2.js';
 import {readFileSync} from 'node:fs';
@@ -23,3 +24,17 @@ for(const phase of ['plan','select1','strategy','review']){
  });
 }
 test('Static schema calls return owned copies, not a mutable global grammar',()=>{const first=discoveryR12StaticSchema('review');first.properties.candidateKey={const:'private'};assert.notDeepEqual(first,discoveryR12StaticSchema('review'));});
+
+
+test('focused pilot serializer preserves its static explicit-plan grammar within48KiB',async()=>{
+ const base=request('strategy');const route={modelId:base.model.providerModelId,endpoint:'azure/us',priceLimit:base.providerPriceLimit};
+ const pilot=routeDiscoveryR12Request(base,'strategy',route,true);
+ assert.deepEqual(pilot.outputSchema,focusedPilotStrategySchema());assert.equal(pilot.outputSchema.properties.testPlan,undefined);assert.equal(pilot.outputSchema.properties.usesPinnedLearningPlan.type,'boolean');
+ const wire=await inspectDiscoveryR12Wire(pilot,'strategy',false,true),body=JSON.parse(wire.wire.body);
+ assert.equal(discoveryV2Hash(pilot.outputSchema),'0eeaa5590d1945e34be684d637f069f7787bfd992c4d89182d0d44831aac8ba0');
+ assert.equal(discoveryV2Hash(body.response_format.json_schema.schema),'6af47351df9096251feb5bc4f2f710f109ae73b27003a55576446bcfbe04727d');
+ await assert.rejects(inspectDiscoveryR12Wire(pilot,'strategy'));
+ await assert.rejects(inspectDiscoveryR12Wire(pilot,'strategy',true,true));
+ const oversized=structuredClone(pilot);oversized.messages[0].content='x'.repeat(49152);await assert.rejects(inspectDiscoveryR12Wire(oversized,'strategy',false,true));
+ assert.throws(()=>routeDiscoveryR12Request(request('plan'),'plan',route,true));
+});

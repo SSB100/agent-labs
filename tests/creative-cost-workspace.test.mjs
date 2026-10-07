@@ -65,6 +65,7 @@ function fixture({ failures = [], empty = false, settled = false, unknown = fals
 async function renderWorkspace(context, data, query = {}, scopes = []) {
   const passChildren = ({ children }) => React.createElement('div', null, children);
   const { default: Page } = loadSource('src/app/dashboard/artifacts/page.tsx', {
+    '@/components/console/console-focused-run-controls':{ConsoleFocusedRunControls:()=>null},'@/components/console/console-focused-physical-fields':{ConsoleFocusedPhysicalFields:()=>null},
     'react/jsx-runtime': require('react/jsx-runtime'), 'node:crypto': require('node:crypto'),
     'next/navigation': { notFound: () => { throw new Error('not-found'); } },
     'next/link': ({ children, href }) => React.createElement('a', { href }, children),
@@ -245,4 +246,8 @@ test('legacy direct-record summaries never turn unlinked saved zero or positive 
     assert.doesNotMatch(html, /Reported provider charge/);
     assert.equal(raw.reported_microusd, reported_microusd);
   }
+});
+test('immutable pre-inspection image receipt does not duplicate the later validated asset as a failure',async()=>{
+ const f=retainedFixture();f.rows.creative_assets.push({id:'asset',business_id:f.context.businesses[0].id,creative_run_id:f.rows.creative_runs[0].id,version:1,storage_path:f.source.storagePath});
+ const data=await loadCreativeWorkspace(f.context);assert.equal(data.assets.length,1);assert.equal(data.retainedSources.length,0);assert.equal(data.costs.length,1);
 });

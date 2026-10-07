@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { requireTransportAdmission, type TransportAdmission } from "../core/transport-admission";
+import { requireTransportAdmission, type TransportAdmission, type TransportAdmissionRequest } from "../core/transport-admission";
 import { getOpenRouterConfig, type OpenRouterConfig } from "../models/openrouter";
 import { MAX_CREATIVE_PNG_BYTES } from "./types";
 
@@ -85,6 +85,8 @@ export type ImageGenerationReceipt = {
   upstreamProvider: ImageGenerationUpstreamProvider;
   modelId: string;
   providerRequestId: string | null;
+  /** Same-response X-Generation-Id only; never a request-id/body-id fallback. */
+  generationId?: string;
   reservationId: string;
   quoteId: string;
   promptHash: string;
@@ -129,8 +131,15 @@ export class ImageProviderError extends Error {
   }
 }
 
+/** The exact credential-free POST wire presented before any paid fetch. */
+export type ImageDispatchRequest = TransportAdmissionRequest & Readonly<{
+  provider: "openrouter"; operation: "image.generate"; method: "POST";
+  body: string; wireRequestHash: string; wireRequestBytes: number;
+}>;
+export type ImageDispatchAdmission = TransportAdmission<ImageDispatchRequest>;
+
 export type OpenRouterImageAdapterOptions = {
-  admitDispatch?: TransportAdmission;
+  admitDispatch?: ImageDispatchAdmission;
   modelId?: ImageGenerationModelId;
   config?: OpenRouterConfig;
   fetcher?: typeof fetch;
@@ -289,7 +298,7 @@ export class OpenRouterImageAdapter implements ImageProviderAdapter {
   private readonly timeoutMs: number;
   private readonly now: () => number;
   private readonly consumedReservations = new Set<string>();
-  private readonly admitDispatch?: TransportAdmission;
+  private readonly admitDispatch?: ImageDispatchAdmission;
 
   constructor(options: OpenRouterImageAdapterOptions = {}) {
     this.policy = getImageGenerationPolicy(options.modelId);
@@ -307,8 +316,11 @@ export class OpenRouterImageAdapter implements ImageProviderAdapter {
 
   private async request(url: string, init: RequestInit, limit: number, timeoutMs = this.timeoutMs) {
     const controller = new AbortController();
+    const ownedInit = { ...init };
     let timer: ReturnType<typeof setTimeout> | undefined;
     let requestId: string | null = null;
+    let generationId: string | null = null;
+    let requestDispatched = false;
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
         controller.abort();
@@ -317,10 +329,20 @@ export class OpenRouterImageAdapter implements ImageProviderAdapter {
     });
     try {
       return await Promise.race([timeout, (async () => {
-        if (init.method === "POST") await requireTransportAdmission(this.admitDispatch, { provider: "openrouter", operation: "image.generate", method: "POST", endpoint: url });
+        if (ownedInit.method === "POST") {
+          if (typeof ownedInit.body !== "string") throw new ImageProviderError("invalid_request", "Image admission requires the exact serialized POST body.");
+          await requireTransportAdmission(this.admitDispatch, {
+            provider: "openrouter", operation: "image.generate", method: "POST", endpoint: url,
+            body: ownedInit.body, wireRequestHash: hash(ownedInit.body), wireRequestBytes: Buffer.byteLength(ownedInit.body, "utf8"),
+          });
+        }
         if (controller.signal.aborted) throw new ImageProviderError("provider_timeout", "Image dispatch expired before authority completed.");
-        const response = await this.fetcher(url, { ...init, cache: "no-store", redirect: "error", signal: controller.signal });
-        requestId = safeProviderId(response.headers.get("x-generation-id")) || safeProviderId(response.headers.get("x-request-id")) || safeProviderId(response.headers.get("x-openrouter-request-id"));
+        // Only this boundary can make a paid request uncertain. Admission
+        // refusal or timeout while awaiting it has not called the transport.
+        requestDispatched = ownedInit.method === "POST";
+        const response = await this.fetcher(url, { ...ownedInit, cache: "no-store", redirect: "error", signal: controller.signal });
+        generationId = safeProviderId(response.headers.get("x-generation-id"));
+        requestId = generationId || safeProviderId(response.headers.get("x-request-id")) || safeProviderId(response.headers.get("x-openrouter-request-id"));
         if (!response.ok) {
           await response.body?.cancel();
           const category = response.status === 401 || response.status === 403 ? "authentication_required" :
@@ -333,12 +355,13 @@ export class OpenRouterImageAdapter implements ImageProviderAdapter {
           await response.body?.cancel();
           throw new ImageProviderError("malformed_image_output", "The provider response must be JSON.");
         }
-        return { body: await readBoundedJson(response, limit), requestId };
+        return { body: await readBoundedJson(response, limit), requestId, generationId, requestDispatched };
       })()]);
     } catch (error) {
       const safeError = error instanceof ImageProviderError ? error :
         new ImageProviderError("provider_unavailable", "The image provider request failed; no automatic retry is permitted.");
       safeError.providerRequestId = requestId;
+      safeError.requestDispatched = requestDispatched;
       throw safeError;
     } finally {
       clearTimeout(timer);
@@ -380,17 +403,19 @@ export class OpenRouterImageAdapter implements ImageProviderAdapter {
     if (canonical(freshBinding) !== canonical(previousBinding)) throw new ImageProviderError("preflight_rejected", "The image pricing or capabilities changed after reservation; review is required.");
     const startedAt = this.now();
     let receipt: ImageGenerationReceipt | null = null;
+    let requestDispatched = false;
     try {
       const response = await this.request("https://openrouter.ai/api/v1/images", {
         method: "POST", headers: { Authorization: `Bearer ${this.config.apiKey}`, "Content-Type": "application/json", "HTTP-Referer": this.config.appUrl, "X-Title": this.config.appName },
         body: JSON.stringify(body),
       }, this.policy.maximumResponseBytes);
+      requestDispatched = response.requestDispatched;
       const usage = record(response.body.usage) ? response.body.usage : {};
       const reportedCostUsd = optionalNonnegative(usage.cost);
       const reportedMicrousd = reportedCostUsd === null ? null : Math.ceil(reportedCostUsd * 1_000_000);
       receipt = {
         capability: "image.generate", provider: "openrouter", upstreamProvider: this.policy.upstreamProvider, modelId: this.policy.modelId,
-        providerRequestId: response.requestId ?? safeProviderId(response.body.id),
+        providerRequestId: response.requestId ?? safeProviderId(response.body.id), ...(response.generationId ? { generationId: response.generationId } : {}),
         reservationId, quoteId: quote.quoteId, promptHash: quote.promptHash, requestHash: quote.requestHash,
         elapsedMs: Math.max(0, this.now() - startedAt), estimatedMicrousd: this.policy.estimatedMicrousd,
         reportedCostUsd, reportedMicrousd: reportedMicrousd !== null && Number.isSafeInteger(reportedMicrousd) ? reportedMicrousd : null,
@@ -404,7 +429,7 @@ export class OpenRouterImageAdapter implements ImageProviderAdapter {
       return { ...imageBytes(response.body, receipt, this.policy), nativePngRequired: this.policy.nativePngRequired, receipt };
     } catch (error) {
       const failure = error instanceof ImageProviderError ? error : new ImageProviderError("malformed_image_output", "The image response could not be validated.");
-      failure.requestDispatched = true;
+      failure.requestDispatched = requestDispatched || failure.requestDispatched;
       failure.receipt = receipt;
       failure.providerRequestId = receipt?.providerRequestId ?? failure.providerRequestId;
       throw failure;

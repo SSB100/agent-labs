@@ -6,6 +6,7 @@ import path from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {setTimeout as pause} from 'node:timers/promises';
 import {r04SqlBootstrap} from './helpers/r04-sql-bootstrap.mjs';
+import {r12FocusedAdoptionMigration,assertLegacyFunctionContract,assertR12FocusedAdoptionTransition} from './helpers/r12-legacy-function-contracts.mjs';
 import {R10_KEY,R10_AUTH,R10_OTHER_AUTH,R10_OWNER,R10_SOURCE,value,sessionBootstrap,setupR10,authenticate,seedR10,enroll,owner,catalog,server,writer,frame,startR10,close} from './helpers/r10-sql-fixture.mjs';
 const root=process.cwd(),host=process.env.R10_SQL_TEST_HOST,required=process.env.R10_REQUIRE_POSTGRES==='1';
 function fixtureUrl(value){const u=new URL(value);assert.ok(['postgres:','postgresql:'].includes(u.protocol)&&u.hostname==='127.0.0.1'&&u.pathname==='/r10_test'&&u.username==='r10_test'&&!u.search&&!u.hash,'Only a fresh loopback r10_test database is allowed');return u.href;}
@@ -15,19 +16,22 @@ test('R10 isolated SQL lifecycle, exact authenticated scope, one-shot epochs and
  if(required){assert.ok(process.env.R10_POSTGRES_URL);({Client}=require('pg'));config={connectionString:fixtureUrl(process.env.R10_POSTGRES_URL),statement_timeout:15000};const c=new Client(config);await c.connect();db={exec:s=>c.query(s),query:(s,p)=>c.query(s,p),close:()=>c.end()};assert.equal((await db.query("select count(*)::int n from pg_namespace where nspname in ('auth','private','storage')")).rows[0].n,0,'Fresh isolated cluster required');}
  else{const{PGlite}=require('@electric-sql/pglite'),{pgcrypto}=require('@electric-sql/pglite/contrib/pgcrypto');db=new PGlite({extensions:{pgcrypto}});}
  const functions="select p.oid::regprocedure::text id,pg_get_functiondef(p.oid) body,p.proacl::text acl,p.proowner::text owner,p.prosecdef security_definer,p.proconfig config,p.provolatile volatility,p.proparallel parallel,p.proisstrict strict,p.proleakproof leakproof,p.proretset returns_set,pg_get_function_result(p.oid) result,pg_get_function_arguments(p.oid) arguments from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname in ('public','private') and p.prokind='f' order by 1";
- const functionContract=row=>{const contract={...row};delete contract.body;return contract;};
  const tables="select c.oid::regclass::text id,c.relacl::text acl,c.relrowsecurity rls from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname in ('public','private') and c.relkind in ('r','v','p') order by 1";
  try{
- await db.exec(r04SqlBootstrap+sessionBootstrap);let beforeFns,beforeTables,beforeRows;
+ await db.exec(r04SqlBootstrap+sessionBootstrap);let beforeFns,beforeTables,beforeRows,adoptionReviewed=false;
  const preservedRows=async()=>{const out={};for(const name of ['private.r04_envelopes','private.r04_confirmations','private.r05_policies','private.r05_server_keys','private.r07_server_keys','private.r07_plans','private.r09_releases','private.browser_session_secrets'])out[name]=await value(db,`select coalesce(jsonb_agg(to_jsonb(t) order by to_jsonb(t)::text),'[]') result from ${name} t`);return out;};
  for(const file of readdirSync('supabase/migrations').filter(f=>f.endsWith('.sql')).sort()){
  const sql=readFileSync(`supabase/migrations/${file}`,'utf8');
  if(file.endsWith('_r10_private_browser_viewer.sql')){beforeFns=(await db.query(functions)).rows;beforeTables=(await db.query(tables)).rows;beforeRows=await preservedRows();await assert.rejects(db.exec(sql.replace(/commit;\s*$/,()=>"do $$ begin raise exception 'r10_rollback'; end $$; commit;")),/r10_rollback/);await db.exec('rollback');assert.deepEqual((await db.query(functions)).rows,beforeFns);assert.deepEqual((await db.query(tables)).rows,beforeTables);assert.deepEqual(await preservedRows(),beforeRows);}
+ const beforeAdoption=file===r12FocusedAdoptionMigration?(await db.query(functions)).rows:null;
  await db.exec(sql);
+ if(beforeAdoption)adoptionReviewed=assertR12FocusedAdoptionTransition(beforeAdoption,(await db.query(functions)).rows);
  if(file.endsWith('_r10_private_browser_viewer.sql')){const afterFns=new Map((await db.query(functions)).rows.map(x=>[x.id,x]));for(const x of beforeFns)assert.deepEqual(afterFns.get(x.id),x);}
  }
  // Exact R10 byte preservation is checked above; later scoped bodies may change.
- assert.deepEqual(await preservedRows(),beforeRows);const afterFns=new Map((await db.query(functions)).rows.map(x=>[x.id,x]));for(const x of beforeFns)assert.deepEqual(functionContract(afterFns.get(x.id)),functionContract(x));const afterTables=new Map((await db.query(tables)).rows.map(x=>[x.id,x]));for(const x of beforeTables)assert.deepEqual(afterTables.get(x.id),x);
+ // Only the verified R12 Stage14 transition may change prior function metadata.
+ assert.ok(adoptionReviewed,'Exact R12 adoption transition was checked');
+ assert.deepEqual(await preservedRows(),beforeRows);const afterFns=new Map((await db.query(functions)).rows.map(x=>[x.id,x]));for(const x of beforeFns)assertLegacyFunctionContract(afterFns.get(x.id),x,adoptionReviewed);const afterTables=new Map((await db.query(tables)).rows.map(x=>[x.id,x]));for(const x of beforeTables)assert.deepEqual(afterTables.get(x.id),x);
  for(const table of ['r10_server_keys','r10_enrollments','r10_writers','r10_close_audits'])assert.equal(await value(db,`select count(*)::int result from private.${table}`),0,'No key, enrollment or grant seeded');
  await db.exec(readFileSync('supabase/tests/r10_private_browser_viewer.sql','utf8'));await setupR10(db,root);
  let s=await seedR10(db),other=await seedR10(db);assert.equal((await owner(db,s)).status,'available');assert.deepEqual(await enroll(db,s),await owner(db,s));

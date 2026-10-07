@@ -7,6 +7,7 @@ const BASE = "https://openrouter.ai/api/v1";
 export const DISCOVERY_R12_REVIEWER = { modelId: "anthropic/claude-haiku-4.5", canonicalModelId: "anthropic/claude-4.5-haiku-20251001", endpoint: "amazon-bedrock/us", providerName: "Amazon Bedrock" } as const;
 const FRESH_MS = 300_000;
 export const DISCOVERY_R12_EVIDENCE_REQUEST_BYTES = 65_536;
+export const DISCOVERY_R12_PILOT_REQUEST_BYTES = 49_152;
 const fail = (): never => { throw new Error("r12_discovery_quote_unavailable"); };
 const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 const positive = (v: unknown): v is number => Number.isSafeInteger(v) && Number(v) > 0;
@@ -38,7 +39,8 @@ function reviewerEndpoint(payload: unknown, kind: "model" | "zdr") {
 }
 export type DiscoveryR12Quote = ReturnType<typeof qualifyDiscoveryR12Quote>;
 export type DiscoveryR12EvidenceQuote = ReturnType<typeof qualifyDiscoveryR12EvidenceQuote>;
-export type DiscoveryR12ExecutionQuote = DiscoveryR12Quote | DiscoveryR12EvidenceQuote;
+export type DiscoveryR12PilotQuote = ReturnType<typeof qualifyDiscoveryR12PilotQuote>;
+export type DiscoveryR12ExecutionQuote = DiscoveryR12Quote | DiscoveryR12EvidenceQuote | DiscoveryR12PilotQuote;
 
 /** Exact reviewed two-model proposal. It never authorizes a call, even if the
  * catalog snapshots and hashes were supplied by an owner or worker. */
@@ -94,8 +96,26 @@ export function qualifyDiscoveryR12EvidenceQuote(catalogs: DiscoveryR12Catalogs,
   return { ...body, quoteHash: publicResearchHash(body), verifiedAt: original.verifiedAt, validUntil: original.validUntil };
 }
 
+/** Two bounded calls for one explicitly scoped design-learning pilot. The
+ * cumulative original funding root and the separate pilot allocation remain
+ * admission checks; a catalog quote never grants either. */
+export function qualifyDiscoveryR12PilotQuote(catalogs: DiscoveryR12Catalogs, now = Date.now()) {
+  const original = qualifyDiscoveryR12Quote(catalogs, now);
+  const inputTokens = DISCOVERY_R12_PILOT_REQUEST_BYTES + DISCOVERY_V2_BUDGET.formattingTokenAllowance;
+  const endpoint = reviewerEndpoint(catalogs.reviewerAlias.payload,"model");
+  if (endpoint.contextLength < inputTokens + DISCOVERY_V2_BUDGET.phases.review.outputTokens || endpoint.maximumPromptTokens !== null && endpoint.maximumPromptTokens < inputTokens) return fail();
+  const ceilings = { strategy: quoteTextTokenCost(original.luna.tokenPricesUsd,inputTokens,DISCOVERY_V2_BUDGET.phases.strategy.outputTokens),
+    review:quoteTextTokenCost(original.reviewer.tokenPricesUsd,inputTokens,DISCOVERY_V2_BUDGET.phases.review.outputTokens) };
+  const body = { version: "r12.discovery-pilot-quote.1" as const, maximumCalls: 2 as const, maximumCollections: 0 as const,
+    maximumRequestBytes: DISCOVERY_R12_PILOT_REQUEST_BYTES, luna: original.luna, reviewer: original.reviewer, ceilings,
+    maximumMicrousd: ceilings.strategy + ceilings.review,
+    retention: { inference: "no_training_zdr", sourceAcquisition: "reviewed_public_observations_no_search", schemas: "static_nonprivate_schema_only" },
+    proposalOnly: true, dispatchAuthorized: false };
+  return { ...body, quoteHash: publicResearchHash(body), verifiedAt: original.verifiedAt, validUntil: original.validUntil };
+}
+
 export function discoveryR12PhaseCeiling(quote: DiscoveryR12ExecutionQuote, phase: DiscoveryR12Phase): number {
-  if (quote.version === "r12.discovery-evidence-quote.1") {
+  if (quote.version === "r12.discovery-evidence-quote.1" || quote.version === "r12.discovery-pilot-quote.1") {
     if (phase !== "strategy" && phase !== "review") return fail();
     return quote.ceilings[phase];
   }
@@ -103,7 +123,7 @@ export function discoveryR12PhaseCeiling(quote: DiscoveryR12ExecutionQuote, phas
 }
 
 /** Six fixed public catalog GETs, no key lookup, redirects, retry or paid call. */
-export async function fetchDiscoveryR12Quote(options: { fetch?: typeof fetch; now?: () => number; evidenceContinuation?: boolean } = {}): Promise<DiscoveryR12ExecutionQuote> {
+export async function fetchDiscoveryR12Catalogs(options: { fetch?: typeof fetch; now?: () => number } = {}): Promise<DiscoveryR12Catalogs> {
   const fetcher = options.fetch ?? fetch, now = options.now ?? Date.now;
   async function read(url: string): Promise<PublicResearchCatalogSnapshot> {
     const startedAt = now();
@@ -125,7 +145,12 @@ export async function fetchDiscoveryR12Quote(options: { fetch?: typeof fetch; no
       read(`${BASE}/models/openai/gpt-5.6-luna/endpoints`), read(`${BASE}/models/openai/gpt-5.6-luna-20260709/endpoints`),
       read(`${BASE}/models/${DISCOVERY_R12_REVIEWER.modelId}/endpoints`), read(`${BASE}/models/${DISCOVERY_R12_REVIEWER.canonicalModelId}/endpoints`), read(`${BASE}/endpoints/zdr`),
     ]);
-    const catalogs = { models, lunaAlias, lunaCanonical, reviewerAlias, reviewerCanonical, zdr };
-    return options.evidenceContinuation ? qualifyDiscoveryR12EvidenceQuote(catalogs, now()) : qualifyDiscoveryR12Quote(catalogs, now());
+    return { models, lunaAlias, lunaCanonical, reviewerAlias, reviewerCanonical, zdr };
   } catch { return fail(); }
+}
+
+export async function fetchDiscoveryR12Quote(options: { fetch?: typeof fetch; now?: () => number; evidenceContinuation?: boolean; focusedPilot?: boolean } = {}): Promise<DiscoveryR12ExecutionQuote> {
+  if (options.evidenceContinuation && options.focusedPilot) return fail();
+  const catalogs=await fetchDiscoveryR12Catalogs(options),now=(options.now??Date.now)();
+  return options.focusedPilot?qualifyDiscoveryR12PilotQuote(catalogs,now):options.evidenceContinuation?qualifyDiscoveryR12EvidenceQuote(catalogs,now):qualifyDiscoveryR12Quote(catalogs,now);
 }

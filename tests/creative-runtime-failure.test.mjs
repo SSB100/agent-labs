@@ -12,6 +12,7 @@ function loadSource(path, dependencies) {
   const compiled = ts.transpileModule(readFileSync(path, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
   const fixtureModule = { exports: {} };
   runInNewContext(`(function(require, module, exports) { ${compiled}\n})`, { structuredClone })(name => {
+    if(name==='./creative-focused-transport')return{executeFocusedCreativeTransport:()=>{throw Error('Ordinary creative fixture must not enter focused authority');}};
     if (!(name in dependencies)) throw new Error(`Unexpected fixture dependency: ${name}`);
     return dependencies[name];
   }, fixtureModule, fixtureModule.exports);

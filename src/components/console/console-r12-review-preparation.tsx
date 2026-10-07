@@ -1,3 +1,5 @@
+import {isDiscoveryFocusedPilot} from "@/products/discovery-r12-focused-pilot-scope";
+import {ConsoleR12PilotPermission} from "./console-r12-pilot-permission";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { OwnerUiContext } from "@/lib/core-ui/data";
@@ -13,6 +15,7 @@ export async function ConsoleR12ReviewPreparation({ context, query }: { context:
   try { workspace = await readR12ReviewPreparation(context, query.business, query.selected); }
   catch { return <ConsoleShell active="research" context={context} navigationBusinessId={query.business}><section className="r08Workspace r12Preparation"><p role="alert">This exact remaining-review proposal is unavailable. Its saved permission and research could not be verified; reload this proposal before confirming.</p></section></ConsoleShell>; }
   if (!workspace || workspace.scopeId !== query.selected) notFound();
+  if(isDiscoveryFocusedPilot(workspace.scope))return <ConsoleR12PilotPermission context={context} workspace={workspace}/>;
   const { proposal, scope } = workspace, policy = proposal.operatingPolicy, parsed = proposal.goalContent.parsed;
   const evidence = scope.version === "r12.discovery-evidence-continuation.1";
   const stops = Array.isArray(parsed.stopConstraints) ? parsed.stopConstraints.filter((value): value is string => typeof value === "string") : [];

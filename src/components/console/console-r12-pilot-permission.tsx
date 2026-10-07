@@ -1,0 +1,24 @@
+import Link from 'next/link';
+import type {OwnerUiContext} from '@/lib/core-ui/data';
+import type {R12ReviewOwnerWorkspace} from '@/products/discovery-r12-review-preparation-contract';
+import {isDiscoveryFocusedPilot} from '@/products/discovery-r12-focused-pilot-scope';
+import {formatResearchUsd} from '@/app/dashboard/research-qualification/presentation';
+import {ConsoleShell} from './console-shell';
+import {ConsoleR12ReviewPreparationForm} from './console-r12-review-preparation-form';
+export function ConsoleR12PilotPermission({context,workspace}:{context:OwnerUiContext;workspace:R12ReviewOwnerWorkspace}){
+ const {scope,proposal}=workspace;if(!isDiscoveryFocusedPilot(scope))throw Error('focused_pilot_scope_required');
+ const p=scope.profile,policy=proposal.operatingPolicy;
+ return <ConsoleShell active="research" context={context} navigationBusinessId={workspace.businessId}><section className="r08Workspace r12Preparation"><h1>Confirm the focused design pilot</h1>
+  <p>{p.intent.objective}</p><p>{p.learningQuestion}</p><p>One GB candidate: {p.candidate.concept}. Audience: {p.candidate.audience}.</p>
+  <p>This separate Goal preserves the closed broad Needs more evidence result and all earlier costs. The pilot asks a smaller private learning question. It makes no claim that the old market-demand or commercial questions are resolved.</p>
+  <p>One Azure-US strategy call and one independent Bedrock-US review through OpenRouter, with no-training/ZDR inference and no fallback. Maximum {formatResearchUsd(Number(policy.policyLimitMicrounits))}. No search, retry, image generation, publishing or store action is included.</p>
+  <p>Current recorded Business exposure: {formatResearchUsd(Number(policy.expectedExposureMicrounits))}; lifetime ceiling: {formatResearchUsd(Number(policy.businessLifetimeLimitMicrounits))}. The original cumulative USD 2 research root is checked separately and includes earlier rounds.</p>
+  <p>Preparation deadline: <time dateTime={scope.expiresAt}>{scope.expiresAt}</time>. Final activation permits at most 30 minutes for the two calls, followed by 30 minutes for existing receipts. Each call permits three receipt checks separated by at least 120 seconds or longer Retry-After. Source freshness remains independently binding.</p>
+  <section aria-label="Pinned pilot learning plan"><h2>{p.pinnedLearningPlan.name}</h2><p>{p.pinnedLearningPlan.hypothesis}</p><p>{p.pinnedLearningPlan.deliverable}</p><h3>Success measures</h3><ul>{p.pinnedLearningPlan.successCriteria.map(x=><li key={x}>{x}</li>)}</ul><h3>Failure measures</h3><ul>{p.pinnedLearningPlan.failureCriteria.map(x=><li key={x}>{x}</li>)}</ul><p>{p.pinnedLearningPlan.stopRule}</p><p>The future creative ceiling of {formatResearchUsd(p.pinnedLearningPlan.maximumMicrousd)} is a proposal. A TEST still requires separate rights, print, creative and financial approval before an image call.</p></section>
+  <section aria-label="Pilot supporting public observations"><h2>Supporting observations</h2>{p.observations.observations.map(o=><article key={o.id}><h3><a href={o.url}>{o.title}</a></h3><p>{o.context}</p><p>Retrieved <time dateTime={o.retrievedAt}>{o.retrievedAt}</time>; expires <time dateTime={o.expiresAt}>{o.expiresAt}</time>. Scope: {o.dimensions.join(', ')}.</p><ul>{o.limitations.map(x=><li key={x}>{x}</li>)}</ul></article>)}</section>
+  <details><summary>Earlier questions remain unresolved</summary><p>{p.history.scopeChangeExplanation}</p><ul>{(p.history.record.missingQuestions as string[]).map((q,i)=><li key={i}>{q}</li>)}</ul><Link href={`/dashboard?view=research&type=r12&business=${p.businessId}&selected=${p.history.acceptedReviewScopeId}&quest=${p.originalGoalId}`}>Inspect the accepted broad review</Link></details>
+  <details><summary>Exact Business and Goal changes</summary>{Object.entries(proposal.businessContent).map(([k,v])=><p key={k}>{v}</p>)}<p>{proposal.goalContent.objective}</p><p>{String(proposal.goalContent.parsed.scope)}</p><p>Business revision {proposal.expectedBusinessRevision} becomes {policy.businessRevision}; Goal revision {proposal.expectedGoalRevision} becomes {policy.goalRevision}.</p><label>Exact scoped proposal<textarea readOnly rows={14} value={JSON.stringify(proposal,null,2)}/></label></details>
+  {!workspace.eligible&&!workspace.confirmation?<p role="alert">This exact permission cannot currently be confirmed: {workspace.reason?.replaceAll('_',' ')??'Current records could not be verified'}.</p>:null}
+  <ConsoleR12ReviewPreparationForm workspace={{businessId:p.businessId,scopeId:p.id,proposalHash:workspace.proposalHash,eligible:workspace.eligible,goalId:p.goalId,confirmed:workspace.confirmation!==null,pilot:true}}/>
+ </section></ConsoleShell>;
+}

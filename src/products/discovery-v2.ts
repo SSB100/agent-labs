@@ -7,6 +7,7 @@ import { validateResearchRequest } from "../research/sources";
 import type { EvidencePack } from "../research/types";
 import { validateDiscoveryKnowledgeV2, type DiscoveryKnowledgeContextV2 } from "./discovery-v2-knowledge";
 import { discoveryAddendumObservation, validateDiscoveryEvidenceAddendum, type DiscoveryAddendumRef, type DiscoveryEvidenceAddendum } from "./discovery-r12-evidence-addendum";
+import type { ValidatedFocusedPilot } from "./discovery-r12-focused-pilot-contract";
 
 /** Parallel contract. No v1 score, historical assessment, or authority is rewritten. */
 export const DISCOVERY_V2 = "pod-discovery-2.0" as const;
@@ -66,6 +67,9 @@ export type DiscoveryValidationContextV2 = {
   evidenceAddendum?: DiscoveryEvidenceAddendum;
   /** Accepted predecessor output loaded from the independently verified history. */
   previousDecision?: JsonObject;
+  /** Exact immutable profile loaded and validated by the scoped pilot runtime.
+   * A model response or owner JSON is never a substitute for this persistence. */
+  focusedPilot?: ValidatedFocusedPilot;
 };
 export type EvidenceFactV2 = { reference: EvidenceRefV2; relevance: string };
 export type UncertaintyV2 = { question: string; blockingForTest: boolean; reason: string };
@@ -142,14 +146,15 @@ export function discoveryV2Hash(value: unknown): string {
   };
   return createHash("sha256").update(canonical(value)).digest("hex");
 }
-export function validateDiscoveryIntentV2(intent: DiscoveryIntentV2, now = Date.now()): void {
+export function validateDiscoveryIntentV2(intent: DiscoveryIntentV2, now = Date.now(), focusedPilot?: ValidatedFocusedPilot): void {
   shape(intent, "version,id,businessId,objective,comparisonUniverse,limits,expiresAt", "discovery intent");
   if (intent.version !== DISCOVERY_V2) fail("Unknown discovery version.");
   id(intent.id, "intent identity"); id(intent.businessId, "Business identity"); prose(intent.objective, "discovery objective");
   shape(intent.comparisonUniverse, "productType,markets,audiences,sourceDomains,selectionQuestion", "comparison universe");
   const u = intent.comparisonUniverse;
   if (u.productType !== "original_pod_tshirt") fail("Discovery product scope changed.");
-  list(u.markets, 2, 4, "geographic comparison markets");
+  if (focusedPilot && (focusedPilot.profileHash !== discoveryV2Hash(focusedPilot.profile) || discoveryV2Hash(intent) !== discoveryV2Hash(focusedPilot.profile.intent))) fail("Focused intent does not match trusted profile.");
+  list(u.markets, focusedPilot ? 1 : 2, focusedPilot ? 1 : 4, "geographic comparison markets");
   for (const market of u.markets) {
     shape(market, "countryCode,currency", "geographic market");
     if (!/^[A-Z]{2}$/.test(market.countryCode) || !/^[A-Z]{3}$/.test(market.currency)) fail("Country code and scenario currency required.");
@@ -189,7 +194,7 @@ function candidateIdentity(candidate: CandidateIdentityV2) {
   if (candidate.productType !== "original_pod_tshirt" || typeof candidate.originalDesign !== "boolean" || !["confirmed", "unclear"].includes(candidate.rightsStatus)) fail("Invalid candidate declarations.");
 }
 export function validateDiscoveryDossierV2(intent: DiscoveryIntentV2, dossier: DiscoveryDossierV2, context: DiscoveryValidationContextV2, now = Date.now()): void {
-  validateDiscoveryIntentV2(intent, now);
+  validateDiscoveryIntentV2(intent, now, context.focusedPilot);
   integer(context.committedMicrousd, 0, intent.limits.maximumMicrousd, "root committed cost");
   validateDiscoveryKnowledgeV2(context.knowledge, now);
   shape(dossier, "version,intentId,businessId,packRefs,shortlist,comparisonRationale" + (dossier.addendumRef ? ",addendumRef" : ""), "discovery dossier");
@@ -204,7 +209,15 @@ export function validateDiscoveryDossierV2(intent: DiscoveryIntentV2, dossier: D
   }
   if (context.previousDecision && (!context.evidenceAddendum || context.previousDecision.outcome !== "NEEDS_MORE_EVIDENCE")) fail("Only the accepted NME predecessor belongs to an evidence continuation.");
   prose(dossier.comparisonRationale, "comparison rationale", 40);
-  list(dossier.packRefs, 1, 6, "immutable dossier packs");
+  if (context.focusedPilot) {
+    const profile = context.focusedPilot.profile;
+    if (context.previousDecision || context.packs.size !== 0 || context.candidates.size !== 1 ||
+        discoveryV2Hash(dossier.shortlist) !== discoveryV2Hash([profile.candidate]) ||
+        discoveryV2Hash(context.candidates.get(profile.candidate.id) ?? null) !== discoveryV2Hash(profile.candidate) ||
+        discoveryV2Hash(context.evidenceAddendum ?? null) !== discoveryV2Hash(profile.observations) ||
+        discoveryV2Hash(dossier.addendumRef ?? null) !== discoveryV2Hash({ artifactId: profile.observations.id, sha256: discoveryV2Hash(profile.observations) })) fail("Focused dossier does not match trusted profile.");
+  }
+  list(dossier.packRefs, context.focusedPilot ? 0 : 1, context.focusedPilot ? 0 : 6, "immutable dossier packs");
   if (new Set(dossier.packRefs.map(p => p.artifactId)).size !== dossier.packRefs.length || new Set(dossier.packRefs.map(p => p.query.id)).size !== dossier.packRefs.length) fail("Duplicate pack or query lineage.");
   if (dossier.packRefs.filter(p => p.origin === "new").length > intent.limits.maximumNewCollections || dossier.packRefs.filter(p => p.origin === "prior").length > 4) fail("Dossier collection budget exceeded.");
   for (const ref of dossier.packRefs) {
@@ -394,6 +407,7 @@ export function validateStrategistAssessmentV2(intent: DiscoveryIntentV2, dossie
   const selected = selectedAssessment(assessment);
   if (!selected || !assessment.testPlan) fail("TEST needs a named candidate and explicit bounded learning experiment.");
   const plan = assessment.testPlan;
+  if (context.focusedPilot && discoveryV2Hash(plan) !== discoveryV2Hash(context.focusedPilot.profile.pinnedLearningPlan)) fail("Focused TEST changed the pinned learning plan.");
   shape(plan, "scope,name,hypothesis,deliverable,successCriteria,failureCriteria,stopRule,maximumMicrousd,maximumGenerations,evidenceRefs,budgetStatus,generationAuthorized,spendingAuthorized,publicationAllowed,commerceAllowed", "learning test");
   if (plan.scope !== "private_original_design_test") fail("Unapproved test scope."); noCommerce(plan);
   prose(plan.name, "test name", 10, 160); prose(plan.hypothesis, "test hypothesis", 40); prose(plan.deliverable, "test deliverable", 30); prose(plan.stopRule, "test stop rule", 40);

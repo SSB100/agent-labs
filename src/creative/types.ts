@@ -1,3 +1,4 @@
+import type { FocusedPilotCreativeBinding } from "./focused-pilot-adoption";
 import type { ReviewerDecisionV2 } from "../products/discovery-v2";
 import type { CandidateAssessment } from "../products/types";
 
@@ -24,6 +25,8 @@ export type PrintSpecification = {
 export type CreativeGenerationLimit = 1 | 2;
 export type CreativePurpose = "candidate_production" | "technical_qualification" | "simulation";
 export type CreativeApprovalSnapshot = {
+  /** Present only for a separately owner-adopted R12 private learning TEST. */
+  focusedPilotBinding?: FocusedPilotCreativeBinding;
   approvalId: string; businessId: string; candidateId: string; decisionId: string | null;
   purpose: CreativePurpose; concept: string; audience: string; designInstructions: string;
   candidateAssessment: CandidateAssessment | ReviewerDecisionV2 | null;

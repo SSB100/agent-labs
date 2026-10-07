@@ -11,6 +11,7 @@ import { runNextJourneys } from '../tests/next-fixture/journeys.mjs';
 import { runResearchQualificationJourneys } from '../tests/next-fixture/r11-runner.mjs';
 import {runR12Journeys} from '../tests/next-fixture/r12-journeys.mjs';
 import {runR12BootstrapJourney} from '../tests/next-fixture/r12-bootstrap-journey.mjs';
+import {runR12PilotJourney} from '../tests/next-fixture/r12-pilot-journey.mjs';
 import {runR12ReviewJourney} from '../tests/next-fixture/r12-review-journey.mjs';
 import {R12_INERT_ROOT} from '../tests/next-fixture/r12-sql.mjs';
 import { R11_INERT_SERVER_KEY } from '../tests/next-fixture/r11-research.mjs';
@@ -42,6 +43,10 @@ try {
     try { await cp(path.join(root,name),path.join(fixture,name),{recursive:true}); } catch (error) { if(error.code !== 'ENOENT') throw error; }
   }
   await symlink(path.join(root,'node_modules'),path.join(fixture,'node_modules'),process.platform==='win32'?'junction':'dir');
+  // Bound build parallelism in the disposable fixture; application configuration is unchanged.
+  const fixtureConfig=await readFile(path.join(fixture,'next.config.ts'),'utf8'),configAnchor='const nextConfig: NextConfig = {';
+  assert.equal(fixtureConfig.split(configAnchor).length,2);
+  await writeFile(path.join(fixture,'next.config.ts'),fixtureConfig.replace(configAnchor,configAnchor+'\n  experimental: { cpus: 2 },'));
   // Four reviewed transport substitutions. Actual pages, readers, ownership guards,
   // actions, redirects, Link/router, RSC, Suspense and revalidation remain unchanged.
   await cp(path.join(root,'tests/next-fixture/transport.mjs'),path.join(fixture,'src/lib/supabase/inert-transport.mjs'));
@@ -54,7 +59,14 @@ try {
   await cp(path.join(root,'tests/next-fixture/r10-dependencies.ts'),path.join(fixture,'src/browser/watch-dependencies.ts'));
   await cp(path.join(root,'tests/next-fixture/r11-dependencies.ts'),path.join(fixture,'src/research/qualification-server-dependencies.ts'));
   await cp(path.join(root,'tests/next-fixture/r12-dependencies.ts'),path.join(fixture,'src/products/discovery-r12-server-dependencies.ts'));
-  await writeFile(path.join(output,'isolation.json'),JSON.stringify({copiedSource:true,substitutions:['supabase/server.ts','supabase/client.ts','supabase/proxy.ts','inert-transport.mjs','browser/watch-dependencies.ts (inert R10 authority/capture only)','research/qualification-server-dependencies.ts (inert R11 public catalogs/provider only)','products/discovery-r12-server-dependencies.ts (inert R12 public quotes/provider only; actual isolated SQL)'],credentials:'none; inert loopback identifiers plus explicit test-only R11 authority/provider placeholders; no inherited secrets',network:'loopback only; denied effects logged',fixture:'two owned Businesses; realistic saved failures and costs'},null,2));
+  await cp(path.join(root,'tests/next-fixture/r12-creative-dependencies.ts'),path.join(fixture,'src/creative/focused-inert-boundary.ts'));
+  // Keep the real creative owner actions, qualification parser, ownership checks,
+  // HMAC identities and SQL transitions. Only public GET/launch transport changes.
+  for(const [file,from,to]of [
+    ['src/app/dashboard/artifacts/actions.ts','import {fetchFocusedCreativeQuote} from "@/creative/focused-quote";','import {fetchFocusedCreativeQuote} from "@/creative/focused-inert-boundary";'],
+    ['src/creative/focused-owner-server.ts',"import {start} from 'workflow/api';","import {start} from './focused-inert-boundary';"],
+  ]){const source=await readFile(path.join(fixture,file),'utf8');assert.equal(source.split(from).length,2,`Exact disposable substitution: ${file}`);await writeFile(path.join(fixture,file),source.replace(from,to));}
+  await writeFile(path.join(output,'isolation.json'),JSON.stringify({copiedSource:true,buildWorkers:2,substitutions:['supabase/server.ts','supabase/client.ts','supabase/proxy.ts','inert-transport.mjs','browser/watch-dependencies.ts (inert R10 authority/capture only)','research/qualification-server-dependencies.ts (inert R11 public catalogs/provider only)','products/discovery-r12-server-dependencies.ts (inert R12 public quotes/provider only; actual isolated SQL)','creative/focused-inert-boundary.ts plus exact quote/launch import substitutions (real creative owner actions and SQL; inert public catalogs and durable start only)'],credentials:'none; inert loopback identifiers plus explicit test-only R11 authority/provider placeholders; no inherited secrets',network:'loopback only; denied effects logged',fixture:'two owned Businesses; realistic saved failures and costs'},null,2));
   console.log('Building disposable production Next application with blocked external effects.');
   await completion(start(['build','--webpack'],'build.log'));
   const probe = createServer(); await new Promise(resolve => probe.listen(0,'127.0.0.1',resolve)); const port=probe.address().port; await new Promise(resolve=>probe.close(resolve));
@@ -78,9 +90,15 @@ try {
     if(!process.env.R12_SQL_TEST_HOST)throw Error('R12 isolated SQL fixture host is required');
     const directory=await mkdtemp(path.join(temporaryRoot,'r12-next-'));
     try{
-    const capture=spawn(process.execPath,['--test','tests/r12-discovery-scope-sql.test.mjs'],{cwd:root,env:{...process.env,R12_NEXT_FIXTURE_OUTPUT:directory,R12_POSTGRES_URL:'',R12_REQUIRE_POSTGRES:'0'},stdio:['ignore','pipe','pipe']});
+    // The measured full lifecycle takes about 100s without four gzip snapshots.
+    // Give this setup-only subprocess a finite serialization/runner margin;
+    // the ordinary SQL test keeps its independent 120s assertion deadline.
+    const captureTimeoutMs=240000,captureStarted=performance.now();
+    console.log(`Preparing R12 Next SQL snapshots (setup deadline ${captureTimeoutMs}ms).`);
+    const capture=spawn(process.execPath,['tests/r12-discovery-scope-sql.test.mjs','--r12-next-capture'],{cwd:root,env:{...process.env,R12_NEXT_FIXTURE_OUTPUT:directory,R12_POSTGRES_URL:'',R12_REQUIRE_POSTGRES:'0'},stdio:['ignore','pipe','pipe'],timeout:captureTimeoutMs,killSignal:'SIGKILL'});
     processes.push(capture);
     const stream=log('r12-sql-capture.log');capture.stdout.pipe(stream);capture.stderr.pipe(stream);await completion(capture);
+    console.log(`R12 Next SQL snapshot setup completed in ${Math.round(performance.now()-captureStarted)}ms.`);
     const reviewCapture=spawn(process.execPath,['tests/helpers/r12-review-next-capture.mjs'],{cwd:root,env:{...process.env,R12_REVIEW_NEXT_OUTPUT:directory,R12_POSTGRES_URL:''},stdio:['ignore','pipe','pipe']});processes.push(reviewCapture);
     const reviewStream=log('r12-review-capture.log');reviewCapture.stdout.pipe(reviewStream);reviewCapture.stderr.pipe(reviewStream);await completion(reviewCapture);
     const bootstrapCapture=spawn(process.execPath,['tests/helpers/r12-bootstrap-rehearsal.mjs'],{cwd:root,env:{...process.env,R12_BOOTSTRAP_NEXT_OUTPUT:directory},stdio:['ignore','pipe','pipe']});processes.push(bootstrapCapture);
@@ -91,6 +109,7 @@ try {
     await runR12BootstrapJourney({origin:r12Origin,noKeyOrigin:origin,boundary,output,directory,httpOnly:process.argv.includes('--http-only')});
     await runR12Journeys({origin:r12Origin,noKeyOrigin:origin,boundary,output,directory,httpOnly:process.argv.includes('--http-only')});
     await runR12ReviewJourney({origin:r12Origin,noKeyOrigin:origin,boundary,output,directory,httpOnly:process.argv.includes('--http-only')});
+    await runR12PilotJourney({origin:r12Origin,noKeyOrigin:origin,boundary,output,directory,httpOnly:process.argv.includes('--http-only')});
     }finally{await rm(directory,{recursive:true,force:true});}
   }
 

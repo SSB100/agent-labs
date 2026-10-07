@@ -1,6 +1,6 @@
 import type { JsonObject } from "../core/contracts";
 import { resolveModelRoute } from "../models/registry";
-import type { ModelMessage, ModelProviderAdapter } from "../models/types";
+import type { ModelMessage, ModelProviderAdapter, StructuredModelRequest } from "../models/types";
 import type { PackWorker } from "../packs/types";
 import { validateWorkerInvocationContext } from "../workers/runtime";
 import { assertJsonSchemaValue } from "../workers/schema-validator";
@@ -8,16 +8,20 @@ import type { WorkerInvocationContext } from "../workers/types";
 import { callCreativeModel, CREATIVE_BUDGET, type CreativeLedger, type CreativeModelCallKey } from "./budget";
 import { creativeHash, validateBriefScreen, validateCreativeApproval, validateDesignBrief, validateDesignReview } from "./contracts";
 import { BRIEF_SCREEN_SCHEMA, DESIGN_BRIEF_SCHEMA, DESIGN_REVIEW_SCHEMA } from "./packs";
+import { compactDiscoveryEvidenceInput } from "../products/discovery-r12-evidence-addendum";
+import { focusedCreativeBriefSchema, validateFocusedCreativeBriefBytes } from "./focused-brief";
 import { creativeOutputLimits } from "./output-limits";
 import { creativePromptApproval } from "./prompt-approval";
 import { SAFE_REPAIR_INSTRUCTIONS, type AssetInspection, type BriefScreen, type CreativeApprovalSnapshot, type DesignBrief, type DesignReview } from "./types";
 
-export async function executeCreativeWorker(input: {
+export type CreativeWorkerInput = {
   callKey: CreativeModelCallKey; approval: CreativeApprovalSnapshot; brief: DesignBrief | null;
   inspection?: AssetInspection; imageBytes?: Uint8Array; worker: PackWorker; context: WorkerInvocationContext;
   ledger: CreativeLedger; adapter?: ModelProviderAdapter; prices?: Parameters<typeof callCreativeModel>[0]["prices"];
-}) {
-  validateCreativeApproval(input.approval);
+};
+/** Pure request and validator preparation; scoped runtimes may supply their own durable transport. */
+export function prepareCreativeWorker(input: Omit<CreativeWorkerInput, "ledger" | "adapter" | "prices">, validationAt = Date.now()) {
+  validateCreativeApproval(input.approval, validationAt);
   validateWorkerInvocationContext(input.worker.manifest, input.context);
   if (input.context.taskContract.permittedCapabilities.length !== 0 ||
     !["etsy.current-policy", "pod.production"].every(key => input.context.taskContract.requiredKnowledge.includes(key))) throw new Error("Creative worker context is missing scoped knowledge or exceeds its capabilities.");
@@ -30,7 +34,8 @@ export async function executeCreativeWorker(input: {
   if (!director && !screen && (!input.inspection || !input.imageBytes || input.imageBytes.length !== input.inspection.bytes)) throw new Error("Visual review requires actual stored image bytes and inspection.");
   const model = resolveModelRoute(director ? "standard.default" : "reviewer.independent").primary;
   if (model.providerModelId !== (director ? "openai/gpt-5.6-luna" : "anthropic/claude-haiku-4.5") || (!director && model.providerFamily !== "anthropic")) throw new Error("Creative reviewer independence or fixed model route changed; requalification required.");
-  const outputSchema = director ? DESIGN_BRIEF_SCHEMA : screen ? BRIEF_SCREEN_SCHEMA : DESIGN_REVIEW_SCHEMA;
+  const focused = "focusedPilotBinding" in input.approval;
+  const outputSchema = director ? focused ? focusedCreativeBriefSchema(DESIGN_BRIEF_SCHEMA) : DESIGN_BRIEF_SCHEMA : screen ? BRIEF_SCREEN_SCHEMA : DESIGN_REVIEW_SCHEMA;
   const imageArtifact = input.context.inputArtifacts.find(artifact => artifact.artifactType === "creative.image");
   const priorReview = input.context.inputArtifacts.find(artifact => artifact.artifactType === "creative.review");
   const repair = input.callKey === "review:2" && typeof priorReview?.content.repairInstruction === "string" &&
@@ -65,22 +70,32 @@ export async function executeCreativeWorker(input: {
   const messages: ModelMessage[] = [
     { role: "system", content: [`Role: ${input.worker.manifest.worker.role}`, input.worker.manifest.worker.charter,
       ...input.worker.manifest.instructions, "Honor every outputLimits constraint, including string lengths and array counts; all are validated locally.",
-      director ? "Return only a concise Design Brief; do not copy policy text into it. Copy approvalId, concept and audience from the approval; placement and garmentCompatibility must exactly equal printSpecification.placement and printSpecification.garment. style, hierarchy, typography and originalityRequirements must each be 10–600 characters; imagePrompt 50–3500 characters and at most 6000 UTF-8 bytes. colors must contain 1–6 #RRGGBB values; forbiddenElements 3–16 strings of 3–120 characters."
+      director && focused ? "Return only the original-design brief. Copy approvalId, concept, audience, placement and garmentCompatibility exactly. Use no lettering or references. Honor every focused outputLimits bound and keep the complete JSON artifact within 2048 UTF-8 bytes; never duplicate policy text. The imagePrompt is at most 600 characters. The full approved constraints still govern screening and review."
+        : director ? "Return only a concise Design Brief; do not copy policy text into it. Copy approvalId, concept and audience from the approval; placement and garmentCompatibility must exactly equal printSpecification.placement and printSpecification.garment. style, hierarchy, typography and originalityRequirements must each be 10–600 characters; imagePrompt 50–3500 characters and at most 6000 UTF-8 bytes. colors must contain 1–6 #RRGGBB values; forbiddenElements 3–16 strings of 3–120 characters."
         : screen ? "Return only the final-brief IP/policy screen. Copy supplied hash bindings exactly. Include each category exactly once; every rationale must be 15–700 characters."
           : "Inspect the supplied pixels. Return only the Design Review with exact supplied hash bindings and each criterion exactly once; every rationale must be 15–700 characters. A prompt description is not evidence of what the image contains."].join("\n") },
     { role: "user", content: JSON.stringify({ taskContract: promptTask, requiredOutputSchemaHash: creativeHash(requiredOutputSchema), outputLimits: creativeOutputLimits(outputSchema), inputArtifacts: promptArtifacts, binding }),
       ...(!director && !screen ? { images: [{ mediaType: "image/png" as const, base64: Buffer.from(input.imageBytes!).toString("base64") }] } : {}) },
   ];
-  const response = await callCreativeModel({ callKey: input.callKey, ledger: input.ledger, adapter: input.adapter, prices: input.prices,
-    request: { model, schemaName: director ? "creative_brief" : screen ? "creative_brief_screen" : "creative_visual_review", outputSchema, messages,
+  if (focused) {
+    messages[1].content = JSON.stringify(compactDiscoveryEvidenceInput(JSON.parse(messages[1].content)));
+    messages[0].content += " An object containing only $text refers to that exact zero-based sharedText entry. Expand these lossless references before reading the artifacts; every supplied rule and criterion remains present.";
+  }
+  return { request: { model, schemaName: director ? "creative_brief" : screen ? "creative_brief_screen" : "creative_visual_review", outputSchema, messages,
       maxOutputTokens: director ? CREATIVE_BUDGET.briefOutputTokens : CREATIVE_BUDGET.reviewOutputTokens,
-      requestMetadata: { taskContractId: input.context.taskContract.id, workerKey: input.worker.manifest.worker.workerKey, callKey: input.callKey } },
+      requestMetadata: { taskContractId: input.context.taskContract.id, workerKey: input.worker.manifest.worker.workerKey, callKey: input.callKey } } as StructuredModelRequest,
     validateOutput(output: JsonObject) {
       assertJsonSchemaValue(outputSchema, output, "Creative phase output");
+      if (director && focused) validateFocusedCreativeBriefBytes(output);
       if (director) validateDesignBrief(output as unknown as DesignBrief, input.approval);
       else if (screen) validateBriefScreen(output as unknown as BriefScreen, input.brief!, input.approval);
       else validateDesignReview(output as unknown as DesignReview, input.inspection!.sha256, creativeHash(input.brief));
-    } });
+    } };
+}
+
+export async function executeCreativeWorker(input: CreativeWorkerInput) {
+  const prepared = prepareCreativeWorker(input), model = prepared.request.model;
+  const response = await callCreativeModel({ callKey: input.callKey, ledger: input.ledger, adapter: input.adapter, prices: input.prices, ...prepared });
   // Creative phase outputs are artifacts, not the generic Researcher stopReason envelope.
   // This dedicated executor has already validated the pinned context, exact phase schema and semantics.
   return { output: response.output, receipt: { receiptVersion: "1.0", packKey: input.worker.manifest.packKey, packVersion: input.worker.manifest.version,

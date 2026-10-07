@@ -1,4 +1,7 @@
 import test from 'node:test';
+import {createClosedRejectedPlan4} from './helpers/r12-closed-plan4-fixture.mjs';
+import {exerciseFocusedPilotLifecycle} from './helpers/r12-focused-pilot-sql-fixture.mjs';
+import {exerciseFocusedCreativeLifecycle} from './helpers/r12-focused-creative-sql-fixture.mjs';
 import assert from 'node:assert/strict';
 import {readFileSync,readdirSync} from 'node:fs';
 import {mkdir,writeFile} from 'node:fs/promises';
@@ -24,7 +27,7 @@ function validatePg(value){const u=new URL(value);assert.ok(u.protocol==='postgr
 test('R12 SQL harness refuses remote, wrong-identity and options-bearing database targets',()=>{for(const url of ['postgresql://r12_test:x@production.example/r12_test','postgresql://postgres:x@127.0.0.1/r12_test','postgresql://r12_test:x@127.0.0.1/production','postgresql://r12_test:x@127.0.0.1/r12_test?options=-csearch_path%3Dpublic'])assert.throws(()=>validatePg(url));});
 
 function source(file,deps){const m={exports:{}};new Function('require','module','exports',ts.transpileModule(readFileSync(path.join(root,file),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)(name=>{assert.ok(name in deps,name);return deps[name];},m,m.exports);return m.exports;}
-test('R12 actual owner workflows preserve funding, bounded dispatch and immutable historical results',{skip:!host,timeout:120000},async()=>{
+async function exerciseR12OwnerWorkflows(){
  const sqlRequire=createRequire(path.resolve(host,'package.json'));let db;
  if(process.env.R12_REQUIRE_POSTGRES==='1')assert.ok(process.env.R12_POSTGRES_URL,'Actual PostgreSQL is required by this gate');
  if(process.env.R12_POSTGRES_URL){validatePg(process.env.R12_POSTGRES_URL);const {Client}=sqlRequire('pg');db=new Client({connectionString:process.env.R12_POSTGRES_URL});await db.connect();assert.equal(Number((await db.query("select count(*) from pg_tables where schemaname in ('public','private')")).rows[0].count),0,'Fresh fixture database required');db.exec=sql=>db.query(sql);db.close=()=>db.end();}
@@ -41,7 +44,14 @@ test('R12 actual owner workflows preserve funding, bounded dispatch and immutabl
   for(const file of readdirSync(path.join(root,'supabase/migrations')).filter(x=>x.endsWith('.sql')).sort())try{await db.exec(readFileSync(path.join(root,'supabase/migrations',file),'utf8'));}catch(error){throw new Error(`${file}: ${error.message}`,{cause:error});}
   assert.equal((await db.query('select count(*)::int n from private.r12_discovery_scopes')).rows[0].n,0);
   const rootId=randomUUID(),scopeId=randomUUID();
-  const fixtureKnowledge=discoveryKnowledgeFixture();
+  const originalKnowledge=discoveryKnowledgeFixture(),releases=[];let realRoot;
+  for(const release of originalKnowledge.snapshot.releases){
+   const actual=(await db.query('select id,status,manifest from public.packs where pack_key=$1 and version=$2',[release.manifest.packKey,release.manifest.version])).rows[0];
+   assert.ok(actual,release.manifest.packKey);assert.deepEqual(actual.manifest,release.manifest,'Migrated catalog manifest matches runtime');
+   if(release.id===originalKnowledge.snapshot.rootPackId)realRoot=actual.id;releases.push(actual);
+  }
+  const fixtureKnowledge=require('../.core-tests/products/discovery-v2-knowledge.js').pinDiscoveryKnowledgeV2({rootPackId:realRoot,
+   releases:require('../.core-tests/packs/dependencies.js').resolvePackDependencies(releases,{packKey:'workflow.product-discovery-v2',version:'1.0.0'},true)});
   const installationSeed=r07FixtureSetup(root).replace('values(w,b,g,','values(w,b,null,').replace('runtime_capability_hash,pack_installation_id,pack_snapshot)','runtime_capability_hash,pack_installation_id,pack_snapshot,input)').replace("i,'{}');","i,'{}',jsonb_build_object('intentId','"+rootId+"'));").replaceAll("clock_timestamp()+interval '1 day'","clock_timestamp()+interval '1 hour'").replaceAll("'Finite fixture','qualified'","'Finite fixture','experimental'").replace("'r05.inert','1.0.0','R05 inert workflow','qualified'","'product.discovery-v2.one','1.0.0','R05 inert workflow','experimental'").replaceAll("'r07.planner'","'product.discovery-v2.plan'").replaceAll("'r07.research'","'product.discovery-v2.research'").replaceAll("'r07.challenge'","'product.discovery-v2.review'").replaceAll("'r07.work'","'product.discovery-v2.strategy'"),seedAnchor="'r05.inert','active','{}'";assert.equal(installationSeed.split(seedAnchor).length,2);
   await db.exec(installationSeed.replace(seedAnchor,"'r05.inert','active',$r12_snapshot$"+JSON.stringify(fixtureKnowledge.snapshot)+"$r12_snapshot$::jsonb"));
   const business=(await db.query('select public.r05_seed(848063) b')).rows[0].b;
@@ -133,8 +143,9 @@ test('R12 actual owner workflows preserve funding, bounded dispatch and immutabl
    if(!process.env.R12_NEXT_FIXTURE_OUTPUT)return;
    assert.ok(!process.env.R12_POSTGRES_URL,'Next snapshots use an isolated PGlite database only');
    const out=path.resolve(process.env.R12_NEXT_FIXTURE_OUTPUT);assert.ok(path.basename(out).startsWith('r12-next-'),'Designated temporary fixture directory required');await mkdir(out,{recursive:true});
-   const blob=await db.dumpDataDir('gzip');await writeFile(path.join(out,`${name}.tgz`),Buffer.from(await blob.arrayBuffer()));
+   const started=performance.now(),blob=await db.dumpDataDir('gzip');await writeFile(path.join(out,`${name}.tgz`),Buffer.from(await blob.arrayBuffer()));
    await writeFile(path.join(out,'metadata.json'),JSON.stringify({businessId:business,goalId:f.g,scopeId,ownerId:R07_OWNER,plan,quote,outputs:r12PhaseOutputFixture(result.intent.comparisonUniverse.audiences[0])}));
+   console.log(`R12 Next snapshot ${name}: ${blob.size} bytes in ${Math.round(performance.now()-started)}ms`);
   };
   const rpc=async(operation,payload,epoch=null)=>{await db.exec('set role anon');try{return(await db.query('select public.r07_controller($1,$2,$3,$4,$5,$6,$7,$8,$9) result',[business,f.g,operation,payload,randomUUID(),R07_KEY,R07_LEASE,epoch,R05_KEY])).rows[0].result;}finally{await db.exec('reset role');}};
   assert.equal(await rpc('read',{}),null,'Exact scoped read before plan creation remains supported');
@@ -237,7 +248,7 @@ test('R12 actual owner workflows preserve funding, bounded dispatch and immutabl
      try{
       await exerciseR12ReviewRuntime(db,continuation.metadata,{nested:true,failureCase:'response_schema'});
       const successor=await prepareR12ReviewFixture(db,{quote,outputs},{nested:true,reviewSuccessor:true});assert.equal(successor.envelope.reviewHistory.length,1);assert.equal(successor.envelope.baseKnownMicrounits,'50');
-      await db.exec('savepoint accepted_successor');try{assert.deepEqual(await exerciseR12ReviewRuntime(db,successor.metadata,{nested:true}),{providerCalls:0,inertPosts:1,inertReceiptGets:2,outcome:'NEEDS_MORE_EVIDENCE',phaseReceipts:5,dispatches:6,children:7});const evidence=await prepareR12EvidenceFixture(db,{quote,outputs},{nested:true});assert.deepEqual(await exerciseR12ReviewRuntime(db,evidence.metadata,{nested:true}),{providerCalls:0,inertPosts:2,inertReceiptGets:3,outcome:'NEEDS_MORE_EVIDENCE',phaseReceipts:5,dispatches:8,children:9});}finally{await db.exec('rollback to savepoint accepted_successor');await db.exec('release savepoint accepted_successor');}
+      await db.exec('savepoint accepted_successor');try{assert.deepEqual(await exerciseR12ReviewRuntime(db,successor.metadata,{nested:true}),{providerCalls:0,inertPosts:1,inertReceiptGets:2,outcome:'NEEDS_MORE_EVIDENCE',phaseReceipts:5,dispatches:6,children:7});const evidence=await prepareR12EvidenceFixture(db,{quote,outputs},{nested:true});await db.exec('savepoint focused_pilot');try{await createClosedRejectedPlan4(db,evidence.metadata,{nested:true});const pilot=await exerciseFocusedPilotLifecycle(db,evidence,{nested:true});assert.equal(pilot.inertPosts,2);assert.equal(pilot.outcome,'TEST');assert.equal(pilot.oldGoalUnchanged,true);const creative=await exerciseFocusedCreativeLifecycle(db,pilot);assert.equal(creative.inertPosts,4);assert.equal(creative.inertReceiptGets,8);assert.equal(creative.productionReady,true);assert.equal(creative.rootUnchanged,true);assert.equal(creative.goalUnchanged,true);}finally{await db.exec('rollback to savepoint focused_pilot');await db.exec('release savepoint focused_pilot');}assert.deepEqual(await exerciseR12ReviewRuntime(db,evidence.metadata,{nested:true}),{providerCalls:0,inertPosts:2,inertReceiptGets:3,outcome:'NEEDS_MORE_EVIDENCE',phaseReceipts:5,dispatches:8,children:9});}finally{await db.exec('rollback to savepoint accepted_successor');await db.exec('release savepoint accepted_successor');}
       await exerciseR12ReviewRuntime(db,successor.metadata,{nested:true,failureCase:'json_parse'});
       const last=await prepareR12ReviewFixture(db,{quote,outputs},{nested:true,reviewSuccessor:true});assert.equal(last.envelope.reviewHistory.length,2);assert.equal(last.envelope.baseKnownMicrounits,'60');
       await exerciseR12ReviewRuntime(db,last.metadata,{nested:true,failureCase:'response_schema'});
@@ -284,7 +295,7 @@ test('R12 actual owner workflows preserve funding, bounded dispatch and immutabl
   const {reconstructDiscoveryR12Result}=require('../.core-tests/products/discovery-r12-runtime.js');
   const savedHistory=await historyRead(),fullResult=reconstructDiscoveryR12Result(savedHistory,business,scopeId);
   const presentation=loadSource('src/app/dashboard/research-qualification/presentation.ts',{'../../../research/qualification-owner-contract':require('../.core-tests/research/qualification-owner-contract.js')});
-  const resultView=loadSource('src/components/console/console-r12-result.tsx',{'@/app/dashboard/research-qualification/presentation':presentation});
+  const resultView=loadSource('src/components/console/console-r12-result.tsx',{'@/app/dashboard/research-qualification/presentation':presentation,'@/creative/contracts':require('../.core-tests/creative/contracts.js'),'./console-r12-adoption-form':{ConsoleR12AdoptionForm:()=>null}});
   const markup=renderToStaticMarkup(React.createElement(resultView.ConsoleR12Result,{result:fullResult,observedAt:Date.now()}));
   for(const text of ['Needs more evidence','Original concepts and hypotheses','Geographic comparison','Independent review and missing evidence','Sources and exact evidence','No learning test qualified','grants no creative generation'])assert.ok(markup.includes(text),text);
   for(const country of ['US','GB','AU','NZ'])assert.ok(markup.includes(country));
@@ -331,4 +342,16 @@ test('R12 actual owner workflows preserve funding, bounded dispatch and immutabl
 
 
  }finally{for(const [key,value] of Object.entries(priorEnv)){if(value===undefined)delete process.env[key];else process.env[key]=value;}await db.close();}
-});
+}
+
+if(process.argv.includes('--r12-next-capture')){
+ assert.ok(host,'Isolated SQL fixture host is required');
+ assert.ok(process.env.R12_NEXT_FIXTURE_OUTPUT&&path.basename(path.resolve(process.env.R12_NEXT_FIXTURE_OUTPUT)).startsWith('r12-next-'),'Designated temporary fixture directory required');
+ assert.ok(!process.env.R12_POSTGRES_URL&&process.env.R12_REQUIRE_POSTGRES!=='1','Next snapshots use an isolated PGlite database only');
+ const started=performance.now();
+ console.log('Preparing R12 Next snapshots with every owner-workflow assertion; the Next setup subprocess owns the deadline.');
+ await exerciseR12OwnerWorkflows();
+ console.log(`PASS: R12 Next snapshot setup and all owner-workflow assertions completed in ${Math.round(performance.now()-started)}ms`);
+}else{
+ test('R12 actual owner workflows preserve funding, bounded dispatch and immutable historical results',{skip:!host,timeout:120000},exerciseR12OwnerWorkflows);
+}

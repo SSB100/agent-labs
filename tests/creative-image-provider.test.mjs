@@ -36,7 +36,8 @@ function fixture(options = {}) {
 const isError = category => error => error instanceof ImageProviderError && error.category === category && error.retryable === false;
 test('image generation without operating admission sends no paid request', async()=>{
   const f=fixture({admitDispatch:undefined}),quote=await f.adapter.preflight(request);
-  await assert.rejects(f.adapter.generate(request,authorization(quote)));
+  await assert.rejects(f.adapter.generate(request,authorization(quote)), error =>
+    error instanceof ImageProviderError && error.requestDispatched === false && error.providerRequestId === null && error.receipt === null);
   assert.equal(f.paidCalls().length,0);
 });
 const canonical = value => Array.isArray(value) ? `[${value.map(canonical).join(",")}]` :
@@ -598,4 +599,76 @@ test("preflight snapshots each policy's prompt before its asynchronous public ca
     resume();
     assert.equal((await pending).promptHash, hash(request.prompt));
   }
+});
+
+
+test("image admission receives the immutable exact UTF-8 wire for each supported provider", async () => {
+  for (const native of [false, true]) {
+    let admitted;
+    const input = { prompt: "Original café field notes with ferns 🌿, no text or reference artwork" };
+    const f = (native ? nativeFixture : fixture)({ admitDispatch: async wire => {
+      assert.equal(f.paidCalls().length, 0);
+      assert.equal(Object.isFrozen(wire), true);
+      assert.equal(Reflect.set(wire, "body", "tampered"), false);
+      assert.deepEqual(Object.keys(wire).sort(), ["body", "endpoint", "method", "operation", "provider", "wireRequestBytes", "wireRequestHash"].sort());
+      assert.equal(wire.provider, "openrouter");
+      assert.equal(wire.operation, "image.generate");
+      assert.equal(wire.method, "POST");
+      assert.equal(wire.endpoint, "https://openrouter.ai/api/v1/images");
+      assert.equal(wire.wireRequestHash, hash(wire.body));
+      assert.equal(wire.wireRequestBytes, Buffer.byteLength(wire.body, "utf8"));
+      assert.ok(wire.wireRequestBytes > wire.body.length);
+      admitted = wire;
+      input.prompt = "Caller mutation after admission cannot change the serialized body";
+    } });
+    const quote = await f.adapter.preflight(input);
+    await f.adapter.generate(input, (native ? nativeAuthorization : authorization)(quote));
+    assert.equal(f.paidCalls().length, 1);
+    assert.equal(f.paidCalls()[0].init.body, admitted.body);
+    assert.equal(hash(f.paidCalls()[0].init.body), admitted.wireRequestHash);
+    assert.equal(JSON.parse(admitted.body).prompt, "Original café field notes with ferns 🌿, no text or reference artwork");
+    assert.equal(JSON.parse(admitted.body).model, native ? nativePolicy.modelId : policy.modelId);
+  }
+});
+
+test("rejected image admission remains undispatched and sends no paid request", async () => {
+  let admissions = 0;
+  const f = fixture({ admitDispatch: async () => { admissions++; throw new Error("fixture admission denied"); } });
+  const quote = await f.adapter.preflight(request);
+  await assert.rejects(f.adapter.generate(request, authorization(quote)), error => {
+    assert.equal(error instanceof ImageProviderError, true);
+    assert.equal(error.requestDispatched, false);
+    assert.equal(error.providerRequestId, null);
+    assert.equal(error.receipt, null);
+    return true;
+  });
+  assert.equal(admissions, 1);
+  assert.equal(f.paidCalls().length, 0);
+});
+
+test("timeout during image admission stays undispatched even when admission later resolves", async () => {
+  let resume;
+  const admission = new Promise(resolve => { resume = resolve; });
+  const f = fixture({ timeoutMs: 10, admitDispatch: async () => admission });
+  const quote = await f.adapter.preflight(request);
+  await assert.rejects(f.adapter.generate(request, authorization(quote)), error =>
+    isError("provider_timeout")(error) && error.requestDispatched === false);
+  resume();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.paidCalls().length, 0);
+});
+
+test("synchronous paid-fetch failure is dispatched after the exact admission", async () => {
+  let admitted = false;
+  const adapter = new OpenRouterImageAdapter({ config, now: () => timestamp,
+    admitDispatch: async wire => { assert.equal(wire.wireRequestHash, hash(wire.body)); admitted = true; },
+    fetcher: (_url, init) => {
+      if (init.method === "GET") return Promise.resolve(json(catalog));
+      assert.equal(admitted, true);
+      throw new Error("fixture synchronous transport failure");
+    },
+  });
+  const quote = await adapter.preflight(request);
+  await assert.rejects(adapter.generate(request, authorization(quote)), error =>
+    isError("provider_unavailable")(error) && error.requestDispatched === true);
 });

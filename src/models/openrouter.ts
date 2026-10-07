@@ -474,7 +474,8 @@ export class OpenRouterAdapter implements ModelProviderAdapter {
         throw new ModelProviderError("provider_rejected", "One scoped image requires a vision model and user message.", false);
       }
       const picture = message.images[0];
-      if (picture.mediaType !== "image/png" || picture.base64.length > 10_000_000 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(picture.base64) ||
+      if (picture.mediaType !== "image/png" || picture.base64.length > 10_000_000 || picture.base64.length % 4 !== 0 || /[^A-Za-z0-9+/=]/.test(picture.base64) ||
+        Buffer.from(picture.base64,"base64").toString("base64") !== picture.base64 ||
         Buffer.from(picture.base64.slice(0, 12), "base64").subarray(0, 8).toString("hex") !== "89504e470d0a1a0a") {
         throw new ModelProviderError("provider_rejected", "Visual review requires bounded PNG bytes, not remote URLs.", false);
       }
