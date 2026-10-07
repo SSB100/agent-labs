@@ -1,0 +1,339 @@
+{
+  "purpose": "Sanitized structural regression only. All prose and evidence bindings are synthetic, not the private saved provider response or an accepted live decision.",
+  "strategy": {
+    "usesPinnedLearningPlan": true,
+    "marketComparisons": [
+      {
+        "countryCode": "GB",
+        "currency": "GBP",
+        "assessment": "This single market is the pilot scope; one offer supplies category context without establishing buyer demand.",
+        "evidence": [
+          "E2"
+        ],
+        "assumptions": [
+          "No inference of observed sales or representative demand is made."
+        ],
+        "limitations": [
+          "Actual buyers, profitability and physical print quality remain untested."
+        ],
+        "sellerBankCountry": null,
+        "feeScenarios": [
+          {
+            "sellerBankCountry": "GB",
+            "hypothetical": true,
+            "explanation": "This hypothetical seller scenario establishes no actual fee, bank location or unit margin.",
+            "evidence": []
+          }
+        ]
+      }
+    ],
+    "candidates": [
+      {
+        "candidateKey": "C1",
+        "dimensions": [
+          {
+            "dimension": "demand",
+            "finding": "uncertain",
+            "evidenceStrength": "none",
+            "facts": [],
+            "rationale": "This finding is limited to the private original-design question and establishes no commercial readiness.",
+            "uncertainties": [
+              {
+                "question": "What further evidence resolves demand before actual commerce?",
+                "blockingForTest": false,
+                "reason": "This private composition inspection does not measure sales or assert launch readiness; the question remains unresolved."
+              }
+            ],
+            "hardFailure": false
+          },
+          {
+            "dimension": "competition",
+            "finding": "uncertain",
+            "evidenceStrength": "adjacent",
+            "facts": [
+              {
+                "evidence": "E2",
+                "relevance": "The exact GB offer supplies limited competing-category context only."
+              }
+            ],
+            "rationale": "This finding is limited to the private original-design question and establishes no commercial readiness.",
+            "uncertainties": [
+              {
+                "question": "Does this category offer represent interest in the proposed design?",
+                "blockingForTest": false,
+                "reason": "An offer is not buyer demand; the private composition question retains this commercial uncertainty."
+              }
+            ],
+            "hardFailure": false
+          },
+          {
+            "dimension": "differentiation",
+            "finding": "uncertain",
+            "evidenceStrength": "none",
+            "facts": [],
+            "rationale": "This finding is limited to the private original-design question and establishes no commercial readiness.",
+            "uncertainties": [
+              {
+                "question": "What further evidence resolves differentiation before actual commerce?",
+                "blockingForTest": false,
+                "reason": "This private composition inspection does not measure sales or assert launch readiness; the question remains unresolved."
+              }
+            ],
+            "hardFailure": false
+          },
+          {
+            "dimension": "estimated_margin",
+            "finding": "uncertain",
+            "evidenceStrength": "none",
+            "facts": [],
+            "rationale": "This finding is limited to the private original-design question and establishes no commercial readiness.",
+            "uncertainties": [
+              {
+                "question": "What further evidence resolves estimated_margin before actual commerce?",
+                "blockingForTest": false,
+                "reason": "This private composition inspection does not measure sales or assert launch readiness; the question remains unresolved."
+              }
+            ],
+            "hardFailure": false
+          },
+          {
+            "dimension": "creative_opportunity",
+            "finding": "uncertain",
+            "evidenceStrength": "none",
+            "facts": [],
+            "rationale": "This finding is limited to the private original-design question and establishes no commercial readiness.",
+            "uncertainties": [
+              {
+                "question": "What further evidence resolves creative_opportunity before actual commerce?",
+                "blockingForTest": false,
+                "reason": "This private composition inspection does not measure sales or assert launch readiness; the question remains unresolved."
+              }
+            ],
+            "hardFailure": false
+          },
+          {
+            "dimension": "seasonality",
+            "finding": "uncertain",
+            "evidenceStrength": "none",
+            "facts": [],
+            "rationale": "This finding is limited to the private original-design question and establishes no commercial readiness.",
+            "uncertainties": [
+              {
+                "question": "What further evidence resolves seasonality before actual commerce?",
+                "blockingForTest": false,
+                "reason": "This private composition inspection does not measure sales or assert launch readiness; the question remains unresolved."
+              }
+            ],
+            "hardFailure": false
+          },
+          {
+            "dimension": "production_complexity",
+            "finding": "supported",
+            "evidenceStrength": "direct",
+            "facts": [
+              {
+                "evidence": "E1",
+                "relevance": "The exact official source bounds the proposed production-file constraints."
+              }
+            ],
+            "rationale": "This finding is limited to the private original-design question and establishes no commercial readiness.",
+            "uncertainties": [
+              {
+                "question": "Can the intended composition retain its details on the proposed garment?",
+                "blockingForTest": true,
+                "reason": "Synthetic retained concern: the proposed composition may fail its exact learning criterion until reproduction is checked."
+              }
+            ],
+            "hardFailure": false
+          },
+          {
+            "dimension": "policy_ip_risk",
+            "finding": "uncertain",
+            "evidenceStrength": "none",
+            "facts": [],
+            "rationale": "This finding is limited to the private original-design question and establishes no commercial readiness.",
+            "uncertainties": [
+              {
+                "question": "Does the proposed composition have any unresolved concept-specific rights concern?",
+                "blockingForTest": true,
+                "reason": "Synthetic retained concern: concept-specific originality is unresolved and was classified as blocking this proposal."
+              }
+            ],
+            "hardFailure": false
+          },
+          {
+            "dimension": "marketing_potential",
+            "finding": "uncertain",
+            "evidenceStrength": "none",
+            "facts": [],
+            "rationale": "This finding is limited to the private original-design question and establishes no commercial readiness.",
+            "uncertainties": [
+              {
+                "question": "What further evidence resolves marketing_potential before actual commerce?",
+                "blockingForTest": false,
+                "reason": "This private composition inspection does not measure sales or assert launch readiness; the question remains unresolved."
+              }
+            ],
+            "hardFailure": false
+          }
+        ]
+      }
+    ],
+    "recommendation": {
+      "proposedOutcome": "TEST",
+      "marketCountryCode": "GB",
+      "candidateKey": "C1",
+      "rationale": "The private original-composition experiment can answer its fixed question with explicit limits; commercial unknowns remain.",
+      "alternatives": []
+    }
+  },
+  "review": {
+    "marketCountryCode": "GB",
+    "candidateKey": "C1",
+    "outcome": "TEST",
+    "sufficiencyRationale": "Synthetic contradictory response claims TEST while retaining proposal blockers and failed checks; it must be rejected rather than normalized into an accepted decision.",
+    "dimensions": [
+      {
+        "dimension": "demand",
+        "verdict": "nonblocking_unknown",
+        "rationale": "This assessment supports only the private composition test and preserves the unresolved commercial questions.",
+        "evidence": []
+      },
+      {
+        "dimension": "competition",
+        "verdict": "nonblocking_unknown",
+        "rationale": "This assessment supports only the private composition test and preserves the unresolved commercial questions.",
+        "evidence": [
+          "E2"
+        ]
+      },
+      {
+        "dimension": "differentiation",
+        "verdict": "nonblocking_unknown",
+        "rationale": "This assessment supports only the private composition test and preserves the unresolved commercial questions.",
+        "evidence": []
+      },
+      {
+        "dimension": "estimated_margin",
+        "verdict": "nonblocking_unknown",
+        "rationale": "This assessment supports only the private composition test and preserves the unresolved commercial questions.",
+        "evidence": []
+      },
+      {
+        "dimension": "creative_opportunity",
+        "verdict": "nonblocking_unknown",
+        "rationale": "This assessment supports only the private composition test and preserves the unresolved commercial questions.",
+        "evidence": []
+      },
+      {
+        "dimension": "seasonality",
+        "verdict": "nonblocking_unknown",
+        "rationale": "This assessment supports only the private composition test and preserves the unresolved commercial questions.",
+        "evidence": []
+      },
+      {
+        "dimension": "production_complexity",
+        "verdict": "sufficient_for_test",
+        "rationale": "This assessment supports only the private composition test and preserves the unresolved commercial questions.",
+        "evidence": [
+          "E1"
+        ]
+      },
+      {
+        "dimension": "policy_ip_risk",
+        "verdict": "blocking",
+        "rationale": "This assessment supports only the private composition test and preserves the unresolved commercial questions.",
+        "evidence": []
+      },
+      {
+        "dimension": "marketing_potential",
+        "verdict": "nonblocking_unknown",
+        "rationale": "This assessment supports only the private composition test and preserves the unresolved commercial questions.",
+        "evidence": []
+      }
+    ],
+    "checks": [
+      {
+        "check": "source_support",
+        "outcome": "PASS",
+        "rationale": "The fixed private experiment preserves source limits, original-design restrictions and separate execution approvals."
+      },
+      {
+        "check": "alternative_comparison",
+        "outcome": "PASS",
+        "rationale": "The fixed private experiment preserves source limits, original-design restrictions and separate execution approvals."
+      },
+      {
+        "check": "test_learnability",
+        "outcome": "PASS",
+        "rationale": "The fixed private experiment preserves source limits, original-design restrictions and separate execution approvals."
+      },
+      {
+        "check": "uncertainty_handling",
+        "outcome": "FAIL",
+        "rationale": "Synthetic reviewer preserves the unresolved proposal concern and does not clear the relevant execution or uncertainty gate."
+      },
+      {
+        "check": "hard_gates",
+        "outcome": "FAIL",
+        "rationale": "Synthetic reviewer preserves the unresolved proposal concern and does not clear the relevant execution or uncertainty gate."
+      }
+    ],
+    "additionalUncertainties": [
+      {
+        "dimension": "demand",
+        "question": "What further evidence resolves demand before actual commerce?",
+        "blockingForTest": false,
+        "reason": "This private composition inspection does not measure sales or assert launch readiness; the question remains unresolved."
+      },
+      {
+        "dimension": "competition",
+        "question": "Does this category offer represent interest in the proposed design?",
+        "blockingForTest": false,
+        "reason": "An offer is not buyer demand; the private composition question retains this commercial uncertainty."
+      },
+      {
+        "dimension": "differentiation",
+        "question": "What further evidence resolves differentiation before actual commerce?",
+        "blockingForTest": false,
+        "reason": "This private composition inspection does not measure sales or assert launch readiness; the question remains unresolved."
+      },
+      {
+        "dimension": "estimated_margin",
+        "question": "What further evidence resolves estimated_margin before actual commerce?",
+        "blockingForTest": false,
+        "reason": "This private composition inspection does not measure sales or assert launch readiness; the question remains unresolved."
+      },
+      {
+        "dimension": "creative_opportunity",
+        "question": "What further evidence resolves creative_opportunity before actual commerce?",
+        "blockingForTest": false,
+        "reason": "This private composition inspection does not measure sales or assert launch readiness; the question remains unresolved."
+      },
+      {
+        "dimension": "seasonality",
+        "question": "What further evidence resolves seasonality before actual commerce?",
+        "blockingForTest": false,
+        "reason": "This private composition inspection does not measure sales or assert launch readiness; the question remains unresolved."
+      },
+      {
+        "dimension": "production_complexity",
+        "question": "Can the intended composition retain its details on the proposed garment?",
+        "blockingForTest": true,
+        "reason": "Synthetic retained concern: the proposed composition may fail its exact learning criterion until reproduction is checked."
+      },
+      {
+        "dimension": "policy_ip_risk",
+        "question": "Does the proposed composition have any unresolved concept-specific rights concern?",
+        "blockingForTest": true,
+        "reason": "Synthetic retained concern: concept-specific originality is unresolved and was classified as blocking this proposal."
+      },
+      {
+        "dimension": "marketing_potential",
+        "question": "What further evidence resolves marketing_potential before actual commerce?",
+        "blockingForTest": false,
+        "reason": "This private composition inspection does not measure sales or assert launch readiness; the question remains unresolved."
+      }
+    ]
+  }
+}

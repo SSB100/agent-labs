@@ -236,6 +236,14 @@ function request(prepared: DiscoveryWorkerContextV2, role: "strategy" | "review"
     value.messages[1].content = JSON.stringify(compactDiscoveryEvidenceInput(completeInput));
     value.messages[0].content += " In the input, an object containing only $text names the zero-based sharedText entry. Substitute that exact text before reading row arrays or prior decisions; no reasoning or source context was omitted.";
   }
+  if (pilot) {
+    // Focused proposal semantics only; keep ordinary prompts, static provider
+    // schemas and every local evidence/uncertainty/authority gate unchanged.
+    value.messages[0].content += " Focused pilot contract: blockingForTest means an unresolved obstacle to recommending this exact pinned learning proposal, judged against its hypothesis and stop rules. Pending ownerCreativeApproval, freshBudgetApproval, conceptSpecificIpScreen and printValidation remain required executionPrerequisites; their pending state alone does not make the proposal blocked. Preserve each unknown and explain its test-specific impact. An IP or production unknown can still block the proposal; never invent safety, evidence or a nonblocking classification to obtain TEST. Historical broad-case flags remain unchanged history; assess the current focused proposal separately.";
+    value.messages[0].content += role === "strategy"
+      ? " If any current selected-candidate uncertainty is blockingForTest true, recommend NEEDS_MORE_EVIDENCE with usesPinnedLearningPlan false, unless a supported known originality/IP/production failure requires REJECT. Propose TEST only for an evidence-backed exact pinned plan with no proposal blockers and usesPinnedLearningPlan true; required later execution gates stay required. NEEDS_MORE_EVIDENCE and REJECT are valid results, never defaults to convert into TEST."
+      : " Before returning, check cross-field consistency. For each dimension, any blockingForTest true in the selected current assessment or additionalUncertainties requires verdict blocking or known_failure. You cannot clear an inherited current-assessment flag by changing your verdict, rationale or outcome. sufficient_for_test requires relevant cited direct or adjacent facts; guidance or none cannot become sufficient by declaration. nonblocking_unknown requires an explicit uncertainty and no blocking flag in that dimension. TEST requires all five checks PASS, no blocking flags in the selected current assessment or additionalUncertainties, no blocking or known_failure verdicts, and strategist TEST with the exact pinned learning plan. Otherwise return NEEDS_MORE_EVIDENCE, unless a supported known originality/IP/production failure requires REJECT. Preserve failed checks and all missing questions; do not flip flags or checks just to make TEST consistent.";
+  }
   const bytes = Buffer.byteLength(JSON.stringify(value), "utf8");
   if (bytes > bounds.maximumRequestBytes) {
     const encoded = JSON.parse(value.messages[1].content);
