@@ -77,7 +77,24 @@ export async function continueDiscoveryR12(context:OwnerUiContext,businessId:str
 export async function stopDiscoveryR12(context:OwnerUiContext,businessId:string,scopeId:string){
  await owned(context,businessId,scopeId);
  const loaded=await context.supabase.rpc('r12_discovery_owner_read',{p_business_id:businessId,p_scope_id:scopeId,p_activation:true});
- if(loaded.error||!object(loaded.data)||!object(loaded.data.activation)||!object(loaded.data.activation.plan)||!id(loaded.data.activation.plan.policyId))return fail();
+ if(loaded.error||!object(loaded.data))return fail();
+ if(loaded.data.activation===null&&loaded.data.state==='awaiting_authority'){
+  // A confirmed recovery policy can be stopped before any verifier enrollment.
+  // The existing owner API revokes only the exact policy; it grants no access.
+  const prepared=await context.supabase.rpc('r12_review_owner_read',{p_business_id:businessId,p_scope_id:scopeId});
+  if(prepared.error)return fail();
+  const {parseR12ReviewOwnerWorkspace}=await import('./discovery-r12-review-preparation-contract');
+  const workspace=parseR12ReviewOwnerWorkspace(prepared.data,businessId,scopeId,context.userId);
+  if(workspace.successor?.authorization.version!=='r12.focused-pilot-unsent-recovery-authorization.1'||!workspace.confirmation)return fail();
+  const {policyId,policyHash}=workspace.confirmation;
+  const stopped=await context.supabase.rpc('r05_policy_owner',{p_business_id:businessId,p_operation:'revoke',p_payload:{policyId,policyHash},p_submission_id:randomUUID()});
+  if(stopped.error||!object(stopped.data)||stopped.data.id!==policyId||stopped.data.status!=='revoked')return fail();
+  const checked=await context.supabase.rpc('r05_admission_read',{p_business_id:businessId,p_policy_id:policyId,p_limit:1,p_offset:0});
+  if(checked.error||!object(checked.data)||!Array.isArray(checked.data.policies)||checked.data.policies.length!==1)return fail();
+  const policy=checked.data.policies[0];if(!object(policy)||policy.id!==policyId||policy.hash!==policyHash||policy.revoked!==true)return fail();
+  return{stopped:true as const};
+ }
+ if(!object(loaded.data.activation)||!object(loaded.data.activation.plan)||!id(loaded.data.activation.plan.policyId))return fail();
  const stopped=await context.supabase.rpc('r05_policy_owner',{p_business_id:businessId,p_operation:'revoke',p_payload:{policyId:loaded.data.activation.plan.policyId,policyHash:loaded.data.activation.plan.policyHash},p_submission_id:randomUUID()});
  if(stopped.error)return fail();
  const after=await context.supabase.rpc('r12_discovery_owner_read',{p_business_id:businessId,p_scope_id:scopeId,p_activation:false});

@@ -19,7 +19,16 @@ export type R12FocusedSuccessorAuthorization = { version: 'r12.focused-pilot-suc
   scopeId: string; scopeHash: string; goalId: string; preparedGoalRevision: number; preparedGoalHash: string; profileHash: string;
   ownerApprovalEvidenceHash: string; predecessorClosure: R12FocusedPredecessorClosure; limits: typeof R12_FOCUSED_SUCCESSOR_LIMITS;
   createdAt: string; expiresAt: string };
-export type R12FocusedSuccessor = { authorization: R12FocusedSuccessorAuthorization; authorizationHash: string };
+export const R12_UNSENT_RECOVERY_LIMITS = Object.freeze({ ...R12_FOCUSED_SUCCESSOR_LIMITS, maximumRecoveries: 1 } as const);
+export type R12FocusedUnsentClosure = { version: 'r12.focused-pilot-unsent-closure.1'; businessId: string; scopeId: string; scopeHash: string;
+  goalId: string; planId: string; planHash: string; policyId: string; policyHash: string; profileHash: string; budgetAuthorityRootId: string;
+  priorRoundId: string; successorAuthorizationHash: string; controllerKeyHash: string; admissionKeyHash: string; attemptId: string;
+  requestId: string; requestHash: string; wireBindingHash: string; wireHash: string; reservationHash: string; releaseHash: string;
+  releaseEvidenceHash: string; decisionHash: string; absenceHash: string; dispatches: 0; childrenCreated: 1; repairsUsed: 0;
+  pivotsUsed: 0; authorityClosed: true; knownMicrousd: '0'; heldMicrousd: '0' };
+export type R12FocusedUnsentRecoveryAuthorization = Omit<R12FocusedSuccessorAuthorization, 'version' | 'limits'> & {
+  version: 'r12.focused-pilot-unsent-recovery-authorization.1'; limits: typeof R12_UNSENT_RECOVERY_LIMITS; unsentClosure: R12FocusedUnsentClosure };
+export type R12FocusedSuccessor = { authorization: R12FocusedSuccessorAuthorization | R12FocusedUnsentRecoveryAuthorization; authorizationHash: string };
 type Pins = { businessId: string; scopeId: string; goalId: string; ownerId?: string; budgetAuthorityRootId?: string; priorRoundId?: string; scope?: DiscoveryFocusedPilot;
   focusedPilot?: { profileHash: string; closedScopeId: string; closedPlanId: string; acceptedReviewScopeId: string } };
 const fail = (): never => { throw Error('r12_focused_successor_unverified'); };
@@ -31,17 +40,27 @@ const id = (v: unknown): v is string => typeof v === 'string' && /^[a-f0-9]{8}-[
 const hash = (v: unknown): v is string => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v);
 const money = (v: unknown): v is string => typeof v === 'string' && /^(0|[1-9][0-9]{0,15})$/.test(v) && Number.isSafeInteger(Number(v));
 const date = (v: unknown): v is string => typeof v === 'string' && Number.isFinite(Date.parse(v));
+export function validateR12FocusedUnsentClosure(raw: unknown, pins: {businessId: string; scopeId: string; goalId: string; planId?: string; planHash?: string; budgetAuthorityRootId?: string; priorRoundId?: string; successorAuthorizationHash?: string}): R12FocusedUnsentClosure {
+  const c=exact(raw,'version,businessId,scopeId,scopeHash,goalId,planId,planHash,policyId,policyHash,profileHash,budgetAuthorityRootId,priorRoundId,successorAuthorizationHash,controllerKeyHash,admissionKeyHash,attemptId,requestId,requestHash,wireBindingHash,wireHash,reservationHash,releaseHash,releaseEvidenceHash,decisionHash,dispatches,childrenCreated,repairsUsed,pivotsUsed,authorityClosed,knownMicrousd,heldMicrousd,absenceHash');
+  if (c.version!=='r12.focused-pilot-unsent-closure.1' || Buffer.byteLength(JSON.stringify(raw),'utf8')>8192 || containsCredentialLikeValue(raw) ||
+      ![c.businessId,c.scopeId,c.goalId,c.planId,c.policyId,c.budgetAuthorityRootId,c.priorRoundId,c.attemptId,c.requestId].every(id) ||
+      ![c.scopeHash,c.planHash,c.policyHash,c.profileHash,c.successorAuthorizationHash,c.controllerKeyHash,c.admissionKeyHash,c.requestHash,c.wireBindingHash,c.wireHash,c.reservationHash,c.releaseHash,c.releaseEvidenceHash,c.decisionHash,c.absenceHash].every(hash) ||
+      c.dispatches!==0 || c.childrenCreated!==1 || c.repairsUsed!==0 || c.pivotsUsed!==0 || c.authorityClosed!==true || c.knownMicrousd!=='0' || c.heldMicrousd!=='0' ||
+      Object.entries(pins).some(([key,value])=>value!==undefined && c[key]!==value)) return fail();
+  return structuredClone(raw) as R12FocusedUnsentClosure;
+}
 /** This validates a proof returned by the scoped SQL join. Its shape alone does
  * not create authority: SQL independently reconstructs and compares every pin. */
 export function validateR12FocusedSuccessor(raw: unknown, pins: Pins, now?: number): R12FocusedSuccessor {
   const pair = exact(raw, 'authorization,authorizationHash');
   if (Buffer.byteLength(JSON.stringify(raw), 'utf8') > 16384 || containsCredentialLikeValue(raw)) return fail();
-  const a = exact(pair.authorization, 'version,businessId,ownerId,scopeId,scopeHash,goalId,preparedGoalRevision,preparedGoalHash,profileHash,ownerApprovalEvidenceHash,predecessorClosure,limits,createdAt,expiresAt');
+  const recovery=object(pair.authorization) && pair.authorization.version==='r12.focused-pilot-unsent-recovery-authorization.1';
+  const a = exact(pair.authorization, 'version,businessId,ownerId,scopeId,scopeHash,goalId,preparedGoalRevision,preparedGoalHash,profileHash,ownerApprovalEvidenceHash,predecessorClosure,limits,createdAt,expiresAt'+(recovery?',unsentClosure':''));
   const c = exact(a.predecessorClosure, 'version,businessId,scopeId,scopeHash,goalId,planId,planHash,policyId,policyHash,profileHash,budgetAuthorityRootId,priorRoundId,originalGoalId,originalClosedPlanId,originalClosedPlanHash,acceptedReviewScopeId,acceptedReviewHash,controllerKeyHash,admissionKeyHash,dispatches,childrenCreated,repairsUsed,pivotsUsed,authorityClosed,knownMicrousd,phases');
-  if (!hash(pair.authorizationHash) || discoveryV2Hash(a) !== pair.authorizationHash || a.version !== 'r12.focused-pilot-successor-authorization.1' ||
+  if (!hash(pair.authorizationHash) || discoveryV2Hash(a) !== pair.authorizationHash || a.version !== (recovery?'r12.focused-pilot-unsent-recovery-authorization.1':'r12.focused-pilot-successor-authorization.1') ||
       ![a.businessId,a.ownerId,a.scopeId,a.goalId].every(id) || ![a.scopeHash,a.preparedGoalHash,a.profileHash,a.ownerApprovalEvidenceHash].every(hash) ||
       a.preparedGoalRevision !== 2 || a.businessId !== pins.businessId || a.scopeId !== pins.scopeId || a.goalId !== pins.goalId || pins.ownerId !== undefined && a.ownerId !== pins.ownerId ||
-      discoveryV2Hash(a.limits) !== discoveryV2Hash(R12_FOCUSED_SUCCESSOR_LIMITS) || !date(a.createdAt) || !date(a.expiresAt) || Date.parse(a.createdAt) >= Date.parse(a.expiresAt) ||
+      discoveryV2Hash(a.limits) !== discoveryV2Hash(recovery?R12_UNSENT_RECOVERY_LIMITS:R12_FOCUSED_SUCCESSOR_LIMITS) || !date(a.createdAt) || !date(a.expiresAt) || Date.parse(a.createdAt) >= Date.parse(a.expiresAt) ||
       now !== undefined && (!Number.isFinite(now) || Date.parse(a.createdAt) > now || Date.parse(a.expiresAt) <= now) ||
       c.version !== 'r12.focused-pilot-closure.1' || c.businessId !== a.businessId ||
       pins.budgetAuthorityRootId !== undefined && c.budgetAuthorityRootId !== pins.budgetAuthorityRootId || pins.priorRoundId !== undefined && c.priorRoundId !== pins.priorRoundId ||
@@ -60,11 +79,14 @@ export function validateR12FocusedSuccessor(raw: unknown, pins: Pins, now?: numb
   }
   if (!Number.isSafeInteger(known) || known !== Number(c.knownMicrousd) ||
       c.phases[0].attemptId === c.phases[1].attemptId || c.phases[0].requestId === c.phases[1].requestId) return fail();
+  const u=recovery?validateR12FocusedUnsentClosure(a.unsentClosure,{businessId:String(a.businessId),scopeId:String((a.unsentClosure as Record<string,unknown>)?.scopeId),goalId:String((a.unsentClosure as Record<string,unknown>)?.goalId),budgetAuthorityRootId:String(c.budgetAuthorityRootId),priorRoundId:String(c.priorRoundId)}):null;
+  if(u && (new Set([a.scopeId,c.scopeId,c.acceptedReviewScopeId,u.scopeId]).size!==4 || new Set([a.goalId,c.goalId,c.originalGoalId,u.goalId]).size!==4 || [c.planId,c.originalClosedPlanId].includes(u.planId)))return fail();
+  const closedPlanId=u?.planId??c.planId,closedPlanHash=u?.planHash??c.planHash,closedScopeId=u?.scopeId??c.scopeId;
   const e = pins.scope, f = pins.focusedPilot;
   if (e && (a.scopeHash !== discoveryV2Hash(e) || a.profileHash !== e.profileHash || a.ownerApprovalEvidenceHash !== e.approvalHash ||
-      a.createdAt !== e.createdAt || a.expiresAt !== e.expiresAt || c.planId !== e.closedPlanId || c.planHash !== e.closedPlanHash ||
+      a.createdAt !== e.createdAt || a.expiresAt !== e.expiresAt || closedPlanId !== e.closedPlanId || closedPlanHash !== e.closedPlanHash ||
       c.originalGoalId !== e.originalGoalId || c.acceptedReviewScopeId !== e.acceptedReviewScopeId || c.acceptedReviewHash !== e.acceptedReviewHash ||
       c.budgetAuthorityRootId !== e.budgetAuthorityRootId || c.priorRoundId !== e.priorRoundId || e.profile.researchAllocationMicrousd !== R12_FOCUSED_SUCCESSOR_LIMITS.maximumMicrousd)) return fail();
-  if (f && (a.profileHash !== f.profileHash || c.scopeId !== f.closedScopeId || c.planId !== f.closedPlanId || c.acceptedReviewScopeId !== f.acceptedReviewScopeId)) return fail();
+  if (f && (a.profileHash !== f.profileHash || closedScopeId !== f.closedScopeId || closedPlanId !== f.closedPlanId || c.acceptedReviewScopeId !== f.acceptedReviewScopeId)) return fail();
   return structuredClone(raw) as R12FocusedSuccessor;
 }

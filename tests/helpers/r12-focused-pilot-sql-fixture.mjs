@@ -1,5 +1,6 @@
 /** Disposable full SQL fixture. Trusted fixture registration is not a production recipe. */
 import assert from 'node:assert/strict';
+import {pilotOwnerSqlApi} from './r12-pilot-owner-sql-fixture.mjs';
 import {randomUUID,createHash,createHmac} from 'node:crypto';
 import {createRequire} from 'node:module';
 import {focusedProfileFixture,focusedStrategyOutput} from './r12-focused-profile-fixture.mjs';
@@ -18,8 +19,8 @@ const {driveQuestOnce}=req(compiled+'/core/quest-controller.js');
 const {r12PilotGoalContent,R12_PILOT_OBJECTIVE,R12_PILOT_QUESTION}=req(compiled+'/products/discovery-r12-pilot-preparation-contract.js');
 const {validateDiscoveryFocusedPilot}=req(compiled+'/products/discovery-r12-focused-pilot-scope.js');
 const digest=text=>createHash('sha256').update(text).digest('hex');
-export async function exerciseFocusedPilotLifecycle(db,closed,{nested=false,ownerPreparationReceipt=null,stageOnly=false,reviewFailure=false,successor=null,strategyOutcome='TEST',profileFixture=focusedProfileFixture,strategyOutput=focusedStrategyOutput,onReservedDispatch=null}={}){
- const one=async(sql,args=[])=>(await db.query(sql,args)).rows[0],recipeClient=reviewRecipeClient(db,nested),runOperatorRecipe=successor?runSuccessorOperatorRecipe:runOriginalOperatorRecipe;
+export async function exerciseFocusedPilotLifecycle(db,closed,{nested=false,ownerPreparationReceipt=null,stageOnly=false,reviewFailure=false,successor=null,strategyOutcome='TEST',profileFixture=focusedProfileFixture,strategyOutput=focusedStrategyOutput,onReservedDispatch=null,recovery=null,actualOwnerPreparation=false,stopBeforeActivation=false}={}){
+ const one=async(sql,args=[])=>(await db.query(sql,args)).rows[0],recipeClient=reviewRecipeClient(db,nested),runOperatorRecipe=recovery?(await import('../../scripts/r12-focused-pilot-unsent-recovery-bootstrap.mjs')).runOperatorRecipe:successor?runSuccessorOperatorRecipe:runOriginalOperatorRecipe;
  const closedBroad=successor?successor.closedBroad:closed;
  const ownerRpc=async(name,args)=>{await db.exec('savepoint pilot_owner_rpc');await db.exec('set role authenticated');try{return(await one(`select public.${name}(${args.map((_,n)=>`$${n+1}`).join(',')}) result`,args)).result;}catch(error){await db.exec('rollback to savepoint pilot_owner_rpc');throw error;}finally{await db.exec('reset role');await db.exec('release savepoint pilot_owner_rpc');}};
  const oldPlan=await one('select * from private.r07_plans where id=$1',[closedBroad.activated.planId]);
@@ -27,6 +28,8 @@ export async function exerciseFocusedPilotLifecycle(db,closed,{nested=false,owne
  const saved=(await one('select public.r12_discovery_result_read($1,$2) result',[oldPlan.business_id,oldScope.amendment.predecessorScopeId])).result;
  const historic=runtime.reconstructDiscoveryR12Result(saved,oldPlan.business_id,oldScope.amendment.predecessorScopeId);assert.equal(historic.review.outcome,'NEEDS_MORE_EVIDENCE');
  const oldFrozen=await one('select (select jsonb_agg(to_jsonb(v) order by revision) from private.r04_goal_versions v where goal_id=$1) goals,(select jsonb_agg(to_jsonb(p) order by version) from private.r07_plans p where goal_id=$1) plans,(select to_jsonb(h) from private.r07_heads h where goal_id=$1) head,(select jsonb_agg(to_jsonb(l) order by experiment_id) from private.r04_research_links l where goal_id=$1) links',[oldPlan.goal_id]);
+ const ownerApi=actualOwnerPreparation?pilotOwnerSqlApi(db,oldPlan.business_id,oldPlan.owner_id):null;
+ if(ownerApi&&!ownerPreparationReceipt){const input={businessId:oldPlan.business_id,sourceScopeId:recovery?.scopeId??successor?.scopeId??oldScope.id,preparationId:randomUUID(),setupUntil:successor?.metadata.focusedProfile.expiresAt??new Date(Math.floor((Date.now()+7200000)/1000)*1000).toISOString()};ownerPreparationReceipt=await ownerApi.preparation.prepareR12PilotGoal(ownerApi.context,input);assert.deepEqual(await ownerApi.preparation.prepareR12PilotGoal(ownerApi.context,input),ownerPreparationReceipt);assert.equal(ownerPreparationReceipt.authorityCreated,false);if(recovery)assert.equal(ownerPreparationReceipt.unsentClosureHash,hash(recovery.unsentClosure));}
  const now=Date.now(),start=new Date(now-1000).toISOString(),end=ownerPreparationReceipt?.setupUntil??successor?.metadata.focusedProfile.expiresAt??new Date(Math.floor((now+7200000)/1000)*1000).toISOString(),p=successor?structuredClone(successor.metadata.focusedProfile):profileFixture(),sid=ownerPreparationReceipt?.preparationId??randomUUID();
  p.id=sid;p.businessId=oldPlan.business_id;p.originalGoalId=oldPlan.goal_id;p.budgetAuthorityRootId=oldScope.budget_authority_root_id;p.priorRoundId=oldScope.prior_round_id;
  p.originalIntentHash=hash(saved.inputs.original.priorIntent);p.originalSemanticGoalHash=saved.inputs.original.semanticGoalHash;
@@ -38,16 +41,16 @@ export async function exerciseFocusedPilotLifecycle(db,closed,{nested=false,owne
  // Conservative inert quoted ceilings are bounded; real operator uses fresh pilot qualification.
  const {quoteHash:_hash,verifiedAt:_verified,validUntil:_valid,...quoteBody}=quote;void[_hash,_verified,_valid];quote.quoteHash=hash(quoteBody);
  p.researchAllocationMicrousd=quote.maximumMicrousd;
- const content=r12PilotGoalContent({businessId:p.businessId,sourceScopeId:successor?successor.metadata.scopeId:oldScope.id,preparationId:sid,setupUntil:end},!!successor);
+ const content=r12PilotGoalContent({businessId:p.businessId,sourceScopeId:recovery?.scopeId??(successor?successor.metadata.scopeId:oldScope.id),preparationId:sid,setupUntil:end},!!successor,!!recovery);
  let create;
- if(ownerPreparationReceipt){assert.equal(ownerPreparationReceipt.businessId,p.businessId);assert.equal(ownerPreparationReceipt.sourceScopeId,successor?successor.metadata.scopeId:oldScope.id);assert.equal(ownerPreparationReceipt.closedPlanHash,successor?successor.closure.planHash:oldPlan.content_hash);create={id:ownerPreparationReceipt.goalId};const exactGoal=await one('select content from private.r04_goal_versions where goal_id=$1 order by revision desc limit 1',[create.id]);assert.deepEqual(exactGoal.content,content);}
+ if(ownerPreparationReceipt){assert.equal(ownerPreparationReceipt.businessId,p.businessId);assert.equal(ownerPreparationReceipt.sourceScopeId,recovery?.scopeId??(successor?successor.metadata.scopeId:oldScope.id));assert.equal(ownerPreparationReceipt.closedPlanHash,recovery?.unsentClosure.planHash??(successor?successor.closure.planHash:oldPlan.content_hash));create={id:ownerPreparationReceipt.goalId};const exactGoal=await one('select content from private.r04_goal_versions where goal_id=$1 order by revision desc limit 1',[create.id]);assert.deepEqual(exactGoal.content,content);}
  else {
  const saveId=randomUUID();create=await ownerRpc('r04_quest_transition',[p.businessId,'quest.save',{goalId:null,expectedRevision:0,content},saveId]);
  assert.equal(create.revision,1);assert.notEqual(create.id,oldPlan.goal_id);assert.equal((await ownerRpc('r04_quest_transition',[p.businessId,'quest.save',{goalId:null,expectedRevision:0,content},saveId])).id,create.id);
  const ready=await ownerRpc('r04_quest_transition',[p.businessId,'quest.preference',{goalId:create.id,expectedRevision:1,preference:'ready'},randomUUID()]);assert.equal(ready.revision,2);
  }
  p.goalId=create.id;p.observations.goalId=p.goalId;if(successor)p.observations.approvalHash=hash({sid,ownerApproval:'inert separately approved research successor'});
- const e={version:'r12.discovery-focused-pilot.1',id:sid,businessId:p.businessId,goalId:p.goalId,budgetAuthorityRootId:p.budgetAuthorityRootId,priorRoundId:p.priorRoundId,profile:p,profileHash:hash(p),originalGoalId:p.originalGoalId,closedPlanId:successor?successor.closure.planId:oldPlan.id,closedPlanHash:successor?successor.closure.planHash:oldPlan.content_hash,acceptedReviewScopeId:p.history.acceptedReviewScopeId,acceptedReviewHash:p.history.acceptedReviewHash,acceptedReviewRecordHash:p.history.recordHash,originalIntentHash:p.originalIntentHash,originalSemanticGoalHash:p.originalSemanticGoalHash,allowedDomains:p.intent.comparisonUniverse.sourceDomains,excludedDomains:['etsy.com','etsy.me','etsystatic.com'],approvedQuery:p.learningQuestion,approvalHash:successor?p.observations.approvalHash:'b'.repeat(64),independentReviewHash:'c'.repeat(64),createdAt:start,expiresAt:end};
+ const e={version:'r12.discovery-focused-pilot.1',id:sid,businessId:p.businessId,goalId:p.goalId,budgetAuthorityRootId:p.budgetAuthorityRootId,priorRoundId:p.priorRoundId,profile:p,profileHash:hash(p),originalGoalId:p.originalGoalId,closedPlanId:recovery?.unsentClosure.planId??(successor?successor.closure.planId:oldPlan.id),closedPlanHash:recovery?.unsentClosure.planHash??(successor?successor.closure.planHash:oldPlan.content_hash),acceptedReviewScopeId:p.history.acceptedReviewScopeId,acceptedReviewHash:p.history.acceptedReviewHash,acceptedReviewRecordHash:p.history.recordHash,originalIntentHash:p.originalIntentHash,originalSemanticGoalHash:p.originalSemanticGoalHash,allowedDomains:p.intent.comparisonUniverse.sourceDomains,excludedDomains:['etsy.com','etsy.me','etsystatic.com'],approvedQuery:p.learningQuestion,approvalHash:successor?p.observations.approvalHash:'b'.repeat(64),independentReviewHash:'c'.repeat(64),createdAt:start,expiresAt:end};
  const scopeInsert=env=>db.query('insert into private.r12_discovery_scopes(id,business_id,goal_id,budget_authority_root_id,prior_round_id,amendment,amendment_hash) values($1,$2,$3,$4,$5,$6,$7)',[env.id,env.businessId,env.goalId,env.budgetAuthorityRootId,env.priorRoundId,env,hash(env)]);
  const expectRejected=async(action,pattern)=>{await db.exec('savepoint pilot_negative');try{await assert.rejects(action,pattern);}finally{await db.exec('rollback to savepoint pilot_negative');await db.exec('release savepoint pilot_negative');}};
  if(!successor)for(const mutate of [x=>x.closedPlanHash='0'.repeat(64),x=>x.closedPlanId=randomUUID(),x=>{x.profile.candidate.concept+=' changed';x.profileHash=hash(x.profile);},x=>{x.profile.intent.comparisonUniverse.selectionQuestion+=' changed';x.profileHash=hash(x.profile);},x=>{x.acceptedReviewHash='0'.repeat(64);x.profile.history.acceptedReviewHash=x.acceptedReviewHash;x.profile.observations.predecessorReviewHash=x.acceptedReviewHash;x.profileHash=hash(x.profile);}]){const bad=structuredClone(e);mutate(bad);await expectRejected(()=>scopeInsert(bad));}
@@ -71,19 +74,21 @@ export async function exerciseFocusedPilotLifecycle(db,closed,{nested=false,owne
  if(successor){
   authorization={version:'r12.focused-pilot-successor-authorization.1',businessId:p.businessId,ownerId:oldPlan.owner_id,scopeId:sid,scopeHash:hash(e),goalId:p.goalId,preparedGoalRevision:2,preparedGoalHash:goal.content_hash,profileHash:e.profileHash,ownerApprovalEvidenceHash:e.approvalHash,predecessorClosure:successor.closure,
    limits:{maximumSuccessors:1,maximumPaidCalls:2,maximumReceiptGets:6,maximumReceiptGetsPerCall:3,dispatchWindowSeconds:1800,receiptGraceSeconds:1800,maximumMicrousd:277907,maximumStrategyMicrousd:66671,maximumReviewMicrousd:211236,stopOnAnyNegative:true,researchOnly:true,paidRetryAllowed:false,searchAllowed:false,imageAllowed:false,storeActionsAllowed:false},createdAt:e.createdAt,expiresAt:e.expiresAt};
+  if(recovery){authorization.version='r12.focused-pilot-unsent-recovery-authorization.1';authorization.limits.maximumRecoveries=1;authorization.unsentClosure=recovery.unsentClosure;}
   proposal.interpretationHash=hash(authorization);
  }
- const stageInput={envelope:e,proposal,quote,executionReviewHash,eligibilityReviewHash,...(authorization?{successorAuthorization:authorization}:{})};
+ const authorizationField=recovery?'recoveryAuthorization':'successorAuthorization',authorizationHashField=recovery?'recoveryAuthorizationHash':'successorAuthorizationHash';
+ const stageInput={envelope:e,proposal,quote,executionReviewHash,eligibilityReviewHash,...(authorization?{[authorizationField]:authorization}:{})};
  if(successor){
-  const count=async()=>one('select (select count(*) from private.r12_pilot_successor_authorizations)::int proofs,(select count(*) from private.r12_discovery_scopes)::int scopes,(select count(*) from private.r05_operations)::int operations,(select count(*) from private.r07_adapters)::int adapters');
+  const count=async()=>one('select (select count(*) from private.r12_pilot_unsent_recovery_authorizations)::int recoveries,(select count(*) from private.r12_pilot_successor_authorizations)::int proofs,(select count(*) from private.r12_discovery_scopes)::int scopes,(select count(*) from private.r05_operations)::int operations,(select count(*) from private.r07_adapters)::int adapters');
   const before=await count();
-  for(const mutate of [x=>x.successorAuthorization.scopeHash='0'.repeat(64),x=>x.successorAuthorization.preparedGoalHash='0'.repeat(64),x=>x.successorAuthorization.ownerId=randomUUID(),x=>x.successorAuthorization.ownerApprovalEvidenceHash='0'.repeat(64),x=>x.successorAuthorization.predecessorClosure.phases[0].settlementHash='0'.repeat(64),x=>x.successorAuthorization.limits.maximumPaidCalls=3,x=>x.proposal.interpretationHash='0'.repeat(64)]){
+  for(const mutate of [x=>x[authorizationField].scopeHash='0'.repeat(64),x=>x[authorizationField].preparedGoalHash='0'.repeat(64),x=>x[authorizationField].ownerId=randomUUID(),x=>x[authorizationField].ownerApprovalEvidenceHash='0'.repeat(64),x=>x[authorizationField].predecessorClosure.phases[0].settlementHash='0'.repeat(64),x=>x[authorizationField].limits.maximumPaidCalls=3,x=>x.proposal.interpretationHash='0'.repeat(64),...(recovery?[x=>x[authorizationField].unsentClosure.releaseHash='0'.repeat(64),x=>x[authorizationField].unsentClosure.requestHash='0'.repeat(64),x=>x[authorizationField].unsentClosure.absenceHash='0'.repeat(64),x=>x[authorizationField].unsentClosure.scopeId=sid,x=>x[authorizationField].limits.maximumRecoveries=2]:[])]){
    const bad=structuredClone(stageInput);mutate(bad);await expectRejected(()=>runOperatorRecipe(recipeClient,'stage',bad));assert.deepEqual(await count(),before);
   }
-  await expectRejected(()=>runOriginalOperatorRecipe(recipeClient,'stage',{envelope:e,proposal,quote,executionReviewHash,eligibilityReviewHash}),/r12_pilot_closed_latest_plan_required/);assert.deepEqual(await count(),before);
+  await expectRejected(()=>runOriginalOperatorRecipe(recipeClient,'stage',{envelope:e,proposal,quote,executionReviewHash,eligibilityReviewHash}),/r12_pilot_closed_latest_plan_required|r12_one_focused|r12_successor_/);assert.deepEqual(await count(),before);
  }
  const staged=await runOperatorRecipe(recipeClient,'stage',stageInput);assert.equal(staged.authorityCreated,false);
- if(successor){
+ if(successor&&!recovery){
   const oldExpiry=saved.inputs.sourceAmendment.expiresAt;
   const historicalAt=new Date(Date.parse(oldExpiry)+1000).toISOString();
   if(Date.parse(historicalAt)<Date.parse(e.expiresAt)){
@@ -99,25 +104,37 @@ export async function exerciseFocusedPilotLifecycle(db,closed,{nested=false,owne
  const duplicate=structuredClone(e);duplicate.id=randomUUID();duplicate.goalId=otherSave.id;duplicate.profile.id=duplicate.id;duplicate.profile.goalId=otherSave.id;duplicate.profile.intent.id=duplicate.id;duplicate.profile.observations.goalId=otherSave.id;duplicate.profileHash=hash(duplicate.profile);
  await expectRejected(()=>scopeInsert(duplicate),/r12_one_focused_pilot_per_closed_plan/);
  }
- const fixtureMetadata={...closedBroad.metadata,businessId:p.businessId,goalId:p.goalId,scopeId:sid,ownerId:oldPlan.owner_id,sourceScopeId:successor?successor.metadata.scopeId:oldScope.id,originalGoalId:oldPlan.goal_id,focusedProfile:p,focusedEnvelope:e,proposal,stageInput,staged,quote,executionReviewHash,eligibilityReviewHash,...(authorization?{authorization,authorizationHash:hash(authorization),closedFocused:successor}:{})};
+ if(recovery){await expectRejected(()=>runOperatorRecipe(recipeClient,'stage',stageInput),/duplicate key|unique constraint/);await expectRejected(()=>db.query('select private.r12_pilot_unsent_closure($1)',[sid]),/r12_recovery_|no rows/);}
+ const fixtureMetadata={...closedBroad.metadata,businessId:p.businessId,goalId:p.goalId,scopeId:sid,ownerId:oldPlan.owner_id,sourceScopeId:recovery?.scopeId??(successor?successor.metadata.scopeId:oldScope.id),originalGoalId:oldPlan.goal_id,focusedProfile:p,focusedEnvelope:e,proposal,stageInput,staged,quote,executionReviewHash,eligibilityReviewHash,...(authorization?{authorization,authorizationHash:hash(authorization),closedFocused:successor,...(recovery?{closedUnsent:recovery}:{})}:{})};
  if(stageOnly)return {metadata:fixtureMetadata,staged,stageInput};
 
- const confirmation=await ownerRpc('r12_review_owner_confirm',[p.businessId,sid,hash(proposal)]);assert.equal(confirmation.executionAuthorized,false);
+ const confirmation=ownerApi?await ownerApi.confirmation.confirmR12ReviewPreparation(ownerApi.context,p.businessId,sid,hash(proposal)):await ownerRpc('r12_review_owner_confirm',[p.businessId,sid,hash(proposal)]);assert.equal(confirmation.executionAuthorized,false);
  assert.equal((await ownerRpc('r12_review_owner_confirm',[p.businessId,sid,hash(proposal)])).replayed,true);
  const derive=role=>createHmac('sha256','inert-r12-owner-root-configuration-0123456789').update(JSON.stringify({version:'r12.scoped-authority.1',role,businessId:p.businessId,ownerId:oldPlan.owner_id,scopeId:sid})).digest('base64url');
  const controller=derive('controller'),admission=derive('admission'),lease='inert-pilot-lease-'+randomUUID();
  const activationInput={businessId:p.businessId,scopeId:sid,scopeHash:hash(e),proposalHash:hash(proposal),policyId:confirmation.policyId,policyHash:confirmation.policyHash,
-  quote,executionReviewHash,eligibilityReviewHash,controllerKeyHash:digest(controller),admissionKeyHash:digest(admission),...(authorization?{successorAuthorizationHash:hash(authorization)}:{})};
+  quote,executionReviewHash,eligibilityReviewHash,controllerKeyHash:digest(controller),admissionKeyHash:digest(admission),...(authorization?{[authorizationHashField]:hash(authorization)}:{})};
+ if(stopBeforeActivation){
+  assert.ok(recovery&&ownerApi);const before=await one('select (select count(*) from private.r07_server_keys)::int controller,(select count(*) from private.r05_server_keys)::int admission');
+  assert.deepEqual(await ownerApi.server.stopDiscoveryR12(ownerApi.context,p.businessId,sid),{stopped:true});
+  await expectRejected(()=>runOperatorRecipe(recipeClient,'activate',activationInput),/owner_confirmation|revoked|stopped/);
+  assert.deepEqual(await one('select (select count(*) from private.r07_server_keys)::int controller,(select count(*) from private.r05_server_keys)::int admission'),before);
+  assert.equal((await one('select count(*)::int n from private.r12_discovery_authorities where scope_id=$1',[sid])).n,0);
+  assert.equal((await one('select count(*)::int n from private.r12_pilot_unsent_recovery_authorizations where scope_id=$1',[sid])).n,1);
+  assert.equal((await one('select count(*)::int n from private.r05_revocations where policy_id=$1',[confirmation.policyId])).n,1);
+  return{metadata:fixtureMetadata,scopeId:sid,inertPosts:0,inertReceiptGets:0,providerCalls:0,activeAuthority:false,stoppedBeforeActivation:true};
+ }
  const activated=await runOperatorRecipe(recipeClient,'activate',activationInput);const plan=activated.plan;
- assert.equal(activated.providerCalls,0);assert.equal(activated.planId,null);assert.equal(activated.shouldDispatch,false);
+ assert.equal(activated.providerCalls,0);assert.equal(activated.planId,null);assert.equal(activated.shouldDispatch,false);assert.equal(plan.maximumMicrounits,'277907');assert.equal(plan.maximumDispatches,2);assert.equal(plan.maximumChildren,2);assert.equal(plan.maximumRepairs,0);assert.equal(plan.maximumPivots,0);assert.deepEqual(plan.steps.map(step=>step.maximumMicrounits),['66671','211236']);
+ const authority=await one('select valid_until,receipt_until from private.r12_discovery_authorities where scope_id=$1',[sid]);assert.equal(Date.parse(authority.receipt_until)-Date.parse(authority.valid_until),1800000);if(ownerPreparationReceipt){assert.equal(activationInput.controllerKeyHash,ownerPreparationReceipt.controllerKeyHash);assert.equal(activationInput.admissionKeyHash,ownerPreparationReceipt.admissionKeyHash);}
  const rpc=async(name,args)=>{await db.exec('savepoint pilot_effect_rpc');await db.exec('set role anon');try{return(await one(`select public.${name}(${args.map((_,n)=>`$${n+1}`).join(',')}) result`,args)).result;}catch(error){await db.exec('rollback to savepoint pilot_effect_rpc');throw error;}finally{await db.exec('reset role');await db.exec('release savepoint pilot_effect_rpc');}};
  const command=(op,payload,epoch=null)=>rpc('r07_controller',[p.businessId,p.goalId,op,payload,randomUUID(),controller,lease,epoch,admission]);
  await command('plan',{plan,expectedVersion:0,reason:'Inert finite independent focused pilot',evidenceHash:hash(e)});
  const snapshot=await command('read',{});assert.equal(snapshot.planVersion??(await one('select version from private.r07_plans where id=$1',[snapshot.planId])).version,1);
  const operation=(attemptId,operation,payload)=>rpc('r12_discovery_server',[p.businessId,attemptId,operation,payload,controller]);
  const effectStore={operation,settle:(attemptId,settlement)=>command('settle',{attemptId,settlement}),dispatchedAt:async attemptId=>(await operation(attemptId,'load',{})).dispatchedAt};
- let capturedDispatch;
- const store={read:()=>command('read',{}),command:(op,payload,epoch)=>{if(onReservedDispatch&&op==='dispatch'){capturedDispatch={payload,epoch};return Promise.resolve({shouldDispatch:false,reason:'full_shape_dispatch_captured'});}return command(op,['schedule','reserve'].includes(op)?{...payload,runtimeCapability:'inert-focused-pilot-capability-0123456789'}:payload,epoch);}};
+ let capturedDispatch,captureDispatch=!!onReservedDispatch;
+ const store={read:()=>command('read',{}),command:(op,payload,epoch)=>{if(captureDispatch&&op==='dispatch'){capturedDispatch={payload,epoch};return Promise.resolve({shouldDispatch:false,reason:'full_shape_dispatch_captured'});}return command(op,['schedule','reserve'].includes(op)?{...payload,runtimeCapability:'inert-focused-pilot-capability-0123456789'}:payload,epoch);}};
  let posts=0,gets=0,delay=true;const actualWires={};let prepared;
  const decode=value=>{const f=v=>Array.isArray(v)?v.map(f):v&&typeof v==='object'?Object.keys(v).length===1&&'$text'in v?value.sharedText[v.$text]:Object.fromEntries(Object.entries(v).map(([k,x])=>[k,f(x)])):v;return f(value);};
  const fetcher=async(url,init)=>{
@@ -144,9 +161,12 @@ export async function exerciseFocusedPilotLifecycle(db,closed,{nested=false,owne
   return runtime.buildDiscoveryR12PhaseRequest(ctx,state);},quote:async()=>quote,project:async(qualified,ctx,request)=>runtime.projectDiscoveryR12Phase(ctx,runtime.readDiscoveryR12PhaseInputs(ctx,await operation(ctx.attempt.id,'inputs',{})),qualified,request),config:{apiKey:'inert-focused-pilot-provider',baseUrl:'https://openrouter.ai/api/v1',appUrl:'https://agent-labs-two.vercel.app',appName:'Agent Labs'},fetcher})]));
  const tick=()=>driveQuestOnce(store,{adapters,reconcile:true});
  const closeRun=async()=>{
-  await ownerRpc('r05_policy_owner',[p.businessId,'revoke',{policyId:plan.policyId,policyHash:plan.policyHash},randomUUID()]);
-  const closed=await runOperatorRecipe(recipeClient,'close',{businessId:p.businessId,scopeId:sid,scopeHash:hash(e),policyId:plan.policyId,policyHash:plan.policyHash,planHash:activated.planHash,...(authorization?{successorAuthorizationHash:hash(authorization)}:{})});
+  if(ownerApi)await ownerApi.server.stopDiscoveryR12(ownerApi.context,p.businessId,sid);else await ownerRpc('r05_policy_owner',[p.businessId,'revoke',{policyId:plan.policyId,policyHash:plan.policyHash},randomUUID()]);
+  const closed=await runOperatorRecipe(recipeClient,'close',{businessId:p.businessId,scopeId:sid,scopeHash:hash(e),policyId:plan.policyId,policyHash:plan.policyHash,planHash:activated.planHash,...(authorization?{[authorizationHashField]:hash(authorization)}:{})});
   if(successor)assert.deepEqual((await one('select private.r12_pilot_successor_closure($1) closure',[successor.scopeId])).closure,successor.closure,'Closed predecessor receipt and charges remain byte-identical');
+  if(recovery)assert.deepEqual((await one('select private.r12_pilot_unsent_closure($1) closure',[recovery.scopeId])).closure,recovery.unsentClosure,'Closed unsent receipt and released exposure remain immutable');
+  assert.deepEqual(await one('select (select jsonb_agg(to_jsonb(v) order by revision) from private.r04_goal_versions v where goal_id=$1) goals,(select jsonb_agg(to_jsonb(p) order by version) from private.r07_plans p where goal_id=$1) plans,(select to_jsonb(h) from private.r07_heads h where goal_id=$1) head,(select jsonb_agg(to_jsonb(l) order by experiment_id) from private.r04_research_links l where goal_id=$1) links',[oldPlan.goal_id]),oldFrozen,'Every terminal outcome preserves original broad Goal and controller history');
+  assert.equal(closed.activeAuthority,false);const closedView=await ownerRpc('r12_discovery_owner_read',[p.businessId,sid,false]);assert.equal(closedView.cost.heldMicrousd,'0');assert.equal(closedView.cost.hasUnknown,false);assert.equal(closedView.activeWindow,false);
   return closed;
  };
  for(const phase of phaseKeys){
@@ -158,7 +178,8 @@ export async function exerciseFocusedPilotLifecycle(db,closed,{nested=false,owne
   assert.equal((await tick()).reason,'scheduled');assert.equal((await tick()).reason,'reserved');
   if(onReservedDispatch&&phase==='strategy'){
    assert.equal((await tick()).reason,'full_shape_dispatch_captured');assert.equal(posts,0);assert.equal(gets,0);
-   return onReservedDispatch({db,metadata:fixtureMetadata,plan,command,controller,admission,lease,...capturedDispatch});
+   const captured=await onReservedDispatch({db,metadata:fixtureMetadata,closedBroad,scopeId:sid,planId:snapshot.planId,activated,plan,command,controller,admission,lease,ownerApi,closeRun,...capturedDispatch});
+   if(captured?.continueLifecycle!==true)return captured;captureDispatch=false;
   }
   if(phase==='strategy'&&strategyOutcome==='INVALID'){
    await assert.rejects(tick());assert.equal(posts,1);assert.equal(gets,0);
@@ -195,5 +216,5 @@ export async function exerciseFocusedPilotLifecycle(db,closed,{nested=false,owne
    assert.equal((await one('select count(*)::int n from public.creative_runs')).n,0,'A research TEST plus explicit adoption creates no creative run');
   }finally{await db.exec('rollback to savepoint successor_later_adoption');await db.exec('release savepoint successor_later_adoption');}
  }
- return {metadata:fixtureMetadata,closedBroad,providerCalls:0,inertPosts:posts,inertReceiptGets:gets,actualWires,newGoal:p.goalId,oldGoalUnchanged:true,newPlanVersion:1,outcome:result.review.outcome,cumulativeRootIncrement:20,savedPilot};
+ return {metadata:fixtureMetadata,closedBroad,scopeId:sid,planId:snapshot.planId,activeAuthority:!successor,providerCalls:0,inertPosts:posts,inertReceiptGets:gets,actualWires,newGoal:p.goalId,oldGoalUnchanged:true,newPlanVersion:1,outcome:result.review.outcome,cumulativeRootIncrement:20,savedPilot};
 }

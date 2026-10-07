@@ -1,10 +1,12 @@
 import test,{before,after,describe} from 'node:test';
+import {assertR12ScannerParity} from './helpers/r12-scanner-parity.mjs';
 import {fullShapePhaseOutputFixture,fullShapeProfileFixture,fullShapeFocusedStrategyOutput} from './helpers/r12-full-shape-fixture.mjs';
 import {exerciseFullShapeDispatch} from './helpers/r12-full-shape-dispatch.mjs';
 const fullShape=process.env.R12_SQL_FULL_SHAPE==='1';
 import {createClosedRejectedPlan4} from './helpers/r12-closed-plan4-fixture.mjs';
 import {exerciseFocusedPilotLifecycle} from './helpers/r12-focused-pilot-sql-fixture.mjs';
 import {createClosedFocusedPredecessor,exerciseFocusedPilotSuccessorLifecycle} from './helpers/r12-focused-pilot-successor-sql-fixture.mjs';
+import {createClosedUnsentSuccessor,exerciseFocusedPilotUnsentRecoveryLifecycle,exerciseUnsentRecoveryCloseout,exerciseUnsentRecoveryBlockedCloseout} from './helpers/r12-focused-pilot-unsent-recovery-sql-fixture.mjs';
 import {exerciseFocusedCreativeLifecycle} from './helpers/r12-focused-creative-sql-fixture.mjs';
 import assert from 'node:assert/strict';
 import {readFileSync,readdirSync} from 'node:fs';
@@ -39,6 +41,22 @@ test('R12 SQL lifecycle modes keep canonical coverage and avoid duplicate Next s
 });
 
 function source(file,deps){const m={exports:{}};new Function('require','module','exports',ts.transpileModule(readFileSync(path.join(root,file),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)(name=>{assert.ok(name in deps,name);return deps[name];},m,m.exports);return m.exports;}
+// Focused test groups share one transaction/predecessor fixture; every outcome
+// owns a rollback boundary and its own bounded assertion deadline.
+async function focusedCase(db,name,fn){await db.exec('savepoint '+name);try{return await fn();}finally{await db.exec('rollback to savepoint '+name);await db.exec('release savepoint '+name);}}
+async function focusedSuccessors(db,closedFocused){
+ for(const strategyOutcome of (fullShape?['TEST']:['NEEDS_MORE_EVIDENCE','REJECT','INCONSISTENT','INVALID','TEST']))await focusedCase(db,'successor_outcome',async()=>{
+  const result=await exerciseFocusedPilotSuccessorLifecycle(db,closedFocused,{nested:true,strategyOutcome,...(fullShape?{onReservedDispatch:exerciseFullShapeDispatch}:{})});
+  if(!fullShape){assert.equal(result.inertPosts,strategyOutcome==='TEST'?2:1);console.log('Successor isolated outcome verified:',strategyOutcome,'POSTs',result.inertPosts,'receipt GETs',result.inertReceiptGets);}
+ });
+}
+async function focusedRecoveryOutcomes(db,closedUnsent,outcomes){
+ for(const strategyOutcome of outcomes)await focusedCase(db,'unsent_recovery_outcome',async()=>{
+  const result=await exerciseFocusedPilotUnsentRecoveryLifecycle(db,closedUnsent,{nested:true,strategyOutcome,...(fullShape?{strategyOutput:fullShapeFocusedStrategyOutput,onReservedDispatch:(await import('./helpers/r12-full-shape-recovery-dispatch.mjs')).exerciseFullShapeRecoveryDispatch}:{})});assert.equal(result.inertPosts,strategyOutcome==='TEST'?2:1);
+  console.log('Proven-unsent recovery outcome verified:',strategyOutcome,'POSTs',result.inertPosts,'receipt GETs',result.inertReceiptGets);
+ });
+}
+
 async function prepareR12OwnerWorkflows(){
  const sqlRequire=createRequire(path.resolve(host,'package.json'));let db;
  if(process.env.R12_REQUIRE_POSTGRES==='1')assert.ok(process.env.R12_POSTGRES_URL,'Actual PostgreSQL is required by this gate');
@@ -55,6 +73,8 @@ async function prepareR12OwnerWorkflows(){
   await db.exec("set timezone='UTC'");
   await db.exec(r04SqlBootstrap+sessionBootstrap);
   for(const file of readdirSync(path.join(root,'supabase/migrations')).filter(x=>x.endsWith('.sql')).sort())try{await db.exec(readFileSync(path.join(root,'supabase/migrations',file),'utf8'));}catch(error){throw new Error(`${file}: ${error.message}`,{cause:error});}
+  const scannerQualification=await assertR12ScannerParity(db,{engine:process.env.R12_POSTGRES_URL?'postgresql':'pglite'});
+  if(scannerQualification.skipped)console.log('R12 scanner stress parity stays in the native PostgreSQL gate; PGlite continues snapshot/runtime assertions.');
   assert.equal((await db.query('select count(*)::int n from private.r12_discovery_scopes')).rows[0].n,0);
   const rootId=randomUUID(),scopeId=randomUUID();
   const originalKnowledge=discoveryKnowledgeFixture(),releases=[];let realRoot;
@@ -225,7 +245,7 @@ async function prepareR12OwnerWorkflows(){
    if(name==='r12_discovery_owner_read')return{data:(await db.query('select public.r12_discovery_owner_read($1,$2,$3) result',[args.p_business_id,args.p_scope_id,args.p_activation])).rows[0].result,error:null};
    assert.equal(name,'r05_policy_owner');return{data:(await db.query('select public.r05_policy_owner($1,$2,$3,$4) result',[args.p_business_id,args.p_operation,args.p_payload,args.p_submission_id])).rows[0].result,error:null};
   }catch(error){return{data:null,error};}finally{await db.exec('reset role');}}}};
-  const ownerActions=source('src/products/discovery-r12-server.ts',{'server-only':{},'node:crypto':require('node:crypto'),'../lib/core-ui/owner-business':owner,'../core/quest-plan':require('../.core-tests/core/quest-plan.js'),'../core/quest-controller':require('../.core-tests/core/quest-controller.js'),'./discovery-v2':require('../.core-tests/products/discovery-v2.js'),'./discovery-r12-runtime':require('../.core-tests/products/discovery-r12-runtime.js'),'./discovery-r12-adapter':require('../.core-tests/products/discovery-r12-adapter.js'),'./discovery-r12-wire':require('../.core-tests/products/discovery-r12-wire.js'),'./discovery-r12-server-dependencies':{discoveryR12ServerDependencies:()=>({
+  const ownerActions=source('src/products/discovery-r12-server.ts',{'./discovery-r12-review-preparation-contract':require('../.core-tests/products/discovery-r12-review-preparation-contract.js'),'server-only':{},'node:crypto':require('node:crypto'),'../lib/core-ui/owner-business':owner,'../core/quest-plan':require('../.core-tests/core/quest-plan.js'),'../core/quest-controller':require('../.core-tests/core/quest-controller.js'),'./discovery-v2':require('../.core-tests/products/discovery-v2.js'),'./discovery-r12-runtime':require('../.core-tests/products/discovery-r12-runtime.js'),'./discovery-r12-adapter':require('../.core-tests/products/discovery-r12-adapter.js'),'./discovery-r12-wire':require('../.core-tests/products/discovery-r12-wire.js'),'./discovery-r12-server-dependencies':{discoveryR12ServerDependencies:()=>({
    createController:(b,g,keys)=>{assert.equal(b,business);assert.equal(g,f.g);assert.deepEqual(keys,{controllerKey:R07_KEY,admissionKey:R05_KEY});return store;},
    createClient:()=>({rpc:async(name,args)=>{assert.equal(name,'r12_discovery_server');assert.equal(args.p_server_key,R07_KEY);assert.equal(args.p_business_id,business);return{data:await operation(args.p_attempt_id,args.p_operation,args.p_payload),error:null};}}),
    quote:async()=>quote,createAdapter:opts=>createDiscoveryR12QuestAdapter({...opts,config:options.config,fetcher:(url,init)=>{ownerContinuationCalls++;assert.equal(opts.phase,'review','Only the final phase remains');return phaseFetchers[opts.phase](url,init);}})
@@ -258,7 +278,7 @@ async function prepareR12OwnerWorkflows(){
     for(const value of ['', ' ', 'x'.repeat(241), 1, {}]){const bad=structuredClone(saved);bad.phases[4].reason=value;assert.throws(()=>ownerApi.parseDiscoveryR12Workspace(bad,business,scopeId));}
     for(const target of ['reason','diagnostic']){const bad=structuredClone(saved);if(target==='reason')bad.reason='A sentence is not a state code';else bad.phases[0].receipt.diagnostic={code:'Not a diagnostic code',httpStatus:404};assert.throws(()=>ownerApi.parseDiscoveryR12Workspace(bad,business,scopeId));}
     await captureNext('scheduled-review');
-    reviewReplay=async({successorOnly=false}={})=>{
+    reviewReplay=async({successorOnly=false,focusedReady=null}={})=>{
      const beforeReplay=await store.read(),beforeReplayInputs=structuredClone({quote,outputs});
      const replayMetadata=structuredClone(beforeReplayInputs);
      const beforeCallbacks={postCount,getCount,ownerContinuationCalls,dispatched},beforeClock=Date.now;
@@ -268,7 +288,7 @@ async function prepareR12OwnerWorkflows(){
      try{
       await exerciseR12ReviewRuntime(db,continuation.metadata,{nested:true,failureCase:'response_schema'});
       const successor=await prepareR12ReviewFixture(db,replayMetadata,{nested:true,reviewSuccessor:true});assert.equal(successor.envelope.reviewHistory.length,1);assert.equal(successor.envelope.baseKnownMicrounits,'50');
-      await db.exec('savepoint accepted_successor');try{assert.deepEqual(await exerciseR12ReviewRuntime(db,successor.metadata,{nested:true}),{providerCalls:0,inertPosts:1,inertReceiptGets:2,outcome:'NEEDS_MORE_EVIDENCE',phaseReceipts:5,dispatches:6,children:7});const evidence=await prepareR12EvidenceFixture(db,replayMetadata,{nested:true});await db.exec('savepoint focused_pilot');try{await createClosedRejectedPlan4(db,evidence.metadata,{nested:true});if(successorOnly){await db.exec('savepoint focused_successor_case');try{const closedFocused=await createClosedFocusedPredecessor(db,evidence,{nested:true,...(fullShape?{profileFixture:fullShapeProfileFixture,strategyOutput:fullShapeFocusedStrategyOutput}:{})});for(const strategyOutcome of (fullShape?['TEST']:['NEEDS_MORE_EVIDENCE','REJECT','INCONSISTENT','INVALID','TEST'])){await db.exec('savepoint successor_outcome');try{const result=await exerciseFocusedPilotSuccessorLifecycle(db,closedFocused,{nested:true,strategyOutcome,...(fullShape?{onReservedDispatch:exerciseFullShapeDispatch}:{})});if(fullShape)continue;assert.equal(result.inertPosts,strategyOutcome==='TEST'?2:1);console.log('Successor isolated outcome verified:',strategyOutcome,'POSTs',result.inertPosts,'receipt GETs',result.inertReceiptGets);}finally{await db.exec('rollback to savepoint successor_outcome');await db.exec('release savepoint successor_outcome');}}}finally{await db.exec('rollback to savepoint focused_successor_case');await db.exec('release savepoint focused_successor_case');}return;}const pilot=await exerciseFocusedPilotLifecycle(db,evidence,{nested:true});assert.equal(pilot.inertPosts,2);assert.equal(pilot.outcome,'TEST');assert.equal(pilot.oldGoalUnchanged,true);const creative=await exerciseFocusedCreativeLifecycle(db,pilot);assert.equal(creative.inertPosts,4);assert.equal(creative.inertReceiptGets,8);assert.equal(creative.productionReady,true);assert.equal(creative.rootUnchanged,true);assert.equal(creative.goalUnchanged,true);}finally{await db.exec('rollback to savepoint focused_pilot');await db.exec('release savepoint focused_pilot');}assert.deepEqual(await exerciseR12ReviewRuntime(db,evidence.metadata,{nested:true}),{providerCalls:0,inertPosts:2,inertReceiptGets:3,outcome:'NEEDS_MORE_EVIDENCE',phaseReceipts:5,dispatches:8,children:9});}finally{await db.exec('rollback to savepoint accepted_successor');await db.exec('release savepoint accepted_successor');}
+      await db.exec('savepoint accepted_successor');try{assert.deepEqual(await exerciseR12ReviewRuntime(db,successor.metadata,{nested:true}),{providerCalls:0,inertPosts:1,inertReceiptGets:2,outcome:'NEEDS_MORE_EVIDENCE',phaseReceipts:5,dispatches:6,children:7});const evidence=await prepareR12EvidenceFixture(db,replayMetadata,{nested:true});await db.exec('savepoint focused_pilot');try{await createClosedRejectedPlan4(db,evidence.metadata,{nested:true});if(successorOnly){await db.exec('savepoint focused_successor_case');try{const closedFocused=await createClosedFocusedPredecessor(db,evidence,{nested:true,...(fullShape?{profileFixture:fullShapeProfileFixture,strategyOutput:fullShapeFocusedStrategyOutput}:{})});assert.equal(typeof focusedReady,'function');await focusedReady({db,closedFocused});}finally{await db.exec('rollback to savepoint focused_successor_case');await db.exec('release savepoint focused_successor_case');}return;}const pilot=await exerciseFocusedPilotLifecycle(db,evidence,{nested:true});assert.equal(pilot.inertPosts,2);assert.equal(pilot.outcome,'TEST');assert.equal(pilot.oldGoalUnchanged,true);const creative=await exerciseFocusedCreativeLifecycle(db,pilot);assert.equal(creative.inertPosts,4);assert.equal(creative.inertReceiptGets,8);assert.equal(creative.productionReady,true);assert.equal(creative.rootUnchanged,true);assert.equal(creative.goalUnchanged,true);}finally{await db.exec('rollback to savepoint focused_pilot');await db.exec('release savepoint focused_pilot');}assert.deepEqual(await exerciseR12ReviewRuntime(db,evidence.metadata,{nested:true}),{providerCalls:0,inertPosts:2,inertReceiptGets:3,outcome:'NEEDS_MORE_EVIDENCE',phaseReceipts:5,dispatches:8,children:9});}finally{await db.exec('rollback to savepoint accepted_successor');await db.exec('release savepoint accepted_successor');}
       await exerciseR12ReviewRuntime(db,successor.metadata,{nested:true,failureCase:'json_parse'});
       const last=await prepareR12ReviewFixture(db,replayMetadata,{nested:true,reviewSuccessor:true});assert.equal(last.envelope.reviewHistory.length,2);assert.equal(last.envelope.baseKnownMicrounits,'60');
       await exerciseR12ReviewRuntime(db,last.metadata,{nested:true,failureCase:'response_schema'});
@@ -293,7 +313,7 @@ async function prepareR12OwnerWorkflows(){
   }
   assert.equal(typeof reviewReplay,'function');
   return {
-   exerciseSuccessor:()=>reviewReplay({successorOnly:true}),
+   exerciseFocused:focusedReady=>reviewReplay({successorOnly:true,focusedReady}),
    exerciseOwnerWorkflows:async()=>{
   await reviewReplay();
   assert.equal((await ownerActions.continueDiscoveryR12(ownerContext,business,scopeId)).status,'completed');
@@ -388,7 +408,7 @@ if(capture){
  const fixture=await prepareR12OwnerWorkflows();
  // Next's successor owner journey creates its own closed predecessor after
  // loading these legacy snapshots. Do not replay its matrix in setup as well.
- try{if(lifecycleMode.successor)await fixture.exerciseSuccessor();if(lifecycleMode.legacy)await fixture.exerciseOwnerWorkflows();}finally{await fixture.close();}
+ try{assert.equal(lifecycleMode.successor,false);if(lifecycleMode.legacy)await fixture.exerciseOwnerWorkflows();}finally{await fixture.close();}
  console.log(`PASS: R12 Next snapshot setup and all owner-workflow assertions completed in ${Math.round(performance.now()-started)}ms`);
 }else{
  // The two replay branches start from the same scheduled-review fixture. Each
@@ -401,7 +421,25 @@ if(capture){
   let fixture;
   before(async()=>{fixture=await prepareR12OwnerWorkflows();},{timeout:120000});
   after(async()=>{await fixture?.close();},{timeout:120000});
-  test('R12 focused successors preserve finite authority, terminal stops and predecessor history',{skip:!lifecycleMode.successor,timeout:fullShape?300000:120000},()=>fixture.exerciseSuccessor());
+  describe('R12 focused successor and one-time proven-unsent recovery',{skip:!lifecycleMode.successor,concurrency:false},()=>{
+   let focused,closedUnsent,release,completion;
+   before(async()=>{
+    let ready,failed;const prepared=new Promise((resolve,reject)=>{ready=resolve;failed=reject;});
+    completion=fixture.exerciseFocused(async context=>{focused=context;ready();await new Promise(resolve=>{release=resolve;});});
+    completion.catch(failed);await prepared;
+   },{timeout:120000});
+   after(async()=>{release?.();await completion;},{timeout:120000});
+   test('Original successor five terminal outcomes remain unchanged',{timeout:fullShape?300000:120000},()=>focusedSuccessors(focused.db,focused.closedFocused));
+   test('Actual owner Stop preserves a transaction-proven unsent successor and releases its hold',{timeout:120000},async()=>{closedUnsent=await createClosedUnsentSuccessor(focused.db,focused.closedFocused,{nested:true});assert.equal(closedUnsent.activeAuthority,false);});
+   for(const [name,action]of [
+    ['Recovery Stop before activation prevents verifier enrollment',()=>exerciseFocusedPilotUnsentRecoveryLifecycle(focused.db,closedUnsent,{nested:true,stopBeforeActivation:true})],
+    ['Recovery Stop canonically releases a proved unsent reservation once',()=>exerciseUnsentRecoveryCloseout(focused.db,closedUnsent,{nested:true})],
+    ['Recovery ambiguous-effect cleanup refusal preserves every revocation and hold',()=>exerciseUnsentRecoveryBlockedCloseout(focused.db,closedUnsent,{nested:true})],
+    ['Recovery cleanup SQL timeout preserves every revocation and hold',()=>exerciseUnsentRecoveryBlockedCloseout(focused.db,closedUnsent,{nested:true,cleanupTimeout:true})],
+   ])test(name,{skip:fullShape,timeout:120000},()=>focusedCase(focused.db,'recovery_interruption',async()=>assert.equal((await action()).activeAuthority,false)));
+   test('Recovery four terminal strategy outcomes stop before any reviewer',{skip:fullShape,timeout:120000},()=>focusedRecoveryOutcomes(focused.db,closedUnsent,['NEEDS_MORE_EVIDENCE','REJECT','INCONSISTENT','INVALID']));
+   test('Recovery TEST retains exact history, independent receipts and separately approved noncreative adoption',{timeout:fullShape?180000:120000},()=>focusedRecoveryOutcomes(focused.db,closedUnsent,['TEST']));
+  });
   test('R12 actual owner workflows preserve funding, bounded dispatch and immutable historical results',{skip:!lifecycleMode.legacy,timeout:120000},()=>fixture.exerciseOwnerWorkflows());
  });
 }

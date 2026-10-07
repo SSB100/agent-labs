@@ -10,6 +10,7 @@ import {reviewRecipeClient} from '../helpers/r12-review-fixture.mjs';
 import {createClosedRejectedPlan4} from '../helpers/r12-closed-plan4-fixture.mjs';
 import {exerciseFocusedPilotLifecycle} from '../helpers/r12-focused-pilot-sql-fixture.mjs';
 import {focusedStrategyOutput,focusedReviewerOutput} from '../helpers/r12-focused-profile-fixture.mjs';
+import {runOperatorRecipe as runRecoveryRecipe} from '../../scripts/r12-focused-pilot-unsent-recovery-bootstrap.mjs';
 import {runOperatorRecipe as runSuccessorRecipe} from '../../scripts/r12-focused-pilot-successor-bootstrap.mjs';
 import {runOperatorRecipe as runPilotRecipe} from '../../scripts/r12-focused-pilot-bootstrap.mjs';
 import {r12QuoteFixture} from '../helpers/r12-provider-fixture.mjs';
@@ -42,6 +43,15 @@ export async function loadR12NextFixture(state,scenario,directory,host){
 export async function mirrorR12(state){for(const table of tables)state.db[table]=(await state.r12.db.query(`select * from public.${table}`)).rows.map(row=>JSON.parse(JSON.stringify(row)));}
 export async function controlR12(state,input){
  const r=state.r12;assert.ok(r);return exclusive(r,async()=>{await r.db.exec('reset role');const handled=[];
+ if(input.r12FocusedSuccessorUnsent==='arm'){assert.equal(r.scenario,'focused-successor-staged');assert.ok(r.activated&&!r.closedUnsent);assert.deepEqual(r.calls,[]);r.simulateDispatchTimeout=true;handled.push('r12FocusedSuccessorUnsent');}
+ if(input.r12FocusedSuccessorUnsent==='close'){
+  assert.equal(r.scenario,'focused-successor-staged');assert.ok(r.simulateDispatchTimeout&&!r.closedUnsent);assert.deepEqual(r.calls,[]);assert.deepEqual(r.receipts,[]);
+  const view=(await r.db.query('select public.r12_discovery_owner_read($1,$2,false) result',[r.businessId,r.scopeId])).rows[0].result;assert.equal(view.policyRevoked,true);assert.equal(view.phases[0].status,'reserved');
+  await runSuccessorRecipe(reviewRecipeClient(r.db),'close',{businessId:r.businessId,scopeId:r.scopeId,scopeHash:r.staged.scopeHash,policyId:r.plan.policyId,policyHash:r.plan.policyHash,planHash:r.activated.planHash,successorAuthorizationHash:r.authorizationHash});
+  await r.db.exec('begin');try{const exact=(await r.db.query('select private.r12_pilot_unsent_request($1,$2) result',[r.scopeId,view.phases[0].attemptId])).rows[0].result;await r.db.query('insert into private.r05_releases(request_id,business_id,evidence_hash) values($1,$2,$3)',[exact.requestId,r.businessId,createHash('sha256').update('Inert Next timeout before committed dispatch '+exact.attemptId).digest('hex')]);await r.db.query("select private.r05_result($1,$2,'allowed','released_unsent')",[r.businessId,exact.requestId]);await r.db.exec('commit');}catch(error){await r.db.exec('rollback');throw error;}
+  const unsentClosure=(await r.db.query('select private.r12_pilot_unsent_closure($1) result',[r.scopeId])).rows[0].result;
+  r.closedUnsent={scopeId:r.scopeId,planId:view.planId,closedPlanId:view.planId,unsentClosure,closedFocused:r.closedFocused,closedBroad:r.closedFocused.closedBroad,metadata:{focusedProfile:r.focusedProfile}};r.sourceScopeId=r.scopeId;r.preparationId=crypto.randomUUID();r.setupUntil=r.focusedProfile.expiresAt;r.scenario='focused-successor-preparation';r.unsentQuoteReads=r.quoteReads;r.quoteReads=0;r.simulateDispatchTimeout=false;delete r.successorStaged;delete r.activated;handled.push('r12FocusedSuccessorUnsent');await mirrorR12(state);
+ }
  if(input.r12CreativeInstall||input.r12CreativeStage||input.r12CreativeActivate){await controlR12Creative(r,input);await mirrorR12(state);}
  if(input.r12Due){await r.db.exec('alter table private.r12_discovery_receipt_checks disable trigger r12_discovery_history_guard');await r.db.query("update private.r12_discovery_receipt_checks set created_at=clock_timestamp()-interval '121 seconds' where request_id in (select request_id from private.r12_discovery_wires where scope_id=$1)",[r.scopeId]);await r.db.exec('alter table private.r12_discovery_receipt_checks enable trigger r12_discovery_history_guard');await r.db.query("update private.r07_heads set lease_expires_at=clock_timestamp()-interval '1 second' where goal_id=$1",[r.goalId]);}
  if(input.r12BootstrapStage){assert.equal(r.scenario,'bootstrap');assert.ok(!r.staged);const receipt=input.r12BootstrapStage;assert.equal(receipt.businessId,r.businessId);assert.equal(receipt.priorId,r.priorRoundId);assert.equal(receipt.rootId,r.budgetAuthorityRootId);assert.equal(receipt.authorityCreated,false);const hash=label=>createHash('sha256').update('inert-'+label).digest('hex');r.setup={...receipt,approvalHash:hash('approved-packet'),ipsosReviewHash:hash('ipsos-review'),mdpiReviewHash:hash('mdpi-review'),independentReviewHash:hash('independent-review'),executionReviewHash:hash('execution-review'),eligibilityReviewHash:hash('eligibility-review'),quote:r12QuoteFixture()};r.staged=await operatorRecipe(r,'stage',r.setup);r.scopeId=receipt.scopeId;r.goalId=receipt.goalId;await mirrorR12(state);}
@@ -50,9 +60,9 @@ export async function controlR12(state,input){
  if(input.r12PilotActivate){assert.equal(r.scenario,'pilot-staged');assert.ok(!r.activated);const receipt=input.r12PilotActivate;assert.equal(receipt.scopeId,r.scopeId);assert.equal(receipt.proposalHash,r.staged.proposalHash);r.activated=await runPilotRecipe(reviewRecipeClient(r.db),'activate',{businessId:r.businessId,scopeId:r.scopeId,scopeHash:r.staged.scopeHash,proposalHash:receipt.proposalHash,policyId:receipt.policyId,policyHash:receipt.policyHash,quote:r12QuoteFixture(Date.now(),false,true),executionReviewHash:r.executionReviewHash,eligibilityReviewHash:r.eligibilityReviewHash,controllerKeyHash:receipt.controllerKeyHash,admissionKeyHash:receipt.admissionKeyHash});r.plan=r.activated.plan;await mirrorR12(state);}
  if(input.r12FocusedSuccessorStage){
   assert.equal(r.scenario,'focused-successor-preparation');assert.ok(!r.successorStaged);const receipt=input.r12FocusedSuccessorStage;
-  assert.equal(receipt.sourceScopeId,r.sourceScopeId);assert.equal(receipt.closedPlanId,r.closedFocused.closedPlanId);assert.equal(receipt.authorityCreated,false);assert.equal(receipt.preparationId,r.preparationId);
-  const {exerciseFocusedPilotSuccessorLifecycle}=await import('../helpers/r12-focused-pilot-successor-sql-fixture.mjs');
-  await r.db.exec('begin');let prepared;try{prepared=await exerciseFocusedPilotSuccessorLifecycle(r.db,r.closedFocused,{nested:true,ownerPreparationReceipt:receipt,stageOnly:true});await r.db.exec('commit');}catch(error){await r.db.exec('rollback');throw error;}
+  assert.equal(receipt.sourceScopeId,r.sourceScopeId);assert.equal(receipt.closedPlanId,r.closedUnsent?.closedPlanId??r.closedFocused.closedPlanId);assert.equal(receipt.authorityCreated,false);assert.equal(receipt.preparationId,r.preparationId);
+  const exercise=r.closedUnsent?(await import('../helpers/r12-focused-pilot-unsent-recovery-sql-fixture.mjs')).exerciseFocusedPilotUnsentRecoveryLifecycle:(await import('../helpers/r12-focused-pilot-successor-sql-fixture.mjs')).exerciseFocusedPilotSuccessorLifecycle;
+  await r.db.exec('begin');let prepared;try{prepared=await exercise(r.db,r.closedUnsent??r.closedFocused,{nested:true,ownerPreparationReceipt:receipt,stageOnly:true});await r.db.exec('commit');}catch(error){await r.db.exec('rollback');throw error;}
   Object.assign(r,prepared.metadata,{staged:prepared.staged,successorStaged:prepared.staged,successorStageInput:prepared.stageInput,scenario:'focused-successor-staged'});delete r.activated;
   const view=(await r.db.query('select public.r12_review_owner_read($1,$2) result',[r.businessId,r.scopeId])).rows[0].result;
   assert.equal(view.successor.authorizationHash,r.authorizationHash);assert.equal(view.proposalHash,r.staged.proposalHash);assert.equal(view.scope.id,receipt.preparationId);
@@ -61,15 +71,15 @@ export async function controlR12(state,input){
  if(input.r12FocusedSuccessorActivate){
   assert.equal(r.scenario,'focused-successor-staged');assert.ok(r.successorStaged&&!r.activated);const receipt=input.r12FocusedSuccessorActivate;
   assert.equal(receipt.businessId,r.businessId);assert.equal(receipt.goalId,r.goalId);assert.equal(receipt.scopeId,r.scopeId);assert.equal(receipt.proposalHash,r.staged.proposalHash);assert.equal(receipt.executionAuthorized,false);
-  r.activated=await runSuccessorRecipe(reviewRecipeClient(r.db),'activate',{businessId:r.businessId,scopeId:r.scopeId,scopeHash:r.staged.scopeHash,proposalHash:receipt.proposalHash,policyId:receipt.policyId,policyHash:receipt.policyHash,quote:r12QuoteFixture(Date.now(),false,true),executionReviewHash:r.executionReviewHash,eligibilityReviewHash:r.eligibilityReviewHash,controllerKeyHash:receipt.controllerKeyHash,admissionKeyHash:receipt.admissionKeyHash,successorAuthorizationHash:r.authorizationHash});r.plan=r.activated.plan;
+  r.activated=await (r.closedUnsent?runRecoveryRecipe:runSuccessorRecipe)(reviewRecipeClient(r.db),'activate',{businessId:r.businessId,scopeId:r.scopeId,scopeHash:r.staged.scopeHash,proposalHash:receipt.proposalHash,policyId:receipt.policyId,policyHash:receipt.policyHash,quote:r12QuoteFixture(Date.now(),false,true),executionReviewHash:r.executionReviewHash,eligibilityReviewHash:r.eligibilityReviewHash,controllerKeyHash:receipt.controllerKeyHash,admissionKeyHash:receipt.admissionKeyHash,[r.closedUnsent?'recoveryAuthorizationHash':'successorAuthorizationHash']:r.authorizationHash});r.plan=r.activated.plan;
   const view=(await r.db.query('select public.r12_discovery_owner_read($1,$2,false) result',[r.businessId,r.scopeId])).rows[0].result;
   assert.equal(view.focusedSuccessor.authorizationHash,r.authorizationHash);assert.equal(view.activeWindow,true);assert.equal(Date.parse(view.receiptUntil)-Date.parse(view.dispatchUntil),1800000);
   handled.push('r12FocusedSuccessorActivate');await mirrorR12(state);
  }
  if(input.r12FocusedSuccessorClose){
   assert.equal(r.scenario,'focused-successor-staged');assert.ok(r.activated);const receipt=input.r12FocusedSuccessorClose;
-  assert.equal(receipt.scopeId,r.scopeId);assert.equal(receipt.successorAuthorizationHash,r.authorizationHash);
-  r.successorClosed=await runSuccessorRecipe(reviewRecipeClient(r.db),'close',receipt);
+  assert.equal(receipt.scopeId,r.scopeId);assert.equal(receipt[r.closedUnsent?'recoveryAuthorizationHash':'successorAuthorizationHash'],r.authorizationHash);
+  r.successorClosed=await (r.closedUnsent?runRecoveryRecipe:runSuccessorRecipe)(reviewRecipeClient(r.db),'close',receipt);
   const view=(await r.db.query('select public.r12_discovery_owner_read($1,$2,false) result',[r.businessId,r.scopeId])).rows[0].result;
   assert.equal(view.policyRevoked,true);assert.equal(view.activeWindow,false);assert.equal(view.cost.hasUnknown,false);assert.equal(view.cost.heldMicrousd,'0');
   handled.push('r12FocusedSuccessorClose');await mirrorR12(state);
@@ -115,6 +125,9 @@ export async function r12RuntimeRpc(state,name,args){
  const r=state.r12;assert.ok(r);
  const keys=name==='r07_controller'?['p_business_id','p_goal_id','p_operation','p_payload','p_submission_id','p_server_key','p_lease_token','p_epoch','p_admission_key']:name==='creative_runtime_transition'?['p_creative_run_id','p_business_id','p_runtime_capability','p_operation','p_payload']:['p_business_id','p_attempt_id','p_operation','p_payload','p_server_key'];
  assert.ok(['r07_controller','r12_discovery_server','creative_runtime_transition'].includes(name));
+ if(r.simulateDispatchTimeout&&name==='r07_controller'&&args.p_operation==='dispatch')return exclusive(r,async()=>{
+  await r.db.exec('begin');try{await r.db.exec('set role anon');const marked=(await r.db.query(`select public.r07_controller(${keys.map((_,i)=>`$${i+1}`).join(',')}) result`,keys.map(k=>args[k]??null))).rows[0].result;assert.equal(marked.shouldDispatch,true);await assert.rejects(r.db.exec("do $$ begin raise exception 'Inert Next dispatch deadline before commit' using errcode='57014'; end $$"),error=>error.code==='57014');return{data:null,error:{code:'57014',message:'Inert Next dispatch deadline before commit'}};}finally{await r.db.exec('rollback');await mirrorR12(state);}
+ });
  return sqlRpc(r,name,keys.map(k=>args[k]??null),'anon',()=>mirrorR12(state));
 }
 export async function r12CreativeLaunch(state,input){return exclusive(state.r12,async()=>{const result=await launchR12Creative(state.r12,input);await mirrorR12(state);return result;});}
