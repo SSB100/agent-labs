@@ -44,7 +44,7 @@ test('Artifacts loads reservations and receipts without dropping expired runs or
 test('owner explicitly selects the image bound and history keeps each saved bound visible', () => {
   assert.equal((page.match(/name="maximumGenerations"/g) ?? []).length, 2);
   assert.equal((page.match(/name="maximumGenerations" required defaultValue="1"/g) ?? []).length, 2);
-  assert.match(page, /One image, no repair \(up to 4 provider calls\)/);
+  assert.match(page, /One image, no repair: up to 4 provider calls/);
   assert.match(page, /Image limit: \{a.snapshot.maximumGenerations\}/);
   assert.match(page, /No repair; a failed review stops for owner review/);
   assert.equal((actions.match(/currentCreativeQuote\(maximumGenerations, generatorModel, true\)/g) ?? []).length, 2);

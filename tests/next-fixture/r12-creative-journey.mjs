@@ -21,6 +21,42 @@ function recordApproval(boundary,fixture){const rows=boundary.state().db.creativ
 function fillForm(form,fixture){form.set('designInstructions',design);form.set('rightsStatement',rights);form.set('creativeInstallationId',fixture().creative.installationId);form.set('generatorModel','black-forest-labs/flux.2-klein-4b');form.set('maximumGenerations','1');form.set('budgetUsd','0.1');for(const name of confirmedFields)form.set(name,'on');for(const category of SCREEN_CATEGORIES){form.set(`rationale_${category}`,rationale);form.set(`sources_${category}`,source);}return form;}
 function assertPrivateReceipt(prepared,fixture){assert.equal(prepared.approvalId,fixture().creative.approvalId);assert.equal(prepared.businessId,fixture().businessId);assert.equal(prepared.goalId,fixture().goalId);assert.equal(prepared.dispatchAuthorized,false);assert.match(prepared.admissionKeyHash,/^[a-f0-9]{64}$/);assert.match(prepared.runtimeCapabilityHash,/^[a-f0-9]{64}$/);assert.equal(prepared.runtimeCapability,undefined);assert.equal(prepared.admissionKey,undefined);}
 const assertNoCreativeEffects=fixture=>{assert.deepEqual(fixture().creative.launches,[]);assert.deepEqual(fixture().calls,['strategy','review']);};
+function assertPreparedRun(boundary,fixture,prepared){
+ assertPrivateReceipt(prepared,fixture);
+ const db=boundary.state().db,runs=db.creative_runs.filter(row=>row.approval_id===prepared.approvalId);assert.equal(runs.length,1);
+ assert.equal(runs[0].id,prepared.creativeRunId);assert.equal(runs[0].business_id,prepared.businessId);assert.equal(runs[0].workflow_run_id,prepared.workflowRunId);
+ const workflows=db.workflow_runs.filter(row=>row.id===prepared.workflowRunId);assert.equal(workflows.length,1);assert.equal(workflows[0].business_id,prepared.businessId);assert.equal(workflows[0].goal_id,prepared.goalId);
+ assert.equal(db.creative_approvals.find(row=>row.id===prepared.approvalId)?.approval_hash,prepared.approvalHash);
+}
+// Details are restored by the retained workspace after hydration. Clicking an
+// already restored-open summary would close the exact run and hide its controls.
+export async function openR12CreativeDisclosure(disclosure){
+ await disclosure.waitFor();
+ if(await disclosure.getAttribute('open')===null)await disclosure.locator(':scope > summary').click();
+ assert.notEqual(await disclosure.getAttribute('open'),null,'The exact creative disclosure must be open');
+ return disclosure;
+}
+export async function r12CreativeControls(page,approvalId,creativeRunId=null){
+ const workspace=page.locator('[data-retained-active="true"][data-retained-ready="true"][aria-label="Approvals & receipts details"]');
+ await workspace.waitFor();
+ const panel=await openR12CreativeDisclosure(workspace.locator(`#creative-${creativeRunId?`run-${creativeRunId}`:`approval-${approvalId}`}`));
+ const controls=panel.locator('section[aria-label="Focused production run controls"]');await controls.waitFor();
+ assert.equal(await controls.count(),1);assert.equal(await controls.locator('form input[name="approvalId"]').first().inputValue(),approvalId);
+ return controls;
+}
+export async function preparedReceipt(controls){
+ await controls.getByRole('button',{name:'Recover prepared creative run',exact:true}).waitFor();
+ const disclosure=controls.locator('details');assert.equal(await disclosure.count(),1,'The exact run controls must contain one setup receipt disclosure');
+ assert.equal(await disclosure.locator(':scope > summary').textContent(),'Nonsecret creative setup receipt');
+ await openR12CreativeDisclosure(disclosure);
+ return JSON.parse(await controls.getByRole('textbox',{name:'Creative setup receipt',exact:true}).inputValue());
+}
+async function exactCreativeAction(page,controls,approvalId,name,action,settled){
+ const button=controls.getByRole('button',{name,exact:true});await button.waitFor();
+ assert.equal(await button.count(),1);assert.equal(await page.getByRole('button',{name,exact:true}).count(),1,'The exact approval must own the only matching action');
+ assert.equal(await button.locator('xpath=..').locator('input[name="approvalId"]').inputValue(),approvalId);
+ await action(name,settled);
+}
 
 export async function runR12CreativeOwnerHttp({boundary,fixture,control,check,read,post,progress,receipt,noKeyOrigin}){
  let prepared,startForm;
@@ -65,20 +101,32 @@ export async function runR12CreativeOwnerBrowser({boundary,fixture,control,check
   await action('Save candidate creative approval',()=>page.getByText(/Separate candidate creative approval saved/).waitFor());recordApproval(boundary,fixture);assertNoCreativeEffects(fixture);
  });
  await check('Hydrated focused Prepare survives refresh and cannot Start before exact financial activation',async()=>{
-  await page.goto(origin+approvals(fixture));const panel=page.locator(`#creative-approval-${fixture().creative.approvalId}`);await panel.locator('summary').first().click();await action('Prepare focused creative run',()=>page.getByText('Nonsecret creative setup receipt',{exact:true}).waitFor());await page.getByText('Nonsecret creative setup receipt',{exact:true}).click();prepared=JSON.parse(await page.getByRole('textbox',{name:'Creative setup receipt',exact:true}).inputValue());assertPrivateReceipt(prepared,fixture);
-  await page.reload();await page.locator(`#creative-run-${prepared.creativeRunId}`).locator('summary').first().click();await action('Prepare focused creative run',()=>page.getByText('Nonsecret creative setup receipt',{exact:true}).waitFor());await page.getByText('Nonsecret creative setup receipt',{exact:true}).click();assert.deepEqual(JSON.parse(await page.getByRole('textbox',{name:'Creative setup receipt',exact:true}).inputValue()),prepared);
-  await action('Start scoped production design',()=>page.getByText(/exact scoped permission could not be verified/).waitFor());assertNoCreativeEffects(fixture);
+  await page.goto(origin+approvals(fixture));let controls=await r12CreativeControls(page,fixture().creative.approvalId);
+  await exactCreativeAction(page,controls,fixture().creative.approvalId,'Prepare focused creative run',action,()=>controls.getByText('Nonsecret creative setup receipt',{exact:true}).waitFor());
+  prepared=await preparedReceipt(controls);assertPreparedRun(boundary,fixture,prepared);
+  await page.reload();controls=await r12CreativeControls(page,prepared.approvalId,prepared.creativeRunId);
+  await exactCreativeAction(page,controls,prepared.approvalId,'Prepare focused creative run',action,()=>controls.getByText('Nonsecret creative setup receipt',{exact:true}).waitFor());
+  assert.deepEqual(await preparedReceipt(controls),prepared);assertPreparedRun(boundary,fixture,prepared);
+  await exactCreativeAction(page,controls,prepared.approvalId,'Start scoped production design',action,()=>controls.getByText(/exact scoped permission could not be verified/).waitFor());assertNoCreativeEffects(fixture);
+  assert.deepEqual(await preparedReceipt(controls),prepared);
  });
  await check('Hydrated exact four-call financial confirmation and Start launch once after research Stop',async()=>{
-  await control({r12CreativeStage:prepared});const policy=fixture().creative.staged.operatingPolicy;await page.goto(origin+policyRoute(fixture));await page.getByText(/^Propose financial authority for /).click();
+  await control({r12CreativeStage:prepared});const policy=fixture().creative.staged.operatingPolicy;assert.equal(policy.maximumDispatches,4);assert.equal(policy.goalId,prepared.goalId);assert.deepEqual(policy.operations.map(operation=>operation.operationKey),['brief','generate','review','screen'].map(phase=>`creative.r12.${prepared.approvalId}.${phase}`));assert.ok(policy.operations.every(operation=>operation.installationId===fixture().creative.installationId));await page.goto(origin+policyRoute(fixture));await page.getByText(/^Propose financial authority for /).click();
   for(const[name,value]of Object.entries({businessLimit:String(Number(policy.businessLifetimeLimitMicrounits)/1e6),policyLimit:String(Number(policy.policyLimitMicrounits)/1e6),maximumDispatches:'4',minimumIntervalSeconds:String(policy.minimumIntervalSeconds),startsAt:new Date(policy.startsAt).toISOString(),expiresAt:new Date(policy.expiresAt).toISOString()}))await page.locator(`input[name="${name}"]`).fill(value);
   for(const operation of policy.operations)await page.getByRole('checkbox',{name:new RegExp(operation.operationKey.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'))}).check();
   await action('Save proposal for review',()=>page.getByText(/awaiting confirmation/).waitFor());
-  const policies=await r12OwnerRpc(boundary.state(),'r05_admission_read',{p_business_id:fixture().businessId,p_policy_id:null,p_limit:20,p_offset:0});assert.equal(policies.error,null);const proposed=policies.data.policies.filter(row=>row.policy.operations.some(operation=>operation.operationKey.startsWith(`creative.r12.${prepared.approvalId}.`)));assert.equal(proposed.length,1);
+  const policies=await r12OwnerRpc(boundary.state(),'r05_admission_read',{p_business_id:fixture().businessId,p_policy_id:null,p_limit:20,p_offset:0});assert.equal(policies.error,null);const proposed=policies.data.policies.filter(row=>row.policy.operations.some(operation=>operation.operationKey.startsWith(`creative.r12.${prepared.approvalId}.`)));assert.equal(proposed.length,1);assert.deepEqual(proposed[0].policy,policy);assert.equal(proposed[0].confirmed,false);
   await page.goto(origin+policyRoute(fixture,proposed[0].id));await page.getByRole('checkbox',{name:'I reviewed this exact financial permission, its scope, exposure and expiry.',exact:true}).check();await action('Confirm this exact policy',()=>page.getByText(/confirmed; dispatch remains gated/).waitFor());
+  const confirmed=await r12OwnerRpc(boundary.state(),'r05_admission_read',{p_business_id:fixture().businessId,p_policy_id:proposed[0].id,p_limit:20,p_offset:0});assert.equal(confirmed.error,null);assert.equal(confirmed.data.policies.length,1);assert.deepEqual(confirmed.data.policies[0],{...proposed[0],confirmed:true});
   await control({r12CreativeActivate:{policyId:proposed[0].id,policyHash:proposed[0].hash}});assertNoCreativeEffects(fixture);
-  await page.goto(origin+approvals(fixture));await page.locator(`#creative-run-${prepared.creativeRunId}`).locator('summary').first().click();await action('Prepare focused creative run',()=>page.getByText('Nonsecret creative setup receipt',{exact:true}).waitFor());await action('Start scoped production design',()=>page.getByText(/approved four-phase workflow has started/).waitFor());assert.deepEqual(fixture().creative.launches,[prepared.creativeRunId]);
-  await action('Start scoped production design',()=>page.getByText(/already claimed/).waitFor());assert.deepEqual(fixture().creative.launches,[prepared.creativeRunId]);await page.getByRole('link',{name:'Inspect the exact creative workflow',exact:true}).click();await page.waitForURL(`**/dashboard/workflows/${prepared.workflowRunId}**`);
+  const activated=fixture().creative.activated;for(const key of ['businessId','approvalId','creativeRunId','workflowRunId'])assert.equal(activated[key],prepared[key]);assert.equal(activated.policyId,proposed[0].id);assert.equal(activated.policyHash,proposed[0].hash);assert.equal(activated.shouldDispatch,false);assert.equal(activated.providerCalls,0);
+  await page.goto(origin+approvals(fixture));const controls=await r12CreativeControls(page,prepared.approvalId,prepared.creativeRunId);
+  await exactCreativeAction(page,controls,prepared.approvalId,'Prepare focused creative run',action,()=>controls.getByText('Nonsecret creative setup receipt',{exact:true}).waitFor());
+  assert.deepEqual(await preparedReceipt(controls),prepared);assertPreparedRun(boundary,fixture,prepared);assertNoCreativeEffects(fixture);
+  await exactCreativeAction(page,controls,prepared.approvalId,'Start scoped production design',action,()=>controls.getByText(/approved four-phase workflow has started/).waitFor());assert.deepEqual(fixture().creative.launches,[prepared.creativeRunId]);assert.deepEqual(await preparedReceipt(controls),prepared);
+  await exactCreativeAction(page,controls,prepared.approvalId,'Start scoped production design',action,()=>controls.getByText(/already claimed/).waitFor());assert.deepEqual(fixture().creative.launches,[prepared.creativeRunId]);assert.deepEqual(await preparedReceipt(controls),prepared);assertPreparedRun(boundary,fixture,prepared);
+  assert.equal(boundary.state().db.events.filter(row=>row.workflow_run_id===prepared.workflowRunId&&row.event_type==='r12.focused.creative.launch_claimed').length,1);
+  const workflowLink=controls.getByRole('link',{name:'Inspect the exact creative workflow',exact:true});assert.equal(await workflowLink.getAttribute('href'),`/dashboard/workflows/${prepared.workflowRunId}?business=${prepared.businessId}`);await workflowLink.click();await page.waitForURL(`**/dashboard/workflows/${prepared.workflowRunId}**`);assert.equal(new URL(page.url()).searchParams.get('business'),prepared.businessId);
   for(const[width,height]of[[1280,900],[390,844],[320,800]]){await page.setViewportSize({width,height});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));await page.screenshot({path:path.join(output,`r12-creative-workflow-${width}.png`),fullPage:true});}
   assert.deepEqual(fixture().calls,['strategy','review']);assert.equal(boundary.state().db.workflow_runs.find(row=>row.id===prepared.workflowRunId).status,'running');
  });
