@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 import "./console-retained-workspace.css";
 
 export type RetainedPanel = { id: string; label: string; content: ReactNode };
@@ -15,6 +15,14 @@ export function ConsoleRetainedWorkspace({ ownerId, header, panels, initialPanel
   const requested = query.get("panel"), selected = panels.find(panel => panel.id === requested)?.id ?? initialPanel ?? panels[0]?.id;
   const position = ["toolPage","candidateView","candidate","stage","task","worker","artifact"].map(name=>`${name}:${query.get(name) ?? ""}`).join(":");
   const scope = `${ownerId}:${pathname}:${query.get("business") ?? "owned"}:${query.get("run") ?? query.get("account") ?? ""}:${selected}:${position}`;
+  useLayoutEffect(() => {
+    const node = root.current?.querySelector<HTMLElement>("[data-retained-active=true]");
+    if (!node) return;
+    // A committed panel is visible before its passive persistence effect runs.
+    // Clear readiness at commit, including when the same DOM serves a new scope.
+    node.dataset.retainedReady = "false";
+    return () => { delete node.dataset.retainedReady; };
+  }, [scope, secure, panels]);
   useEffect(() => {
     const node = root.current?.querySelector<HTMLElement>("[data-retained-active=true]");
     if (!node || secure) return;
@@ -54,10 +62,11 @@ export function ConsoleRetainedWorkspace({ ownerId, header, panels, initialPanel
     const afterReset = () => queueMicrotask(() => { if(node.isConnected && node.dataset.retainedActive === "true")restore(); });
     node.addEventListener("reset", afterReset, true);
     node.addEventListener("scroll", save, { passive: true }); node.addEventListener("input", save); node.addEventListener("submit", save, true); node.addEventListener("toggle", save, true); window.addEventListener("pagehide", save);
+    node.dataset.retainedReady = "true";
     // Next actions may reset uncontrolled fields before the redirected RSC tree commits.
     // Input/submit listeners save before that reset; cleanup must not replace the draft
     // with reset values. Restore on every committed server panel tree, including errors.
-    return () => { node.removeEventListener("reset", afterReset, true); node.removeEventListener("scroll", save); node.removeEventListener("input", save); node.removeEventListener("submit", save, true); node.removeEventListener("toggle", save, true); window.removeEventListener("pagehide", save); };
+    return () => { delete node.dataset.retainedReady; node.removeEventListener("reset", afterReset, true); node.removeEventListener("scroll", save); node.removeEventListener("input", save); node.removeEventListener("submit", save, true); node.removeEventListener("toggle", save, true); window.removeEventListener("pagehide", save); };
   }, [scope, secure, panels]);
   const href = (id: string) => { const params = new URLSearchParams(query); params.set("panel", id); params.delete("message"); params.delete("error"); params.delete("toolPage"); return `${pathname}?${params}`; };
   return <div className="consoleRetained" ref={root}>

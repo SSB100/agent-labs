@@ -141,9 +141,12 @@ begin
   perform public.product_discovery_runtime((launch->>'workflowRunId')::uuid,b,cap,'finalize');
   select * into strict e from public.product_experiments where id=(launch->>'experimentId')::uuid;
   select * into strict d from public.product_decisions where experiment_id=e.id;
+  -- Drain only R12 adoption FK checks before this synthetic timestamp rewrite.
+  set constraints public.product_decisions_focused_adoption_id_fkey immediate;
   alter table public.product_decisions disable trigger stage13_decision_append_only;
   update public.product_decisions set created_at=now()-interval '1 minute' where id=d.id;
   alter table public.product_decisions enable trigger stage13_decision_append_only;
+  set constraints public.product_decisions_focused_adoption_id_fkey deferred;
   select jsonb_agg(x||jsonb_build_object('score',4,'rationale','Owner-scored synthetic rollback evidence only',
     'evidenceKind',(case when x->>'dimension'='policy_ip_risk' then 'policy' when x->>'dimension' in ('estimated_margin','production_complexity') then 'operational_fact' else 'market_observation' end),
     'evidenceIds',jsonb_build_array(e.evidence_pack->'evidence'->(case when x->>'dimension'='policy_ip_risk' then 2 when x->>'dimension' in ('estimated_margin','production_complexity') then 1 else 0 end)->>'id')))

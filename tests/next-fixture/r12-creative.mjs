@@ -1,6 +1,6 @@
 /** Disposable creative transport/operator support. Owner actions and SQL stay real. */
 import assert from 'node:assert/strict';
-import {randomUUID} from 'node:crypto';
+import {focusedCreativeInstallationFixture} from '../helpers/r12-focused-creative-install-fixture.mjs';
 import {r12CatalogFixture} from '../helpers/r12-provider-fixture.mjs';
 import {qualifyFocusedCreativeQuote} from '../../.core-tests/creative/focused-quote.js';
 import {creativeHash} from '../../.core-tests/creative/contracts.js';
@@ -24,15 +24,17 @@ export function r12CreativeCatalog(state,input){
 }
 export async function seedR12Creative(r){
  assert.ok((await r.db.query("select to_regprocedure('public.adopt_r12_focused_test(uuid,jsonb,jsonb)') id")).rows[0].id,'Focused adoption migration must be present in the captured SQL fixture');
- const pack=(await r.db.query("select id from public.packs where pack_key='workflow.etsy-creative-pipeline' and version='1.0.0'")).rows[0];assert.ok(pack);
- const installationId=randomUUID();await r.db.query("insert into public.installed_packs(id,business_id,root_pack_id,root_pack_key,status,snapshot) values($1,$2,$3,'workflow.etsy-creative-pipeline','active',jsonb_build_object('rootPackId',$3::uuid,'releases',private.stage10_resolve($3,true)))",[installationId,r.businessId,pack.id]);
- // Deployment enrollment is intentionally absent from the migration. Enable
- // only this disposable owner's actual adoption interface for the journey.
- await r.db.exec('grant execute on function public.adopt_r12_focused_test(uuid,jsonb,jsonb) to authenticated');
- r.creative={installationId,catalogReads:0,launches:[],staged:null,activated:null};
+ assert.equal((await r.db.query("select count(*)::int n from public.installed_packs where business_id=$1 and root_pack_key='workflow.etsy-creative-pipeline'",[r.businessId])).rows[0].n,0,'No fixture installation may precede accepted TEST adoption');
+ r.creative={installationId:null,catalogReads:0,launches:[],staged:null,activated:null};
 }
 export async function controlR12Creative(r,input){
  const{runOperatorRecipe}=await import('../../scripts/r12-focused-creative-bootstrap.mjs');
+ if(input.r12CreativeInstall){
+  assert.equal(r.creative.installationId,null);
+  const adopted=(await r.db.query('select id from private.r12_focused_adoptions where business_id=$1 and candidate_id=$2',[r.businessId,input.r12CreativeInstall.candidateId])).rows;assert.equal(adopted.length,1);
+  const installed=await focusedCreativeInstallationFixture(r.db,{businessId:r.businessId,ownerId:r.ownerId,adoptionId:adopted[0].id});
+  r.creative.installationId=installed.installationId;r.creative.installationReceipt=installed;
+ }
  if(input.r12CreativeStage){
   assert.ok(!r.creative.staged);const preparation=input.r12CreativeStage;assert.equal(preparation.businessId,r.businessId);assert.equal(preparation.dispatchAuthorized,false);
   const phaseKeys=['brief:1','screen:1','generate:1','review:1'];

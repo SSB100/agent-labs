@@ -5,10 +5,11 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { r04SqlBootstrap } from './helpers/r04-sql-bootstrap.mjs';
+import { r12FocusedAdoptionMigration, assertLegacyFunctionContract, assertR12FocusedAdoptionTransition } from './helpers/r12-legacy-function-contracts.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const sql = file => readFileSync(path.join(root, file), 'utf8').replaceAll('\r\n', '\n');
-const fingerprintFunctions = `select p.oid::text id,n.nspname,p.proname,pg_get_function_identity_arguments(p.oid) args,
+const fingerprintFunctions = `select p.oid::text id,p.oid::regprocedure::text signature,n.nspname,p.proname,pg_get_function_identity_arguments(p.oid) args,
  pg_get_functiondef(p.oid) definition,p.proacl::text acl,p.proowner::text owner,
  p.prosecdef security_definer,p.proconfig config,p.provolatile volatility,p.proparallel parallel,p.proisstrict strict,p.proleakproof leakproof,p.proretset returns_set,pg_get_function_result(p.oid) result,pg_get_function_arguments(p.oid) arguments
  from pg_proc p join pg_namespace n on n.oid=p.pronamespace
@@ -16,6 +17,29 @@ const fingerprintFunctions = `select p.oid::text id,n.nspname,p.proname,pg_get_f
 const fingerprintTables = `select c.oid::text id,n.nspname,c.relname,c.relacl::text acl,c.relowner::text owner,c.relrowsecurity,c.relforcerowsecurity
  from pg_class c join pg_namespace n on n.oid=c.relnamespace
  where n.nspname in ('public','private') and c.relkind in ('r','p','v','m') order by c.oid`;
+
+test('R12 legacy contract exception is exact to its Stage14 signature, transition and body', () => {
+  const prior = { id: 'private.stage14_assert_approval(uuid,jsonb)', volatility: 's',
+    acl: null, owner: '10', security_definer: false, config: ['search_path=""'],
+    body: 'header\n STABLE\nbegin\n  select * into strict c from public.product_candidates where id=p_candidate_id;\nend' };
+  const after = { ...prior, volatility: 'v', body: prior.body.replace('\n STABLE\n', '\n')
+    .replace('begin\n', "begin\n  if p_snapshot ? 'focusedPilotBinding' then\n    perform private.stage14_assert_focused_adoption(p_candidate_id,p_snapshot);return;\n  end if;\n") };
+  assert.equal(assertR12FocusedAdoptionTransition([prior], [after]), true);
+  assertLegacyFunctionContract(after, prior, true);
+  assert.throws(() => assertLegacyFunctionContract(after, prior), /Legacy function contract/);
+  for (const patch of [{ volatility: 's' }, { volatility: 'i' }, { owner: '11' }, { acl: '{public=X}' },
+    { security_definer: true }, { config: ['search_path=public'] }, { id: 'private.stage14_assert_approval(uuid,text)' }]) {
+    assert.throws(() => assertR12FocusedAdoptionTransition([prior], [{ ...after, ...patch }]));
+  }
+  assert.throws(() => assertR12FocusedAdoptionTransition([{ ...prior, volatility: 'v' }], [after]));
+  assert.throws(() => assertR12FocusedAdoptionTransition([prior], [{ ...after, body: after.body + '\n-- drift' }]));
+  assert.throws(() => assertR12FocusedAdoptionTransition([prior], []));
+  const other = { ...prior, id: 'private.other_approval(uuid,jsonb)' };
+  assert.throws(() => assertR12FocusedAdoptionTransition([prior, other], [after, { ...other, volatility: 'v' }]));
+  // R06 fingerprints use OIDs, whereas R09/R10 use regprocedure identities.
+  assert.equal(assertR12FocusedAdoptionTransition([{ ...prior, id: '123', signature: prior.id }],
+    [{ ...after, id: '123', signature: prior.id }]), true);
+});
 
 function populatedLaneAssertions(lane) {
   const publication = lane === 'publication';
@@ -100,7 +124,7 @@ test('R06 replays all migrations without changing old functions/grants and passe
     }
     await db.exec(r04SqlBootstrap);
     const files = readdirSync(path.join(root, 'supabase/migrations')).filter(file => file.endsWith('.sql')).sort();
-    let oldFunctions, oldTables, replayed = 0;
+    let oldFunctions, oldTables, replayed = 0, adoptionReviewed = false;
     for (const file of files) {
       if (file.endsWith('_r06_bounded_reads.sql')) {
         oldFunctions = (await db.query(fingerprintFunctions)).rows;
@@ -119,7 +143,9 @@ test('R06 replays all migrations without changing old functions/grants and passe
           where n.nspname in ('public','private') and c.relkind='i' and c.relname like 'r06_%'`)).rows[0].n, 0, 'Failed R06 install leaves no R06 index');
         t.diagnostic('Failed-install rollback rehearsal passed before applying the exact R06 source');
       }
+      const beforeAdoption = file === r12FocusedAdoptionMigration ? (await db.query(fingerprintFunctions)).rows : null;
       await db.exec(sql(`supabase/migrations/${file}`));
+      if (beforeAdoption) adoptionReviewed = assertR12FocusedAdoptionTransition(beforeAdoption, (await db.query(fingerprintFunctions)).rows);
       replayed++;
       if (file.endsWith('_r06_bounded_reads.sql')) {
         const installedFunctions = new Map((await db.query(fingerprintFunctions)).rows.map(row => [row.id, row]));
@@ -130,12 +156,10 @@ test('R06 replays all migrations without changing old functions/grants and passe
     const currentFunctions = new Map((await db.query(fingerprintFunctions)).rows.map(row => [row.id, row]));
     const currentTables = new Map((await db.query(fingerprintTables)).rows.map(row => [row.id, row]));
     // Byte preservation belongs to the exact R06 install above. Later reviewed
-    // migrations may extend bodies, but must preserve legacy signatures/ACLs/owners.
-    for (const prior of oldFunctions) {
-      const beforeContract = { ...prior }, afterContract = { ...currentFunctions.get(prior.id) };
-      delete beforeContract.definition; delete afterContract.definition;
-      assert.deepEqual(afterContract, beforeContract, `Legacy function contract unchanged: ${prior.nspname}.${prior.proname}(${prior.args})`);
-    }
+    // migrations may extend bodies. All metadata stays pinned except the exact
+    // Stage14 STABLE-to-VOLATILE transition checked at the R12 boundary above.
+    assert.ok(adoptionReviewed, 'Exact R12 adoption transition was checked');
+    for (const prior of oldFunctions) assertLegacyFunctionContract(currentFunctions.get(prior.id), prior, adoptionReviewed);
     for (const prior of oldTables) assert.deepEqual(currentTables.get(prior.id), prior, `Legacy relation ACL/RLS/owner unchanged: ${prior.nspname}.${prior.relname}`);
 
     const functions = (await db.query(`select p.proname,p.provolatile,p.prosecdef,p.proconfig,p.proowner=(select oid from pg_roles where rolname=current_user) reviewed_owner,
@@ -177,6 +201,6 @@ test('R06 replays all migrations without changing old functions/grants and passe
     for (const table of ['listing_mutation_admissions','etsy_publication_mutation_admissions','printful_product_mutation_admissions']) {
       assert.equal((await db.query(`select count(*)::int n from private.${table}`)).rows[0].n, 0, `${table} remains empty`);
     }
-    t.diagnostic(`${backend}: ${replayed} migrations replayed; ${oldFunctions.length} legacy function contracts and ${oldTables.length} ACL/RLS definitions unchanged; ${datasets.length} datasets pass READ ONLY`);
+    t.diagnostic(`${backend}: ${replayed} migrations replayed; ${oldFunctions.length} legacy function contracts checked (one exact reviewed R12 volatility transition) and ${oldTables.length} ACL/RLS definitions unchanged; ${datasets.length} datasets pass READ ONLY`);
   } finally { await db.close(); }
 });

@@ -1,5 +1,6 @@
 /** Actual isolated SQL lifecycle with inert transport only. Enrollment is fixture scaffolding, never a production recipe. */
 import assert from 'node:assert/strict';
+import {focusedCreativeInstallationFixture} from './r12-focused-creative-install-fixture.mjs';
 import {readFileSync} from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -34,9 +35,8 @@ export async function exerciseFocusedCreativeLifecycle(db,pilot){
 
  const rootBefore=(await one('select private.stage13v2_budget_authority($1,false) result',[result.originalFundingRootId])).result;
  const goalBefore=await one('select to_jsonb(s) state,(select jsonb_agg(to_jsonb(v) order by revision) from private.r04_goal_versions v where v.goal_id=s.goal_id) versions from private.r04_goal_state s where s.goal_id=$1',[result.goalId]);
- const creativePack=await one("select p.id,d.id workflow_id from public.packs p join public.workflow_definitions d on d.pack_id=p.id where p.pack_key='workflow.etsy-creative-pipeline' and p.version='1.0.0'");
- const installId=randomUUID();
- await db.query("insert into public.installed_packs(id,business_id,root_pack_id,root_pack_key,status,snapshot) values($1,$2,$3,'workflow.etsy-creative-pipeline','active',jsonb_build_object('rootPackId',$3::uuid,'releases',private.stage10_resolve($3,true)))",[installId,businessId,creativePack.id]);
+ const installed=await focusedCreativeInstallationFixture(db,{businessId,ownerId:plan.owner_id,adoptionId:adoption.adoptionId,nested:true,negativeCoverage:true});
+ const installId=installed.installationId;
  const installation=await one('select snapshot from public.installed_packs where id=$1',[installId]);
  const approvalId=randomUUID(),now=Date.now();
  const spec={provider:'printful',product:'Synthetic fixed physical test product',garment:'Explicit cream cotton test garment',placement:'front center',sourceUrl:'https://www.printful.com/custom/mens/t-shirts',sourceExcerpt:'Inert source-backed print specification for a fixed physical placement. This fixture makes no live catalog or fulfillment claim.',verifiedAt:new Date(now-1000).toISOString(),maximumWidthInches:12,maximumHeightInches:16,designWidthInches:4,designHeightInches:4,minimumDpi:150,colorSpace:'srgb',background:'opaque',maximumBytes:3700000};

@@ -26,6 +26,7 @@ export async function runR12CreativeOwnerHttp({boundary,fixture,control,check,re
  await check('Focused TEST uses the actual adoption form and explicit production approval without creative execution',async()=>{
   const route=progress(),form=renderedResearchForm(await read(route),'Adopt focused TEST',fixture().scopeId);form.set('reviewed','on');const adopted=await post(route,form);assert.match(researchHtmlText(adopted),/exact independently reviewed TEST is recorded/);recordAdoption(boundary,fixture);
   await post(route,form);recordAdoption(boundary,fixture);assertNoCreativeEffects(fixture);
+  assert.equal(fixture().creative.installationId,null);await control({r12CreativeInstall:{candidateId:fixture().creative.candidateId}});assertNoCreativeEffects(fixture);
   const html=await read(production(fixture));assert.match(researchHtmlText(html),/Explicit focused print specification/);assert.match(researchHtmlText(html),/6 × 6-inch square/);
   const approval=fillForm(renderedResearchForm(html,'Save candidate creative approval',fixture().creative.candidateId),fixture);
   const missingSpec=new FormData();for(const[key,value]of approval)if(key!=='confirmPrintSpec')missingSpec.append(key,value);await post(production(fixture),missingSpec);assert.equal(boundary.state().db.creative_approvals.filter(row=>row.candidate_id===fixture().creative.candidateId).length,0);
@@ -53,6 +54,7 @@ export async function runR12CreativeOwnerBrowser({boundary,fixture,control,check
  let prepared;
  await check('Hydrated historical TEST adoption leads to an exact separately approved physical design',async()=>{
   await page.goto(origin+progress());await page.getByRole('checkbox',{name:/I reviewed this focused TEST/}).check();await action('Adopt focused TEST',()=>page.getByRole('link',{name:'Review the production design approval',exact:true}).waitFor());recordAdoption(boundary,fixture);
+  assert.equal(fixture().creative.installationId,null);await control({r12CreativeInstall:{candidateId:fixture().creative.candidateId}});assertNoCreativeEffects(fixture);
   await page.getByRole('link',{name:'Review the production design approval',exact:true}).click();const choice=page.locator('.creativeProductionChoice').filter({has:page.locator(`input[name="candidateId"][value="${fixture().creative.candidateId}"]`)});await choice.locator('summary').click();const form=choice.locator('form');
   await form.getByRole('combobox',{name:'Installed creative workflow',exact:true}).selectOption(fixture().creative.installationId);await form.getByRole('textbox',{name:'Exact original design instructions',exact:true}).fill(design);await form.getByRole('textbox',{name:'Concept-specific originality and rights statement',exact:true}).fill(rights);
   for(const category of SCREEN_CATEGORIES){await form.locator(`[name="rationale_${category}"]`).fill(rationale);await form.locator(`[name="sources_${category}"]`).fill(source);}

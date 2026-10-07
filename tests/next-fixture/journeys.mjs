@@ -167,13 +167,20 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false,que
       await page.waitForURL(/view=work/);await page.getByRole('heading',{name:'Events',exact:true}).waitFor();
     });
     await check('unsaved nonsecret tool draft survives real tabs, Back and reload',async()=>{
+      const concept='Unsaved inert original concept';
+      const ready=label=>page.locator(`[data-retained-active=true][data-retained-ready=true][aria-label="${label} details"]`).waitFor({timeout:FIXTURE_ACTION_TIMEOUT_MS});
       await page.goto(origin+`/dashboard/products?business=${business}&panel=new`);
-      await page.locator('input[name=concept]').fill('Unsaved inert original concept');
+      // SSR fields and the load event do not imply the passive storage effect ran.
+      await ready('New candidate');await page.locator('input[name=concept]').fill(concept);
+      const saved=await page.evaluate(()=>Object.entries(sessionStorage).filter(([key])=>key.startsWith('agent-labs:retained:')).map(([key,value])=>[key,JSON.parse(value)]).filter(([,value])=>value.drafts?.['form:0:concept']==='Unsaved inert original concept'));
+      assert.equal(saved.length,1,'The exact nonsecret edit must reach tab-local storage before navigation');
+      assert.ok(saved[0][0].includes(`:/dashboard/products:${business}::new:`));
       await page.getByRole('link',{name:'Candidates',exact:true}).click();
-      await page.waitForURL(/panel=candidates/);await page.goBack();await page.waitForURL(/panel=new/);await page.locator('input[name=concept]').waitFor();assert.equal(await page.locator('input[name=concept]').inputValue(),'Unsaved inert original concept');
-      await page.reload();assert.equal(await page.locator('input[name=concept]').inputValue(),'Unsaved inert original concept');
+      await page.waitForURL(/panel=candidates/);await ready('Candidates');await page.goBack();await page.waitForURL(/panel=new/);await ready('New candidate');assert.equal(await page.locator('input[name=concept]').inputValue(),concept);
+      await page.reload();await ready('New candidate');assert.equal(await page.locator('input[name=concept]').inputValue(),concept);
+      assert.deepEqual(await page.evaluate(key=>JSON.parse(sessionStorage.getItem(key)).drafts,saved[0][0]),saved[0][1].drafts,'Reload must not replace the persisted draft with server-rendered defaults');
       await page.goto(origin+`/dashboard/products?business=${id(2)}&panel=new`);
-      assert.equal(await page.locator('input[name=concept]').inputValue(),'');
+      await ready('New candidate');assert.equal(await page.locator('input[name=concept]').inputValue(),'');
     });
     await check('retained candidate server action preserves exact Business, duplicate outcome and error drafts',async()=>{
       const target=origin+`/dashboard/products?business=${business}&panel=new`;
