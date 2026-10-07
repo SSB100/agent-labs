@@ -11,6 +11,7 @@ import type { DiscoveryR12ExecutionQuote } from "./discovery-r12-quote";
 import type { DiscoveryR12ExecutionScope } from "./discovery-r12-review-continuation";
 import { DISCOVERY_R12_PHASES, type DiscoveryR12Phase } from "./discovery-r12-wire";
 import { discoveryR12ServerDependencies } from "./discovery-r12-server-dependencies";
+import { validateR12FocusedSuccessor } from "./discovery-r12-focused-successor";
 const id=(v:unknown):v is string=>typeof v==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(v);
 const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v);
 const fail=():never=>{throw Error('r12_discovery_owner_action_unavailable');};
@@ -32,6 +33,7 @@ export async function prepareDiscoveryR12Authority(context:OwnerUiContext,busine
  return{controllerKeyHash:sha(authority.controllerKey),admissionKeyHash:sha(authority.admissionKey),authorityCreated:false as const};
 }
 export async function continueDiscoveryR12(context:OwnerUiContext,businessId:string,scopeId:string):Promise<QuestTickResult>{
+ const requestStarted=Date.now();
  await owned(context,businessId,scopeId);const authority=keys(context,businessId,scopeId);
  const read=await context.supabase.rpc('r12_discovery_owner_read',{p_business_id:businessId,p_scope_id:scopeId,p_activation:true});
  const row=read.data;if(read.error||!object(row)||row.businessId!==businessId||row.scopeId!==scopeId||!object(row.activation))return fail();
@@ -39,7 +41,10 @@ export async function continueDiscoveryR12(context:OwnerUiContext,businessId:str
  if(activation.mode!=='qualification'||activation.controllerKeyHash!==sha(authority.controllerKey)||activation.admissionKeyHash!==sha(authority.admissionKey)||!Array.isArray(activation.operations)||!object(activation.scope))return fail();
  const scope=activation.scope as DiscoveryR12ExecutionScope,plan=compileQuestPlan(activation.plan);
  if(scope.id!==scopeId||scope.businessId!==businessId||scope.goalId!==row.goalId||plan.businessId!==businessId||plan.goalId!==scope.goalId||plan.discoveryScopeId!==scopeId||plan.discoveryScopeHash!==discoveryV2Hash(scope))return fail();
- const dependencies=discoveryR12ServerDependencies(),controller=dependencies.createController(businessId,scope.goalId,authority),client=dependencies.createClient();
+ if(row.focusedSuccessor!==undefined&&scope.version!=='r12.discovery-focused-pilot.1')return fail();
+ const successor=row.focusedSuccessor===undefined?null:validateR12FocusedSuccessor(row.focusedSuccessor,{businessId,scopeId,goalId:scope.goalId,ownerId:context.userId,...(scope.version==='r12.discovery-focused-pilot.1'?{scope}:{})});
+ const recovery=successor?.authorization.version==='r12.focused-pilot-unsent-recovery-authorization.1';
+ const dependencies=discoveryR12ServerDependencies(),controller=dependencies.createController(businessId,scope.goalId,{...authority,...(recovery?{recoveryScopeId:scopeId}:{})}),client=dependencies.createClient();
  const operation:DiscoveryR12EffectStore['operation']=async(attemptId,operation,payload)=>{
   const response=await client.rpc('r12_discovery_server',{p_business_id:businessId,p_attempt_id:attemptId,p_operation:operation,p_payload:payload,p_server_key:authority.controllerKey});
   if(response.error||!object(response.data))return fail();return response.data;
@@ -62,12 +67,15 @@ export async function continueDiscoveryR12(context:OwnerUiContext,businessId:str
   if(row.activeWindow!==true||plan.format==='r12.discovery-review.1'||plan.format==='r12.discovery-evidence.1')return fail();
   await controller.command('plan',{plan,expectedVersion:0,reason:'Approved bounded nature-shirt discovery',evidenceHash:scope.independentReviewHash});
  }
- const started=Date.now();
+ const started=recovery?requestStarted:Date.now();
  // Existing Core takes one finite transition at a time. This request can make
  // at most the approved five effects; pause/receipt-wait returns to the owner.
  // Stop starting transitions at 200s, leaving room for the bounded 45s model
  // transport, 20s receipt and persistence within the 300s dashboard limit.
- for(let transitions=0;transitions<24&&Date.now()-started<200000;transitions++){
+ // Recovery leaves 150s for a final transition: catalogs, bounded dispatch,
+ // model and receipt plus the separately bounded SQL/persistence sequence.
+ const latestTransitionStartMs=recovery?150000:200000;
+ for(let transitions=0;transitions<24&&Date.now()-started<latestTransitionStartMs;transitions++){
   try{const result=await driveQuestOnce(controller,{adapters,reconcile:true});if(result.status!=='progress')return result;}
   catch(error){if(error instanceof DiscoveryR12ReceiptPending){const wake=error.receipt.nextCheckAt;return{status:'waiting',reason:'receipt_pending',...(typeof wake==='string'?{wakeAt:wake}:{})};}throw error;}
  }

@@ -127,7 +127,8 @@ export async function exerciseFocusedPilotLifecycle(db,closed,{nested=false,owne
  const activated=await runOperatorRecipe(recipeClient,'activate',activationInput);const plan=activated.plan;
  assert.equal(activated.providerCalls,0);assert.equal(activated.planId,null);assert.equal(activated.shouldDispatch,false);assert.equal(plan.maximumMicrounits,'277907');assert.equal(plan.maximumDispatches,2);assert.equal(plan.maximumChildren,2);assert.equal(plan.maximumRepairs,0);assert.equal(plan.maximumPivots,0);assert.deepEqual(plan.steps.map(step=>step.maximumMicrounits),['66671','211236']);
  const authority=await one('select valid_until,receipt_until from private.r12_discovery_authorities where scope_id=$1',[sid]);assert.equal(Date.parse(authority.receipt_until)-Date.parse(authority.valid_until),1800000);if(ownerPreparationReceipt){assert.equal(activationInput.controllerKeyHash,ownerPreparationReceipt.controllerKeyHash);assert.equal(activationInput.admissionKeyHash,ownerPreparationReceipt.admissionKeyHash);}
- const rpc=async(name,args)=>{await db.exec('savepoint pilot_effect_rpc');await db.exec('set role anon');try{return(await one(`select public.${name}(${args.map((_,n)=>`$${n+1}`).join(',')}) result`,args)).result;}catch(error){await db.exec('rollback to savepoint pilot_effect_rpc');throw error;}finally{await db.exec('reset role');await db.exec('release savepoint pilot_effect_rpc');}};
+ let externalRpc=null;
+ const rpc=async(name,args)=>{if(externalRpc)return externalRpc(name,args);await db.exec('savepoint pilot_effect_rpc');await db.exec('set role anon');try{return(await one(`select public.${name}(${args.map((_,n)=>`$${n+1}`).join(',')}) result`,args)).result;}catch(error){await db.exec('rollback to savepoint pilot_effect_rpc');throw error;}finally{await db.exec('reset role');await db.exec('release savepoint pilot_effect_rpc');}};
  const command=(op,payload,epoch=null)=>rpc('r07_controller',[p.businessId,p.goalId,op,payload,randomUUID(),controller,lease,epoch,admission]);
  await command('plan',{plan,expectedVersion:0,reason:'Inert finite independent focused pilot',evidenceHash:hash(e)});
  const snapshot=await command('read',{});assert.equal(snapshot.planVersion??(await one('select version from private.r07_plans where id=$1',[snapshot.planId])).version,1);
@@ -178,7 +179,7 @@ export async function exerciseFocusedPilotLifecycle(db,closed,{nested=false,owne
   assert.equal((await tick()).reason,'scheduled');assert.equal((await tick()).reason,'reserved');
   if(onReservedDispatch&&phase==='strategy'){
    assert.equal((await tick()).reason,'full_shape_dispatch_captured');assert.equal(posts,0);assert.equal(gets,0);
-   const captured=await onReservedDispatch({db,metadata:fixtureMetadata,closedBroad,scopeId:sid,planId:snapshot.planId,activated,plan,command,controller,admission,lease,ownerApi,closeRun,...capturedDispatch});
+   const captured=await onReservedDispatch({db,metadata:fixtureMetadata,closedBroad,scopeId:sid,planId:snapshot.planId,activated,plan,command,controller,admission,lease,ownerApi,closeRun,httpRuntime:{useRpc:rpc=>{externalRpc=rpc;captureDispatch=false;},tick,receiptReady:()=>{delay=false;},counters:()=>({inertPosts:posts,inertReceiptGets:gets})},...capturedDispatch});
    if(captured?.continueLifecycle!==true)return captured;captureDispatch=false;
   }
   if(phase==='strategy'&&strategyOutcome==='INVALID'){
