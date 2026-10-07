@@ -1,4 +1,4 @@
-import {loadR12NextFixture,controlR12,closeR12Fixture,r12OwnerRpc,r12RuntimeRpc,r12Quote,r12Provider,r12CreativeLaunch} from './r12-sql.mjs';
+import {loadR12NextFixture,controlR12,closeR12Fixture,r12OwnerRpc,r12RuntimeRpc,r12Quote,r12Provider,r12CreativeLaunch,R12_RUNTIME_RPC_ARGUMENTS} from './r12-sql.mjs';
 import {r12CreativeCatalog} from './r12-creative.mjs';
 import {seedResearchFixture,installResearchContinuationFixture,researchCatalogFixture,researchGenerationFixture,researchProviderFixture,researchOwnerFixture,researchRuntimeFixture} from './r11-research.mjs';
 import sharp from 'sharp';
@@ -34,8 +34,9 @@ export async function startFixtureBoundary() {
     if(req.url==='/r12/provider'){log.push({kind:'inert-r12-provider-transport',method:input.method,phase:input.phase});return send(r12Provider(state,input,control,effects));}
     if(req.url==='/r12/creative/catalog'){log.push({kind:'inert-r12-creative-catalog',url:input.url});return send(r12CreativeCatalog(state,input));}
     if(req.url==='/r12/creative/launch'){const result=await r12CreativeLaunch(state,input);effects.push({kind:'inert-r12-creative-launch',creativeRunId:input.input.creativeRunId});return send(result);}
-    if(state.r12&&['/rest/v1/rpc/r07_controller','/rest/v1/rpc/r12_discovery_server','/rest/v1/rpc/creative_runtime_transition'].includes(req.url)){
-      const name=req.url.split('/').at(-1);log.push({kind:'inert-r12-runtime',rpc:name,operation:input.p_operation});const result=await r12RuntimeRpc(state,name,input);
+    const runtimeRpcName=req.url.startsWith('/rest/v1/rpc/')?req.url.slice('/rest/v1/rpc/'.length):null;
+    if(state.r12&&runtimeRpcName&&Object.hasOwn(R12_RUNTIME_RPC_ARGUMENTS,runtimeRpcName)){
+      const name=runtimeRpcName;log.push({kind:'inert-r12-runtime',rpc:name,operation:input.p_operation});const result=await r12RuntimeRpc(state,name,input);
       if(result.error){res.statusCode=400;return send({code:'42501',message:result.error.message});}return send(result.data);
     }
     if(req.url==='/r11/catalog')return send(researchCatalogFixture(input.url,log,control));
@@ -52,6 +53,9 @@ export async function startFixtureBoundary() {
       if(name==='r11_research_server_v2'&&input.p_operation==='load'&&control.r11HoldLoads)await new Promise(resolve=>heldResearchLoads.push(resolve));
       return send(result.data);
     }
+    // Supabase RPC consumes the HTTP status, not an arbitrary success-shaped
+    // JSON body. Unknown REST routes must fail before any owner/table fallback.
+    if(runtimeRpcName!==null){denied.push({kind:'endpoint',url:req.url});res.statusCode=404;return send({code:'PGRST202',message:'Inert runtime RPC unavailable'});}
     if(input.session==='off')return send({data:null,error:{code:'42501',message:'inert owner absent'}});
     if(req.url==='/read'){
       const call={...input};log.push(call);
