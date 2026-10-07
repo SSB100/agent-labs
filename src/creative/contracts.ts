@@ -1,3 +1,4 @@
+import { validateFocusedPilotCreativeBinding, validateFocusedPilotReviewBinding, type FocusedPilotAdoptionProof } from "./focused-pilot-adoption";
 import { createHash } from "node:crypto";
 import { REVIEWER_DECISION_V2_SCHEMA } from "../products/discovery-v2-worker-contract";
 import { REVIEW_CHECKS_V2, DISCOVERY_V2, DISCOVERY_V2_MODELS, type ReviewerDecisionV2 } from "../products/discovery-v2";
@@ -35,11 +36,14 @@ export function validatePrintSpecification(spec: PrintSpecification, now = Date.
   if (spec.designWidthInches > spec.maximumWidthInches || spec.designHeightInches > spec.maximumHeightInches || !Number.isFinite(spec.minimumDpi) || spec.minimumDpi < 150 || spec.minimumDpi > 300) throw new Error("Design placement exceeds verified print constraints.");
 }
 /** Snapshot preflight only; the owner/runtime RPC revalidates persisted dossier and provider lineage. */
-export function isReviewedDiscoveryTest(value:unknown,candidateId:string):value is ReviewerDecisionV2{
-  try{assertJsonSchemaValue(REVIEWER_DECISION_V2_SCHEMA,value,"Reviewed discovery decision");}catch{return false;}
+export function isReviewedDiscoveryTest(value:unknown,candidateId:string,focusedAdoption?:FocusedPilotAdoptionProof,now=Date.now()):value is ReviewerDecisionV2{
+  try {
+    if (focusedAdoption) validateFocusedPilotReviewBinding(value,candidateId,focusedAdoption,now);
+    else assertJsonSchemaValue(REVIEWER_DECISION_V2_SCHEMA,value,"Reviewed discovery decision");
+  } catch { return false; }
   const review=value as ReviewerDecisionV2;
   return review.version===DISCOVERY_V2&&review.outcome==="TEST"&&review.candidateId===candidateId&&review.marketCountryCode!==null&&
-    review.execution.modelId===DISCOVERY_V2_MODELS.reviewer&&review.execution.primaryOnly===true&&!/(mock|fixture|simulation)/i.test(review.execution.providerRequestId)&&
+    (focusedAdoption!==undefined||review.execution.modelId===DISCOVERY_V2_MODELS.reviewer)&&review.execution.primaryOnly===true&&!/(mock|fixture|simulation)/i.test(review.execution.providerRequestId)&&
     review.dimensions.length===DIMENSIONS.length&&DIMENSIONS.every(d=>review.dimensions.filter(item=>item.dimension===d).length===1)&&
     review.dimensions.every(d=>!["blocking","known_failure"].includes(d.verdict))&&review.additionalUncertainties.every(u=>!u.blockingForTest)&&
     REVIEW_CHECKS_V2.every(check=>review.checks.filter(item=>item.check===check&&item.outcome==="PASS").length===1);
@@ -51,12 +55,13 @@ export function validateCreativeApproval(approval: CreativeApprovalSnapshot, now
     approval.publicationAllowed !== false || ![1, 2].includes(approval.maximumGenerations) || !Number.isInteger(approval.maximumMicrousd) || approval.maximumMicrousd < 0 || approval.maximumMicrousd > 2_000_000 ||
     !Number.isFinite(Date.parse(approval.approvedAt)) || !Number.isFinite(Date.parse(approval.expiresAt)) || Date.parse(approval.approvedAt) > now + 300000 ||
     Date.parse(approval.expiresAt) <= now || Date.parse(approval.expiresAt) > Date.parse(approval.approvedAt) + 7 * 86400000) throw new Error("Explicit, unexpired creative approval is required.");
+  if (approval.focusedPilotBinding !== undefined) validateFocusedPilotCreativeBinding(approval.focusedPilotBinding, approval, now);
   if (approval.purpose === "simulation" && approval.maximumMicrousd !== 0) throw new Error("Simulation cannot authorize provider spending.");
   if (approval.purpose === "candidate_production") {
     const d = approval.candidateAssessment;
     if (!approval.decisionId || !uuidPattern.test(approval.decisionId) || !d || d.outcome !== "TEST") throw new Error("Creative production requires a current evidence-backed TEST decision.");
     if("version" in d){
-      if(!isReviewedDiscoveryTest(d,approval.candidateId))throw new Error("The v2 candidate needs its current independent, nonblocking reviewed TEST.");
+      if(!isReviewedDiscoveryTest(d,approval.candidateId,approval.focusedPilotBinding?.adoption,now))throw new Error("The v2 candidate needs its current independent, nonblocking reviewed TEST.");
     }else if(d.assessmentOrigin !== "owner_assessment" || d.missingEvidence.length !== 0 || d.totalScore === null || d.totalScore < 65 || d.dimensions.length !== DIMENSIONS.length ||
       DIMENSIONS.some(key => !d.dimensions.some(item => item.dimension === key && item.score !== null && item.evidenceIds.length > 0))) throw new Error("Creative production requires a separate evidence-backed TEST decision; unknown market evidence cannot be waived by this approval.");
   }

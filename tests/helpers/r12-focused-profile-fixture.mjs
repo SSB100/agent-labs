@@ -3,10 +3,10 @@ import {createHash} from 'node:crypto';
 import c from '../../.core-tests/products/discovery-r12-focused-pilot-contract.js';
 import {discoveryV2Hash as hash} from '../../.core-tests/products/discovery-v2.js';
 import {discoveryAddendumReferences} from '../../.core-tests/products/discovery-r12-evidence-addendum.js';
+import {REVIEW_CHECKS_V2} from '../../.core-tests/products/discovery-v2.js';
 import {DIMENSIONS} from '../../.core-tests/products/types.js';
 const id = n => `aaaaaaaa-aaaa-4aaa-8aaa-${String(n).padStart(12, '0')}`;
 const digest = text => createHash('sha256').update(text).digest('hex');
-const now = Date.parse('2026-10-07T00:00:00.000Z');
 export function focusedProfileFixture() {
   const createdAt = '2026-10-06T23:59:00.000Z', expiresAt = '2026-10-07T20:00:00.000Z';
   const retailText = 'A public United Kingdom retailer offers an adult nature-themed T-shirt. This observation establishes an offer, not purchases or demand.';
@@ -45,4 +45,11 @@ export function focusedStrategyOutput(p){
   uncertainties:d==='competition'?[]:[{question:`What further evidence resolves ${d} before actual commerce?`,blockingForTest:false,reason:'This private composition inspection does not measure sales or assert launch readiness; the question remains unresolved.'}],hardFailure:false}));
  return{usesPinnedLearningPlan:true,marketComparisons:[{countryCode:'GB',currency:'GBP',assessment:'This single market is the pilot scope; one offer supplies category context without establishing buyer demand.',evidence:[retail],assumptions:['No inference of observed sales or representative demand is made.'],limitations:['Actual buyers, profitability and physical print quality remain untested.'],sellerBankCountry:null,feeScenarios:[{sellerBankCountry:'GB',hypothetical:true,explanation:'This hypothetical seller scenario establishes no actual fee, bank location or unit margin.',evidence:[]}]}],
   candidates:[{candidateKey:'C1',dimensions}],recommendation:{proposedOutcome:'TEST',marketCountryCode:'GB',candidateKey:'C1',rationale:'The private original-composition experiment can answer its fixed question with explicit limits; commercial unknowns remain.',alternatives:[]}};
+}
+
+export function focusedReviewerOutput(prepared){
+ const strategy=focusedStrategyOutput(prepared);
+ return {marketCountryCode:'GB',candidateKey:'C1',outcome:'TEST',sufficiencyRationale:'The fixed private composition experiment can answer its exact learning question while retaining commercial unknowns and separate execution approval.',
+ dimensions:strategy.candidates[0].dimensions.map(d=>({dimension:d.dimension,verdict:d.uncertainties.length?'nonblocking_unknown':'sufficient_for_test',rationale:'This assessment supports only the private composition test and preserves the unresolved commercial questions.',evidence:d.facts.map(x=>x.evidence)})),
+ checks:REVIEW_CHECKS_V2.map(check=>({check,outcome:'PASS',rationale:'The fixed private experiment preserves source limits, original-design restrictions and separate execution approvals.'})),additionalUncertainties:[]};
 }

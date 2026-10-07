@@ -1,3 +1,6 @@
+import type { FocusedPilotProfile } from "../products/discovery-r12-focused-pilot-contract";
+import type { BoundedLearningTestV2 } from "../products/discovery-v2";
+import { FOCUSED_ADOPTION_VERSION, validateFocusedPilotAdoptionProof, type FocusedPilotAdoptionProof, type FocusedPilotExecutionConstraint } from "./focused-pilot-adoption";
 import { randomUUID } from "node:crypto";
 import { assessProductCandidate } from "../products/discovery";
 import { isLegacyProductDecision, isLegacyProductExperiment } from "../products/history";
@@ -7,9 +10,9 @@ import type { CandidateAssessment } from "../products/types";
 import { creativeHash, validateCreativeApproval, isReviewedDiscoveryTest } from "./contracts";
 import type { ImageGenerationModelId } from "./image-provider";
 import { technicalCreativeApproval } from "./proposal";
-import type { CreativeApprovalSnapshot, CreativeGenerationLimit, PolicyScreen } from "./types";
+import type { CreativeApprovalSnapshot, CreativeGenerationLimit, PolicyScreen, PrintSpecification } from "./types";
 
-export type ProductionCandidateChoice = { candidate: ProductCandidate; decision: ProductDecisionRecord & {assessment:CandidateAssessment|ReviewerDecisionV2}; experiment: ProductExperimentRecord; root?:ProductExperimentRecord; maximumGenerations?:CreativeGenerationLimit };
+export type ProductionCandidateChoice = { candidate: ProductCandidate; decision: ProductDecisionRecord & {assessment:CandidateAssessment|ReviewerDecisionV2}; experiment: ProductExperimentRecord; root?:ProductExperimentRecord; maximumGenerations?:CreativeGenerationLimit; focusedAdoption?:FocusedPilotAdoptionProof; focusedOriginalDesignConstraints?:FocusedPilotProfile["originalDesignConstraints"]; focusedExecutionConstraints?:FocusedPilotExecutionConstraint[] };
 const record=(value:unknown):value is Record<string,unknown>=>!!value&&typeof value==="object"&&!Array.isArray(value);
 
 
@@ -23,6 +26,25 @@ export function currentProductionCandidate(candidate: ProductCandidate, decision
   if (!decision || matching.some(d => d.id !== decision.id && Date.parse(d.created_at) >= Date.parse(decision.created_at))) return null;
   const experiment = experiments.find(e => e.id === decision.experiment_id && e.candidate_id === candidate.id && e.business_id === candidate.business_id);
   if(!experiment||experiment.status!=="completed"||experiment.has_competing_completed_v2===true)return null;
+  if (experiment.discovery_version === FOCUSED_ADOPTION_VERSION) {
+    try {
+      const proof = experiment.variables.focusedPilotAdoption;
+      validateFocusedPilotAdoptionProof(proof);
+      const identity = { id:candidate.id, businessId:candidate.business_id, concept:candidate.concept, audience:candidate.audience,
+        productType:candidate.product_type, originalDesign:candidate.original_design, rightsStatus:candidate.rights_status };
+      if (proof.businessId !== candidate.business_id || proof.candidateId !== candidate.id || creativeHash(identity) !== proof.candidateIdentityHash ||
+          experiment.parent_discovery_id != null || experiment.source_artifact_id !== proof.reviewArtifactId ||
+          !record(experiment.measurement_plan) || experiment.measurement_plan.version !== "pod-discovery-2.0" ||
+          creativeHash(experiment.measurement_plan.testPlan) !== proof.learningPlanHash ||
+          creativeHash(experiment.variables.focusedOriginalDesignConstraints) !== proof.originalDesignConstraintsHash ||
+          creativeHash(experiment.variables.focusedExecutionConstraints) !== proof.executionConstraintsHash ||
+          creativeHash(experiment.evidence_pack) !== creativeHash({version:FOCUSED_ADOPTION_VERSION,scopeId:proof.scopeId,resultHash:proof.resultHash,reviewArtifactId:proof.reviewArtifactId}) ||
+          !isReviewedDiscoveryTest(decision.assessment,candidate.id,proof) ||
+          experiments.some(e => e.id !== experiment.id && e.candidate_id === candidate.id && e.business_id === candidate.business_id &&
+            e.status === "completed" && Date.parse(e.created_at) >= Date.parse(experiment.created_at))) return null;
+      return {candidate,decision:{...decision,assessment:decision.assessment},experiment,maximumGenerations:1,focusedAdoption:structuredClone(proof),focusedExecutionConstraints:structuredClone(experiment.variables.focusedExecutionConstraints) as FocusedPilotExecutionConstraint[],focusedOriginalDesignConstraints:structuredClone(experiment.variables.focusedOriginalDesignConstraints) as FocusedPilotProfile["originalDesignConstraints"]};
+    } catch { return null; }
+  }
   if(experiment.discovery_version==="pod-discovery-2.0"){
     if(!isReviewedDiscoveryTest(decision.assessment,candidate.id)||!experiment.parent_discovery_id)return null;
     const root=experiments.find(e=>e.id===experiment.parent_discovery_id&&e.business_id===candidate.business_id&&e.candidate_id===null&&e.status==="completed");
@@ -49,6 +71,8 @@ export function currentProductionCandidate(candidate: ProductCandidate, decision
 }
 
 export function productionCreativeApproval(choice: ProductionCandidateChoice, input: {
+  /** The focused path requires all of these exact owner-supplied physical/installation inputs. */
+  printSpecification?: PrintSpecification; rightsConfirmed?: true; creativeInstallationId?: string; creativeInstallationSnapshotHash?: string;
   approvalId?: string; designInstructions: string; rightsStatement: string; policyScreen: PolicyScreen[]; maximumMicrousd: number; maximumGenerations?: CreativeGenerationLimit; generatorModel?: ImageGenerationModelId;
 }): CreativeApprovalSnapshot {
   // Never accept editable concept, audience, assessment or Business fields from the form.
@@ -56,6 +80,25 @@ export function productionCreativeApproval(choice: ProductionCandidateChoice, in
   const verified=currentProductionCandidate(candidate, [decision], [choice.experiment,...(choice.root?[choice.root]:[])]);
   if (!verified) throw new Error("Current source-linked reviewed TEST and fresh evidence are required.");
   if(verified.maximumGenerations&&(input.maximumGenerations??verified.maximumGenerations)>verified.maximumGenerations)throw new Error("Creative image count exceeds the reviewed learning experiment.");
+  if (verified.focusedAdoption) {
+    if (!input.printSpecification || input.rightsConfirmed !== true || !input.creativeInstallationId || !input.creativeInstallationSnapshotHash) {
+      throw new Error("Focused production requires explicit physical specification, rights confirmation and installed creative scope.");
+    }
+    const now = Date.now(), proof = verified.focusedAdoption;
+    const approval: CreativeApprovalSnapshot = {
+      approvalId:input.approvalId ?? randomUUID(),businessId:candidate.business_id,candidateId:candidate.id,decisionId:decision.id,
+      purpose:"candidate_production",concept:candidate.concept,audience:candidate.audience,designInstructions:input.designInstructions,
+      candidateAssessment:structuredClone(decision.assessment),originalDesign:candidate.original_design,rightsStatement:input.rightsStatement,
+      rightsConfirmed:true,policyScreen:structuredClone(input.policyScreen),printSpecification:structuredClone(input.printSpecification),
+      approvedBy:"owner",approvedAt:new Date(now).toISOString(),expiresAt:new Date(Math.min(now+7*86400000,Date.parse(proof.expiresAt))).toISOString(),
+      maximumMicrousd:input.maximumMicrousd,maximumGenerations:1,publicationAllowed:false,
+      focusedPilotBinding:{adoption:structuredClone(proof),executionConstraints:structuredClone(verified.focusedExecutionConstraints!),pinnedLearningPlan:structuredClone((verified.experiment.measurement_plan as {testPlan:BoundedLearningTestV2}).testPlan),
+        originalDesignConstraints:structuredClone(verified.focusedOriginalDesignConstraints!),creativeInstallationId:input.creativeInstallationId,
+        creativeInstallationSnapshotHash:input.creativeInstallationSnapshotHash,physicalSpecificationHash:creativeHash(input.printSpecification)},
+    };
+    validateCreativeApproval(approval,now);
+    return approval;
+  }
   const base = technicalCreativeApproval(candidate.business_id, candidate.id, input.maximumMicrousd,
     { concept: candidate.concept, audience: candidate.audience, designInstructions: input.designInstructions }, input.approvalId ?? randomUUID(), input.maximumGenerations ?? verified.maximumGenerations ?? 2, input.generatorModel);
   const approval: CreativeApprovalSnapshot = { ...base, purpose: "candidate_production", decisionId: decision.id,

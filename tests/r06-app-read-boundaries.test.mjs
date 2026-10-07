@@ -44,7 +44,7 @@ test('off-directory expired-run action rechecks exact Business before mutation; 
   const api=load('src/app/dashboard/artifacts/actions.ts',{
    'node:crypto':require('node:crypto'),'next/cache':{revalidatePath(){}},'next/navigation':{redirect:url=>{throw Error(url);}},
    '@/lib/core-ui/console-retained-feedback':load('src/lib/core-ui/console-retained-feedback.ts'),
-   'workflow/api':{start:deny},'@/creative/contracts':{},'@/creative/proposal':{},'@/creative/production-approval':{},'@/creative/image-provider':{},'@/creative/types':{},
+   'workflow/api':{start:deny},'@/creative/contracts':{},'@/creative/proposal':{},'@/creative/production-approval':{},'@/creative/image-provider':{},'@/creative/types':{},'@/creative/focused-quote':{},'@/creative/focused-physical-proposal':{},
    '@/lib/core-ui/data':{requireOwnerUiContext:async()=>f.context},'@/workflows/creative-runtime':{creativeRuntimeWorkflow:deny},
   });
   const form=new FormData();form.set('creativeRunId',id(22));let destination;

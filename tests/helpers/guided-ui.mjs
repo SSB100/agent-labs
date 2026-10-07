@@ -368,6 +368,7 @@ export async function renderCreative({ businessFlow = false } = {}) {
     "@/components/stage7/icons": icons, "@/products/types": productTypes, "@/products/history": productHistory, "@/app/dashboard/products/products.css": {},
   });
   const { default: Page } = loadSource("src/app/dashboard/artifacts/page.tsx", {
+    '@/components/console/console-focused-run-controls':{ConsoleFocusedRunControls:()=>null},'@/components/console/console-focused-physical-fields':{ConsoleFocusedPhysicalFields:()=>null},
     "@/components/console/console-retained-workspace": retainedFixture({panel:"technical"},"/dashboard/artifacts"),
     "@/components/stage7/app-shell": shell, "@/components/stage13/products-workspace": { ProductSubmitButton },
     "@/components/guided/creative-library": loadSource("src/components/guided/creative-library.tsx", { "@/creative/cost-display": loadSource("src/creative/cost-display.ts"), "./creative-library.css": {} }),

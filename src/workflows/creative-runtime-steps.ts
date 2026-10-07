@@ -15,8 +15,9 @@ import { creativeFailureMessage } from "../creative/errors";
 import type { PackWorker } from "../packs/types";
 import type { WorkerInvocationContext } from "../workers/types";
 import type { CreativeRuntimeInput } from "./creative-runtime";
+import { executeFocusedCreativeTransport } from "./creative-focused-transport";
 
-type CreativeState = { status: string; phaseKey: CreativeCallKey; productionReady: boolean; approval: CreativeApprovalSnapshot;
+export type CreativeState = { status: string; phaseKey: CreativeCallKey; productionReady: boolean; approval: CreativeApprovalSnapshot;
   approvalHash: string; quote: { generatorModel: string }; brief: DesignBrief | null; briefHash: string | null; screen: BriefScreen | null;
   assets: { version: number; inspection: AssetInspection; storagePath: string; prompt: string }[];
   reviews: { version: number; output: DesignReview }[] };
@@ -48,7 +49,7 @@ export async function loadCreativeRun(input: CreativeRuntimeInput, runtimeRunId:
 }
 export async function executeCreativePhase(input: CreativeRuntimeInput, callKey: CreativeCallKey) {
   "use step";
-  try { await executeCreativePhaseOnce(input, callKey); }
+  try { return await executeCreativePhaseOnce(input, callKey); }
   catch (error) { throw new FatalError(creativeFailureMessage(error)); }
 }
 // A paid or uncertain phase is never automatically attempted again by the durable runner.
@@ -58,6 +59,9 @@ async function executeCreativePhaseOnce(input: CreativeRuntimeInput, callKey: Cr
   input = structuredClone(input);
   const state = await transition(input, "load") as CreativeState;
   if (state.status !== "running" || state.phaseKey !== callKey) return;
+  if ("focusedPilotBinding" in state.approval) return executeFocusedCreativeTransport(input, state, callKey, {
+    transition: (operation, payload = {}) => transition(input, operation, payload), storage: storageClient(input),
+  });
   validateCreativeApproval(state.approval);
   if (callKey.endsWith(":2") && state.approval.maximumGenerations === 1) throw new FatalError("This approval permits one image only; no repair phase is authorized.");
   if (state.approval.purpose === "simulation") throw new FatalError("Hosted simulation requires the separate mocked executor; paid adapters cannot accept simulation input.");

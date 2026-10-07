@@ -123,8 +123,7 @@ export function discoveryR12PhaseCeiling(quote: DiscoveryR12ExecutionQuote, phas
 }
 
 /** Six fixed public catalog GETs, no key lookup, redirects, retry or paid call. */
-export async function fetchDiscoveryR12Quote(options: { fetch?: typeof fetch; now?: () => number; evidenceContinuation?: boolean; focusedPilot?: boolean } = {}): Promise<DiscoveryR12ExecutionQuote> {
-  if (options.evidenceContinuation && options.focusedPilot) return fail();
+export async function fetchDiscoveryR12Catalogs(options: { fetch?: typeof fetch; now?: () => number } = {}): Promise<DiscoveryR12Catalogs> {
   const fetcher = options.fetch ?? fetch, now = options.now ?? Date.now;
   async function read(url: string): Promise<PublicResearchCatalogSnapshot> {
     const startedAt = now();
@@ -146,7 +145,12 @@ export async function fetchDiscoveryR12Quote(options: { fetch?: typeof fetch; no
       read(`${BASE}/models/openai/gpt-5.6-luna/endpoints`), read(`${BASE}/models/openai/gpt-5.6-luna-20260709/endpoints`),
       read(`${BASE}/models/${DISCOVERY_R12_REVIEWER.modelId}/endpoints`), read(`${BASE}/models/${DISCOVERY_R12_REVIEWER.canonicalModelId}/endpoints`), read(`${BASE}/endpoints/zdr`),
     ]);
-    const catalogs = { models, lunaAlias, lunaCanonical, reviewerAlias, reviewerCanonical, zdr };
-    return options.focusedPilot ? qualifyDiscoveryR12PilotQuote(catalogs, now()) : options.evidenceContinuation ? qualifyDiscoveryR12EvidenceQuote(catalogs, now()) : qualifyDiscoveryR12Quote(catalogs, now());
+    return { models, lunaAlias, lunaCanonical, reviewerAlias, reviewerCanonical, zdr };
   } catch { return fail(); }
+}
+
+export async function fetchDiscoveryR12Quote(options: { fetch?: typeof fetch; now?: () => number; evidenceContinuation?: boolean; focusedPilot?: boolean } = {}): Promise<DiscoveryR12ExecutionQuote> {
+  if (options.evidenceContinuation && options.focusedPilot) return fail();
+  const catalogs=await fetchDiscoveryR12Catalogs(options),now=(options.now??Date.now)();
+  return options.focusedPilot?qualifyDiscoveryR12PilotQuote(catalogs,now):options.evidenceContinuation?qualifyDiscoveryR12EvidenceQuote(catalogs,now):qualifyDiscoveryR12Quote(catalogs,now);
 }

@@ -85,6 +85,8 @@ export type ImageGenerationReceipt = {
   upstreamProvider: ImageGenerationUpstreamProvider;
   modelId: string;
   providerRequestId: string | null;
+  /** Same-response X-Generation-Id only; never a request-id/body-id fallback. */
+  generationId?: string;
   reservationId: string;
   quoteId: string;
   promptHash: string;
@@ -317,6 +319,7 @@ export class OpenRouterImageAdapter implements ImageProviderAdapter {
     const ownedInit = { ...init };
     let timer: ReturnType<typeof setTimeout> | undefined;
     let requestId: string | null = null;
+    let generationId: string | null = null;
     let requestDispatched = false;
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
@@ -338,7 +341,8 @@ export class OpenRouterImageAdapter implements ImageProviderAdapter {
         // refusal or timeout while awaiting it has not called the transport.
         requestDispatched = ownedInit.method === "POST";
         const response = await this.fetcher(url, { ...ownedInit, cache: "no-store", redirect: "error", signal: controller.signal });
-        requestId = safeProviderId(response.headers.get("x-generation-id")) || safeProviderId(response.headers.get("x-request-id")) || safeProviderId(response.headers.get("x-openrouter-request-id"));
+        generationId = safeProviderId(response.headers.get("x-generation-id"));
+        requestId = generationId || safeProviderId(response.headers.get("x-request-id")) || safeProviderId(response.headers.get("x-openrouter-request-id"));
         if (!response.ok) {
           await response.body?.cancel();
           const category = response.status === 401 || response.status === 403 ? "authentication_required" :
@@ -351,7 +355,7 @@ export class OpenRouterImageAdapter implements ImageProviderAdapter {
           await response.body?.cancel();
           throw new ImageProviderError("malformed_image_output", "The provider response must be JSON.");
         }
-        return { body: await readBoundedJson(response, limit), requestId, requestDispatched };
+        return { body: await readBoundedJson(response, limit), requestId, generationId, requestDispatched };
       })()]);
     } catch (error) {
       const safeError = error instanceof ImageProviderError ? error :
@@ -411,7 +415,7 @@ export class OpenRouterImageAdapter implements ImageProviderAdapter {
       const reportedMicrousd = reportedCostUsd === null ? null : Math.ceil(reportedCostUsd * 1_000_000);
       receipt = {
         capability: "image.generate", provider: "openrouter", upstreamProvider: this.policy.upstreamProvider, modelId: this.policy.modelId,
-        providerRequestId: response.requestId ?? safeProviderId(response.body.id),
+        providerRequestId: response.requestId ?? safeProviderId(response.body.id), ...(response.generationId ? { generationId: response.generationId } : {}),
         reservationId, quoteId: quote.quoteId, promptHash: quote.promptHash, requestHash: quote.requestHash,
         elapsedMs: Math.max(0, this.now() - startedAt), estimatedMicrousd: this.policy.estimatedMicrousd,
         reportedCostUsd, reportedMicrousd: reportedMicrousd !== null && Number.isSafeInteger(reportedMicrousd) ? reportedMicrousd : null,

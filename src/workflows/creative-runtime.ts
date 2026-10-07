@@ -1,4 +1,4 @@
-import { FatalError, getWorkflowMetadata } from "workflow";
+import { FatalError, getWorkflowMetadata, sleep } from "workflow";
 import { executeCreativePhase, failCreativeRun, loadCreativeRun } from "./creative-runtime-steps";
 import { creativeFailureMessage } from "../creative/errors";
 
@@ -10,7 +10,9 @@ export async function creativeRuntimeWorkflow(input: CreativeRuntimeInput) {
     let state = await loadCreativeRun(input, workflowRunId);
     // Explicit finite phase machine: brief, screen, image/review, optional image/review.
     for (let phase = 0; phase < 2 + 2 * state.approval.maximumGenerations && state.status === "running"; phase++) {
-      await executeCreativePhase(input, state.phaseKey);
+      const progress = await executeCreativePhase(input, state.phaseKey);
+      if (progress?.status === "waiting") { await sleep(new Date(progress.wakeAt));phase--; }
+      else if (progress?.status === "blocked") { await failCreativeRun(input, `Focused creative work stopped: ${progress.reason}`);return { creativeRunId: input.creativeRunId, status: "needs_owner", reason: progress.reason, productionReady: false, publicationAllowed: false }; }
       state = await loadCreativeRun(input, workflowRunId);
     }
     if (state.status === "running") throw new FatalError("Creative phase budget exhausted.");

@@ -61,6 +61,9 @@ export async function loadCreativeWorkspace(context: OwnerUiContext): Promise<Cr
   const signedSources = new Map((sourceUrls.data ?? []).map(url => [url.path, url.signedUrl]));
   const retainedSources: RetainedCreativeSource[] = (costs.data ?? []).flatMap(cost => {
     const run = runRows.find(r => r.id === cost.creative_run_id), source = cost.receipt?.sourcePreservation;
+    // The immutable focused image charge is saved before receipt proof and pixel
+    // inspection. Once its actual asset exists, use that qualified asset view.
+    if(assets.data.some(asset=>asset.creative_run_id===cost.creative_run_id&&cost.call_key===`generate:${asset.version}`))return [];
     if (cost.receipt?.outputValidated !== false || !run || (businessIds!==null && !businessIds.includes(run.business_id)) || !/^generate:[12]$/.test(cost.call_key) || !source || source.uploadConfirmed !== true ||
         !["image/png", "image/webp"].includes(source.mediaType) || !Number.isSafeInteger(source.bytes) || source.bytes < 12 || source.bytes > 7_000_000 ||
         typeof source.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(source.sha256) ||

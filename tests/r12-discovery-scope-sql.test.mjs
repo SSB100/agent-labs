@@ -1,4 +1,7 @@
 import test from 'node:test';
+import {createClosedRejectedPlan4} from './helpers/r12-closed-plan4-fixture.mjs';
+import {exerciseFocusedPilotLifecycle} from './helpers/r12-focused-pilot-sql-fixture.mjs';
+import {exerciseFocusedCreativeLifecycle} from './helpers/r12-focused-creative-sql-fixture.mjs';
 import assert from 'node:assert/strict';
 import {readFileSync,readdirSync} from 'node:fs';
 import {mkdir,writeFile} from 'node:fs/promises';
@@ -41,7 +44,14 @@ test('R12 actual owner workflows preserve funding, bounded dispatch and immutabl
   for(const file of readdirSync(path.join(root,'supabase/migrations')).filter(x=>x.endsWith('.sql')).sort())try{await db.exec(readFileSync(path.join(root,'supabase/migrations',file),'utf8'));}catch(error){throw new Error(`${file}: ${error.message}`,{cause:error});}
   assert.equal((await db.query('select count(*)::int n from private.r12_discovery_scopes')).rows[0].n,0);
   const rootId=randomUUID(),scopeId=randomUUID();
-  const fixtureKnowledge=discoveryKnowledgeFixture();
+  const originalKnowledge=discoveryKnowledgeFixture(),releases=[];let realRoot;
+  for(const release of originalKnowledge.snapshot.releases){
+   const actual=(await db.query('select id,status,manifest from public.packs where pack_key=$1 and version=$2',[release.manifest.packKey,release.manifest.version])).rows[0];
+   assert.ok(actual,release.manifest.packKey);assert.deepEqual(actual.manifest,release.manifest,'Migrated catalog manifest matches runtime');
+   if(release.id===originalKnowledge.snapshot.rootPackId)realRoot=actual.id;releases.push(actual);
+  }
+  const fixtureKnowledge=require('../.core-tests/products/discovery-v2-knowledge.js').pinDiscoveryKnowledgeV2({rootPackId:realRoot,
+   releases:require('../.core-tests/packs/dependencies.js').resolvePackDependencies(releases,{packKey:'workflow.product-discovery-v2',version:'1.0.0'},true)});
   const installationSeed=r07FixtureSetup(root).replace('values(w,b,g,','values(w,b,null,').replace('runtime_capability_hash,pack_installation_id,pack_snapshot)','runtime_capability_hash,pack_installation_id,pack_snapshot,input)').replace("i,'{}');","i,'{}',jsonb_build_object('intentId','"+rootId+"'));").replaceAll("clock_timestamp()+interval '1 day'","clock_timestamp()+interval '1 hour'").replaceAll("'Finite fixture','qualified'","'Finite fixture','experimental'").replace("'r05.inert','1.0.0','R05 inert workflow','qualified'","'product.discovery-v2.one','1.0.0','R05 inert workflow','experimental'").replaceAll("'r07.planner'","'product.discovery-v2.plan'").replaceAll("'r07.research'","'product.discovery-v2.research'").replaceAll("'r07.challenge'","'product.discovery-v2.review'").replaceAll("'r07.work'","'product.discovery-v2.strategy'"),seedAnchor="'r05.inert','active','{}'";assert.equal(installationSeed.split(seedAnchor).length,2);
   await db.exec(installationSeed.replace(seedAnchor,"'r05.inert','active',$r12_snapshot$"+JSON.stringify(fixtureKnowledge.snapshot)+"$r12_snapshot$::jsonb"));
   const business=(await db.query('select public.r05_seed(848063) b')).rows[0].b;
@@ -237,7 +247,7 @@ test('R12 actual owner workflows preserve funding, bounded dispatch and immutabl
      try{
       await exerciseR12ReviewRuntime(db,continuation.metadata,{nested:true,failureCase:'response_schema'});
       const successor=await prepareR12ReviewFixture(db,{quote,outputs},{nested:true,reviewSuccessor:true});assert.equal(successor.envelope.reviewHistory.length,1);assert.equal(successor.envelope.baseKnownMicrounits,'50');
-      await db.exec('savepoint accepted_successor');try{assert.deepEqual(await exerciseR12ReviewRuntime(db,successor.metadata,{nested:true}),{providerCalls:0,inertPosts:1,inertReceiptGets:2,outcome:'NEEDS_MORE_EVIDENCE',phaseReceipts:5,dispatches:6,children:7});const evidence=await prepareR12EvidenceFixture(db,{quote,outputs},{nested:true});assert.deepEqual(await exerciseR12ReviewRuntime(db,evidence.metadata,{nested:true}),{providerCalls:0,inertPosts:2,inertReceiptGets:3,outcome:'NEEDS_MORE_EVIDENCE',phaseReceipts:5,dispatches:8,children:9});}finally{await db.exec('rollback to savepoint accepted_successor');await db.exec('release savepoint accepted_successor');}
+      await db.exec('savepoint accepted_successor');try{assert.deepEqual(await exerciseR12ReviewRuntime(db,successor.metadata,{nested:true}),{providerCalls:0,inertPosts:1,inertReceiptGets:2,outcome:'NEEDS_MORE_EVIDENCE',phaseReceipts:5,dispatches:6,children:7});const evidence=await prepareR12EvidenceFixture(db,{quote,outputs},{nested:true});await db.exec('savepoint focused_pilot');try{await createClosedRejectedPlan4(db,evidence.metadata,{nested:true});const pilot=await exerciseFocusedPilotLifecycle(db,evidence,{nested:true});assert.equal(pilot.inertPosts,2);assert.equal(pilot.outcome,'TEST');assert.equal(pilot.oldGoalUnchanged,true);const creative=await exerciseFocusedCreativeLifecycle(db,pilot);assert.equal(creative.inertPosts,4);assert.equal(creative.inertReceiptGets,8);assert.equal(creative.productionReady,true);assert.equal(creative.rootUnchanged,true);assert.equal(creative.goalUnchanged,true);}finally{await db.exec('rollback to savepoint focused_pilot');await db.exec('release savepoint focused_pilot');}assert.deepEqual(await exerciseR12ReviewRuntime(db,evidence.metadata,{nested:true}),{providerCalls:0,inertPosts:2,inertReceiptGets:3,outcome:'NEEDS_MORE_EVIDENCE',phaseReceipts:5,dispatches:8,children:9});}finally{await db.exec('rollback to savepoint accepted_successor');await db.exec('release savepoint accepted_successor');}
       await exerciseR12ReviewRuntime(db,successor.metadata,{nested:true,failureCase:'json_parse'});
       const last=await prepareR12ReviewFixture(db,{quote,outputs},{nested:true,reviewSuccessor:true});assert.equal(last.envelope.reviewHistory.length,2);assert.equal(last.envelope.baseKnownMicrounits,'60');
       await exerciseR12ReviewRuntime(db,last.metadata,{nested:true,failureCase:'response_schema'});
@@ -284,7 +294,7 @@ test('R12 actual owner workflows preserve funding, bounded dispatch and immutabl
   const {reconstructDiscoveryR12Result}=require('../.core-tests/products/discovery-r12-runtime.js');
   const savedHistory=await historyRead(),fullResult=reconstructDiscoveryR12Result(savedHistory,business,scopeId);
   const presentation=loadSource('src/app/dashboard/research-qualification/presentation.ts',{'../../../research/qualification-owner-contract':require('../.core-tests/research/qualification-owner-contract.js')});
-  const resultView=loadSource('src/components/console/console-r12-result.tsx',{'@/app/dashboard/research-qualification/presentation':presentation});
+  const resultView=loadSource('src/components/console/console-r12-result.tsx',{'@/app/dashboard/research-qualification/presentation':presentation,'@/creative/contracts':require('../.core-tests/creative/contracts.js'),'./console-r12-adoption-form':{ConsoleR12AdoptionForm:()=>null}});
   const markup=renderToStaticMarkup(React.createElement(resultView.ConsoleR12Result,{result:fullResult,observedAt:Date.now()}));
   for(const text of ['Needs more evidence','Original concepts and hypotheses','Geographic comparison','Independent review and missing evidence','Sources and exact evidence','No learning test qualified','grants no creative generation'])assert.ok(markup.includes(text),text);
   for(const country of ['US','GB','AU','NZ'])assert.ok(markup.includes(country));

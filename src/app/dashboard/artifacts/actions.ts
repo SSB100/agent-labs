@@ -5,6 +5,9 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { retainedFeedbackHref } from "@/lib/core-ui/console-retained-feedback";
 import { start } from "workflow/api";
+import {FOCUSED_PHYSICAL_PROPOSAL} from "@/creative/focused-physical-proposal";
+import {fetchFocusedCreativeQuote} from "@/creative/focused-quote";
+import {creativeHash} from "@/creative/contracts";
 import { validateCreativeApproval } from "@/creative/contracts";
 import { currentCreativeQuote, TECHNICAL_HYPOTHESIS, technicalCreativeApproval } from "@/creative/proposal";
 import { currentProductionCandidate, productionCreativeApproval } from "@/creative/production-approval";
@@ -66,9 +69,10 @@ export async function startCreativeRun(form: FormData) {
   const context = await requireOwnerUiContext(), approvalId = value(form, "approvalId");
   const {error,success,owned}=feedback(context,"receipts");
   if (!uuidPattern.test(approvalId)) return error("Invalid creative approval reference.");
-  const existing = await context.supabase.from("creative_approvals").select("business_id").eq("id", approvalId).maybeSingle();
+  const existing = await context.supabase.from("creative_approvals").select("business_id,snapshot").eq("id", approvalId).maybeSingle();
   if (existing.error || !existing.data || !(await verifyOwnerBusiness(context,existing.data?.business_id))) return error("Creative approval not found.");
   owned(existing.data.business_id);
+  if(existing.data.snapshot?.focusedPilotBinding)return error("Use the focused prepare and start controls so the exact financial scope is active before launch.");
   const runtimeCapability = `${randomUUID()}${randomUUID()}`, nonce = randomUUID();
   const launch = await context.supabase.rpc("begin_creative_run", { p_approval_id: approvalId, p_launch_nonce: nonce, p_runtime_capability: runtimeCapability });
   if (launch.error) return error(launch.error.message);
@@ -108,11 +112,19 @@ export async function approveProductionCreativeCandidate(form: FormData) {
   if (!choice) return error("A current evidence-backed reviewed TEST is required. Unresolved blockers cannot be waived by creative approval.");
   const maximumGenerations = generationLimit(form,error), maximumMicrousd = Math.round(Number(value(form, "budgetUsd")) * 1_000_000);
   if (!Number.isInteger(maximumMicrousd) || maximumMicrousd < 1 || maximumMicrousd > 1_000_000) return error("This bounded creative run allows at most US$1 across all phases.");
+  let focusedInputs: {printSpecification:typeof FOCUSED_PHYSICAL_PROPOSAL;rightsConfirmed:true;creativeInstallationId:string;creativeInstallationSnapshotHash:string}|undefined;
+  if(choice.focusedAdoption){
+    if(value(form,"focusedPrintSpecificationHash")!==creativeHash(FOCUSED_PHYSICAL_PROPOSAL)||maximumGenerations!==1)return error("The explicit focused print specification and one-image limit must match the displayed proposal.");
+    const installationId=value(form,"creativeInstallationId");if(!uuidPattern.test(installationId))return error("Select the active creative installation for this Business.");
+    const installed=await context.supabase.from("installed_packs").select("id,business_id,root_pack_key,status,snapshot").eq("id",installationId).eq("business_id",candidate.business_id).maybeSingle();
+    if(installed.error||!installed.data||installed.data.status!=="active"||installed.data.root_pack_key!=="workflow.etsy-creative-pipeline")return error("The selected creative installation is unavailable.");
+    focusedInputs={printSpecification:structuredClone(FOCUSED_PHYSICAL_PROPOSAL),rightsConfirmed:true,creativeInstallationId:installationId,creativeInstallationSnapshotHash:creativeHash(installed.data.snapshot)};
+  }
   let approval: ReturnType<typeof productionCreativeApproval>, quote: Awaited<ReturnType<typeof currentCreativeQuote>>;
   try {
-    approval = productionCreativeApproval(choice, { approvalId, designInstructions: value(form, "designInstructions"), rightsStatement: value(form, "rightsStatement"), maximumMicrousd, maximumGenerations, generatorModel,
+    approval = productionCreativeApproval(choice, { ...focusedInputs, approvalId, designInstructions: value(form, "designInstructions"), rightsStatement: value(form, "rightsStatement"), maximumMicrousd, maximumGenerations, generatorModel,
       policyScreen: SCREEN_CATEGORIES.map(category => ({ category, status: "clear", rationale: value(form, `rationale_${category}`), sourceUrls: value(form, `sources_${category}`).split(/\r?\n/).map(url => url.trim()).filter(Boolean) })) });
-    quote = await currentCreativeQuote(maximumGenerations, generatorModel, true);
+    quote = choice.focusedAdoption?(await fetchFocusedCreativeQuote(true)).approvalQuote:await currentCreativeQuote(maximumGenerations, generatorModel, true);
   } catch (cause) { return error(cause instanceof Error ? cause.message : "Unable to validate the exact production approval."); }
   if (quote.maximumEstimateMicrousd > maximumMicrousd) return error("Current conservative estimate exceeds the allowance; no provider call was made.");
   const saved = await context.supabase.rpc("approve_creative_candidate", { p_candidate_id: candidate.id, p_approval: approval, p_quote: quote });

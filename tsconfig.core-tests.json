@@ -76,6 +76,7 @@
     "src/products/discovery-r12-server-dependencies.ts",
     "src/products/discovery-r12-preparation-server.ts",
     "src/products/discovery-r12-review-preparation-server.ts",
-    "src/products/discovery-r12-pilot-preparation-server.ts"
+    "src/products/discovery-r12-pilot-preparation-server.ts",
+    "src/creative/focused-owner-server.ts"
   ]
 }
