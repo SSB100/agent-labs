@@ -18,7 +18,7 @@ const {driveQuestOnce}=req(compiled+'/core/quest-controller.js');
 const {r12PilotGoalContent,R12_PILOT_OBJECTIVE,R12_PILOT_QUESTION}=req(compiled+'/products/discovery-r12-pilot-preparation-contract.js');
 const {validateDiscoveryFocusedPilot}=req(compiled+'/products/discovery-r12-focused-pilot-scope.js');
 const digest=text=>createHash('sha256').update(text).digest('hex');
-export async function exerciseFocusedPilotLifecycle(db,closed,{nested=false,ownerPreparationReceipt=null,stageOnly=false,reviewFailure=false,successor=null,strategyOutcome='TEST'}={}){
+export async function exerciseFocusedPilotLifecycle(db,closed,{nested=false,ownerPreparationReceipt=null,stageOnly=false,reviewFailure=false,successor=null,strategyOutcome='TEST',profileFixture=focusedProfileFixture,strategyOutput=focusedStrategyOutput,onReservedDispatch=null}={}){
  const one=async(sql,args=[])=>(await db.query(sql,args)).rows[0],recipeClient=reviewRecipeClient(db,nested),runOperatorRecipe=successor?runSuccessorOperatorRecipe:runOriginalOperatorRecipe;
  const closedBroad=successor?successor.closedBroad:closed;
  const ownerRpc=async(name,args)=>{await db.exec('savepoint pilot_owner_rpc');await db.exec('set role authenticated');try{return(await one(`select public.${name}(${args.map((_,n)=>`$${n+1}`).join(',')}) result`,args)).result;}catch(error){await db.exec('rollback to savepoint pilot_owner_rpc');throw error;}finally{await db.exec('reset role');await db.exec('release savepoint pilot_owner_rpc');}};
@@ -27,7 +27,7 @@ export async function exerciseFocusedPilotLifecycle(db,closed,{nested=false,owne
  const saved=(await one('select public.r12_discovery_result_read($1,$2) result',[oldPlan.business_id,oldScope.amendment.predecessorScopeId])).result;
  const historic=runtime.reconstructDiscoveryR12Result(saved,oldPlan.business_id,oldScope.amendment.predecessorScopeId);assert.equal(historic.review.outcome,'NEEDS_MORE_EVIDENCE');
  const oldFrozen=await one('select (select jsonb_agg(to_jsonb(v) order by revision) from private.r04_goal_versions v where goal_id=$1) goals,(select jsonb_agg(to_jsonb(p) order by version) from private.r07_plans p where goal_id=$1) plans,(select to_jsonb(h) from private.r07_heads h where goal_id=$1) head,(select jsonb_agg(to_jsonb(l) order by experiment_id) from private.r04_research_links l where goal_id=$1) links',[oldPlan.goal_id]);
- const now=Date.now(),start=new Date(now-1000).toISOString(),end=ownerPreparationReceipt?.setupUntil??successor?.metadata.focusedProfile.expiresAt??new Date(Math.floor((now+7200000)/1000)*1000).toISOString(),p=successor?structuredClone(successor.metadata.focusedProfile):focusedProfileFixture(),sid=ownerPreparationReceipt?.preparationId??randomUUID();
+ const now=Date.now(),start=new Date(now-1000).toISOString(),end=ownerPreparationReceipt?.setupUntil??successor?.metadata.focusedProfile.expiresAt??new Date(Math.floor((now+7200000)/1000)*1000).toISOString(),p=successor?structuredClone(successor.metadata.focusedProfile):profileFixture(),sid=ownerPreparationReceipt?.preparationId??randomUUID();
  p.id=sid;p.businessId=oldPlan.business_id;p.originalGoalId=oldPlan.goal_id;p.budgetAuthorityRootId=oldScope.budget_authority_root_id;p.priorRoundId=oldScope.prior_round_id;
  p.originalIntentHash=hash(saved.inputs.original.priorIntent);p.originalSemanticGoalHash=saved.inputs.original.semanticGoalHash;
  p.intent={...p.intent,id:sid,businessId:p.businessId,objective:R12_PILOT_OBJECTIVE,expiresAt:end};p.learningQuestion=R12_PILOT_QUESTION;p.intent.comparisonUniverse.selectionQuestion=p.learningQuestion;p.candidate=structuredClone(historic.dossier.shortlist[0]);p.intent.comparisonUniverse.audiences=[p.candidate.audience];
@@ -116,14 +116,15 @@ export async function exerciseFocusedPilotLifecycle(db,closed,{nested=false,owne
  const snapshot=await command('read',{});assert.equal(snapshot.planVersion??(await one('select version from private.r07_plans where id=$1',[snapshot.planId])).version,1);
  const operation=(attemptId,operation,payload)=>rpc('r12_discovery_server',[p.businessId,attemptId,operation,payload,controller]);
  const effectStore={operation,settle:(attemptId,settlement)=>command('settle',{attemptId,settlement}),dispatchedAt:async attemptId=>(await operation(attemptId,'load',{})).dispatchedAt};
- const store={read:()=>command('read',{}),command:(op,payload,epoch)=>command(op,['schedule','reserve'].includes(op)?{...payload,runtimeCapability:'inert-focused-pilot-capability-0123456789'}:payload,epoch)};
+ let capturedDispatch;
+ const store={read:()=>command('read',{}),command:(op,payload,epoch)=>{if(onReservedDispatch&&op==='dispatch'){capturedDispatch={payload,epoch};return Promise.resolve({shouldDispatch:false,reason:'full_shape_dispatch_captured'});}return command(op,['schedule','reserve'].includes(op)?{...payload,runtimeCapability:'inert-focused-pilot-capability-0123456789'}:payload,epoch);}};
  let posts=0,gets=0,delay=true;const actualWires={};let prepared;
  const decode=value=>{const f=v=>Array.isArray(v)?v.map(f):v&&typeof v==='object'?Object.keys(v).length===1&&'$text'in v?value.sharedText[v.$text]:Object.fromEntries(Object.entries(v).map(([k,x])=>[k,f(x)])):v;return f(value);};
  const fetcher=async(url,init)=>{
   if(init.method==='POST'){
    posts++;const body=JSON.parse(init.body),phase=body.model==='anthropic/claude-haiku-4.5'?'review':'strategy';actualWires[phase]=Buffer.byteLength(init.body);assert.ok(actualWires[phase]<=49152);
    const input=decode(JSON.parse(body.messages[1].content));assert.equal(input.previousDecision,undefined);assert.equal(input.candidates.length,1);assert.deepEqual(input.comparisonUniverse.markets,[{countryCode:'GB',currency:'GBP'}]);
-   const strat=focusedStrategyOutput(prepared),output=phase==='strategy'?strat:{marketCountryCode:'GB',candidateKey:'C1',outcome:'TEST',sufficiencyRationale:'The proposed original composition inspection answers the fixed private learning question while preserving all commercial unknowns and separate execution approvals.',dimensions:strat.candidates[0].dimensions.map(d=>({dimension:d.dimension,verdict:d.uncertainties.length?'nonblocking_unknown':'sufficient_for_test',rationale:'The finding supports only the bounded private composition test and preserves every commercial unknown.',evidence:d.facts.map(x=>x.evidence)})),checks:REVIEW_CHECKS_V2.map(check=>({check,outcome:'PASS',rationale:'The fixed private proposal preserves source limitations, originality constraints and separate execution approvals.'})),additionalUncertainties:[]};
+   const strat=strategyOutput(prepared),output=phase==='strategy'?strat:{marketCountryCode:'GB',candidateKey:'C1',outcome:'TEST',sufficiencyRationale:'The proposed original composition inspection answers the fixed private learning question while preserving all commercial unknowns and separate execution approvals.',dimensions:strat.candidates[0].dimensions.map(d=>({dimension:d.dimension,verdict:d.uncertainties.length?'nonblocking_unknown':'sufficient_for_test',rationale:'The finding supports only the bounded private composition test and preserves every commercial unknown.',evidence:d.facts.map(x=>x.evidence)})),checks:REVIEW_CHECKS_V2.map(check=>({check,outcome:'PASS',rationale:'The fixed private proposal preserves source limitations, originality constraints and separate execution approvals.'})),additionalUncertainties:[]};
    if(phase==='review'&&reviewFailure)output.additionalUncertainties=[{dimension:'production_complexity',question:'Can this unverified design be printed without unresolved fine-detail loss?',blockingForTest:true,reason:'The response contradicts its TEST outcome with a blocking production question.'}];
    if(phase==='strategy'&&['NEEDS_MORE_EVIDENCE','REJECT'].includes(strategyOutcome)){output.usesPinnedLearningPlan=false;output.recommendation.proposedOutcome=strategyOutcome;}
    if(phase==='strategy'&&strategyOutcome==='INCONSISTENT')output.candidates[0].dimensions.find(d=>d.uncertainties.length).uncertainties[0].blockingForTest=true;
@@ -155,6 +156,10 @@ export async function exerciseFocusedPilotLifecycle(db,closed,{nested=false,owne
    await closeRun();return{providerCalls:0,inertPosts:posts,inertReceiptGets:gets,metadata:fixtureMetadata,closedBroad,scopeId:sid,planId:snapshot.planId,strategyOutcome,activeAuthority:false};
   }
   assert.equal((await tick()).reason,'scheduled');assert.equal((await tick()).reason,'reserved');
+  if(onReservedDispatch&&phase==='strategy'){
+   assert.equal((await tick()).reason,'full_shape_dispatch_captured');assert.equal(posts,0);assert.equal(gets,0);
+   return onReservedDispatch({db,metadata:fixtureMetadata,plan,command,controller,admission,lease,...capturedDispatch});
+  }
   if(phase==='strategy'&&strategyOutcome==='INVALID'){
    await assert.rejects(tick());assert.equal(posts,1);assert.equal(gets,0);
    const view=await ownerRpc('r12_discovery_owner_read',[p.businessId,sid,false]);assert.equal(view.phases[0].responseDiagnostic.code,'response_schema');assert.equal(view.phases[0].candidateSaved,false);assert.equal(view.cost.hasUnknown,false);

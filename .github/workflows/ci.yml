@@ -521,6 +521,18 @@ jobs:
           R12_POSTGRES_URL: postgresql://r12_test:r12-isolated-fixture@127.0.0.1:5432/r12_test
         run: node --test tests/r12-discovery-scope-sql.test.mjs tests/r12-owner-preparation-route.test.mjs tests/r12-bootstrap-rehearsal.test.mjs
 
+      - name: Verify full-shape R12 dispatch within the unchanged three-second SQL budget
+        env:
+          R12_SQL_TEST_HOST: ${{ runner.temp }}/r12-sql-host
+          R12_REQUIRE_POSTGRES: "1"
+          R12_POSTGRES_URL: postgresql://r12_test:r12-isolated-fixture@127.0.0.1:5432/r12_test
+          R12_SQL_SUCCESSOR_ONLY: "1"
+          R12_SQL_FULL_SHAPE: "1"
+        run: |
+          export R12_CI_POSTGRES_ADDRESS="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' '${{ job.services.postgres.id }}')"
+          node scripts/reset-r12-ci-database.mjs
+          node --test tests/r12-discovery-scope-sql.test.mjs
+
   r03-next:
     runs-on: ubuntu-latest
     timeout-minutes: 30
