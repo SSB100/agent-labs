@@ -73,7 +73,8 @@ async function prepareR12OwnerWorkflows(){
   await db.exec("set timezone='UTC'");
   await db.exec(r04SqlBootstrap+sessionBootstrap);
   for(const file of readdirSync(path.join(root,'supabase/migrations')).filter(x=>x.endsWith('.sql')).sort())try{await db.exec(readFileSync(path.join(root,'supabase/migrations',file),'utf8'));}catch(error){throw new Error(`${file}: ${error.message}`,{cause:error});}
-  await assertR12ScannerParity(db);
+  const scannerQualification=await assertR12ScannerParity(db,{engine:process.env.R12_POSTGRES_URL?'postgresql':'pglite'});
+  if(scannerQualification.skipped)console.log('R12 scanner stress parity stays in the native PostgreSQL gate; PGlite continues snapshot/runtime assertions.');
   assert.equal((await db.query('select count(*)::int n from private.r12_discovery_scopes')).rows[0].n,0);
   const rootId=randomUUID(),scopeId=randomUUID();
   const originalKnowledge=discoveryKnowledgeFixture(),releases=[];let realRoot;

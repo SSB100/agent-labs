@@ -26,7 +26,13 @@ export function scannerParityCases(){
  return cases;
 }
 
-export async function assertR12ScannerParity(db){
+export async function assertR12ScannerParity(db,{engine}){
+ // Adversarial recursion/error-stack probes qualify the real PostgreSQL
+ // backend. PGlite is the Next snapshot transport; its WASM error stack can
+ // abort before JavaScript can catch deep scanner errors. Runtime lifecycle
+ // assertions still run there; the native SQL gate retains the full corpus.
+ if(engine==='pglite')return{skipped:true,reason:'native_postgresql_qualification'};
+ assert.equal(engine,'postgresql','Explicit SQL fixture engine required');
  const one=async(sql,args=[])=>(await db.query(sql,args)).rows[0];
  const catalog=()=>db.query("select oid,proowner,proacl,provolatile,proparallel,prosecdef,proisstrict,proleakproof,proconfig,pg_get_functiondef(oid) definition from pg_proc where oid in ('private.r04_safe(jsonb)'::regprocedure,'private.r12_pilot_safe(jsonb)'::regprocedure) order by oid");
  const before=(await catalog()).rows,resources=[];let rejected=0;
