@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {runR12FocusedSuccessorJourney} from './r12-focused-successor-journey.mjs';
 import path from 'node:path';
 import {writeFile} from 'node:fs/promises';
 import {chromium} from 'playwright-core';
@@ -66,4 +67,5 @@ export async function runR12PilotJourney({origin,noKeyOrigin,boundary,output,dir
   }finally{await browser.close();}
  }
  assert.deepEqual(external,[]);assert.deepEqual(boundary.denied,[]);await report();
+ await runR12FocusedSuccessorJourney({origin,noKeyOrigin,boundary,output,directory,httpOnly});
 }

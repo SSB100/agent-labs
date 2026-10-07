@@ -101,8 +101,16 @@ export function createDiscoveryR12QuestAdapter(options: {
     const actualMicrounits = typeof amount === "number" && Number.isFinite(amount) && amount >= 0 ? String(Math.ceil(amount * 1e6)) : null;
     await options.store.settle(ctx.attempt.id, { actualMicrounits, providerRequestId: id, receiptHash: discoveryV2Hash({ phase, providerRequestId: id, actualMicrounits }) });
   }
+  function retainsResponse(binding: WireBinding): boolean {
+    if (phase === "review") return true;
+    if (phase !== "strategy" || !isDiscoveryFocusedPilot(scope)) return false;
+    // The request came from the validated SQL/runtime join. SQL independently
+    // requires its exact successor sidecar hash before permitting observation.
+    const request = JSON.parse(binding.requestJson) as StructuredModelRequest;
+    return typeof request.requestMetadata?.r12FocusedSuccessorAuthorizationHash === "string" && /^[a-f0-9]{64}$/.test(request.requestMetadata.r12FocusedSuccessorAuthorizationHash);
+  }
   async function diagnose(ctx: QuestAdapterContext, binding: WireBinding, error: unknown, fallback: R12ReviewDiagnosticCode, observationSaved: boolean) {
-    if (phase !== "review") return;
+    if (!retainsResponse(binding)) return;
     const request = JSON.parse(binding.requestJson) as StructuredModelRequest;
     const diagnostic = r12ReviewDiagnostic(error, fallback, { scopeId: scope.id, attemptId: ctx.attempt.id, requestId: binding.requestId }, request.outputSchema, observationSaved, new Date(now()).toISOString());
     try { await options.store.operation(ctx.attempt.id, "diagnose", { diagnostic, diagnosticHash: discoveryV2Hash(diagnostic) }); }
@@ -135,12 +143,12 @@ export function createDiscoveryR12QuestAdapter(options: {
       const identity = { scopeId: scope.id, attemptId: ctx.attempt.id, requestId: saved.binding.requestId };
       let observation: R12ReviewObservation | null = null, observationSaved = false;
       const saveObservation = async () => {
-        if (phase !== "review" || !observation) return;
+        if (!retainsResponse(saved.binding!) || !observation) return;
         await options.store.operation(ctx.attempt.id, "observe", { observation, observationHash: discoveryV2Hash(observation) });
         observationSaved = true;
       };
       const adapter = new OpenRouterAdapter({ config: options.config, fetcher: options.fetcher,
-        ...(phase === "review" ? { observeResponse: (body: unknown) => {
+        ...(retainsResponse(saved.binding) ? { observeResponse: (body: unknown) => {
           observation ??= observeR12ReviewResponse(body, identity, new Date(now()).toISOString());
           // Raw text stays in this private closure, never in provider error
           // metadata, general logs, or a qualified response candidate.

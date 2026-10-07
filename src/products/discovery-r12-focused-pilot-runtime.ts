@@ -1,3 +1,4 @@
+import { validateR12FocusedSuccessor, type R12FocusedSuccessor } from './discovery-r12-focused-successor';
 import type { JsonObject } from "../core/contracts";
 import type { QuestAdapterContext, QuestEffectResponse } from "../core/quest-controller";
 import type { StructuredModelRequest, WebSearchModelRequest } from "../models/types";
@@ -21,7 +22,7 @@ export type DiscoveryR12FocusedPilotInputs = {
   kind: "focused_pilot"; inputMode: "dispatch" | "receipt"; validationAt: number;
   envelope: DiscoveryFocusedPilot; original: DiscoveryOriginalScope; focusedPilot: ValidatedFocusedPilot;
   knowledge: DiscoveryKnowledgeContextV2; committedBeforeAttemptMicrousd: number;
-  dependencies: DiscoveryR12CompletedPhase[];
+  dependencies: DiscoveryR12CompletedPhase[]; successor?: R12FocusedSuccessor;
 };
 const fail = (): never => { throw Error("r12_focused_pilot_inputs_unverified"); };
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
@@ -62,6 +63,7 @@ function ownInputs(ctx: QuestAdapterContext, input: DiscoveryR12FocusedPilotInpu
       state.committedBeforeAttemptMicrousd !== state.original.committedMicrousd ||
       state.dependencies.length !== (ctx.step.key === "strategy" ? 0 : 1) || state.dependencies.length !== ctx.attempt.dependencyPins.length) return fail();
   const focusedPilot = validateDiscoveryFocusedPilot(e, state.original, state.validationAt);
+  if (state.successor) state.successor = validateR12FocusedSuccessor(state.successor, { businessId: e.businessId, scopeId: e.id, goalId: e.goalId, scope: e }, state.validationAt);
   if (!same(state.focusedPilot, focusedPilot)) return fail();
   validateDiscoveryKnowledgeV2(state.knowledge, state.validationAt);
   for (const dep of state.dependencies) {
@@ -73,6 +75,7 @@ function ownInputs(ctx: QuestAdapterContext, input: DiscoveryR12FocusedPilotInpu
         dep.response.result.outputHash !== discoveryV2Hash(dep.candidate.output) ||
         !("messages" in dep.binding.request) || dep.binding.request.requestMetadata?.r12FocusedPilotProfileHash !== focusedPilot.profileHash ||
         dep.binding.request.requestMetadata?.r12KnowledgeHash !== discoveryKnowledgeHashV2(state.knowledge) ||
+        dep.binding.request.requestMetadata?.r12FocusedSuccessorAuthorizationHash !== state.successor?.authorizationHash ||
         Date.parse(dep.binding.dispatchedAt) > state.validationAt) return fail();
     const committed = dep.binding.request.requestMetadata?.r12CommittedBeforeAttemptMicrousd;
     if (typeof committed !== "number" || !Number.isSafeInteger(committed) || committed < 0 || committed > state.committedBeforeAttemptMicrousd) return fail();
@@ -89,7 +92,7 @@ export function readDiscoveryR12FocusedPilotInputs(ctx: QuestAdapterContext, raw
   if (raw.version !== "r12.discovery-pilot-inputs.1" || raw.businessId !== ctx.plan.businessId || raw.planId !== ctx.planId || raw.attemptId !== ctx.attempt.id ||
       raw.knowledgeSnapshotHash !== ctx.step.packSnapshotHash || discoveryV2Hash(raw.knowledgeSnapshot) !== raw.knowledgeCanonicalHash ||
       !Array.isArray(raw.dependencies) || Buffer.byteLength(JSON.stringify(raw), "utf8") > 524288) return fail();
-  exact(raw.focusedPilot, "profile,profileHash,acceptedReview,closedPlanId,closedPlanHash");
+  exact(raw.focusedPilot, "profile,profileHash,acceptedReview,closedPlanId,closedPlanHash" + (object(raw.focusedPilot) && Object.hasOwn(raw.focusedPilot, "successor") ? ",successor" : ""));
   const f = raw.focusedPilot as Record<string, unknown>, envelope = raw.amendment as DiscoveryFocusedPilot, original = raw.original as DiscoveryOriginalScope;
   const validationAt = Date.parse(String(raw.validationAt)), focusedPilot = validateDiscoveryFocusedPilot(envelope, original, validationAt);
   if (!same(f.profile, focusedPilot.profile) || f.profileHash !== focusedPilot.profileHash || f.closedPlanId !== envelope.closedPlanId || f.closedPlanHash !== envelope.closedPlanHash || !object(f.acceptedReview)) return fail();
@@ -105,7 +108,8 @@ export function readDiscoveryR12FocusedPilotInputs(ctx: QuestAdapterContext, raw
   const snapshot = raw.knowledgeSnapshot as DiscoveryKnowledgeContextV2["snapshot"];
   const knowledge = pinDiscoveryKnowledgeV2({ rootPackId: snapshot.rootPackId, releases: snapshot.releases }, validationAt);
   return ownInputs(ctx, { kind: "focused_pilot", inputMode: raw.inputMode as "dispatch" | "receipt", validationAt, envelope, original, focusedPilot, knowledge,
-    committedBeforeAttemptMicrousd: original.committedMicrousd, dependencies: raw.dependencies as DiscoveryR12CompletedPhase[] });
+    committedBeforeAttemptMicrousd: original.committedMicrousd, dependencies: raw.dependencies as DiscoveryR12CompletedPhase[],
+    ...(Object.hasOwn(f, "successor") ? { successor: validateR12FocusedSuccessor(f.successor, { businessId: envelope.businessId, scopeId: envelope.id, goalId: envelope.goalId, scope: envelope }, validationAt) } : {}) });
 }
 function analysis(state: DiscoveryR12FocusedPilotInputs, committed = state.committedBeforeAttemptMicrousd, now = state.validationAt) {
   const p = state.focusedPilot.profile;
@@ -116,6 +120,11 @@ function analysis(state: DiscoveryR12FocusedPilotInputs, committed = state.commi
     evidenceAddendum: p.observations, focusedPilot: state.focusedPilot };
   return { dossier, prepared: prepareDiscoveryWorkerContextV2(p.intent, dossier, validation, discoveryAddendumReferences(p.observations), now) };
 }
+function assertSuccessorStrategy(state: DiscoveryR12FocusedPilotInputs, assessment: StrategistAssessmentV2) {
+  if (!state.successor || assessment.recommendation.proposedOutcome !== "TEST") return;
+  const selected = assessment.candidates.find(candidate => candidate.candidateId === assessment.recommendation.candidateId);
+  if (!selected || !assessment.testPlan || selected.dimensions.some(dimension => dimension.hardFailure || dimension.uncertainties.some(uncertainty => uncertainty.blockingForTest))) throw Error("r12_focused_successor_inconsistent_strategy");
+}
 function strategist(state: DiscoveryR12FocusedPilotInputs) {
   const dep = state.dependencies[0];
   if (!dep || dep.stepKey !== "strategy" || !("messages" in dep.binding.request)) return fail();
@@ -123,7 +132,9 @@ function strategist(state: DiscoveryR12FocusedPilotInputs) {
   if (typeof committed !== "number") return fail();
   const at = Date.parse(dep.binding.dispatchedAt), historical = analysis(state, committed, at), actual = execution(dep);
   const assessment = normalizeStrategistResponseV2(historical.prepared, dep.candidate.output, actual, at);
+  assertSuccessorStrategy(state, assessment);
   if (dep.response.result.assessmentHash !== discoveryV2Hash(assessment)) return fail();
+  if (state.successor && assessment.recommendation.proposedOutcome !== "TEST") throw Error("r12_focused_successor_negative_strategy");
   return { ...analysis(state), assessment, execution: actual };
 }
 export function buildDiscoveryR12FocusedPilotRequest(ctx: QuestAdapterContext, input: DiscoveryR12FocusedPilotInputs): StructuredModelRequest {
@@ -133,18 +144,21 @@ export function buildDiscoveryR12FocusedPilotRequest(ctx: QuestAdapterContext, i
   // time; a late call cannot extend the immutable profile or observation window.
   const now = Date.now();
   validateDiscoveryFocusedPilot(state.envelope, state.original, now);
+  if (state.successor) validateR12FocusedSuccessor(state.successor, { businessId: state.envelope.businessId, scopeId: state.envelope.id, goalId: state.envelope.goalId, scope: state.envelope }, now);
   const request = ctx.step.key === "strategy" ? buildStrategistRequestV2(analysis(state).prepared, now) : (() => {
     const found = strategist(state);return buildReviewerRequestV2(found.prepared, found.assessment, found.execution, now);
   })();
   request.requestMetadata = { ...request.requestMetadata, r12CommittedBeforeAttemptMicrousd: state.committedBeforeAttemptMicrousd,
-    r12KnowledgeHash: discoveryKnowledgeHashV2(state.knowledge), r12FocusedPilotProfileHash: state.focusedPilot.profileHash };
+    r12KnowledgeHash: discoveryKnowledgeHashV2(state.knowledge), r12FocusedPilotProfileHash: state.focusedPilot.profileHash,
+    ...(state.successor ? { r12FocusedSuccessorAuthorizationHash: state.successor.authorizationHash } : {}) };
   return request;
 }
 function receiptState(ctx: QuestAdapterContext, input: DiscoveryR12FocusedPilotInputs, qualified: ReturnType<typeof qualifyDiscoveryR12Candidate>, request: StructuredModelRequest | WebSearchModelRequest) {
   const state = ownInputs(ctx, input), current = qualified.candidate;
   if (state.inputMode !== "receipt" || current.phase !== ctx.step.key || current.attemptId !== ctx.attempt.id || current.scopeId !== state.envelope.id ||
       qualified.candidateHash !== discoveryV2Hash(current) || current.requestHash !== discoveryV2Hash(request) || !("messages" in request) ||
-      request.requestMetadata?.r12KnowledgeHash !== discoveryKnowledgeHashV2(state.knowledge) || request.requestMetadata?.r12FocusedPilotProfileHash !== state.focusedPilot.profileHash) return fail();
+      request.requestMetadata?.r12KnowledgeHash !== discoveryKnowledgeHashV2(state.knowledge) || request.requestMetadata?.r12FocusedPilotProfileHash !== state.focusedPilot.profileHash ||
+      request.requestMetadata?.r12FocusedSuccessorAuthorizationHash !== state.successor?.authorizationHash) return fail();
   const committed = request.requestMetadata?.r12CommittedBeforeAttemptMicrousd;
   if (typeof committed !== "number" || !Number.isSafeInteger(committed) || committed < 0 || committed > state.committedBeforeAttemptMicrousd) return fail();
   state.committedBeforeAttemptMicrousd = committed;state.original.committedMicrousd = committed;
@@ -154,6 +168,7 @@ export function projectDiscoveryR12FocusedPilotPhase(ctx: QuestAdapterContext, i
   const state = receiptState(ctx, input, qualified, request), current = qualified.candidate;
   if (ctx.step.key === "strategy") {
     const assessment = normalizeStrategistResponseV2(analysis(state).prepared, current.output, execution({ candidate: current, proof: qualified.route }), state.validationAt);
+    assertSuccessorStrategy(state, assessment);
     return { outcome: "accepted", result: { assessmentHash: discoveryV2Hash(assessment), outcome: assessment.recommendation.proposedOutcome }, checkedArtifacts: [] };
   }
   const found = strategist(state), review = normalizeReviewerResponseV2(found.prepared, found.assessment, current.output,

@@ -1,0 +1,67 @@
+import assert from 'node:assert/strict';
+import path from 'node:path';
+import {writeFile} from 'node:fs/promises';
+import {chromium} from 'playwright-core';
+import {bounded,observe} from './async-bounds.mjs';
+import {renderedResearchForm,researchHtmlText} from './r11-http.mjs';
+import {r12OwnerRpc} from './r12-sql.mjs';
+
+/** Actual Next owner actions and SQL, with only inert operator/provider edges. */
+export async function runR12FocusedSuccessorJourney({origin,noKeyOrigin,boundary,output,directory,httpOnly=false}){
+ const results=[],actions=[],external=[],fixture=()=>boundary.state().r12;
+ const report=()=>writeFile(path.join(output,'r12-focused-successor-acceptance.json'),JSON.stringify({results,actions,external,browser:httpOnly?'unrun HTTP-only':'actual Chromium'},null,2));
+ const check=async(name,fn)=>{console.log('START:',name);try{await fn();results.push({name,status:'passed'});console.log('PASS:',name);}catch(error){results.push({name,status:'failed',error:String(error.stack??error)});await report();throw error;}await report();};
+ const control=async values=>{const response=await fetch(boundary.origin+'/control',{method:'POST',body:JSON.stringify(values),signal:AbortSignal.timeout(60000)}),text=await response.text();assert.equal(response.status,200,text);const result=JSON.parse(text);for(const command of ['r12FocusedSuccessorStage','r12FocusedSuccessorActivate','r12FocusedSuccessorClose'])if(values[command]){assert.ok(result.r12?.handled.includes(command),`${command} was actually performed`);assert.equal(result.r12.scopeId,fixture().scopeId);assert.equal(result.r12.authorizationHash,fixture().authorizationHash);}return result;};
+ const reset=outcome=>control({r12Scenario:'focused-successor-preparation',r12Directory:directory,r12DelayReceipt:false,r12ReviewFailure:null,r12SuccessorStrategyOutcome:outcome});
+ const preparation=()=>'/dashboard?'+new URLSearchParams({view:'research',type:'r12-pilot-prepare',business:fixture().businessId,source:fixture().sourceScopeId,preparation:fixture().preparationId,setupUntil:fixture().setupUntil});
+ const permission=()=>'/dashboard?'+new URLSearchParams({view:'research',type:'r12-review-prepare',business:fixture().businessId,selected:fixture().scopeId});
+ const progress=()=>'/dashboard?'+new URLSearchParams({view:'research',type:'r12',business:fixture().businessId,selected:fixture().scopeId,quest:fixture().goalId});
+ const read=async route=>{const response=await fetch(origin+route,{signal:AbortSignal.timeout(30000)});assert.equal(response.status,200);return response.text();};
+ const post=async(route,form,base=origin)=>{const response=await fetch(base+route,{method:'POST',headers:{origin:base,accept:'text/html'},body:form,signal:AbortSignal.timeout(30000)});actions.push({transport:'http',status:response.status,path:new URL(response.url).pathname});assert.equal(response.status,200);return response.text();};
+ const receipt=(html,label)=>{const found=html.match(new RegExp(`<label>${label}<textarea[^>]*>([\\s\\S]*?)<\\/textarea>`));assert.ok(found,`${label} is visible`);return JSON.parse(researchHtmlText(found[1]));};
+ const current=async()=>{const value=await r12OwnerRpc(boundary.state(),'r12_discovery_owner_read',{p_business_id:fixture().businessId,p_scope_id:fixture().scopeId,p_activation:false});assert.equal(value.error,null);return value.data;};
+ const noCreative=()=>{assert.deepEqual(fixture().creative.launches,[]);assert.equal(boundary.state().db.creative_approvals.length,0);};
+ let prepared,confirmed;
+ const prepare=async()=>{
+  const route=preparation(),html=await read(route),form=renderedResearchForm(html,'Save focused pilot Goal',fixture().preparationId);form.set('reviewed','on');
+  assert.match(researchHtmlText(html),/Prepare one research-only successor/);prepared=receipt(await post(route,form),'Preparation receipt');assert.equal(prepared.authorityCreated,false);assert.equal(prepared.sourceScopeId,fixture().sourceScopeId);assert.equal(prepared.closedPlanId,fixture().closedFocused.closedPlanId);assert.equal(prepared.originalGoalId,fixture().closedFocused.closedBroad.metadata.goalId);
+  assert.notEqual(prepared.predecessorGoalId,prepared.goalId);assert.notEqual(prepared.originalGoalId,prepared.goalId);assert.deepEqual(receipt(await post(route,form),'Preparation receipt'),prepared);assert.deepEqual(fixture().calls,[]);assert.equal(fixture().quoteReads,0);
+  await control({r12FocusedSuccessorStage:prepared});const permissionHtml=await read(permission());assert.match(researchHtmlText(permissionHtml),/Confirm one research-only successor/);assert.match(researchHtmlText(permissionHtml),/Stop before review/);
+  const permissionForm=renderedResearchForm(permissionHtml,'Confirm focused pilot permission',fixture().scopeId);permissionForm.set('reviewed','on');confirmed=receipt(await post(permission(),permissionForm),'Setup receipt');assert.equal(confirmed.executionAuthorized,false);assert.deepEqual(receipt(await post(permission(),permissionForm),'Setup receipt'),confirmed);
+  await control({r12FocusedSuccessorActivate:confirmed});const state=await current();assert.equal(state.focusedSuccessor.authorizationHash,fixture().authorizationHash);assert.equal(state.planVersion,null);assert.equal(state.planId,null);assert.equal(state.state,'prepared');assert.equal(state.phases.length,2);assert.equal(state.cost.knownMicrousd,'0');assert.deepEqual(fixture().calls,[]);
+ };
+ const run=async()=>{const form=renderedResearchForm(await read(progress()),'Continue approved research',fixture().scopeId);await post(progress(),form);return current();};
+ const close=async()=>{
+  let state=await current();if(!state.policyRevoked){const form=renderedResearchForm(await read(progress()),'Stop research',fixture().scopeId);await post(progress(),form,noKeyOrigin);}
+  state=await current();assert.equal(state.policyRevoked,true);
+  await control({r12FocusedSuccessorClose:{businessId:fixture().businessId,scopeId:fixture().scopeId,scopeHash:fixture().staged.scopeHash,policyId:confirmed.policyId,policyHash:confirmed.policyHash,planHash:state.planHash,successorAuthorizationHash:fixture().authorizationHash}});
+  noCreative();
+ };
+ await check('Successor actual owner preparation resolves immediate focused plan, recovers one Goal, confirms proof and activates finite authority',async()=>{await reset('TEST');await prepare();});
+ await check('Successor real two-call TEST preserves old closed records and remains nonauthorizing until separate adoption',async()=>{
+  const before=JSON.stringify(fixture().closedFocused.closure),state=await run();assert.equal(state.state,'completed');assert.equal(state.planVersion,1);assert.deepEqual(fixture().calls,['strategy','review']);assert.deepEqual(fixture().receipts,['strategy','review']);assert.equal(state.cost.knownMicrousd,'20');assert.equal(state.phases[1].outcome,'TEST');assert.equal(JSON.stringify(fixture().closedFocused.closure),before);noCreative();
+  const html=await read(progress());assert.match(researchHtmlText(html),/Inspect the closed focused predecessor/);assert.match(researchHtmlText(html),/Bounded test recommended/);assert.equal(boundary.state().db.product_experiments.filter(row=>row.discovery_version==='r12.focused-adoption.1').length,0);
+  await close();const form=renderedResearchForm(await read(progress()),'Adopt focused TEST',fixture().scopeId);form.set('reviewed','on');assert.match(researchHtmlText(await post(progress(),form)),/exact independently reviewed TEST is recorded/);
+  assert.equal(boundary.state().db.product_experiments.filter(row=>row.discovery_version==='r12.focused-adoption.1').length,1);await post(progress(),form);assert.equal(boundary.state().db.product_experiments.filter(row=>row.discovery_version==='r12.focused-adoption.1').length,1);noCreative();assert.deepEqual(fixture().calls,['strategy','review']);
+ });
+ for(const outcome of ['NEEDS_MORE_EVIDENCE','REJECT','INVALID','INCONSISTENT'])await check(`Successor ${outcome} stops after strategy without reviewer or creative authority`,async()=>{
+  await reset(outcome);await prepare();const state=await run();assert.deepEqual(fixture().calls,['strategy']);assert.equal(state.cost.knownMicrousd,'10');assert.equal(state.cost.heldMicrousd,'0');assert.equal(state.cost.hasUnknown,false);assert.ok(state.phases[1].status==='not_started'||state.phases[1].status==='cancelled');
+  if(['NEEDS_MORE_EVIDENCE','REJECT'].includes(outcome)){assert.equal(state.phases[0].status,'completed');assert.equal(state.phases[0].outcome,outcome);}
+  const html=await read(progress());assert.doesNotMatch(html,/>Adopt focused TEST<\/button>/);const button=html.match(/<button[^>]*>Continue approved research<\/button>/)?.[0];assert.ok(button?.includes('disabled'),'Continue is disabled after terminal strategy');await close();assert.deepEqual(fixture().calls,['strategy']);assert.ok(fixture().receipts.length<=3);noCreative();
+ });
+ if(!httpOnly){
+  await reset('TEST');const browser=await chromium.launch({headless:true,executablePath:process.env.GUIDED_UI_CHROMIUM_PATH,args:['--no-sandbox']});
+  try{const context=await browser.newContext({viewport:{width:1280,height:900},reducedMotion:'reduce'});context.setDefaultTimeout(20000);context.setDefaultNavigationTimeout(30000);await context.route('**/*',route=>{const u=new URL(route.request().url());if(['http:','https:'].includes(u.protocol)&&![origin,noKeyOrigin].includes(u.origin)){external.push(u.origin);return route.abort('blockedbyclient');}return route.continue();});const page=await context.newPage();
+   const action=async(name,settled)=>{let sent;const capture=request=>{if(!sent&&request.method()==='POST'&&request.headers()['next-action'])sent=request;};page.on('request',capture);const waiting=observe(page.waitForResponse(response=>!!sent&&response.request()===sent,{timeout:20000}));try{await page.getByRole('button',{name,exact:true}).click();const result=await bounded(waiting,'Successor action headers');if(!result.ok)throw result.error;assert.equal(result.value.status(),200);actions.push({transport:'browser',status:200,name});await bounded(settled(),'Successor action outcome');}finally{page.off('request',capture);}};
+   await check('Hydrated successor preparation and exact confirmation recover after reload and two-phase receipt interruption',async()=>{
+    await page.goto(origin+preparation());await page.getByRole('heading',{name:'Prepare one research-only successor',exact:true}).waitFor();await page.getByRole('checkbox',{name:/I reviewed this separate focused Goal/}).check();await action('Save focused pilot Goal',()=>page.getByRole('heading',{name:'Focused Goal prepared',exact:true}).waitFor());await page.getByText('Nonsecret setup receipt',{exact:true}).click();prepared=JSON.parse(await page.getByRole('textbox',{name:'Preparation receipt',exact:true}).inputValue());
+    await page.reload();await page.getByRole('checkbox',{name:/I reviewed this separate focused Goal/}).check();await action('Save focused pilot Goal',()=>page.getByRole('heading',{name:'Focused Goal prepared',exact:true}).waitFor());await page.getByText('Nonsecret setup receipt',{exact:true}).click();assert.deepEqual(JSON.parse(await page.getByRole('textbox',{name:'Preparation receipt',exact:true}).inputValue()),prepared);
+    await control({r12FocusedSuccessorStage:prepared});await page.goto(origin+permission());await page.getByRole('checkbox',{name:/I reviewed the focused Goal/}).check();await action('Confirm focused pilot permission',()=>page.getByRole('heading',{name:'Focused pilot prepared',exact:true}).waitFor());await page.getByText('Nonsecret operator setup receipt',{exact:true}).click();confirmed=JSON.parse(await page.getByRole('textbox',{name:'Setup receipt',exact:true}).inputValue());
+    await page.reload();await page.getByRole('checkbox',{name:/I reviewed the focused Goal/}).check();await action('Recover confirmed setup receipt',()=>page.getByRole('heading',{name:'Focused pilot prepared',exact:true}).waitFor());await page.getByText('Nonsecret operator setup receipt',{exact:true}).click();assert.deepEqual(JSON.parse(await page.getByRole('textbox',{name:'Setup receipt',exact:true}).inputValue()),confirmed);
+    await control({r12FocusedSuccessorActivate:confirmed,r12DelayReceipt:true});await page.goto(origin+progress());await action('Continue approved research',()=>page.getByText(/Output saved.*Awaiting provider receipt/).waitFor());assert.deepEqual(fixture().calls,['strategy']);await page.reload();assert.equal(await page.getByRole('button',{name:'Continue approved research',exact:true}).isDisabled(),true);
+    await control({r12Due:true,r12DelayReceipt:false});await page.reload();await action('Continue approved research',()=>page.getByRole('heading',{name:'Bounded test recommended',exact:true}).waitFor());assert.deepEqual(fixture().calls,['strategy','review']);assert.deepEqual(fixture().receipts,['strategy','strategy','review']);noCreative();await page.getByRole('link',{name:'Inspect the closed focused predecessor',exact:true}).waitFor();await close();
+   });await context.close();
+  }finally{await browser.close();}
+ }
+ assert.deepEqual(external,[]);assert.deepEqual(boundary.denied,[]);await report();
+}

@@ -1,3 +1,4 @@
+import { validateR12FocusedSuccessor, type R12FocusedSuccessor } from "./discovery-r12-focused-successor";
 import type { OperatingPolicy } from "../core/admission-contract";
 import type { R04BusinessContent, R04QuestContent } from "../core/quest-contract";
 import { containsCredentialLikeValue } from "../core/quest-intake";
@@ -17,7 +18,7 @@ export type R12ReviewOwnerProposal = {
 export type R12ReviewConfirmation = { policyId: string; policyHash: string; businessRevision: number; goalRevision: number };
 export type R12ReviewOwnerWorkspace = {
   version: "r12.review-owner-workspace.1"; businessId: string; scopeId: string; scope: DiscoveryReviewContinuation | DiscoveryEvidenceContinuation | DiscoveryFocusedPilot;
-  proposalHash: string; proposal: R12ReviewOwnerProposal; confirmation: R12ReviewConfirmation | null; eligible: boolean; reason: string | null;
+  successor?: R12FocusedSuccessor; proposalHash: string; proposal: R12ReviewOwnerProposal; confirmation: R12ReviewConfirmation | null; eligible: boolean; reason: string | null;
 };
 export type R12ReviewSetupReceipt = R12ReviewConfirmation & { businessId: string; scopeId: string; goalId: string; proposalHash: string; controllerKeyHash: string; admissionKeyHash: string; executionAuthorized: false };
 export type R12ReviewPreparationState = { message: string; receipt: R12ReviewSetupReceipt | null };
@@ -70,6 +71,13 @@ export function parseR12ReviewOwnerWorkspace(raw: unknown, businessId: string, r
         !Array.isArray(scope.executionSourceDomains) || scope.executionSourceDomains.length > 8) return fail();
     // Owner read may be historical/expired. Dispatch revalidates at current time.
     validateDiscoveryEvidenceAddendum(scope.addendum, { businessId, comparisonUniverse: { markets: ["US", "GB", "AU", "NZ"].map(countryCode => ({ countryCode })) } } as DiscoveryIntentV2, Date.parse(scope.addendum.createdAt));
+  }
+  if (Object.hasOwn(raw, "successor")) {
+    if (!pilot) return fail();
+    const proof = validateR12FocusedSuccessor(raw.successor, { businessId, scopeId: String(raw.scopeId), goalId: String(s.goalId), ownerId, scope: s as unknown as DiscoveryFocusedPilot });
+    if (p.interpretationHash !== proof.authorizationHash || p.expectedGoalRevision !== proof.authorization.preparedGoalRevision || p.expectedGoalHash !== proof.authorization.preparedGoalHash ||
+        policy.policyLimitMicrounits !== String(proof.authorization.limits.maximumMicrousd) ||
+        (policy.operations as Array<Record<string, unknown>>).some((op,index) => op.maximumPerOperationMicrounits !== String(index === 0 ? proof.authorization.limits.maximumStrategyMicrousd : proof.authorization.limits.maximumReviewMicrousd))) return fail();
   }
   if (raw.confirmation !== null && (!object(raw.confirmation) || !r12ReviewUuid(raw.confirmation.policyId) || !hash(raw.confirmation.policyHash) || raw.confirmation.businessRevision !== policy.businessRevision || raw.confirmation.goalRevision !== policy.goalRevision)) return fail();
   return structuredClone(raw) as R12ReviewOwnerWorkspace;
