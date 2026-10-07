@@ -15,7 +15,7 @@ test('R12 HTTP harness rejects hosted databases, privileged identities and URI o
 test('Recovery uses hoisted 8s RPC, 3s locks and unchanged 3s send through real PostgREST',{skip:!enabled,timeout:240000},async()=>{
  validateR12HttpDatabase(process.env.R12_POSTGRES_URL);
  process.env.R12_RPC_HTTP_ONLY='1';process.env.R12_SQL_FULL_SHAPE='1';process.env.R12_REQUIRE_POSTGRES='1';
- const report={version:'r12.recovery-http-deadline.1',providerCalls:0,trials:[],guards:[],passed:false};
+ const report={version:'r12.recovery-http-deadline.1',providerCalls:0,trials:[],guards:[],passed:false,refreshedEvidence:true};
  const prepareStarted=performance.now(),fixture=await prepareCommittedR12Recovery(),ctx=fixture.context,db=ctx.db;report.prepareMs=Math.round(performance.now()-prepareStarted);report.sendFreshness=ctx.sendFreshness;let server,locker;
  const one=async(sql,args=[])=>(await db.query(sql,args)).rows[0];
  const controllerSignature='public.r07_controller(uuid,uuid,text,jsonb,uuid,text,text,bigint,text)';
@@ -35,6 +35,7 @@ test('Recovery uses hoisted 8s RPC, 3s locks and unchanged 3s send through real 
   const command=async(op,payload={},epoch=null)=>checked('r07_controller',{p_business_id:ctx.metadata.businessId,p_goal_id:ctx.metadata.goalId,p_operation:op,p_payload:payload,p_submission_id:randomUUID(),p_server_key:ctx.controller,p_lease_token:ctx.lease,p_epoch:epoch,p_admission_key:ctx.admission});
   const dispatchArgs=async()=>{const claim=await command('claim',{seconds:60});return{p_business_id:ctx.metadata.businessId,p_goal_id:ctx.metadata.goalId,p_scope_id:ctx.scopeId,p_payload:ctx.payload,p_submission_id:randomUUID(),p_server_key:ctx.controller,p_lease_token:ctx.lease,p_epoch:Number(claim.epoch),p_admission_key:ctx.admission};};
   const baseline=await fingerprint();assert.deepEqual(baseline,{admission_markers:0,controller_markers:0,claims:0,status:'reserved'});
+  assert.equal(ctx.metadata.authorization.evidenceRefresh.version,'r12.focused-pilot-evidence-refresh.1');report.guards.push('reviewed_refreshed_evidence_same_recovery_slot');
   assert.deepEqual(await checked('r12_http_settings',{}),{role:'anon',statementTimeout:'3s',timezone:'UTC'});
   // A private function SET is intentionally insufficient under an outer 3s RPC.
   await db.exec(`create function private.r12_http_inner(seconds double precision) returns boolean language plpgsql set statement_timeout='8s' as $$begin perform pg_sleep(seconds);return true;end$$;

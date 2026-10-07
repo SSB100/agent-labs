@@ -1,6 +1,7 @@
 import { containsCredentialLikeValue } from '../core/quest-intake';
 import { discoveryV2Hash } from './discovery-v2';
 import type { DiscoveryFocusedPilot } from './discovery-r12-focused-pilot-scope';
+import { validateR12EvidenceRefresh, type R12EvidenceRefresh } from './discovery-r12-evidence-refresh';
 
 export const R12_FOCUSED_SUCCESSOR_LIMITS = Object.freeze({ maximumSuccessors: 1, maximumPaidCalls: 2, maximumReceiptGets: 6,
   maximumReceiptGetsPerCall: 3, dispatchWindowSeconds: 1800, receiptGraceSeconds: 1800, maximumMicrousd: 277907,
@@ -27,7 +28,7 @@ export type R12FocusedUnsentClosure = { version: 'r12.focused-pilot-unsent-closu
   releaseEvidenceHash: string; decisionHash: string; absenceHash: string; dispatches: 0; childrenCreated: 1; repairsUsed: 0;
   pivotsUsed: 0; authorityClosed: true; knownMicrousd: '0'; heldMicrousd: '0' };
 export type R12FocusedUnsentRecoveryAuthorization = Omit<R12FocusedSuccessorAuthorization, 'version' | 'limits'> & {
-  version: 'r12.focused-pilot-unsent-recovery-authorization.1'; limits: typeof R12_UNSENT_RECOVERY_LIMITS; unsentClosure: R12FocusedUnsentClosure };
+  version: 'r12.focused-pilot-unsent-recovery-authorization.1'; limits: typeof R12_UNSENT_RECOVERY_LIMITS; unsentClosure: R12FocusedUnsentClosure; evidenceRefresh?: R12EvidenceRefresh };
 export type R12FocusedSuccessor = { authorization: R12FocusedSuccessorAuthorization | R12FocusedUnsentRecoveryAuthorization; authorizationHash: string };
 type Pins = { businessId: string; scopeId: string; goalId: string; ownerId?: string; budgetAuthorityRootId?: string; priorRoundId?: string; scope?: DiscoveryFocusedPilot;
   focusedPilot?: { profileHash: string; closedScopeId: string; closedPlanId: string; acceptedReviewScopeId: string } };
@@ -55,7 +56,8 @@ export function validateR12FocusedSuccessor(raw: unknown, pins: Pins, now?: numb
   const pair = exact(raw, 'authorization,authorizationHash');
   if (Buffer.byteLength(JSON.stringify(raw), 'utf8') > 16384 || containsCredentialLikeValue(raw)) return fail();
   const recovery=object(pair.authorization) && pair.authorization.version==='r12.focused-pilot-unsent-recovery-authorization.1';
-  const a = exact(pair.authorization, 'version,businessId,ownerId,scopeId,scopeHash,goalId,preparedGoalRevision,preparedGoalHash,profileHash,ownerApprovalEvidenceHash,predecessorClosure,limits,createdAt,expiresAt'+(recovery?',unsentClosure':''));
+  const refresh = recovery && object(pair.authorization) && Object.hasOwn(pair.authorization, 'evidenceRefresh');
+  const a = exact(pair.authorization, 'version,businessId,ownerId,scopeId,scopeHash,goalId,preparedGoalRevision,preparedGoalHash,profileHash,ownerApprovalEvidenceHash,predecessorClosure,limits,createdAt,expiresAt'+(recovery?',unsentClosure':'')+(refresh?',evidenceRefresh':''));
   const c = exact(a.predecessorClosure, 'version,businessId,scopeId,scopeHash,goalId,planId,planHash,policyId,policyHash,profileHash,budgetAuthorityRootId,priorRoundId,originalGoalId,originalClosedPlanId,originalClosedPlanHash,acceptedReviewScopeId,acceptedReviewHash,controllerKeyHash,admissionKeyHash,dispatches,childrenCreated,repairsUsed,pivotsUsed,authorityClosed,knownMicrousd,phases');
   if (!hash(pair.authorizationHash) || discoveryV2Hash(a) !== pair.authorizationHash || a.version !== (recovery?'r12.focused-pilot-unsent-recovery-authorization.1':'r12.focused-pilot-successor-authorization.1') ||
       ![a.businessId,a.ownerId,a.scopeId,a.goalId].every(id) || ![a.scopeHash,a.preparedGoalHash,a.profileHash,a.ownerApprovalEvidenceHash].every(hash) ||
@@ -88,5 +90,11 @@ export function validateR12FocusedSuccessor(raw: unknown, pins: Pins, now?: numb
       c.originalGoalId !== e.originalGoalId || c.acceptedReviewScopeId !== e.acceptedReviewScopeId || c.acceptedReviewHash !== e.acceptedReviewHash ||
       c.budgetAuthorityRootId !== e.budgetAuthorityRootId || c.priorRoundId !== e.priorRoundId || e.profile.researchAllocationMicrousd !== R12_FOCUSED_SUCCESSOR_LIMITS.maximumMicrousd)) return fail();
   if (f && (a.profileHash !== f.profileHash || closedScopeId !== f.closedScopeId || closedPlanId !== f.closedPlanId || c.acceptedReviewScopeId !== f.acceptedReviewScopeId)) return fail();
+  if (refresh) {
+    if (!u) return fail();
+    validateR12EvidenceRefresh(a.evidenceRefresh, { businessId: String(a.businessId), ownerId: String(a.ownerId), scopeId: String(a.scopeId), goalId: String(a.goalId),
+      budgetAuthorityRootId: String(c.budgetAuthorityRootId), abandonedScopeId: u.scopeId, abandonedScopeHash: u.scopeHash,
+      ownerApprovalEvidenceHash: String(a.ownerApprovalEvidenceHash), createdAt: String(a.createdAt), scope: e }, now);
+  }
   return structuredClone(raw) as R12FocusedSuccessor;
 }

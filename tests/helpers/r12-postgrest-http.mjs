@@ -39,7 +39,8 @@ export async function prepareCommittedR12Recovery(){
  const fixture=await prepareR12OwnerWorkflows();let context;
  try{await fixture.captureFocusedHttp(async({db,closedFocused})=>{
   const closedUnsent=await createClosedUnsentSuccessor(db,closedFocused,{nested:true,profileFixture:fullShapeProfileFixture,strategyOutput:fullShapeFocusedStrategyOutput});
-  const result=await exerciseFocusedPilotUnsentRecoveryLifecycle(db,closedUnsent,{nested:true,profileFixture:fullShapeProfileFixture,strategyOutput:fullShapeFocusedStrategyOutput,onReservedDispatch:async ctx=>{ctx.sendFreshness=await(await import('./r12-recovery-send-freshness.mjs')).exerciseRecoverySendFreshness(ctx);context=ctx;return{capturedHttp:true};}});
+  await(await import('./r12-next-refreshed-preparation.mjs')).exerciseR12NextRefreshedPreparation(db,closedUnsent);
+  const result=await exerciseFocusedPilotUnsentRecoveryLifecycle(db,closedUnsent,{nested:true,refreshEvidence:true,profileFixture:fullShapeProfileFixture,strategyOutput:fullShapeFocusedStrategyOutput,onReservedDispatch:async ctx=>{ctx.sendFreshness=await(await import('./r12-recovery-send-freshness.mjs')).exerciseRecoverySendFreshness(ctx);context=ctx;return{capturedHttp:true};}});
   assert.deepEqual(result,{capturedHttp:true});
  });assert.ok(context);return{...fixture,context};}catch(error){await fixture.close();throw error;}
 }

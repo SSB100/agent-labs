@@ -1,5 +1,6 @@
 import test,{before,after,describe} from 'node:test';
 import {assertR12ScannerParity} from './helpers/r12-scanner-parity.mjs';
+import {applyR12EvidenceRefreshWithCatalogCheck} from './helpers/r12-evidence-refresh-catalog.mjs';
 import {fullShapePhaseOutputFixture,fullShapeProfileFixture,fullShapeFocusedStrategyOutput} from './helpers/r12-full-shape-fixture.mjs';
 import {exerciseFullShapeDispatch} from './helpers/r12-full-shape-dispatch.mjs';
 const fullShape=process.env.R12_SQL_FULL_SHAPE==='1';
@@ -72,7 +73,7 @@ export async function prepareR12OwnerWorkflows(){
  const owner=source('src/lib/core-ui/owner-business.ts',{}),server=source('src/products/discovery-r12-scope-server.ts',{'server-only':{},'../lib/core-ui/owner-business':owner,'./discovery-r12-scope':scope});
   await db.exec("set timezone='UTC'");
   await db.exec(r04SqlBootstrap+sessionBootstrap);
-  for(const file of readdirSync(path.join(root,'supabase/migrations')).filter(x=>x.endsWith('.sql')).sort())try{await db.exec(readFileSync(path.join(root,'supabase/migrations',file),'utf8'));}catch(error){throw new Error(`${file}: ${error.message}`,{cause:error});}
+  for(const file of readdirSync(path.join(root,'supabase/migrations')).filter(x=>x.endsWith('.sql')).sort())try{const sql=readFileSync(path.join(root,'supabase/migrations',file),'utf8');if(file==='20261007210657_r12_recovery_evidence_refresh.sql'&&process.env.R12_POSTGRES_URL)await applyR12EvidenceRefreshWithCatalogCheck(db,sql);else await db.exec(sql);}catch(error){throw new Error(`${file}: ${error.message}`,{cause:error});}
   const scannerQualification=await assertR12ScannerParity(db,{engine:process.env.R12_POSTGRES_URL?'postgresql':'pglite'});
   if(scannerQualification.skipped)console.log('R12 scanner stress parity stays in the native PostgreSQL gate; PGlite continues snapshot/runtime assertions.');
   assert.equal((await db.query('select count(*)::int n from private.r12_discovery_scopes')).rows[0].n,0);
@@ -446,6 +447,7 @@ if(capture){
    ])test(name,{skip:fullShape,timeout:120000},()=>focusedCase(focused.db,'recovery_interruption',async()=>assert.equal((await action()).activeAuthority,false)));
    test('Recovery four terminal strategy outcomes stop before any reviewer',{skip:fullShape,timeout:120000},()=>focusedRecoveryOutcomes(focused.db,closedUnsent,['NEEDS_MORE_EVIDENCE','REJECT','INCONSISTENT','INVALID']));
    test('Recovery TEST retains exact history, independent receipts and separately approved noncreative adoption',{timeout:fullShape?180000:120000},()=>focusedRecoveryOutcomes(focused.db,closedUnsent,['TEST']));
+   test('Reviewed fresh captures preserve old history through recovery TEST, receipts and Stop',{skip:fullShape,timeout:120000},()=>focusedCase(focused.db,'refreshed_recovery',async()=>{const result=await exerciseFocusedPilotUnsentRecoveryLifecycle(focused.db,closedUnsent,{nested:true,refreshEvidence:true});assert.equal(result.inertPosts,2);assert.equal(result.activeAuthority,false);assert.ok(result.metadata.authorization.evidenceRefresh);}));
   });
   test('R12 actual owner workflows preserve funding, bounded dispatch and immutable historical results',{skip:!lifecycleMode.legacy,timeout:120000},()=>fixture.exerciseOwnerWorkflows());
  });
