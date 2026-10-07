@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test,{before,after,describe} from 'node:test';
 import {createClosedRejectedPlan4} from './helpers/r12-closed-plan4-fixture.mjs';
 import {exerciseFocusedPilotLifecycle} from './helpers/r12-focused-pilot-sql-fixture.mjs';
 import {createClosedFocusedPredecessor,exerciseFocusedPilotSuccessorLifecycle} from './helpers/r12-focused-pilot-successor-sql-fixture.mjs';
@@ -27,19 +27,28 @@ const require=createRequire(import.meta.url),ts=require('typescript');
 function validatePg(value){const u=new URL(value);assert.ok(u.protocol==='postgresql:'&&u.hostname==='127.0.0.1'&&u.username==='r12_test'&&u.pathname==='/r12_test'&&!u.search&&!u.hash,'Only a fresh isolated loopback r12_test database is allowed');return value;}
 test('R12 SQL harness refuses remote, wrong-identity and options-bearing database targets',()=>{for(const url of ['postgresql://r12_test:x@production.example/r12_test','postgresql://postgres:x@127.0.0.1/r12_test','postgresql://r12_test:x@127.0.0.1/production','postgresql://r12_test:x@127.0.0.1/r12_test?options=-csearch_path%3Dpublic'])assert.throws(()=>validatePg(url));});
 
+function r12LifecycleMode({capture=false,successorOnly=false}={}){return{successor:!capture,legacy:capture||!successorOnly};}
+test('R12 SQL lifecycle modes keep canonical coverage and avoid duplicate Next snapshot work',()=>{
+ assert.deepEqual(r12LifecycleMode(),{successor:true,legacy:true});
+ assert.deepEqual(r12LifecycleMode({successorOnly:true}),{successor:true,legacy:false});
+ assert.deepEqual(r12LifecycleMode({capture:true}),{successor:false,legacy:true});
+ assert.deepEqual(r12LifecycleMode({capture:true,successorOnly:true}),{successor:false,legacy:true});
+});
+
 function source(file,deps){const m={exports:{}};new Function('require','module','exports',ts.transpileModule(readFileSync(path.join(root,file),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)(name=>{assert.ok(name in deps,name);return deps[name];},m,m.exports);return m.exports;}
-async function exerciseR12OwnerWorkflows(){
+async function prepareR12OwnerWorkflows(){
  const sqlRequire=createRequire(path.resolve(host,'package.json'));let db;
  if(process.env.R12_REQUIRE_POSTGRES==='1')assert.ok(process.env.R12_POSTGRES_URL,'Actual PostgreSQL is required by this gate');
- if(process.env.R12_POSTGRES_URL){validatePg(process.env.R12_POSTGRES_URL);const {Client}=sqlRequire('pg');db=new Client({connectionString:process.env.R12_POSTGRES_URL});await db.connect();assert.equal(Number((await db.query("select count(*) from pg_tables where schemaname in ('public','private')")).rows[0].count),0,'Fresh fixture database required');db.exec=sql=>db.query(sql);db.close=()=>db.end();}
+ if(process.env.R12_POSTGRES_URL){validatePg(process.env.R12_POSTGRES_URL);const {Client}=sqlRequire('pg');db=new Client({connectionString:process.env.R12_POSTGRES_URL});await db.connect();db.exec=sql=>db.query(sql);db.close=()=>db.end();try{assert.equal(Number((await db.query("select count(*) from pg_tables where schemaname in ('public','private')")).rows[0].count),0,'Fresh fixture database required');}catch(error){await db.close();throw error;}}
  else{const {PGlite}=sqlRequire('@electric-sql/pglite'),{pgcrypto}=sqlRequire('@electric-sql/pglite/contrib/pgcrypto');db=new PGlite({extensions:{pgcrypto},initialMemory:128*1024*1024});}
 
  const priorEnv={VERCEL_ENV:process.env.VERCEL_ENV,R05_ADMISSION_SERVER_KEY:process.env.R05_ADMISSION_SERVER_KEY,OPENROUTER_API_KEY:process.env.OPENROUTER_API_KEY};
  process.env.VERCEL_ENV='production';process.env.R05_ADMISSION_SERVER_KEY='inert-r12-owner-root-configuration-0123456789';process.env.OPENROUTER_API_KEY='inert-r12-provider-configuration';
+ const close=async()=>{for(const [key,value] of Object.entries(priorEnv)){if(value===undefined)delete process.env[key];else process.env[key]=value;}await db.close();};
+ try{
  const {buildDiscoveryIntentFromGoal,DISCOVERY_GOAL_DEFAULT}=require('../.core-tests/products/discovery-v2-goal.js'),{discoveryV2Hash}=require('../.core-tests/products/discovery-v2.js');
  const scope=require('../.core-tests/products/discovery-r12-scope.js');
  const owner=source('src/lib/core-ui/owner-business.ts',{}),server=source('src/products/discovery-r12-scope-server.ts',{'server-only':{},'../lib/core-ui/owner-business':owner,'./discovery-r12-scope':scope});
- try{
   await db.exec("set timezone='UTC'");
   await db.exec(r04SqlBootstrap+sessionBootstrap);
   for(const file of readdirSync(path.join(root,'supabase/migrations')).filter(x=>x.endsWith('.sql')).sort())try{await db.exec(readFileSync(path.join(root,'supabase/migrations',file),'utf8'));}catch(error){throw new Error(`${file}: ${error.message}`,{cause:error});}
@@ -221,6 +230,7 @@ async function exerciseR12OwnerWorkflows(){
   await db.query("select set_config('request.jwt.claim.sub',$1,false)",[R07_OWNER]);
   assert.deepEqual(await ownerActions.prepareDiscoveryR12Authority(ownerContext,business,scopeId),{controllerKeyHash:createHash('sha256').update(R07_KEY).digest('hex'),admissionKeyHash:createHash('sha256').update(R05_KEY).digest('hex'),authorityCreated:false});
   const ownerApi=source('src/products/discovery-r12-owner.ts',{'./discovery-r12-observation':require('../.core-tests/products/discovery-r12-observation.js'),'./discovery-r12-focused-successor':require('../.core-tests/products/discovery-r12-focused-successor.js'),'server-only':{},'../lib/core-ui/owner-business':owner,'./discovery-r12-runtime':require('../.core-tests/products/discovery-r12-runtime.js')});
+  let reviewReplay;
   for(const phase of phaseKeys.slice(1)){
    const phaseStep=plan.steps.find(step=>step.key===phase);
    phaseFetchers[phase]=async(url,init)=>{
@@ -244,26 +254,45 @@ async function exerciseR12OwnerWorkflows(){
     for(const value of ['', ' ', 'x'.repeat(241), 1, {}]){const bad=structuredClone(saved);bad.phases[4].reason=value;assert.throws(()=>ownerApi.parseDiscoveryR12Workspace(bad,business,scopeId));}
     for(const target of ['reason','diagnostic']){const bad=structuredClone(saved);if(target==='reason')bad.reason='A sentence is not a state code';else bad.phases[0].receipt.diagnostic={code:'Not a diagnostic code',httpStatus:404};assert.throws(()=>ownerApi.parseDiscoveryR12Workspace(bad,business,scopeId));}
     await captureNext('scheduled-review');
-    await db.exec('begin');
-    try{const continuation=await prepareR12ReviewFixture(db,{quote,outputs},{nested:true});for(const failureCase of ['json_parse','response_schema']){await db.exec('savepoint review_response_failure');try{assert.deepEqual(await exerciseR12ReviewRuntime(db,continuation.metadata,{nested:true,failureCase}),{providerCalls:0,inertPosts:1,inertReceiptGets:0,failureCase,observationSaved:true,actualMicrousd:10,activeAuthority:false});}finally{await db.exec('rollback to savepoint review_response_failure');await db.exec('release savepoint review_response_failure');}}await db.exec('savepoint bounded_review_successors');
+    reviewReplay=async({successorOnly=false}={})=>{
+     const beforeReplay=await store.read(),beforeReplayInputs=structuredClone({quote,outputs});
+     const replayMetadata=structuredClone(beforeReplayInputs);
+     const beforeCallbacks={postCount,getCount,ownerContinuationCalls,dispatched},beforeClock=Date.now;
+     const beforeReplayEnv=Object.fromEntries(Object.keys(priorEnv).map(key=>[key,process.env[key]]));
+     await db.exec('begin');
+     try{const continuation=await prepareR12ReviewFixture(db,replayMetadata,{nested:true});for(const failureCase of ['json_parse','response_schema']){await db.exec('savepoint review_response_failure');try{assert.deepEqual(await exerciseR12ReviewRuntime(db,continuation.metadata,{nested:true,failureCase}),{providerCalls:0,inertPosts:1,inertReceiptGets:0,failureCase,observationSaved:true,actualMicrousd:10,activeAuthority:false});}finally{await db.exec('rollback to savepoint review_response_failure');await db.exec('release savepoint review_response_failure');}}await db.exec('savepoint bounded_review_successors');
      try{
       await exerciseR12ReviewRuntime(db,continuation.metadata,{nested:true,failureCase:'response_schema'});
-      const successor=await prepareR12ReviewFixture(db,{quote,outputs},{nested:true,reviewSuccessor:true});assert.equal(successor.envelope.reviewHistory.length,1);assert.equal(successor.envelope.baseKnownMicrounits,'50');
-      await db.exec('savepoint accepted_successor');try{assert.deepEqual(await exerciseR12ReviewRuntime(db,successor.metadata,{nested:true}),{providerCalls:0,inertPosts:1,inertReceiptGets:2,outcome:'NEEDS_MORE_EVIDENCE',phaseReceipts:5,dispatches:6,children:7});const evidence=await prepareR12EvidenceFixture(db,{quote,outputs},{nested:true});await db.exec('savepoint focused_pilot');try{await createClosedRejectedPlan4(db,evidence.metadata,{nested:true});await db.exec('savepoint focused_successor_case');try{const closedFocused=await createClosedFocusedPredecessor(db,evidence,{nested:true});for(const strategyOutcome of ['NEEDS_MORE_EVIDENCE','REJECT','INCONSISTENT','INVALID','TEST']){await db.exec('savepoint successor_outcome');try{const result=await exerciseFocusedPilotSuccessorLifecycle(db,closedFocused,{nested:true,strategyOutcome});assert.equal(result.inertPosts,strategyOutcome==='TEST'?2:1);console.log('Successor isolated outcome verified:',strategyOutcome,'POSTs',result.inertPosts,'receipt GETs',result.inertReceiptGets);}finally{await db.exec('rollback to savepoint successor_outcome');await db.exec('release savepoint successor_outcome');}}}finally{await db.exec('rollback to savepoint focused_successor_case');await db.exec('release savepoint focused_successor_case');}if(process.env.R12_SQL_SUCCESSOR_ONLY==='1')return;const pilot=await exerciseFocusedPilotLifecycle(db,evidence,{nested:true});assert.equal(pilot.inertPosts,2);assert.equal(pilot.outcome,'TEST');assert.equal(pilot.oldGoalUnchanged,true);const creative=await exerciseFocusedCreativeLifecycle(db,pilot);assert.equal(creative.inertPosts,4);assert.equal(creative.inertReceiptGets,8);assert.equal(creative.productionReady,true);assert.equal(creative.rootUnchanged,true);assert.equal(creative.goalUnchanged,true);}finally{await db.exec('rollback to savepoint focused_pilot');await db.exec('release savepoint focused_pilot');}assert.deepEqual(await exerciseR12ReviewRuntime(db,evidence.metadata,{nested:true}),{providerCalls:0,inertPosts:2,inertReceiptGets:3,outcome:'NEEDS_MORE_EVIDENCE',phaseReceipts:5,dispatches:8,children:9});}finally{await db.exec('rollback to savepoint accepted_successor');await db.exec('release savepoint accepted_successor');}
+      const successor=await prepareR12ReviewFixture(db,replayMetadata,{nested:true,reviewSuccessor:true});assert.equal(successor.envelope.reviewHistory.length,1);assert.equal(successor.envelope.baseKnownMicrounits,'50');
+      await db.exec('savepoint accepted_successor');try{assert.deepEqual(await exerciseR12ReviewRuntime(db,successor.metadata,{nested:true}),{providerCalls:0,inertPosts:1,inertReceiptGets:2,outcome:'NEEDS_MORE_EVIDENCE',phaseReceipts:5,dispatches:6,children:7});const evidence=await prepareR12EvidenceFixture(db,replayMetadata,{nested:true});await db.exec('savepoint focused_pilot');try{await createClosedRejectedPlan4(db,evidence.metadata,{nested:true});if(successorOnly){await db.exec('savepoint focused_successor_case');try{const closedFocused=await createClosedFocusedPredecessor(db,evidence,{nested:true});for(const strategyOutcome of ['NEEDS_MORE_EVIDENCE','REJECT','INCONSISTENT','INVALID','TEST']){await db.exec('savepoint successor_outcome');try{const result=await exerciseFocusedPilotSuccessorLifecycle(db,closedFocused,{nested:true,strategyOutcome});assert.equal(result.inertPosts,strategyOutcome==='TEST'?2:1);console.log('Successor isolated outcome verified:',strategyOutcome,'POSTs',result.inertPosts,'receipt GETs',result.inertReceiptGets);}finally{await db.exec('rollback to savepoint successor_outcome');await db.exec('release savepoint successor_outcome');}}}finally{await db.exec('rollback to savepoint focused_successor_case');await db.exec('release savepoint focused_successor_case');}return;}const pilot=await exerciseFocusedPilotLifecycle(db,evidence,{nested:true});assert.equal(pilot.inertPosts,2);assert.equal(pilot.outcome,'TEST');assert.equal(pilot.oldGoalUnchanged,true);const creative=await exerciseFocusedCreativeLifecycle(db,pilot);assert.equal(creative.inertPosts,4);assert.equal(creative.inertReceiptGets,8);assert.equal(creative.productionReady,true);assert.equal(creative.rootUnchanged,true);assert.equal(creative.goalUnchanged,true);}finally{await db.exec('rollback to savepoint focused_pilot');await db.exec('release savepoint focused_pilot');}assert.deepEqual(await exerciseR12ReviewRuntime(db,evidence.metadata,{nested:true}),{providerCalls:0,inertPosts:2,inertReceiptGets:3,outcome:'NEEDS_MORE_EVIDENCE',phaseReceipts:5,dispatches:8,children:9});}finally{await db.exec('rollback to savepoint accepted_successor');await db.exec('release savepoint accepted_successor');}
       await exerciseR12ReviewRuntime(db,successor.metadata,{nested:true,failureCase:'json_parse'});
-      const last=await prepareR12ReviewFixture(db,{quote,outputs},{nested:true,reviewSuccessor:true});assert.equal(last.envelope.reviewHistory.length,2);assert.equal(last.envelope.baseKnownMicrounits,'60');
+      const last=await prepareR12ReviewFixture(db,replayMetadata,{nested:true,reviewSuccessor:true});assert.equal(last.envelope.reviewHistory.length,2);assert.equal(last.envelope.baseKnownMicrounits,'60');
       await exerciseR12ReviewRuntime(db,last.metadata,{nested:true,failureCase:'response_schema'});
-      const before=(await db.query('select count(*)::int scopes from private.r12_discovery_scopes')).rows[0];await assert.rejects(prepareR12ReviewFixture(db,{quote,outputs},{nested:true,reviewSuccessor:true}),/r12_review_lineage_limit/);assert.deepEqual((await db.query('select count(*)::int scopes from private.r12_discovery_scopes')).rows[0],before);
+      const before=(await db.query('select count(*)::int scopes from private.r12_discovery_scopes')).rows[0];await assert.rejects(prepareR12ReviewFixture(db,replayMetadata,{nested:true,reviewSuccessor:true}),/r12_review_lineage_limit/);assert.deepEqual((await db.query('select count(*)::int scopes from private.r12_discovery_scopes')).rows[0],before);
      }finally{await db.exec('rollback to savepoint bounded_review_successors');await db.exec('release savepoint bounded_review_successors');}
      const replay=await exerciseR12ReviewRuntime(db,continuation.metadata,{nested:true});assert.deepEqual(replay,{providerCalls:0,inertPosts:1,inertReceiptGets:2,outcome:'NEEDS_MORE_EVIDENCE',phaseReceipts:5,dispatches:5,children:6});}
-    finally{await db.exec('rollback');}
-    assert.equal((await ownerActions.continueDiscoveryR12(ownerContext,business,scopeId)).status,'completed');continue;
+     finally{
+      await db.exec('rollback');
+      assert.deepEqual(await store.read(),beforeReplay,'Each replay restores the shared scheduled-review fixture');
+      assert.deepEqual({postCount,getCount,ownerContinuationCalls,dispatched},beforeCallbacks,'Replay transport counters do not leak into owner workflow callbacks');
+      assert.deepEqual({quote,outputs},beforeReplayInputs,'Shared owner inputs remain unchanged by isolated replay metadata');
+      assert.equal(Date.now,beforeClock,'Replay restores its virtual clock');
+      assert.deepEqual(Object.fromEntries(Object.keys(priorEnv).map(key=>[key,process.env[key]])),beforeReplayEnv,'Replay restores owner runtime configuration');
+     }
+    };
+    break;
    }
    assert.equal((await driveQuestOnce(store,{adapters})).reason,'scheduled',`${phase} schedule`);
    assert.equal((await driveQuestOnce(store,{adapters})).reason,'reserved',`${phase} reserve`);
    assert.equal((await driveQuestOnce(store,{adapters})).reason,'response_persisted',`${phase} response`);
    assert.equal((await driveQuestOnce(store,{adapters})).reason,'response_projected',`${phase} complete`);
   }
+  assert.equal(typeof reviewReplay,'function');
+  return {
+   exerciseSuccessor:()=>reviewReplay({successorOnly:true}),
+   exerciseOwnerWorkflows:async()=>{
+  await reviewReplay();
+  assert.equal((await ownerActions.continueDiscoveryR12(ownerContext,business,scopeId)).status,'completed');
   assert.equal((await driveQuestOnce(store,{adapters})).status,'completed');
   assert.equal(postCount,5);assert.equal(getCount,6);assert.equal(ownerContinuationCalls,2);
   assert.equal((await ownerActions.continueDiscoveryR12(ownerContext,business,scopeId)).status,'completed');assert.equal(ownerContinuationCalls,2,'Repeated owner Continue cannot create another effect');
@@ -339,20 +368,36 @@ async function exerciseR12OwnerWorkflows(){
   await db.query("select set_config('request.jwt.claim.sub',$1,false)",['95050000-0000-4000-8000-000000000002']);
   assert.deepEqual(reconstructDiscoveryR12Result(await historyRead(),business,scopeId),fullResult,'The current owner can inspect preserved Business history');
 
-
-
-
- }finally{for(const [key,value] of Object.entries(priorEnv)){if(value===undefined)delete process.env[key];else process.env[key]=value;}await db.close();}
+   },
+   close
+  };
+ }catch(error){await close();throw error;}
 }
 
-if(process.argv.includes('--r12-next-capture')){
+const capture=process.argv.includes('--r12-next-capture'),lifecycleMode=r12LifecycleMode({capture,successorOnly:process.env.R12_SQL_SUCCESSOR_ONLY==='1'});
+if(capture){
  assert.ok(host,'Isolated SQL fixture host is required');
  assert.ok(process.env.R12_NEXT_FIXTURE_OUTPUT&&path.basename(path.resolve(process.env.R12_NEXT_FIXTURE_OUTPUT)).startsWith('r12-next-'),'Designated temporary fixture directory required');
  assert.ok(!process.env.R12_POSTGRES_URL&&process.env.R12_REQUIRE_POSTGRES!=='1','Next snapshots use an isolated PGlite database only');
  const started=performance.now();
  console.log('Preparing R12 Next snapshots with every owner-workflow assertion; the Next setup subprocess owns the deadline.');
- await exerciseR12OwnerWorkflows();
+ const fixture=await prepareR12OwnerWorkflows();
+ // Next's successor owner journey creates its own closed predecessor after
+ // loading these legacy snapshots. Do not replay its matrix in setup as well.
+ try{if(lifecycleMode.successor)await fixture.exerciseSuccessor();if(lifecycleMode.legacy)await fixture.exerciseOwnerWorkflows();}finally{await fixture.close();}
  console.log(`PASS: R12 Next snapshot setup and all owner-workflow assertions completed in ${Math.round(performance.now()-started)}ms`);
 }else{
- test(process.env.R12_SQL_SUCCESSOR_ONLY==='1'?'R12 successor-only actual owner workflows preserve finite authority, terminal stops and predecessor history':'R12 actual owner workflows preserve funding, bounded dispatch and immutable historical results',{skip:!host,timeout:120000},exerciseR12OwnerWorkflows);
+ // The two replay branches start from the same scheduled-review fixture. Each
+ // owns a transaction and rolls it back before the legacy completion/history
+ // assertions run. The successor matrix must not spend the legacy replay's
+ // deadline or retain its changes.
+ // No host means the whole SQL suite is explicitly skipped. The opt-in local
+ // successor-only mode never changes the canonical default's legacy coverage.
+ describe('R12 isolated SQL owner-workflow lifecycles',{skip:!host,concurrency:false},()=>{
+  let fixture;
+  before(async()=>{fixture=await prepareR12OwnerWorkflows();},{timeout:120000});
+  after(async()=>{await fixture?.close();},{timeout:120000});
+  test('R12 focused successors preserve finite authority, terminal stops and predecessor history',{skip:!lifecycleMode.successor,timeout:120000},()=>fixture.exerciseSuccessor());
+  test('R12 actual owner workflows preserve funding, bounded dispatch and immutable historical results',{skip:!lifecycleMode.legacy,timeout:120000},()=>fixture.exerciseOwnerWorkflows());
+ });
 }
