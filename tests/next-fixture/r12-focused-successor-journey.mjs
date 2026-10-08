@@ -7,10 +7,13 @@ import {renderedResearchForm,researchHtmlText} from './r11-http.mjs';
 import {r12OwnerRpc} from './r12-sql.mjs';
 import {discoveryV2Hash as hash} from '../../.core-tests/products/discovery-v2.js';
 
+export const R12_TERMINAL_JOURNEY_NAME='Terminal qualification preserves reconciled marked history through exact owner approval, interrupted receipts and Stop';
+export const runR12TerminalJourney=options=>runR12FocusedSuccessorJourney({...options,terminalOnly:true});
+
 /** Actual Next owner actions and SQL, with only inert operator/provider edges. */
-export async function runR12FocusedSuccessorJourney({origin,noKeyOrigin,boundary,output,directory,httpOnly=false}){
+export async function runR12FocusedSuccessorJourney({origin,noKeyOrigin,boundary,output,directory,httpOnly=false,terminalOnly=false}){
  const results=[],actions=[],external=[],fixture=()=>boundary.state().r12;
- const report=()=>writeFile(path.join(output,'r12-focused-successor-acceptance.json'),JSON.stringify({results,actions,external,browser:httpOnly?'unrun HTTP-only':'actual Chromium'},null,2));
+ const report=()=>writeFile(path.join(output,'r12-focused-successor-acceptance.json'),JSON.stringify({results,actions,external,selection:terminalOnly?'terminal-only':'complete',browser:httpOnly?'unrun HTTP-only':'actual Chromium'},null,2));
  const check=async(name,fn)=>{console.log('START:',name);try{await fn();results.push({name,status:'passed'});console.log('PASS:',name);}catch(error){results.push({name,status:'failed',error:String(error.stack??error)});await report();throw error;}await report();};
  const control=async values=>{const response=await fetch(boundary.origin+'/control',{method:'POST',body:JSON.stringify(values),signal:AbortSignal.timeout(60000)}),text=await response.text();assert.equal(response.status,200,text);const result=JSON.parse(text);for(const command of ['r12FocusedSuccessorStage','r12FocusedSuccessorActivate','r12FocusedSuccessorClose','r12FocusedSuccessorUnsent'])if(values[command]){assert.ok(result.r12?.handled.includes(command),`${command} was actually performed`);assert.equal(result.r12.scopeId,fixture().scopeId);assert.equal(result.r12.authorizationHash,fixture().authorizationHash);}return result;};
  const reset=outcome=>control({r12Scenario:'focused-successor-preparation',r12Directory:directory,r12DelayReceipt:false,r12ReviewFailure:null,r12SuccessorStrategyOutcome:outcome});
@@ -44,6 +47,7 @@ export async function runR12FocusedSuccessorJourney({origin,noKeyOrigin,boundary
   await control({r12FocusedSuccessorClose:{businessId:fixture().businessId,scopeId:fixture().scopeId,scopeHash:fixture().staged.scopeHash,policyId:confirmed.policyId,policyHash:confirmed.policyHash,planHash:state.planHash,[fixture().closedMarked?'terminalAuthorizationHash':fixture().closedUnsent?'recoveryAuthorizationHash':'successorAuthorizationHash']:fixture().authorizationHash}});
   noCreative();
  };
+ if(!terminalOnly){
  await check('Successor actual owner preparation resolves immediate focused plan, recovers one Goal, confirms proof and activates finite authority',async()=>{await reset('TEST');await prepare();});
  await check('Successor real two-call TEST preserves old closed records and remains nonauthorizing until separate adoption',async()=>{
   const before=JSON.stringify(fixture().closedFocused.closure),state=await run();assert.equal(state.state,'completed');assert.equal(state.planVersion,1);assert.deepEqual(fixture().calls,['strategy','review']);assert.deepEqual(fixture().receipts,['strategy','review']);assert.equal(state.cost.knownMicrousd,'20');assert.equal(state.phases[1].outcome,'TEST');assert.equal(JSON.stringify(fixture().closedFocused.closure),before);noCreative();
@@ -80,7 +84,8 @@ export async function runR12FocusedSuccessorJourney({origin,noKeyOrigin,boundary
  }
  await check('Recovered TEST requires a later separate adoption and never starts creative work',async()=>{const form=renderedResearchForm(await read(progress()),'Adopt focused TEST',fixture().scopeId);form.set('reviewed','on');assert.match(researchHtmlText(await post(progress(),form)),/exact independently reviewed TEST is recorded/);assert.equal(boundary.state().db.product_experiments.filter(row=>row.discovery_version==='r12.focused-adoption.1').length,1);await post(progress(),form);assert.equal(boundary.state().db.product_experiments.filter(row=>row.discovery_version==='r12.focused-adoption.1').length,1);noCreative();assert.deepEqual(fixture().calls,['strategy','review']);});
 
- await check('Terminal qualification preserves reconciled marked history through exact owner approval, interrupted receipts and Stop',async()=>{
+ }
+ await check(R12_TERMINAL_JOURNEY_NAME,async()=>{
   await reset('TEST');await control({r12FocusedSuccessorUnsent:'terminal-source'});
   const failed=fixture().closedMarked,failedRoute='/dashboard?'+new URLSearchParams({view:'research',type:'r12',business:fixture().businessId,selected:failed.scopeId,quest:failed.metadata.goalId});
   const frozen=JSON.stringify(failed.markedClosure);

@@ -439,6 +439,7 @@ if(capture){
     completion.catch(failed);await prepared;
    },{timeout:120000});
    after(async()=>{release?.();await completion;},{timeout:120000});
+   test('Actual terminal-source boundary and interrupted owner continuation need no inherited host configuration',{skip:fullShape||!process.env.R12_POSTGRES_URL,timeout:120000},async()=>{const {exerciseR12TerminalBoundaryPreflight}=await import('./helpers/r12-terminal-boundary-preflight.mjs');const report=await exerciseR12TerminalBoundaryPreflight(focused.db,focused.closedFocused);assert.equal(report.passed,true);});
    test('Original successor five terminal outcomes remain unchanged',{timeout:fullShape?300000:120000},()=>focusedSuccessors(focused.db,focused.closedFocused));
    test('Actual owner Stop preserves a transaction-proven unsent successor and releases its hold',{timeout:120000},async()=>{closedUnsent=await createClosedUnsentSuccessor(focused.db,focused.closedFocused,{nested:true});assert.equal(closedUnsent.activeAuthority,false);});
    for(const [name,action]of [

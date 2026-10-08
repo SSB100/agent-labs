@@ -18,13 +18,16 @@ import {r12QuoteFixture} from '../helpers/r12-provider-fixture.mjs';
 import {seedR12Creative,controlR12Creative,launchR12Creative} from './r12-creative.mjs';
 export const R12_INERT_ROOT='inert-r12-owner-root-configuration-0123456789';
 const tables=['businesses','goals','workflow_runs','workflow_definitions','workflow_stage_runs','worker_definitions','worker_runs','task_contracts','artifacts','installed_packs','product_experiments','product_candidates','product_decisions','creative_approvals','creative_runs','creative_assets','creative_reviews','creative_cost_reservations','creative_cost_settlements','creative_phase_outputs','events','owner_interventions'];
+export async function r12FixtureState(db,metadata,scenario){
+ return{...metadata,db,scenario,calls:[],receipts:[],quoteReads:0,generations:Object.fromEntries((await db.query("select candidate->>'phase' phase,candidate->>'providerRequestId' id from private.r12_discovery_candidates")).rows.map(r=>[r.phase,r.id]))};
+}
 export async function loadR12NextFixture(state,scenario,directory,host){
  assert.ok(['current','pending','scheduled-review','completed','bootstrap','review-preparation','review-ready','review-successor-preparation','review-successor-ready','evidence-preparation','evidence-ready','pilot-preparation','focused-successor-preparation'].includes(scenario));assert.ok(path.basename(directory).startsWith('r12-next-'));
  if(state.r12)await closeR12Fixture(state);
  const require=createRequire(path.join(host,'package.json')),{PGlite}=require('@electric-sql/pglite'),{pgcrypto}=require('@electric-sql/pglite/contrib/pgcrypto');
  const metadata=JSON.parse(await readFile(path.join(directory,scenario==='bootstrap'?'bootstrap-metadata.json':(scenario.startsWith('evidence-')||scenario.startsWith('pilot-')||scenario.startsWith('focused-successor-'))?'evidence-metadata.json':scenario.startsWith('review-successor-')?'successor-metadata.json':scenario.startsWith('review-')?'continuation-metadata.json':'metadata.json'),'utf8')),dump=await readFile(path.join(directory,`${['pilot-preparation','focused-successor-preparation'].includes(scenario)?'evidence-ready':scenario}.tgz`));
  const db=new PGlite({extensions:{pgcrypto},loadDataDir:new Blob([dump])});await db.waitReady;await db.exec("set timezone='UTC'");
- state.r12={...metadata,db,scenario,calls:[],receipts:[],quoteReads:0,generations:Object.fromEntries((await db.query("select candidate->>'phase' phase,candidate->>'providerRequestId' id from private.r12_discovery_candidates")).rows.map(r=>[r.phase,r.id]))};state.owner=metadata.ownerId;
+ state.r12=await r12FixtureState(db,metadata,scenario);state.owner=metadata.ownerId;
  await db.query("select set_config('request.jwt.claim.sub',$1,false)",[state.owner]);
  if(scenario==='pilot-preparation'){const closed=await createClosedRejectedPlan4(db,state.r12);state.r12.closedEvidence={metadata:structuredClone(metadata),activated:{planId:closed.closedPlanId}};state.r12.sourceScopeId=metadata.scopeId;state.r12.preparationId=crypto.randomUUID();state.r12.setupUntil=new Date(Math.floor((Date.now()+2*3600000)/1000)*1000).toISOString();await seedR12Creative(state.r12);}
  if(scenario==='focused-successor-preparation'){

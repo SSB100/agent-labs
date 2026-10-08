@@ -2,6 +2,15 @@ name: CI
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      gate:
+        description: Focused diagnostics or complete release qualification
+        type: choice
+        options: [release, focused]
+        default: release
+        required: true
   push:
     branches:
       - main
@@ -15,6 +24,7 @@ concurrency:
 
 jobs:
   quality:
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.gate == 'release') || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -171,6 +181,7 @@ jobs:
           retention-days: 14
 
   r04-sql:
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.gate == 'release') || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
@@ -207,6 +218,7 @@ jobs:
         run: node --test tests/r04-quest-concurrency.test.mjs
 
   r05-sql:
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.gate == 'release') || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
@@ -243,6 +255,7 @@ jobs:
         run: node --test tests/r05-operating-envelope-concurrency.test.mjs
 
   r06-sql:
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.gate == 'release') || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
@@ -274,6 +287,7 @@ jobs:
         run: node --test tests/r06-bounded-read-sql.test.mjs
 
   r07-sql:
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.gate == 'release') || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -313,6 +327,7 @@ jobs:
         run: node --test tests/r07-quest-concurrency.test.mjs
 
   r08-sql:
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.gate == 'release') || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
@@ -344,6 +359,7 @@ jobs:
         run: node --test tests/r08-workspace-sql.test.mjs
 
   r09-sql:
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.gate == 'release') || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -378,6 +394,7 @@ jobs:
         run: node --test tests/r09-knowledge-sql.test.mjs
 
   r10-sql:
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.gate == 'release') || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
@@ -409,6 +426,7 @@ jobs:
         run: node --test tests/r10-viewer-sql.test.mjs
 
   r11-sql:
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.gate == 'release') || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
@@ -439,6 +457,7 @@ jobs:
         run: node --test tests/r11-connections-sql.test.mjs
 
   r11-research-sql:
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.gate == 'release') || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -488,6 +507,7 @@ jobs:
           node --test tests/r11-pending-receipt-sql.test.mjs
 
   r12-sql:
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.gate == 'release') || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -594,6 +614,7 @@ jobs:
           retention-days: 14
 
   r03-next:
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.gate == 'release') || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -695,5 +716,92 @@ jobs:
             test-results/r03-next/r12-*.png
             test-results/r03-next/r12-*.json
             test-results/r03-next/r12-*.log
+          if-no-files-found: error
+          retention-days: 14
+
+  r12-focused:
+    name: R12 focused diagnostics (not release qualification)
+    if: (github.event_name == 'pull_request' && github.event.pull_request.draft == true) || (github.event_name == 'workflow_dispatch' && inputs.gate == 'focused')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: r12_test
+          POSTGRES_DB: r12_test
+          POSTGRES_PASSWORD: r12-isolated-fixture
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U r12_test -d r12_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Install pinned fixture dependencies
+        run: |
+          npm install --no-audit --no-fund
+          npm install --prefix "$RUNNER_TEMP/r12-focused-sql-host" --no-audit --no-fund --ignore-scripts @electric-sql/pglite@0.5.8 pg@8.16.3
+          npm run pretest
+      - name: Verify clean-environment configuration and release exclusion
+        run: node --test tests/r12-owner-sql-fixture-config.test.mjs tests/release-gate.test.mjs
+      - name: Verify exact terminal entry and bounded cleanup
+        env:
+          R12_TERMINAL_BOUNDARY_PREFLIGHT: "1"
+          R12_TERMINAL_BOUNDARY_REPORT: /tmp/r12-terminal-boundary-preflight.json
+          R12_SQL_TEST_HOST: ${{ runner.temp }}/r12-focused-sql-host
+          R12_REQUIRE_POSTGRES: "1"
+          R12_POSTGRES_URL: postgresql://r12_test:r12-isolated-fixture@127.0.0.1:5432/r12_test
+        run: |
+          export R12_CI_POSTGRES_ADDRESS="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' '${{ job.services.postgres.id }}')"
+          node scripts/reset-r12-ci-database.mjs
+          node --test tests/r12-terminal-boundary-preflight.test.mjs
+      - name: Install pinned inert browser
+        run: npx playwright-core install --with-deps chromium
+      - name: Verify only the shared terminal owner journey in actual Next
+        env:
+          R12_SQL_TEST_HOST: ${{ runner.temp }}/r12-focused-sql-host
+        run: node scripts/verify-r03-next.mjs --r12-terminal-only
+      - name: Preserve focused evidence and limitations
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r12-focused-${{ github.sha }}
+          path: |
+            /tmp/r12-terminal-boundary-preflight.json
+            test-results/r03-next/*.json
+            test-results/r03-next/*.log
+            test-results/r03-next/r12-terminal-qualification-*.png
+          if-no-files-found: warn
+          retention-days: 14
+
+  release-qualification:
+    name: Full release qualification
+    if: always()
+    needs: [quality, r04-sql, r05-sql, r06-sql, r07-sql, r08-sql, r09-sql, r10-sql, r11-sql, r11-research-sql, r12-sql, r03-next, r12-focused]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      # Draft diagnostics deliberately cannot make this release check green.
+      # Every named full check must succeed on this run's tested commit/tree.
+      - name: Require full mode and all twelve named checks
+        env:
+          RELEASE_NEEDS_JSON: ${{ toJSON(needs) }}
+        run: node scripts/verify-release-gate.mjs
+      - name: Preserve exact qualification decision
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-qualification-${{ github.sha }}
+          path: test-results/release-qualification.json
           if-no-files-found: error
           retention-days: 14
