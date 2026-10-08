@@ -41,7 +41,7 @@ export async function exerciseR12TerminalBoundaryPreflight(db,closedFocused){
  const adapter={query:sql,exec:sql,close:async()=>{}},state=boundary.state(),metadata=closedFocused.metadata;
  state.owner=metadata.ownerId;state.r12={...await r12FixtureState(adapter,metadata,'focused-successor-preparation'),closedFocused,sourceScopeId:closedFocused.scopeId,preparationId:randomUUID(),setupUntil:metadata.focusedProfile.expiresAt};
  const names=['VERCEL_ENV','R05_ADMISSION_SERVER_KEY','OPENROUTER_API_KEY'],prior=Object.fromEntries(names.map(name=>[name,process.env[name]])),originalFetch=globalThis.fetch;let externalCalls=0;
- const report={version:'r12.terminal-boundary-preflight.1',engine:'native_postgresql',hostEnvAbsent:true,terminalSourceMs:null,providerCalls:0,passed:false};
+ const report={version:'r12.terminal-boundary-preflight.1',engine:typeof db.dumpDataDir==='function'?'pglite':'native_postgresql',hostEnvAbsent:true,terminalSourceMs:null,providerCalls:0,passed:false};
  const fingerprint=async()=>(await db.query(`select (select count(*)::int from private.r12_pilot_technical_qualification_authorizations) terminal,(select count(*)::int from private.r12_discovery_scopes) scopes,(select count(*)::int from private.r05_markers) financial_markers,(select count(*)::int from private.r07_markers) controller_markers,(select count(*)::int from private.r12_discovery_transport_claims) claims`)).rows[0];
  const before=await fingerprint();await db.exec('savepoint terminal_boundary_preflight');
  try{

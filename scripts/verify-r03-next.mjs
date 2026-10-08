@@ -14,6 +14,7 @@ import {runR12BootstrapJourney} from '../tests/next-fixture/r12-bootstrap-journe
 import {runR12PilotJourney} from '../tests/next-fixture/r12-pilot-journey.mjs';
 import {runR12ReviewJourney} from '../tests/next-fixture/r12-review-journey.mjs';
 import {runR12TerminalJourney,R12_TERMINAL_JOURNEY_NAME} from '../tests/next-fixture/r12-focused-successor-journey.mjs';
+import {r12NextCapturePlan,assertR12CaptureFiles,r12NextSnapshotFiles} from '../tests/helpers/r12-next-capture-plan.mjs';
 import {R12_INERT_ROOT} from '../tests/next-fixture/r12-sql.mjs';
 import { R11_INERT_SERVER_KEY } from '../tests/next-fixture/r11-research.mjs';
 
@@ -93,21 +94,15 @@ try {
     if(!process.env.R12_SQL_TEST_HOST)throw Error('R12 isolated SQL fixture host is required');
     const directory=await mkdtemp(path.join(temporaryRoot,'r12-next-'));
     try{
-    // The measured full lifecycle takes about 100s without four gzip snapshots.
-    // Give this setup-only subprocess a finite serialization/runner margin;
-    // the ordinary SQL test keeps its independent 120s assertion deadline.
-    const captureTimeoutMs=240000,captureStarted=performance.now();
-    console.log(`Preparing R12 Next SQL snapshots (setup deadline ${captureTimeoutMs}ms).`);
-    const capture=spawn(process.execPath,['tests/r12-discovery-scope-sql.test.mjs','--r12-next-capture'],{cwd:root,env:{...process.env,R12_NEXT_FIXTURE_OUTPUT:directory,R12_POSTGRES_URL:'',R12_REQUIRE_POSTGRES:'0'},stdio:['ignore','pipe','pipe'],timeout:captureTimeoutMs,killSignal:'SIGKILL'});
-    processes.push(capture);
-    const stream=log('r12-sql-capture.log');capture.stdout.pipe(stream);capture.stderr.pipe(stream);await completion(capture);
-    console.log(`R12 Next SQL snapshot setup completed in ${Math.round(performance.now()-captureStarted)}ms.`);
-    if(!terminalOnly){
-    const reviewCapture=spawn(process.execPath,['tests/helpers/r12-review-next-capture.mjs'],{cwd:root,env:{...process.env,R12_REVIEW_NEXT_OUTPUT:directory,R12_POSTGRES_URL:''},stdio:['ignore','pipe','pipe']});processes.push(reviewCapture);
-    const reviewStream=log('r12-review-capture.log');reviewCapture.stdout.pipe(reviewStream);reviewCapture.stderr.pipe(reviewStream);await completion(reviewCapture);
-    const bootstrapCapture=spawn(process.execPath,['tests/helpers/r12-bootstrap-rehearsal.mjs'],{cwd:root,env:{...process.env,R12_BOOTSTRAP_NEXT_OUTPUT:directory},stdio:['ignore','pipe','pipe']});processes.push(bootstrapCapture);
-    const bootstrapStream=log('r12-bootstrap-capture.log');bootstrapCapture.stdout.pipe(bootstrapStream);bootstrapCapture.stderr.pipe(bootstrapStream);await completion(bootstrapCapture);
+    for(const stage of r12NextCapturePlan({terminalOnly})){
+      await assertR12CaptureFiles(directory,stage.inputs);
+      const started=performance.now();console.log(`Preparing R12 ${stage.name} snapshots.`);
+      const child=spawn(process.execPath,[stage.script,...stage.args],{cwd:root,env:{...process.env,[stage.outputVariable]:directory,R12_POSTGRES_URL:'',R12_REQUIRE_POSTGRES:'0'},stdio:['ignore','pipe','pipe'],...(stage.timeoutMs?{timeout:stage.timeoutMs,killSignal:'SIGKILL'}:{})});
+      processes.push(child);const stream=log(stage.log);child.stdout.pipe(stream);child.stderr.pipe(stream);await completion(child);
+      await assertR12CaptureFiles(directory,stage.outputs);
+      console.log(`R12 ${stage.name} snapshot setup completed in ${Math.round(performance.now()-started)}ms.`);
     }
+    if(terminalOnly)await assertR12CaptureFiles(directory,Object.values(r12NextSnapshotFiles('focused-successor-preparation')));
     const r12Probe=createServer();await new Promise(resolve=>r12Probe.listen(0,'127.0.0.1',resolve));const r12Port=r12Probe.address().port;await new Promise(resolve=>r12Probe.close(resolve));
     start(['start','-p',String(r12Port),'-H','127.0.0.1'],'r12-server.log',{VERCEL_ENV:'production',R05_ADMISSION_SERVER_KEY:R12_INERT_ROOT,OPENROUTER_API_KEY:'inert-r12-provider-placeholder'});
     const r12Origin=`http://localhost:${r12Port}`;let r12Ready=false;for(let attempt=0;attempt<120;attempt++){try{const response=await fetch(r12Origin+'/login',{redirect:'manual'});if(response.status<500){r12Ready=true;break;}}catch{}await new Promise(resolve=>setTimeout(resolve,250));}assert.ok(r12Ready,'R12 Next fixture did not start');

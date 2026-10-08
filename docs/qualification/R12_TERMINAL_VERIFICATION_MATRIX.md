@@ -33,3 +33,16 @@ Ready/non-draft PRs, main pushes and explicit `release` dispatches retain all tw
 The runner's default remains full, and the workflow's explicit dispatch default is `release`. Main verification stays enabled. No caching, broad path filters or previous-run reuse are introduced in this change. Measure focused and full durations separately before claiming savings; account-wide billing deltas do not establish a run-specific price.
 
 Local verification of the focused entry passed in 63.4 seconds: actual boundary HTTP terminal-source construction from fresh predecessor state took 15.9 seconds with host configuration absent. Real owner preparation and confirmation replays, activation, delayed receipt, fresh runtime/client reload, review and Stop completed with two of the permitted eight Continue actions, exactly two inert POSTs and three receipt GETs. Historical reconciliation, one-slot limits, absence of external effects and closed authority were checked. This is native PostgreSQL evidence; actual hosted PGlite/Next browser coverage remains a separate requirement. The six focused configuration/release-gate tests and changed-file lint also passed.
+
+### Snapshot dependency chain
+
+| Producer | Reads | Writes needed by the terminal lane |
+| --- | --- | --- |
+| Base R12 SQL capture | Compiled contracts and repository migrations | `metadata.json`, `scheduled-review.tgz` |
+| Complete review/evidence capture | Those two base files; real intervening review/evidence transitions | `evidence-metadata.json`, `evidence-ready.tgz` |
+| Actual focused-successor loader | Those two evidence files | In-memory database and rejected focused predecessor for terminal-source control |
+| Terminal-source and owner journey | Loaded database, compiled contracts and repository recipes | Saved research/receipt/closure state and diagnostic reports |
+
+The review producer is required even in terminal-only mode. Bootstrap capture belongs to a separate bootstrap journey and is the only producer omitted here. Producer input/output checks and tests use the loader's real filename-selection function, so a base-only capture cannot be mistaken for a complete terminal fixture. A separate opt-in snapshot-consumer preflight can run the actual loader and shared terminal assertions without rebuilding Next.
+
+The attempted fresh local PGlite chain stopped during base capture with SIGKILL (exit 137) after about 49 seconds, before its 240-second bound. No snapshots were produced, so neither the review producer nor the snapshot-consumer preflight ran. The log contains no SQL assertion failure; memory pressure is suspected but not established by a kernel record. This is an explicit local verification limitation. The corrected dependency graph passes its focused contract tests and source review; hosted focused verification must establish the complete PGlite/browser chain.

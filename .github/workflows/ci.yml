@@ -749,7 +749,7 @@ jobs:
           npm install --prefix "$RUNNER_TEMP/r12-focused-sql-host" --no-audit --no-fund --ignore-scripts @electric-sql/pglite@0.5.8 pg@8.16.3
           npm run pretest
       - name: Verify clean-environment configuration and release exclusion
-        run: node --test tests/r12-owner-sql-fixture-config.test.mjs tests/release-gate.test.mjs
+        run: node --test tests/r12-owner-sql-fixture-config.test.mjs tests/release-gate.test.mjs tests/r12-next-capture-plan.test.mjs
       - name: Verify exact terminal entry and bounded cleanup
         env:
           R12_TERMINAL_BOUNDARY_PREFLIGHT: "1"

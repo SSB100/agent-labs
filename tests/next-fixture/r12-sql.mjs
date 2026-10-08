@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
+import {r12NextSnapshotFiles} from '../helpers/r12-next-capture-plan.mjs';
 import {createRequire} from 'node:module';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
@@ -25,7 +26,7 @@ export async function loadR12NextFixture(state,scenario,directory,host){
  assert.ok(['current','pending','scheduled-review','completed','bootstrap','review-preparation','review-ready','review-successor-preparation','review-successor-ready','evidence-preparation','evidence-ready','pilot-preparation','focused-successor-preparation'].includes(scenario));assert.ok(path.basename(directory).startsWith('r12-next-'));
  if(state.r12)await closeR12Fixture(state);
  const require=createRequire(path.join(host,'package.json')),{PGlite}=require('@electric-sql/pglite'),{pgcrypto}=require('@electric-sql/pglite/contrib/pgcrypto');
- const metadata=JSON.parse(await readFile(path.join(directory,scenario==='bootstrap'?'bootstrap-metadata.json':(scenario.startsWith('evidence-')||scenario.startsWith('pilot-')||scenario.startsWith('focused-successor-'))?'evidence-metadata.json':scenario.startsWith('review-successor-')?'successor-metadata.json':scenario.startsWith('review-')?'continuation-metadata.json':'metadata.json'),'utf8')),dump=await readFile(path.join(directory,`${['pilot-preparation','focused-successor-preparation'].includes(scenario)?'evidence-ready':scenario}.tgz`));
+ const files=r12NextSnapshotFiles(scenario),metadata=JSON.parse(await readFile(path.join(directory,files.metadata),'utf8')),dump=await readFile(path.join(directory,files.snapshot));
  const db=new PGlite({extensions:{pgcrypto},loadDataDir:new Blob([dump])});await db.waitReady;await db.exec("set timezone='UTC'");
  state.r12=await r12FixtureState(db,metadata,scenario);state.owner=metadata.ownerId;
  await db.query("select set_config('request.jwt.claim.sub',$1,false)",[state.owner]);

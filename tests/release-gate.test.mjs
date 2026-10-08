@@ -47,6 +47,8 @@ test('actual workflow selects the same focused/full modes and requires every nam
  assert.deepEqual(new Set(workflow.jobs['release-qualification'].needs),new Set([...REQUIRED_RELEASE_JOBS,'r12-focused']));
  const focused=workflow.jobs['r12-focused'].steps;
  assert.ok(focused.some(step=>step.run==='node scripts/verify-r03-next.mjs --r12-terminal-only'));
+ const fullNext=workflow.jobs['r03-next'].steps.find(step=>step.run?.includes('scripts/verify-r03-next.mjs'));
+ assert.ok(fullNext.run.split('\n').some(line=>line.trim()==='node scripts/verify-r03-next.mjs'),'The required full browser job must retain the default complete journey');
  const entry=focused.find(step=>step.env?.R12_TERMINAL_BOUNDARY_PREFLIGHT==='1');
  assert.equal(entry.run,'node --test tests/r12-terminal-boundary-preflight.test.mjs','A fresh service must bootstrap before any reused-database reset');
  assert.ok(!focused.slice(0,focused.indexOf(entry)).some(step=>step.run?.includes('reset-r12-ci-database')));
