@@ -757,10 +757,9 @@ jobs:
           R12_SQL_TEST_HOST: ${{ runner.temp }}/r12-focused-sql-host
           R12_REQUIRE_POSTGRES: "1"
           R12_POSTGRES_URL: postgresql://r12_test:r12-isolated-fixture@127.0.0.1:5432/r12_test
-        run: |
-          export R12_CI_POSTGRES_ADDRESS="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' '${{ job.services.postgres.id }}')"
-          node scripts/reset-r12-ci-database.mjs
-          node --test tests/r12-terminal-boundary-preflight.test.mjs
+        # First database suite: the fresh fixture creates and verifies its own synthetic roles.
+        # The strict reset routine is only for a previously initialized/reused database.
+        run: node --test tests/r12-terminal-boundary-preflight.test.mjs
       - name: Install pinned inert browser
         run: npx playwright-core install --with-deps chromium
       - name: Verify only the shared terminal owner journey in actual Next
