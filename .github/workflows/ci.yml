@@ -539,7 +539,9 @@ jobs:
           R12_SQL_TEST_HOST: ${{ runner.temp }}/r12-sql-host
           R12_REQUIRE_POSTGRES: "1"
           R12_POSTGRES_URL: postgresql://r12_test:r12-isolated-fixture@127.0.0.1:5432/r12_test
-        run: node --test tests/r12-discovery-scope-sql.test.mjs tests/r12-owner-preparation-route.test.mjs tests/r12-bootstrap-rehearsal.test.mjs
+        run: |
+          set -o pipefail
+          node --test tests/r12-discovery-scope-sql.test.mjs tests/r12-owner-preparation-route.test.mjs tests/r12-bootstrap-rehearsal.test.mjs 2>&1 | tee /tmp/r12-scope-tests.log
 
       - name: Verify full-shape R12 dispatch within the unchanged three-second SQL budget
         env:
@@ -607,6 +609,7 @@ jobs:
         with:
           name: r12-recovery-http-${{ github.sha }}
           path: |
+            /tmp/r12-scope-tests.log
             /tmp/r12-http-ci-report.json
             /tmp/r12-http-ci-terminal-cold.json
             /tmp/r12-races-ci-report.json
@@ -743,14 +746,28 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
+      - name: Select one non-release diagnostic
+        id: selection
+        run: node scripts/verify-release-gate.mjs --select-focused
       - name: Install pinned fixture dependencies
         run: |
           npm install --no-audit --no-fund
           npm install --prefix "$RUNNER_TEMP/r12-focused-sql-host" --no-audit --no-fund --ignore-scripts @electric-sql/pglite@0.5.8 pg@8.16.3
           npm run pretest
       - name: Verify clean-environment configuration and release exclusion
-        run: node --test tests/r12-owner-sql-fixture-config.test.mjs tests/release-gate.test.mjs tests/r12-next-capture-plan.test.mjs tests/r12-browser-action.test.mjs
+        run: node --test tests/r12-owner-sql-fixture-config.test.mjs tests/release-gate.test.mjs tests/r12-next-capture-plan.test.mjs tests/r12-browser-action.test.mjs tests/r12-fixture-quote-freshness.test.mjs
+      - name: Verify only the exact legacy quote owner path
+        if: steps.selection.outputs.case == 'legacy-quote'
+        env:
+          R12_SQL_TEST_HOST: ${{ runner.temp }}/r12-focused-sql-host
+          R12_REQUIRE_POSTGRES: "1"
+          R12_POSTGRES_URL: postgresql://r12_test:r12-isolated-fixture@127.0.0.1:5432/r12_test
+        run: |
+          mkdir -p test-results
+          set -o pipefail
+          node scripts/verify-r12-legacy-quote.mjs 2>&1 | tee test-results/r12-legacy-quote.log
       - name: Verify exact terminal entry and bounded cleanup
+        if: steps.selection.outputs.case == 'terminal'
         env:
           R12_TERMINAL_BOUNDARY_PREFLIGHT: "1"
           R12_TERMINAL_BOUNDARY_REPORT: /tmp/r12-terminal-boundary-preflight.json
@@ -761,10 +778,13 @@ jobs:
         # The strict reset routine is only for a previously initialized/reused database.
         run: node --test tests/r12-terminal-boundary-preflight.test.mjs
       - name: Install pinned inert browser
+        if: steps.selection.outputs.case == 'terminal'
         run: npx playwright-core install --with-deps chromium
       - name: Verify rendered browser action settlement
+        if: steps.selection.outputs.case == 'terminal'
         run: node --test tests/next-fixture/browser-status.test.mjs
       - name: Verify only the shared terminal owner journey in actual Next
+        if: steps.selection.outputs.case == 'terminal'
         env:
           R12_SQL_TEST_HOST: ${{ runner.temp }}/r12-focused-sql-host
         run: node scripts/verify-r03-next.mjs --r12-terminal-only
@@ -774,6 +794,7 @@ jobs:
         with:
           name: r12-focused-${{ github.sha }}
           path: |
+            test-results/r12-legacy-quote.*
             /tmp/r12-terminal-boundary-preflight.json
             test-results/r03-next/*.json
             test-results/r03-next/*.log

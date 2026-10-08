@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {readFileSync,mkdirSync,writeFileSync} from 'node:fs';
+import {readFileSync,mkdirSync,writeFileSync,appendFileSync} from 'node:fs';
 import {execFileSync} from 'node:child_process';
 import {pathToFileURL} from 'node:url';
 
@@ -22,7 +22,14 @@ export function qualifyRelease({mode,needs,commit,tree}){
  for(const name of REQUIRED_RELEASE_JOBS)assert.equal(needs[name]?.result,'success',`Required release check did not succeed: ${name}`);
  return {version:'agent-labs.release-qualification.1',qualified:true,mode,commit,tree,requiredJobs:Object.fromEntries(REQUIRED_RELEASE_JOBS.map(name=>[name,needs[name].result]))};
 }
-if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
+export function focusedDiagnostic(eventName,event){
+ assert.equal(ciGateMode(eventName,event),'focused','Diagnostic selection cannot qualify or replace release checks');
+ return eventName==='pull_request'&&event.pull_request.body?.includes('<!-- r12-diagnostic: legacy-quote -->')?'legacy-quote':'terminal';
+}
+if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href&&process.argv.includes('--select-focused')){
+ const selected=focusedDiagnostic(process.env.GITHUB_EVENT_NAME,JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH,'utf8')));
+ appendFileSync(process.env.GITHUB_OUTPUT,`case=${selected}\n`);console.log(`Non-release diagnostic: ${selected}`);
+}else if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
  let result;const identity={mode:null,commit:null,tree:null,eventName:process.env.GITHUB_EVENT_NAME??null,runId:process.env.GITHUB_RUN_ID??null};
  try{
   identity.commit=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();identity.tree=execFileSync('git',['rev-parse','HEAD^{tree}'],{encoding:'utf8'}).trim();
