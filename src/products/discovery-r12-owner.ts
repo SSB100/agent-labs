@@ -1,5 +1,5 @@
 import "server-only";
-import {validateR12FocusedSuccessor,validateR12FocusedUnsentClosure,type R12FocusedUnsentClosure,type R12FocusedSuccessor} from "./discovery-r12-focused-successor";
+import {validateR12FocusedSuccessor,validateR12FocusedUnsentClosure,validateR12MarkedPretransportClosure,type R12FocusedUnsentClosure,type R12FocusedSuccessor} from "./discovery-r12-focused-successor";
 import type { OwnerUiContext } from "../lib/core-ui/data";
 import { verifyOwnerBusiness } from "../lib/core-ui/owner-business";
 import { reconstructDiscoveryR12Result, type DiscoveryR12Result } from "./discovery-r12-runtime";
@@ -10,7 +10,7 @@ const UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]
 const record=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v);
 const money=(v:unknown):v is string=>typeof v==='string'&&/^(0|[1-9][0-9]{0,15})$/.test(v)&&Number.isSafeInteger(Number(v));
 const id=(v:unknown):v is string=>typeof v==='string'&&UUID.test(v);
-export type DiscoveryR12Workspace={version:'r12.discovery-workspace.1';businessId:string;scopeId:string;goalId:string;title:string;approvedQuery:string;sourceDomains:string[];priorRoundId:string;budgetAuthorityRootId:string;focusedPilot?:{profileHash:string;closedScopeId:string;closedPlanId:string;acceptedReviewScopeId:string};focusedSuccessor?:R12FocusedSuccessor;focusedUnsentClosure?:R12FocusedUnsentClosure;planId:string|null;planHash:string|null;planVersion:number|null;addendumHash?:string;priorStrategy?:{scopeId:string;attemptId:string;knownMicrousd:string};nextReviewScopeId:string|null;priorReviews:Array<{scopeId:string;attemptId:string;knownMicrousd:string}>;state:string;reason:string|null;policyRevoked:boolean;paused:boolean;activeWindow:boolean;dispatchUntil:string|null;receiptUntil:string|null;phases:Array<{phase:DiscoveryR12Phase;status:string;reason:string|null;attemptId:string|null;artifactId:string|null;candidateSaved:boolean;responseObservation?:R12ReviewObservationMetadata|null;responseDiagnostic?:R12ReviewDiagnosticMetadata|null;receipt:null|{status:string;attempts:number;nextCheckAt:string|null;receiptExpiresAt:string;diagnostic:null|{code:string;httpStatus:number|null}};knownMicrousd:string|null;heldMicrousd:string;unknownCost:boolean;outcome:string|null}>;cost:{knownMicrousd:string;heldMicrousd:string;hasUnknown:boolean};rootFunding:Record<string,unknown>;activation:null};
+export type DiscoveryR12Workspace={version:'r12.discovery-workspace.1';businessId:string;scopeId:string;goalId:string;title:string;approvedQuery:string;sourceDomains:string[];priorRoundId:string;budgetAuthorityRootId:string;focusedPilot?:{profileHash:string;closedScopeId:string;closedPlanId:string;acceptedReviewScopeId:string};focusedSuccessor?:R12FocusedSuccessor;focusedUnsentClosure?:R12FocusedUnsentClosure;focusedPretransportClosure?:ReturnType<typeof validateR12MarkedPretransportClosure>;planId:string|null;planHash:string|null;planVersion:number|null;addendumHash?:string;priorStrategy?:{scopeId:string;attemptId:string;knownMicrousd:string};nextReviewScopeId:string|null;priorReviews:Array<{scopeId:string;attemptId:string;knownMicrousd:string}>;state:string;reason:string|null;policyRevoked:boolean;paused:boolean;activeWindow:boolean;dispatchUntil:string|null;receiptUntil:string|null;continueAfter?:string;phases:Array<{phase:DiscoveryR12Phase;status:string;reason:string|null;attemptId:string|null;artifactId:string|null;candidateSaved:boolean;pretransportReconciled?:boolean;responseObservation?:R12ReviewObservationMetadata|null;responseDiagnostic?:R12ReviewDiagnosticMetadata|null;receipt:null|{status:string;attempts:number;nextCheckAt:string|null;receiptExpiresAt:string;diagnostic:null|{code:string;httpStatus:number|null}};knownMicrousd:string|null;heldMicrousd:string;unknownCost:boolean;outcome:string|null}>;cost:{knownMicrousd:string;heldMicrousd:string;hasUnknown:boolean};rootFunding:Record<string,unknown>;activation:null};
 export function parseDiscoveryR12Workspace(raw:unknown,businessId:string,scopeId:string):DiscoveryR12Workspace{
  const date=(v:unknown):v is string=>typeof v==='string'&&Number.isFinite(Date.parse(v));
  const nullableId=(v:unknown)=>v===null||id(v), nullableCode=(v:unknown)=>v===null||typeof v==='string'&&/^[a-z][a-z0-9_]{0,100}$/.test(v);
@@ -23,6 +23,13 @@ export function parseDiscoveryR12Workspace(raw:unknown,businessId:string,scopeId
  if(record(raw)&&Object.hasOwn(raw,'focusedUnsentClosure')){
   if(!record(raw.focusedSuccessor)||!record(raw.focusedSuccessor.authorization)||raw.focusedSuccessor.authorization.version!=='r12.focused-pilot-successor-authorization.1'||!id(raw.planId)||typeof raw.planHash!=='string')throw Error('r12_discovery_workspace_unavailable');
   validateR12FocusedUnsentClosure(raw.focusedUnsentClosure,{businessId,scopeId,goalId:String(raw.goalId),planId:raw.planId,planHash:raw.planHash,budgetAuthorityRootId:String(raw.budgetAuthorityRootId),priorRoundId:String(raw.priorRoundId),successorAuthorizationHash:String(raw.focusedSuccessor.authorizationHash)});
+ }
+ if(record(raw)&&Object.hasOwn(raw,'focusedPretransportClosure')){
+  if(!record(raw.focusedSuccessor)||!record(raw.focusedSuccessor.authorization)||raw.focusedSuccessor.authorization.version!=='r12.focused-pilot-unsent-recovery-authorization.1'||!id(raw.planId)||typeof raw.planHash!=='string')throw Error('r12_discovery_workspace_unavailable');
+  validateR12MarkedPretransportClosure(raw.focusedPretransportClosure,{businessId,scopeId,goalId:String(raw.goalId),planId:raw.planId,planHash:raw.planHash,budgetAuthorityRootId:String(raw.budgetAuthorityRootId),priorRoundId:String(raw.priorRoundId),recoveryAuthorizationHash:String(raw.focusedSuccessor.authorizationHash)});
+ }
+ if(record(raw)&&Object.hasOwn(raw,'continueAfter')){
+  if(!date(raw.continueAfter)||raw.policyRevoked!==false||raw.paused!==false||!(raw.activeWindow===true||date(raw.receiptUntil)&&Array.isArray(raw.phases)&&raw.phases.some(phase=>record(phase)&&['dispatched','uncertain','responded'].includes(String(phase.status))&&phase.candidateSaved===true&&record(phase.receipt)&&['awaiting_receipt','checking_receipt','verified'].includes(String(phase.receipt.status))))||!['ready','running','waiting'].includes(String(raw.state))||!record(raw.focusedSuccessor)||!record(raw.focusedSuccessor.authorization)||!['r12.focused-pilot-unsent-recovery-authorization.1','r12.focused-pilot-terminal-qualification-authorization.1'].includes(String(raw.focusedSuccessor.authorization.version)))throw Error('r12_discovery_workspace_unavailable');
  }
  const expectedPhases=pilot?2:5;
  const states=['awaiting_authority','prepared','ready','running','waiting','paused','blocked','needs_owner','stopped','completed'];
@@ -44,12 +51,19 @@ export function parseDiscoveryR12Workspace(raw:unknown,businessId:string,scopeId
  const keys=pilot?['strategy','review']:['plan','search1','select1','strategy','review'];let known=priorKnown,held=0,unknown=false;
  for(const [index,phase] of raw.phases.entries()){
   if(!record(phase)||phase.phase!==keys[index]||!statuses.includes(String(phase.status))||!nullablePhaseReason(phase.reason)||typeof phase.candidateSaved!=='boolean'||typeof phase.unknownCost!=='boolean'||!money(phase.heldMicrousd)||!(phase.knownMicrousd===null||money(phase.knownMicrousd))||!nullableId(phase.attemptId)||!nullableId(phase.artifactId)||(phase.status==='not_started')!==(phase.attemptId===null)||!(phase.outcome===null||['TEST','REJECT','NEEDS_MORE_EVIDENCE'].includes(String(phase.outcome))))throw Error('r12_discovery_workspace_unavailable');
+  if(phase.pretransportReconciled!==undefined&&typeof phase.pretransportReconciled!=='boolean')throw Error('r12_discovery_workspace_unavailable');
+  if(phase.pretransportReconciled===true&&(!record(raw.focusedSuccessor)||!record(raw.focusedSuccessor.authorization)||raw.focusedSuccessor.authorization.version!=='r12.focused-pilot-unsent-recovery-authorization.1'||!raw.policyRevoked||raw.activeWindow||phase.phase!=='strategy'||phase.status!=='dispatched'||phase.candidateSaved||phase.artifactId!==null||phase.outcome!==null||phase.knownMicrousd!==null||phase.heldMicrousd!=='0'||phase.unknownCost||phase.receipt!==null||phase.responseObservation||phase.responseDiagnostic))throw Error('r12_discovery_workspace_unavailable');
   validateR12ReviewOwnerEvidence(phase.responseObservation,phase.responseDiagnostic,String(phase.phase),raw.focusedSuccessor!==undefined);
   if(phase.receipt!==null){const r=phase.receipt;if(!record(r)||!['awaiting_receipt','checking_receipt','verified','terminal','exhausted','expired','stopped'].includes(String(r.status))||!Number.isInteger(r.attempts)||Number(r.attempts)<0||Number(r.attempts)>3||!date(r.receiptExpiresAt)||!(r.nextCheckAt===null||date(r.nextCheckAt))||!phase.candidateSaved)throw Error('r12_discovery_workspace_unavailable');
    if(r.diagnostic!==null&&(!record(r.diagnostic)||!nullableCode(r.diagnostic.code)||r.diagnostic.code===null||!(r.diagnostic.httpStatus===null||Number.isInteger(r.diagnostic.httpStatus)&&Number(r.diagnostic.httpStatus)>=100&&Number(r.diagnostic.httpStatus)<=599)))throw Error('r12_discovery_workspace_unavailable');
   }
   if(phase.status==='completed'&&(!id(phase.artifactId)||!phase.candidateSaved||phase.knownMicrousd===null||!record(phase.receipt)||!['verified','stopped','expired'].includes(String(phase.receipt.status))))throw Error('r12_discovery_workspace_unavailable');
   known+=Number(phase.knownMicrousd??0);held+=Number(phase.heldMicrousd);unknown||=phase.unknownCost;
+ }
+ if(raw.focusedPretransportClosure!==undefined){
+  const closure=raw.focusedPretransportClosure as ReturnType<typeof validateR12MarkedPretransportClosure>;
+  const strategy=raw.phases[0],review=raw.phases[1];
+  if(!raw.policyRevoked||raw.activeWindow||!record(strategy)||!record(review)||strategy.phase!=='strategy'||strategy.attemptId!==closure.attemptId||strategy.status!=='dispatched'||strategy.pretransportReconciled!==true||strategy.candidateSaved||strategy.artifactId!==null||strategy.outcome!==null||strategy.knownMicrousd!==null||strategy.heldMicrousd!=='0'||strategy.unknownCost||strategy.receipt!==null||strategy.responseObservation||strategy.responseDiagnostic||review.status!=='not_started'||review.attemptId!==null||held!==0||unknown)throw Error('r12_discovery_workspace_unavailable');
  }
  if(known!==Number(raw.cost.knownMicrousd)||held!==Number(raw.cost.heldMicrousd)||unknown!==raw.cost.hasUnknown||raw.state==='completed'&&(raw.phases.length!==expectedPhases||raw.phases.some(p=>!record(p)||p.status!=='completed')))throw Error('r12_discovery_workspace_unavailable');
  return structuredClone(raw) as DiscoveryR12Workspace;
@@ -72,8 +86,10 @@ export function discoveryR12SuccessorStopReason(record:DiscoveryR12Workspace):st
  return null;
 }
 export function discoveryR12CanContinue(record:DiscoveryR12Workspace,now=Date.now()):boolean{
+ if(discoveryR12SuccessorStopReason(record))return false;
  if(record.focusedSuccessor&&record.phases.some(phase=>phase.phase==='strategy'&&phase.status==='completed'&&phase.outcome!=='TEST'))return false;
  if(record.policyRevoked||record.paused||record.state==='stopped'||record.state==='completed')return false;
+ if(record.continueAfter&&Date.parse(record.continueAfter)>now)return false;
  if(record.phases.some(phase=>phase.responseDiagnostic&&phase.status!=='completed'))return false;
  const pending=record.phases.find(p=>p.receipt&&p.status!=='completed');
  if(pending?.receipt){const receipt=pending.receipt;return ['awaiting_receipt','checking_receipt','verified'].includes(receipt.status)&&Date.parse(receipt.receiptExpiresAt)>now&&(receipt.nextCheckAt===null||Date.parse(receipt.nextCheckAt)<=now);}

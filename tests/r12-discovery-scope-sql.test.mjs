@@ -8,6 +8,8 @@ import {createClosedRejectedPlan4} from './helpers/r12-closed-plan4-fixture.mjs'
 import {exerciseFocusedPilotLifecycle} from './helpers/r12-focused-pilot-sql-fixture.mjs';
 import {createClosedFocusedPredecessor,exerciseFocusedPilotSuccessorLifecycle} from './helpers/r12-focused-pilot-successor-sql-fixture.mjs';
 import {createClosedUnsentSuccessor,exerciseFocusedPilotUnsentRecoveryLifecycle,exerciseUnsentRecoveryCloseout,exerciseUnsentRecoveryBlockedCloseout} from './helpers/r12-focused-pilot-unsent-recovery-sql-fixture.mjs';
+import {exerciseRecoverySendFreshness} from './helpers/r12-recovery-send-freshness.mjs';
+import {createReconciledMarkedRecovery,exerciseTerminalQualificationLifecycle} from './helpers/r12-terminal-qualification-sql-fixture.mjs';
 import {exerciseFocusedCreativeLifecycle} from './helpers/r12-focused-creative-sql-fixture.mjs';
 import assert from 'node:assert/strict';
 import {readFileSync,readdirSync} from 'node:fs';
@@ -246,7 +248,7 @@ export async function prepareR12OwnerWorkflows(){
    if(name==='r12_discovery_owner_read')return{data:(await db.query('select public.r12_discovery_owner_read($1,$2,$3) result',[args.p_business_id,args.p_scope_id,args.p_activation])).rows[0].result,error:null};
    assert.equal(name,'r05_policy_owner');return{data:(await db.query('select public.r05_policy_owner($1,$2,$3,$4) result',[args.p_business_id,args.p_operation,args.p_payload,args.p_submission_id])).rows[0].result,error:null};
   }catch(error){return{data:null,error};}finally{await db.exec('reset role');}}}};
-  const ownerActions=source('src/products/discovery-r12-server.ts',{'./discovery-r12-focused-successor':require('../.core-tests/products/discovery-r12-focused-successor.js'),'./discovery-r12-review-preparation-contract':require('../.core-tests/products/discovery-r12-review-preparation-contract.js'),'server-only':{},'node:crypto':require('node:crypto'),'../lib/core-ui/owner-business':owner,'../core/quest-plan':require('../.core-tests/core/quest-plan.js'),'../core/quest-controller':require('../.core-tests/core/quest-controller.js'),'./discovery-v2':require('../.core-tests/products/discovery-v2.js'),'./discovery-r12-runtime':require('../.core-tests/products/discovery-r12-runtime.js'),'./discovery-r12-adapter':require('../.core-tests/products/discovery-r12-adapter.js'),'./discovery-r12-wire':require('../.core-tests/products/discovery-r12-wire.js'),'./discovery-r12-server-dependencies':{discoveryR12ServerDependencies:()=>({
+  const ownerActions=source('src/products/discovery-r12-server.ts',{'../core/request-deadline':require('../.core-tests/core/request-deadline.js'),'./discovery-r12-focused-successor':require('../.core-tests/products/discovery-r12-focused-successor.js'),'./discovery-r12-review-preparation-contract':require('../.core-tests/products/discovery-r12-review-preparation-contract.js'),'server-only':{},'node:crypto':require('node:crypto'),'../lib/core-ui/owner-business':owner,'../core/quest-plan':require('../.core-tests/core/quest-plan.js'),'../core/quest-controller':require('../.core-tests/core/quest-controller.js'),'./discovery-v2':require('../.core-tests/products/discovery-v2.js'),'./discovery-r12-runtime':require('../.core-tests/products/discovery-r12-runtime.js'),'./discovery-r12-adapter':require('../.core-tests/products/discovery-r12-adapter.js'),'./discovery-r12-wire':require('../.core-tests/products/discovery-r12-wire.js'),'./discovery-r12-server-dependencies':{discoveryR12ServerDependencies:()=>({
    createController:(b,g,keys)=>{assert.equal(b,business);assert.equal(g,f.g);assert.deepEqual(keys,{controllerKey:R07_KEY,admissionKey:R05_KEY});return store;},
    createClient:()=>({rpc:async(name,args)=>{assert.equal(name,'r12_discovery_server');assert.equal(args.p_server_key,R07_KEY);assert.equal(args.p_business_id,business);return{data:await operation(args.p_attempt_id,args.p_operation,args.p_payload),error:null};}}),
    quote:async()=>quote,createAdapter:opts=>createDiscoveryR12QuestAdapter({...opts,config:options.config,fetcher:(url,init)=>{ownerContinuationCalls++;assert.equal(opts.phase,'review','Only the final phase remains');return phaseFetchers[opts.phase](url,init);}})
@@ -254,7 +256,7 @@ export async function prepareR12OwnerWorkflows(){
   await assert.rejects(ownerActions.continueDiscoveryR12(ownerContext,business,scopeId),/owner_action_unavailable/,'SQL ownership defeats stale owner context');
   await db.query("select set_config('request.jwt.claim.sub',$1,false)",[R07_OWNER]);
   assert.deepEqual(await ownerActions.prepareDiscoveryR12Authority(ownerContext,business,scopeId),{controllerKeyHash:createHash('sha256').update(R07_KEY).digest('hex'),admissionKeyHash:createHash('sha256').update(R05_KEY).digest('hex'),authorityCreated:false});
-  const ownerApi=source('src/products/discovery-r12-owner.ts',{'./discovery-r12-observation':require('../.core-tests/products/discovery-r12-observation.js'),'./discovery-r12-focused-successor':require('../.core-tests/products/discovery-r12-focused-successor.js'),'server-only':{},'../lib/core-ui/owner-business':owner,'./discovery-r12-runtime':require('../.core-tests/products/discovery-r12-runtime.js')});
+  const ownerApi=source('src/products/discovery-r12-owner.ts',{'./discovery-r12-observation':require('../.core-tests/products/discovery-r12-observation.js'),'../core/request-deadline':require('../.core-tests/core/request-deadline.js'),'./discovery-r12-focused-successor':require('../.core-tests/products/discovery-r12-focused-successor.js'),'server-only':{},'../lib/core-ui/owner-business':owner,'./discovery-r12-runtime':require('../.core-tests/products/discovery-r12-runtime.js')});
   let reviewReplay;
   for(const phase of phaseKeys.slice(1)){
    const phaseStep=plan.steps.find(step=>step.key===phase);
@@ -430,7 +432,7 @@ if(capture){
   before(async()=>{fixture=await prepareR12OwnerWorkflows();},{timeout:120000});
   after(async()=>{await fixture?.close();},{timeout:120000});
   describe('R12 focused successor and one-time proven-unsent recovery',{skip:!lifecycleMode.successor,concurrency:false},()=>{
-   let focused,closedUnsent,release,completion;
+   let focused,closedUnsent,closedMarked,release,completion;
    before(async()=>{
     let ready,failed;const prepared=new Promise((resolve,reject)=>{ready=resolve;failed=reject;});
     completion=fixture.exerciseFocused(async context=>{focused=context;ready();await new Promise(resolve=>{release=resolve;});});
@@ -448,6 +450,10 @@ if(capture){
    test('Recovery four terminal strategy outcomes stop before any reviewer',{skip:fullShape,timeout:120000},()=>focusedRecoveryOutcomes(focused.db,closedUnsent,['NEEDS_MORE_EVIDENCE','REJECT','INCONSISTENT','INVALID']));
    test('Recovery TEST retains exact history, independent receipts and separately approved noncreative adoption',{timeout:fullShape?180000:120000},()=>focusedRecoveryOutcomes(focused.db,closedUnsent,['TEST']));
    test('Reviewed fresh captures preserve old history through recovery TEST, receipts and Stop',{skip:fullShape,timeout:120000},()=>focusedCase(focused.db,'refreshed_recovery',async()=>{const result=await exerciseFocusedPilotUnsentRecoveryLifecycle(focused.db,closedUnsent,{nested:true,refreshEvidence:true});assert.equal(result.inertPosts,2);assert.equal(result.activeAuthority,false);assert.ok(result.metadata.authorization.evidenceRefresh);}));
+   test('Marked-before-transport reconciliation preserves both markers and releases only its proved hold',{skip:fullShape,timeout:120000},async()=>{closedMarked=await createReconciledMarkedRecovery(focused.db,closedUnsent,{nested:true,refreshEvidence:true});assert.equal(closedMarked.activeAuthority,false);assert.equal(closedMarked.inertPosts,0);});
+   test('Terminal qualification can Stop after owner confirmation without enrolling verifiers',{skip:fullShape,timeout:120000},()=>focusedCase(focused.db,'terminal_before_activation',async()=>{const result=await exerciseTerminalQualificationLifecycle(focused.db,closedMarked,{nested:true,stopBeforeActivation:true,qualificationGuards:false});assert.equal(result.activeAuthority,false);assert.equal(result.inertPosts,0);}));
+   for(const strategyOutcome of ['NEEDS_MORE_EVIDENCE','REJECT','INCONSISTENT','INVALID','TEST'])test(`Terminal qualification ${strategyOutcome} preserves reconciled history and never permits a descendant`,{skip:fullShape,timeout:120000},()=>focusedCase(focused.db,'terminal_outcome',async()=>{const result=await exerciseTerminalQualificationLifecycle(focused.db,closedMarked,{nested:true,strategyOutcome,qualificationGuards:strategyOutcome==='TEST',...(strategyOutcome==='TEST'?{onReservedDispatch:async ctx=>{await exerciseRecoverySendFreshness(ctx);return {continueLifecycle:true};}}:{})});assert.equal(result.inertPosts,strategyOutcome==='TEST'?2:1);assert.equal(result.activeAuthority,false);}));
+
   });
   test('R12 actual owner workflows preserve funding, bounded dispatch and immutable historical results',{skip:!lifecycleMode.legacy,timeout:120000},()=>fixture.exerciseOwnerWorkflows());
  });

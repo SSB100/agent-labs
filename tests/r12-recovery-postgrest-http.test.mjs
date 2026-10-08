@@ -6,23 +6,25 @@ import {randomUUID} from 'node:crypto';
 import {writeFileSync} from 'node:fs';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
-import {validateR12HttpDatabase,startR12Postgrest,r12HttpRpc,prepareCommittedR12Recovery,R12_RPC_ARGUMENTS} from './helpers/r12-postgrest-http.mjs';
-const binary=process.env.R12_POSTGREST_BINARY,enabled=process.env.R12_REQUIRE_POSTGREST==='1';
+import {validateR12HttpDatabase,configureR12HttpRoles,startR12Postgrest,r12HttpRpc,prepareCommittedR12Recovery,R12_RPC_ARGUMENTS} from './helpers/r12-postgrest-http.mjs';
+import {acceptedR12ResponseBoundaryFixture,r12ShapeMetrics} from './helpers/r12-response-boundary-fixture.mjs';
+const binary=process.env.R12_POSTGREST_BINARY,enabled=process.env.R12_REQUIRE_POSTGREST==='1',sequenceOnly=process.env.R12_HTTP_SEQUENCE_ONLY==='1';
+if(sequenceOnly)assert.ok(enabled,'Sequence mode requires the explicit native HTTP flag');
 if(enabled)assert.ok(binary,'Pinned R12_POSTGREST_BINARY is required');
 test('R12 HTTP harness rejects hosted databases, privileged identities and URI options',()=>{
  for(const value of ['postgresql://r12_test@host.example/r12_test','postgresql://postgres@127.0.0.1/r12_test','postgresql://r12_test@127.0.0.1/postgres','postgresql://r12_test@127.0.0.1/r12_test?options=bad'])assert.throws(()=>validateR12HttpDatabase(value));
 });
-test('Recovery uses hoisted 8s RPC, 3s locks and unchanged 3s send through real PostgREST',{skip:!enabled,timeout:240000},async()=>{
+test('Recovery uses hoisted 8s RPC, 3s locks and unchanged 3s send through real PostgREST',{skip:!enabled||sequenceOnly,timeout:240000},async()=>{
  validateR12HttpDatabase(process.env.R12_POSTGRES_URL);
  process.env.R12_RPC_HTTP_ONLY='1';process.env.R12_SQL_FULL_SHAPE='1';process.env.R12_REQUIRE_POSTGRES='1';
  const report={version:'r12.recovery-http-deadline.1',providerCalls:0,trials:[],guards:[],passed:false,refreshedEvidence:true};
- const prepareStarted=performance.now(),fixture=await prepareCommittedR12Recovery(),ctx=fixture.context,db=ctx.db;report.prepareMs=Math.round(performance.now()-prepareStarted);report.sendFreshness=ctx.sendFreshness;let server,locker;
+ const prepareStarted=performance.now(),fixture=await prepareCommittedR12Recovery(),ctx=fixture.context,db=ctx.db;report.prepareMs=Math.round(performance.now()-prepareStarted);report.sendFreshness=ctx.sendFreshness;let server,locker,resetRoles;
  const one=async(sql,args=[])=>(await db.query(sql,args)).rows[0];
  const controllerSignature='public.r07_controller(uuid,uuid,text,jsonb,uuid,text,text,bigint,text)';
  const canonical=(await one('select pg_get_functiondef($1::regprocedure) definition',[controllerSignature])).definition;
  const fingerprint=()=>one(`select (select count(*)::int from private.r05_markers where request_id in(select request_id from private.r07_bindings where attempt_id=$1)) admission_markers,(select count(*)::int from private.r07_markers where attempt_id=$1) controller_markers,(select count(*)::int from private.r12_discovery_transport_claims where request_id in(select request_id from private.r07_bindings where attempt_id=$1)) claims,(select status from private.r07_attempts where id=$1) status`,[ctx.payload.attemptId]);
  try{
-  await db.exec("alter role anon set statement_timeout='3s';alter role authenticated set statement_timeout='8s';alter role r12_test set timezone='UTC';grant anon,authenticated to r12_test;");
+  resetRoles=await configureR12HttpRoles(db);
   await db.exec(`create function public.r12_http_settings() returns jsonb language sql set search_path='' as $$select jsonb_build_object('role',current_user,'statementTimeout',current_setting('statement_timeout'),'timezone',current_setting('TimeZone'))$$;revoke all on function public.r12_http_settings() from public,anon,authenticated,service_role;grant execute on function public.r12_http_settings() to anon;`);
   const configs=await one("select (select proconfig from pg_proc where oid=$1::regprocedure) original,(select proconfig from pg_proc where oid='public.r12_recovery_dispatch(uuid,uuid,uuid,jsonb,uuid,text,text,bigint,text)'::regprocedure) recovery",[controllerSignature]);
   assert.deepEqual(configs.original,['search_path=""']);assert.ok(configs.recovery.includes('statement_timeout=8s'));assert.ok(configs.recovery.includes('lock_timeout=3s'));
@@ -37,6 +39,22 @@ test('Recovery uses hoisted 8s RPC, 3s locks and unchanged 3s send through real 
   const baseline=await fingerprint();assert.deepEqual(baseline,{admission_markers:0,controller_markers:0,claims:0,status:'reserved'});
   assert.equal(ctx.metadata.authorization.evidenceRefresh.version,'r12.focused-pilot-evidence-refresh.1');report.guards.push('reviewed_refreshed_evidence_same_recovery_slot');
   assert.deepEqual(await checked('r12_http_settings',{}),{role:'anon',statementTimeout:'3s',timezone:'UTC'});
+  // Real new runtime endpoint, not only an artificial timeout function. The
+  // canonical inputs body is delayed without removing any of its validation.
+  const runtimeSignature='public.r12_recovery_server(uuid,uuid,uuid,text,jsonb,text)',ordinarySignature='public.r12_discovery_server(uuid,uuid,text,jsonb,text)';
+  const runtimeCatalog=await one(`select (select proconfig from pg_proc where oid=$1::regprocedure) scoped,(select proconfig from pg_proc where oid=$2::regprocedure) ordinary,has_function_privilege('anon',$1,'EXECUTE') anon,has_function_privilege('authenticated',$1,'EXECUTE') authenticated,has_function_privilege('service_role',$1,'EXECUTE') service_role`,[runtimeSignature,ordinarySignature]);
+  assert.deepEqual(runtimeCatalog.ordinary,['search_path=""']);assert.ok(runtimeCatalog.scoped.includes('statement_timeout=8s'));assert.ok(runtimeCatalog.scoped.includes('lock_timeout=3s'));assert.deepEqual([runtimeCatalog.anon,runtimeCatalog.authenticated,runtimeCatalog.service_role],[true,false,false]);
+  const runtimeArgs={p_business_id:ctx.metadata.businessId,p_scope_id:ctx.scopeId,p_attempt_id:ctx.payload.attemptId,p_operation:'inputs',p_payload:{},p_server_key:ctx.controller};
+  for(const change of [{p_server_key:'bad'},{p_scope_id:randomUUID()},{p_attempt_id:randomUUID()},{p_operation:'stage'},{p_payload:{extra:true}}]){const denied=await rpc('r12_recovery_server',{...runtimeArgs,...change});assert.equal(denied.ok,false);assert.equal(denied.data.code,'42501');}
+  const ordinaryDefinition=(await one('select pg_get_functiondef($1::regprocedure) definition',[ordinarySignature])).definition,anchor="if p_operation='inputs' then";
+  assert.equal(ordinaryDefinition.split(anchor).length,2);
+  await db.exec(ordinaryDefinition.replace(anchor,anchor+' perform pg_sleep(4);'));
+  try{
+   const ordinaryArgs={...runtimeArgs};delete ordinaryArgs.p_scope_id;
+   const timedOut=await rpc('r12_discovery_server',ordinaryArgs);assert.equal(timedOut.ok,false);assert.equal(timedOut.data.code,'57014');
+   const scoped=await rpc('r12_recovery_server',runtimeArgs);assert.equal(scoped.ok,true);assert.ok(scoped.elapsedMs>=3900&&scoped.elapsedMs<8000);
+  }finally{await db.exec(ordinaryDefinition);}
+  assert.deepEqual(await fingerprint(),baseline);report.guards.push('scoped_runtime_exact_operations_scope_and_keys','actual_inputs_rpc_hoisted_8s_generic_3s_preserved');
   // A private function SET is intentionally insufficient under an outer 3s RPC.
   await db.exec(`create function private.r12_http_inner(seconds double precision) returns boolean language plpgsql set statement_timeout='8s' as $$begin perform pg_sleep(seconds);return true;end$$;
    create function public.r12_http_default(seconds double precision) returns boolean language sql security definer set search_path='' as $$select private.r12_http_inner(seconds)$$;
@@ -85,8 +103,58 @@ test('Recovery uses hoisted 8s RPC, 3s locks and unchanged 3s send through real 
   await db.exec('begin');try{const closed=await ctx.closeRun();assert.equal(closed.activeAuthority,false);await db.exec('commit');}catch(error){await db.exec('rollback');throw error;}
   report.guards.push('owner_stop_and_exact_verifier_closeout');report.activeAuthority=false;report.passed=true;
  }finally{
-  if(server)await server.close();if(locker)await locker.end();await fixture.close();
+  if(server)await server.close();if(locker)await locker.end();if(resetRoles)await resetRoles();await fixture.close();
   if(process.env.R12_HTTP_REPORT){const dest=path.resolve(process.env.R12_HTTP_REPORT);assert.ok(dest.startsWith('/tmp/r12-http-'));writeFileSync(dest,JSON.stringify(report,null,2)+'\n');}
   console.log('R12 PostgREST HTTP qualification:',JSON.stringify(report));
+ }
+});
+
+// Offline alternate mode in this existing gate, not an additional CI job. It
+// starts before the first schedule/prepare, unlike the reserved-state fault
+// fixture above. Fresh PostgREST backends have no earlier runtime call plans;
+// database shared pages are necessarily warm from immutable fixture preparation.
+test('Terminal qualification cold-backend whole sequence with maximum accepted response family',{skip:!enabled||!sequenceOnly,timeout:240000},async()=>{
+ validateR12HttpDatabase(process.env.R12_POSTGRES_URL);
+ process.env.R12_RPC_HTTP_ONLY='1';process.env.R12_SQL_FULL_SHAPE='1';process.env.R12_REQUIRE_POSTGRES='1';
+ const report={version:'r12.recovery-cold-sequence.1',providerCalls:0,trials:[],responses:[],ticks:[],passed:false,
+  qualification:'Fresh PostgREST backend plans; shared database pages warmed by historical fixture setup. Inert provider/catalog transport. Local durations and remaining SQL budgets do not guarantee Production latency or a complete caller deadline.'};
+ const prepareStarted=performance.now();let successfulSends=0,responseCount=0,server,resetRoles;
+ const fixture=await prepareCommittedR12Recovery({coldSequence:true,terminal:true,responseFixture:args=>{
+  assert.equal(successfulSends,++responseCount,'Every inert provider POST requires its own committed final admission');
+  try{return acceptedR12ResponseBoundaryFixture(args,report.responses);}catch(error){report.responseFixtureError=error.message;throw error;}
+ }}),ctx=fixture.context,db=ctx.db;report.prepareMs=Math.round(performance.now()-prepareStarted);
+ const one=async(sql,args=[])=>(await db.query(sql,args)).rows[0];
+ try{
+  assert.deepEqual(await one('select count(*)::int attempts from private.r07_attempts where plan_id=$1',[ctx.planId]),{attempts:0});
+  resetRoles=await configureR12HttpRoles(db);
+  assert.equal(ctx.metadata.authorization.version,'r12.focused-pilot-terminal-qualification-authorization.1');report.authorizationVersion=ctx.metadata.authorization.version;
+  report.source=r12ShapeMetrics(ctx.metadata.focusedProfile);
+  server=await startR12Postgrest({binary,databaseUrl:process.env.R12_POSTGRES_URL});report.postgrestVersion=server.version;
+  const rpc=r12HttpRpc(server.base,report.trials);let firstRuntimeCall=true;
+  ctx.httpRuntime.useRpc(async(name,values)=>{
+   assert.ok(R12_RPC_ARGUMENTS[name],name);const named=Object.fromEntries(R12_RPC_ARGUMENTS[name].map((key,i)=>[key,values[i]??null]));
+   if(firstRuntimeCall){assert.equal(name,'r07_controller');assert.equal(named.p_operation,'read');firstRuntimeCall=false;}
+   const operation=named.p_operation,payloadShape=r12ShapeMetrics(named.p_payload);
+   if(name==='r07_controller'&&operation==='dispatch'){name='r12_recovery_dispatch';delete named.p_operation;named.p_scope_id=ctx.scopeId;}
+   if(name==='r12_discovery_server'&&['inputs','bind','send'].includes(operation)){name='r12_recovery_server';named.p_scope_id=ctx.scopeId;}
+   const result=await rpc(name,named),trial=report.trials.at(-1);trial.payloadShape=payloadShape;trial.responseShape=r12ShapeMetrics(result.data);trial.remainingStatementBudgetMs=(['r12_recovery_dispatch','r12_recovery_server'].includes(name)?8000:3000)-result.elapsedMs;
+   assert.ok(result.ok,`${name}/${operation}: ${result.data.code} ${result.data.message}`);
+   if(name==='r12_recovery_server'&&operation==='send'){assert.equal(result.data.shouldDispatch,true);successfulSends++;}
+   return result.data;
+  });
+  ctx.httpRuntime.receiptReady();let completed=false;
+  for(let i=0;i<16;i++){const start=performance.now(),tick=await ctx.httpRuntime.tick();report.ticks.push({status:tick.status,reason:tick.reason??null,elapsedMs:Math.round(performance.now()-start)});if(tick.status==='completed'){completed=true;break;}assert.notEqual(tick.status,'blocked',JSON.stringify(tick));}
+  assert.equal(completed,true);assert.deepEqual(ctx.httpRuntime.counters(),{inertPosts:2,inertReceiptGets:2});assert.equal(successfulSends,2);
+  for(const operation of ['inputs','bind','send','observe','load','stage','claim','record'])assert.ok(report.trials.some(t=>t.rpc===(['inputs','bind','send'].includes(operation)?'r12_recovery_server':'r12_discovery_server')&&t.operation===operation&&t.status===200),`Whole sequence must exercise ${operation}`);
+  for(const operation of ['schedule','reserve','settle','response','finish'])assert.ok(report.trials.some(t=>t.rpc==='r07_controller'&&t.operation===operation&&t.status===200),`Whole sequence must exercise ${operation}`);
+  assert.equal(report.trials.filter(t=>t.rpc==='r12_recovery_dispatch'&&t.status===200).length,2);
+  report.wires=(await db.query("select binding->>'phase' phase,octet_length(binding::text) binding_bytes,octet_length(binding->>'requestJson') request_bytes,octet_length(binding->>'wireBody') wire_bytes from private.r12_discovery_wires where scope_id=$1 order by binding->>'phase'",[ctx.scopeId])).rows;
+  assert.deepEqual(await one("select count(*)::int attempts,count(*) filter(where status='completed')::int completed from private.r07_attempts where plan_id=$1",[ctx.planId]),{attempts:2,completed:2});
+  await db.exec('begin');try{assert.equal((await ctx.closeRun()).activeAuthority,false);await db.exec('commit');}catch(error){await db.exec('rollback');throw error;}
+  report.activeAuthority=false;report.passed=true;
+ }finally{
+  if(server)await server.close();if(resetRoles)await resetRoles();await fixture.close();
+  if(process.env.R12_HTTP_REPORT){const dest=path.resolve(process.env.R12_HTTP_REPORT);assert.ok(dest.startsWith('/tmp/r12-http-'));writeFileSync(dest,JSON.stringify(report,null,2)+'\n');}
+  console.log('R12 cold-backend sequence:',JSON.stringify(report));
  }
 });

@@ -1,12 +1,13 @@
 import "server-only";
 import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import type { QuestSnapshot, QuestStore } from "../core/quest-controller";
+import { boundedRpc } from "../core/request-deadline";
 import { readQuestKnowledge } from "../core/reviewed-knowledge";
 import { createRuntimeClient } from "./supabase/runtime";
 
 /** Trusted runtime only. No route, cron, provider or production adapter is enabled
  * by R07. Callers must first qualify the finite adapter and its capability gates. */
-export function createQuestControllerStore(businessId: string, goalId: string, authority?: { controllerKey: string; admissionKey: string; recoveryScopeId?: string }): QuestStore {
+export function createQuestControllerStore(businessId: string, goalId: string, authority?: { controllerKey: string; admissionKey: string; recoveryScopeId?: string; requestSignal?: AbortSignal }): QuestStore {
   const key = authority?.controllerKey ?? process.env.R07_CONTROLLER_SERVER_KEY?.trim();
   const admissionKey = authority?.admissionKey ?? process.env.R05_ADMISSION_SERVER_KEY?.trim();
   if (!key || !admissionKey) throw new Error("quest_controller_authority_unconfigured");
@@ -20,14 +21,17 @@ export function createQuestControllerStore(businessId: string, goalId: string, a
       owned.runtimeCapability = capability(owned.attemptId);
     }
     const recoveryDispatch = operation === "dispatch" && authority?.recoveryScopeId !== undefined;
-    const result = await client.rpc(recoveryDispatch ? "r12_recovery_dispatch" : "r07_controller", { p_business_id: businessId, p_goal_id: goalId,
+    authority?.requestSignal?.throwIfAborted();
+    const query = client.rpc(recoveryDispatch ? "r12_recovery_dispatch" : "r07_controller", { p_business_id: businessId, p_goal_id: goalId,
       ...(recoveryDispatch ? { p_scope_id: authority.recoveryScopeId } : { p_operation: operation }),
       p_payload: owned, p_submission_id: randomUUID(), p_server_key: key, p_lease_token: lease, p_epoch: epoch ?? null, p_admission_key: admissionKey });
+    const result = authority?.requestSignal ? await boundedRpc(query, authority.requestSignal, recoveryDispatch ? 10000 : 5000) : await query;
     // Never reflect database detail: RPC parameters include authority credentials.
     if (result.error) throw new Error("quest_controller_transition_unverified");
     return result.data as Record<string, unknown> | null;
   };
   return {
+    ...(authority?.recoveryScopeId ? { recoveryDispatchLeaseScopeId: authority.recoveryScopeId } : {}),
     read: async () => {
       const result = await rpc("read", {}) as QuestSnapshot | null;
       if (result) {

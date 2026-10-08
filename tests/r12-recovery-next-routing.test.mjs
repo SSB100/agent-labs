@@ -23,6 +23,22 @@ test('Next recovery HTTP route forwards its nine exact arguments to the canonica
  }finally{await boundary.close();}
 });
 
+test('Next recovery runtime forwards only inputs bind send with six exact scoped arguments',async()=>{
+ const boundary=await startFixtureBoundary(),f=sqlFixture();boundary.state().r12=f.state.r12;
+ try{
+  const client=createClient(boundary.origin,'inert-publishable-key',{auth:{autoRefreshToken:false,persistSession:false,detectSessionInUrl:false}});
+  for(const operation of ['inputs','bind','send']){
+   const input={p_business_id:'business',p_scope_id:'scope',p_attempt_id:'attempt',p_operation:operation,p_payload:{inert:true},p_server_key:'inert-controller'};
+   const result=await client.rpc('r12_recovery_server',input);assert.equal(result.error,null);
+   assert.deepEqual(f.calls.at(-1),{sql:'select public.r12_recovery_server($1,$2,$3,$4,$5,$6) result',values:['business','scope','attempt',operation,{inert:true},'inert-controller']});
+  }
+  assert.deepEqual(boundary.denied,[]);assert.deepEqual(boundary.effects,[]);
+  const input={p_business_id:'business',p_scope_id:'scope',p_attempt_id:'attempt',p_operation:'inputs',p_payload:{},p_server_key:'inert-controller'};
+  for(const changed of [{...input,p_operation:'stage'},{...input,p_goal_id:'extra'},Object.fromEntries(Object.entries(input).filter(([key])=>key!=='p_scope_id'))])await assert.rejects(r12RuntimeRpc(f.state,'r12_recovery_server',changed),/signature|unavailable/);
+  assert.equal(f.calls.length,3);
+ }finally{await boundary.close();}
+});
+
 test('All three pre-existing Next runtime routes retain their exact SQL signatures',async()=>{
  const boundary=await startFixtureBoundary(),f=sqlFixture();boundary.state().r12=f.state.r12;
  const cases=[
@@ -58,7 +74,7 @@ test('Unknown or unloaded REST RPCs return a real 404 and Supabase error rather 
  const boundary=await startFixtureBoundary();
  try{
   const client=createClient(boundary.origin,'inert-publishable-key',{auth:{autoRefreshToken:false,persistSession:false,detectSessionInUrl:false}});
-  for(const name of ['unknown_runtime','r12_recovery_dispatch']){const result=await client.rpc(name,args());assert.equal(result.status,404);assert.equal(result.data,null);assert.equal(result.error.code,'PGRST202');}
-  const f=sqlFixture();boundary.state().r12=f.state.r12;const result=await client.rpc('unknown_runtime',args());assert.equal(result.status,404);assert.equal(result.data,null);assert.equal(result.error.code,'PGRST202');assert.deepEqual(f.calls,[]);assert.deepEqual(boundary.effects,[]);assert.equal(boundary.denied.length,3);
+  for(const name of ['unknown_runtime','r12_recovery_dispatch','r12_recovery_server']){const result=await client.rpc(name,args());assert.equal(result.status,404);assert.equal(result.data,null);assert.equal(result.error.code,'PGRST202');}
+  const f=sqlFixture();boundary.state().r12=f.state.r12;const result=await client.rpc('unknown_runtime',args());assert.equal(result.status,404);assert.equal(result.data,null);assert.equal(result.error.code,'PGRST202');assert.deepEqual(f.calls,[]);assert.deepEqual(boundary.effects,[]);assert.equal(boundary.denied.length,4);
  }finally{await boundary.close();}
 });

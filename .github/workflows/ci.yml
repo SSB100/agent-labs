@@ -553,12 +553,43 @@ jobs:
           node scripts/reset-r12-ci-database.mjs
           node --test tests/r12-recovery-postgrest-http.test.mjs
 
+      - name: Verify cold-backend terminal sequence and bounded response artifacts
+        env:
+          R12_SQL_TEST_HOST: ${{ runner.temp }}/r12-sql-host
+          R12_REQUIRE_POSTGRES: "1"
+          R12_POSTGRES_URL: postgresql://r12_test:r12-isolated-fixture@127.0.0.1:5432/r12_test
+          R12_REQUIRE_POSTGREST: "1"
+          R12_POSTGREST_BINARY: ${{ runner.temp }}/r12-postgrest/postgrest
+          R12_HTTP_SEQUENCE_ONLY: "1"
+          R12_HTTP_REPORT: /tmp/r12-http-ci-terminal-cold.json
+        run: |
+          export R12_CI_POSTGRES_ADDRESS="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' '${{ job.services.postgres.id }}')"
+          node scripts/reset-r12-ci-database.mjs
+          node --test tests/r12-recovery-postgrest-http.test.mjs
+
+      - name: Verify committed send and reconciliation lock races
+        env:
+          R12_SQL_TEST_HOST: ${{ runner.temp }}/r12-sql-host
+          R12_REQUIRE_POSTGRES: "1"
+          R12_POSTGRES_URL: postgresql://r12_test:r12-isolated-fixture@127.0.0.1:5432/r12_test
+          R12_RPC_HTTP_ONLY: "1"
+          R12_SQL_FULL_SHAPE: "1"
+          R12_RECONCILIATION_RACES: "1"
+          R12_RECONCILIATION_REPORT: /tmp/r12-races-ci-report.json
+        run: |
+          export R12_CI_POSTGRES_ADDRESS="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' '${{ job.services.postgres.id }}')"
+          node scripts/reset-r12-ci-database.mjs
+          node --test tests/r12-recovery-reconciliation-races.test.mjs
+
       - name: Preserve recovery HTTP deadline evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: r12-recovery-http-${{ github.sha }}
-          path: /tmp/r12-http-ci-report.json
+          path: |
+            /tmp/r12-http-ci-report.json
+            /tmp/r12-http-ci-terminal-cold.json
+            /tmp/r12-races-ci-report.json
           if-no-files-found: warn
           retention-days: 14
 

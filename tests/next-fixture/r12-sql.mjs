@@ -12,6 +12,7 @@ import {exerciseFocusedPilotLifecycle} from '../helpers/r12-focused-pilot-sql-fi
 import {focusedStrategyOutput,focusedReviewerOutput} from '../helpers/r12-focused-profile-fixture.mjs';
 import {runOperatorRecipe as runRecoveryRecipe} from '../../scripts/r12-focused-pilot-unsent-recovery-bootstrap.mjs';
 import {runOperatorRecipe as runSuccessorRecipe} from '../../scripts/r12-focused-pilot-successor-bootstrap.mjs';
+import {runOperatorRecipe as runTerminalRecipe} from '../../scripts/r12-terminal-technical-qualification-bootstrap.mjs';
 import {runOperatorRecipe as runPilotRecipe} from '../../scripts/r12-focused-pilot-bootstrap.mjs';
 import {r12QuoteFixture} from '../helpers/r12-provider-fixture.mjs';
 import {seedR12Creative,controlR12Creative,launchR12Creative} from './r12-creative.mjs';
@@ -43,6 +44,13 @@ export async function loadR12NextFixture(state,scenario,directory,host){
 export async function mirrorR12(state){for(const table of tables)state.db[table]=(await state.r12.db.query(`select * from public.${table}`)).rows.map(row=>JSON.parse(JSON.stringify(row)));}
 export async function controlR12(state,input){
  const r=state.r12;assert.ok(r);return exclusive(r,async()=>{await r.db.exec('reset role');const handled=[];
+ if(input.r12FocusedSuccessorUnsent==='terminal-source'){
+  assert.equal(r.scenario,'focused-successor-preparation');assert.ok(r.closedFocused&&!r.closedUnsent&&!r.closedMarked);assert.deepEqual(r.calls,[]);
+  const {createClosedUnsentSuccessor}=await import('../helpers/r12-focused-pilot-unsent-recovery-sql-fixture.mjs');
+  const {createReconciledMarkedRecovery}=await import('../helpers/r12-terminal-qualification-sql-fixture.mjs');
+  await r.db.exec('begin');let closedUnsent,closedMarked;try{closedUnsent=await createClosedUnsentSuccessor(r.db,r.closedFocused,{nested:true,guards:false});closedMarked=await createReconciledMarkedRecovery(r.db,closedUnsent,{nested:true,guards:false,refreshEvidence:true});await r.db.exec('commit');}catch(error){await r.db.exec('rollback');throw error;}
+  Object.assign(r,closedMarked.metadata,{closedUnsent,closedMarked,sourceScopeId:closedMarked.scopeId,preparationId:crypto.randomUUID(),setupUntil:closedMarked.metadata.focusedProfile.expiresAt,scenario:'focused-successor-preparation',refreshEvidence:false,quoteReads:0});delete r.activated;delete r.successorStaged;handled.push('r12FocusedSuccessorUnsent');await mirrorR12(state);
+ }
  if(input.r12FocusedSuccessorUnsent==='arm'){assert.equal(r.scenario,'focused-successor-staged');assert.ok(r.activated&&!r.closedUnsent);assert.deepEqual(r.calls,[]);r.simulateDispatchTimeout=true;handled.push('r12FocusedSuccessorUnsent');}
  if(input.r12FocusedSuccessorUnsent==='close'){
   assert.equal(r.scenario,'focused-successor-staged');assert.ok(r.simulateDispatchTimeout&&!r.closedUnsent);assert.deepEqual(r.calls,[]);assert.deepEqual(r.receipts,[]);
@@ -60,9 +68,9 @@ export async function controlR12(state,input){
  if(input.r12PilotActivate){assert.equal(r.scenario,'pilot-staged');assert.ok(!r.activated);const receipt=input.r12PilotActivate;assert.equal(receipt.scopeId,r.scopeId);assert.equal(receipt.proposalHash,r.staged.proposalHash);r.activated=await runPilotRecipe(reviewRecipeClient(r.db),'activate',{businessId:r.businessId,scopeId:r.scopeId,scopeHash:r.staged.scopeHash,proposalHash:receipt.proposalHash,policyId:receipt.policyId,policyHash:receipt.policyHash,quote:r12QuoteFixture(Date.now(),false,true),executionReviewHash:r.executionReviewHash,eligibilityReviewHash:r.eligibilityReviewHash,controllerKeyHash:receipt.controllerKeyHash,admissionKeyHash:receipt.admissionKeyHash});r.plan=r.activated.plan;await mirrorR12(state);}
  if(input.r12FocusedSuccessorStage){
   assert.equal(r.scenario,'focused-successor-preparation');assert.ok(!r.successorStaged);const receipt=input.r12FocusedSuccessorStage;
-  assert.equal(receipt.sourceScopeId,r.sourceScopeId);assert.equal(receipt.closedPlanId,r.closedUnsent?.closedPlanId??r.closedFocused.closedPlanId);assert.equal(receipt.authorityCreated,false);assert.equal(receipt.preparationId,r.preparationId);
-  const exercise=r.closedUnsent?(await import('../helpers/r12-focused-pilot-unsent-recovery-sql-fixture.mjs')).exerciseFocusedPilotUnsentRecoveryLifecycle:(await import('../helpers/r12-focused-pilot-successor-sql-fixture.mjs')).exerciseFocusedPilotSuccessorLifecycle;
-  await r.db.exec('begin');let prepared;try{prepared=await exercise(r.db,r.closedUnsent??r.closedFocused,{nested:true,ownerPreparationReceipt:receipt,stageOnly:true,refreshEvidence:!!r.refreshEvidence});await r.db.exec('commit');}catch(error){await r.db.exec('rollback');throw error;}
+  assert.equal(receipt.sourceScopeId,r.sourceScopeId);assert.equal(receipt.closedPlanId,r.closedMarked?.planId??r.closedUnsent?.closedPlanId??r.closedFocused.closedPlanId);assert.equal(receipt.authorityCreated,false);assert.equal(receipt.preparationId,r.preparationId);
+  const exercise=r.closedMarked?(await import('../helpers/r12-terminal-qualification-sql-fixture.mjs')).exerciseTerminalQualificationLifecycle:r.closedUnsent?(await import('../helpers/r12-focused-pilot-unsent-recovery-sql-fixture.mjs')).exerciseFocusedPilotUnsentRecoveryLifecycle:(await import('../helpers/r12-focused-pilot-successor-sql-fixture.mjs')).exerciseFocusedPilotSuccessorLifecycle;
+  await r.db.exec('begin');let prepared;try{prepared=await exercise(r.db,r.closedMarked??r.closedUnsent??r.closedFocused,{nested:true,ownerPreparationReceipt:receipt,stageOnly:true,refreshEvidence:!!r.refreshEvidence,qualificationGuards:!r.closedMarked});await r.db.exec('commit');}catch(error){await r.db.exec('rollback');throw error;}
   Object.assign(r,prepared.metadata,{staged:prepared.staged,successorStaged:prepared.staged,successorStageInput:prepared.stageInput,scenario:'focused-successor-staged'});delete r.activated;
   const view=(await r.db.query('select public.r12_review_owner_read($1,$2) result',[r.businessId,r.scopeId])).rows[0].result;
   assert.equal(view.successor.authorizationHash,r.authorizationHash);assert.equal(view.proposalHash,r.staged.proposalHash);assert.equal(view.scope.id,receipt.preparationId);
@@ -71,15 +79,15 @@ export async function controlR12(state,input){
  if(input.r12FocusedSuccessorActivate){
   assert.equal(r.scenario,'focused-successor-staged');assert.ok(r.successorStaged&&!r.activated);const receipt=input.r12FocusedSuccessorActivate;
   assert.equal(receipt.businessId,r.businessId);assert.equal(receipt.goalId,r.goalId);assert.equal(receipt.scopeId,r.scopeId);assert.equal(receipt.proposalHash,r.staged.proposalHash);assert.equal(receipt.executionAuthorized,false);
-  r.activated=await (r.closedUnsent?runRecoveryRecipe:runSuccessorRecipe)(reviewRecipeClient(r.db),'activate',{businessId:r.businessId,scopeId:r.scopeId,scopeHash:r.staged.scopeHash,proposalHash:receipt.proposalHash,policyId:receipt.policyId,policyHash:receipt.policyHash,quote:r12QuoteFixture(Date.now(),false,true),executionReviewHash:r.executionReviewHash,eligibilityReviewHash:r.eligibilityReviewHash,controllerKeyHash:receipt.controllerKeyHash,admissionKeyHash:receipt.admissionKeyHash,[r.closedUnsent?'recoveryAuthorizationHash':'successorAuthorizationHash']:r.authorizationHash});r.plan=r.activated.plan;
+  r.activated=await (r.closedMarked?runTerminalRecipe:r.closedUnsent?runRecoveryRecipe:runSuccessorRecipe)(reviewRecipeClient(r.db),'activate',{businessId:r.businessId,scopeId:r.scopeId,scopeHash:r.staged.scopeHash,proposalHash:receipt.proposalHash,policyId:receipt.policyId,policyHash:receipt.policyHash,quote:r12QuoteFixture(Date.now(),false,true),executionReviewHash:r.executionReviewHash,eligibilityReviewHash:r.eligibilityReviewHash,controllerKeyHash:receipt.controllerKeyHash,admissionKeyHash:receipt.admissionKeyHash,[r.closedMarked?'terminalAuthorizationHash':r.closedUnsent?'recoveryAuthorizationHash':'successorAuthorizationHash']:r.authorizationHash});r.plan=r.activated.plan;
   const view=(await r.db.query('select public.r12_discovery_owner_read($1,$2,false) result',[r.businessId,r.scopeId])).rows[0].result;
   assert.equal(view.focusedSuccessor.authorizationHash,r.authorizationHash);assert.equal(view.activeWindow,true);assert.equal(Date.parse(view.receiptUntil)-Date.parse(view.dispatchUntil),1800000);
   handled.push('r12FocusedSuccessorActivate');await mirrorR12(state);
  }
  if(input.r12FocusedSuccessorClose){
   assert.equal(r.scenario,'focused-successor-staged');assert.ok(r.activated);const receipt=input.r12FocusedSuccessorClose;
-  assert.equal(receipt.scopeId,r.scopeId);assert.equal(receipt[r.closedUnsent?'recoveryAuthorizationHash':'successorAuthorizationHash'],r.authorizationHash);
-  r.successorClosed=await (r.closedUnsent?runRecoveryRecipe:runSuccessorRecipe)(reviewRecipeClient(r.db),'close',receipt);
+  assert.equal(receipt.scopeId,r.scopeId);assert.equal(receipt[r.closedMarked?'terminalAuthorizationHash':r.closedUnsent?'recoveryAuthorizationHash':'successorAuthorizationHash'],r.authorizationHash);
+  r.successorClosed=await (r.closedMarked?runTerminalRecipe:r.closedUnsent?runRecoveryRecipe:runSuccessorRecipe)(reviewRecipeClient(r.db),'close',receipt);
   const view=(await r.db.query('select public.r12_discovery_owner_read($1,$2,false) result',[r.businessId,r.scopeId])).rows[0].result;
   assert.equal(view.policyRevoked,true);assert.equal(view.activeWindow,false);assert.equal(view.cost.hasUnknown,false);assert.equal(view.cost.heldMicrousd,'0');
   handled.push('r12FocusedSuccessorClose');await mirrorR12(state);
@@ -126,12 +134,14 @@ async function sqlRpc(r,name,params,role,after){
 export const R12_RUNTIME_RPC_ARGUMENTS=Object.freeze({
  r07_controller:Object.freeze(['p_business_id','p_goal_id','p_operation','p_payload','p_submission_id','p_server_key','p_lease_token','p_epoch','p_admission_key']),
  r12_recovery_dispatch:Object.freeze(['p_business_id','p_goal_id','p_scope_id','p_payload','p_submission_id','p_server_key','p_lease_token','p_epoch','p_admission_key']),
+ r12_recovery_server:Object.freeze(['p_business_id','p_scope_id','p_attempt_id','p_operation','p_payload','p_server_key']),
  r12_discovery_server:Object.freeze(['p_business_id','p_attempt_id','p_operation','p_payload','p_server_key']),
  creative_runtime_transition:Object.freeze(['p_creative_run_id','p_business_id','p_runtime_capability','p_operation','p_payload']),
 });
 export async function r12RuntimeRpc(state,name,args){
  const r=state.r12;assert.ok(r);assert.ok(Object.hasOwn(R12_RUNTIME_RPC_ARGUMENTS,name),'Inert runtime RPC unavailable');
  const keys=R12_RUNTIME_RPC_ARGUMENTS[name];
+ if(name==='r12_recovery_server'){assert.deepEqual(Object.keys(args).sort(),[...keys].sort(),'Recovery runtime accepts only its exact scoped signature');assert.ok(['inputs','bind','send'].includes(args.p_operation),'Recovery runtime operation unavailable');}
  if(name==='r12_recovery_dispatch')assert.deepEqual(Object.keys(args).sort(),[...keys].sort(),'Recovery RPC accepts only its exact dispatch signature');
  if(r.simulateDispatchTimeout&&(name==='r12_recovery_dispatch'||(name==='r07_controller'&&args.p_operation==='dispatch')))return exclusive(r,async()=>{
   await r.db.exec('begin');try{await r.db.exec('set role anon');const marked=(await r.db.query(`select public.${name}(${keys.map((_,i)=>`$${i+1}`).join(',')}) result`,keys.map(k=>args[k]??null))).rows[0].result;assert.equal(marked.shouldDispatch,true);await assert.rejects(r.db.exec("do $$ begin raise exception 'Inert Next dispatch deadline before commit' using errcode='57014'; end $$"),error=>error.code==='57014');return{data:null,error:{code:'57014',message:'Inert Next dispatch deadline before commit'}};}finally{await r.db.exec('rollback');await mirrorR12(state);}

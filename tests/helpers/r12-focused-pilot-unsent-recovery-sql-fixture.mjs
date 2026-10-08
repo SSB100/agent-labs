@@ -7,7 +7,7 @@ import {reviewRecipeClient} from './r12-review-fixture.mjs';
 import {exerciseFocusedPilotLifecycle} from './r12-focused-pilot-sql-fixture.mjs';
 import {exerciseFocusedPilotSuccessorLifecycle} from './r12-focused-pilot-successor-sql-fixture.mjs';
 const digest=text=>createHash('sha256').update(text).digest('hex');
-export async function createClosedUnsentSuccessor(db,closedFocused,{nested=false,...options}={}){
+export async function createClosedUnsentSuccessor(db,closedFocused,{nested=false,guards=true,...options}={}){
  return exerciseFocusedPilotSuccessorLifecycle(db,closedFocused,{nested,actualOwnerPreparation:true,...options,onReservedDispatch:async ctx=>{
   const {metadata,command,payload,epoch,plan,scopeId,planId,ownerApi}=ctx,one=async(sql,args=[])=>(await db.query(sql,args)).rows[0];
   const baseline=await command('read',{}),attempt=baseline.attempts[0];assert.equal(attempt.status,'reserved');assert.equal(baseline.head.dispatches,0);assert.equal(baseline.head.childrenCreated,1);
@@ -31,7 +31,7 @@ export async function createClosedUnsentSuccessor(db,closedFocused,{nested=false
   assert.equal(unsentClosure.authorityClosed,true);assert.equal(unsentClosure.dispatches,0);assert.equal(unsentClosure.childrenCreated,1);assert.equal(unsentClosure.knownMicrousd,'0');assert.equal(unsentClosure.heldMicrousd,'0');assert.equal(unsentClosure.planId,planId);assert.equal(unsentClosure.planHash,ctx.activated.planHash);assert.equal(unsentClosure.policyId,plan.policyId);assert.equal(unsentClosure.successorAuthorizationHash,metadata.authorizationHash);assert.equal(unsentClosure.requestId,attempt.requestId);
   const after=await financial();assert.deepEqual([after.admission_markers,after.controller_markers,after.transport_claims,after.candidates,after.settlements],[0,0,0,0,0]);assert.equal(after.budget.pendingExposureMicrousd,0);assert.equal(after.budget.hasUncertainCosts,false);assert.equal(after.budget.knownActualMicrousd,before.budget.knownActualMicrousd);assert.equal(after.budget.maximumMicrousd,2000000);
   const view=(await one('select public.r12_discovery_owner_read($1,$2,false) result',[metadata.businessId,scopeId])).result;assert.deepEqual(view.focusedUnsentClosure,unsentClosure);assert.equal(view.phases[0].status,'reserved');assert.equal(view.phases[1].status,'not_started');
-  await assertUnsentClosureGuards(db,{scopeId,unsentClosure});
+  if(guards)await assertUnsentClosureGuards(db,{scopeId,unsentClosure});
   return{metadata,closedBroad:ctx.closedBroad,closedFocused,scopeId,planId,closedPlanId:planId,unsentClosure,inertPosts:0,inertReceiptGets:0,providerCalls:0,activeAuthority:false};
  }});
 }

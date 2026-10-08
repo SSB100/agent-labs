@@ -2,6 +2,8 @@ import { containsCredentialLikeValue } from '../core/quest-intake';
 import { discoveryV2Hash } from './discovery-v2';
 import type { DiscoveryFocusedPilot } from './discovery-r12-focused-pilot-scope';
 import { validateR12EvidenceRefresh, type R12EvidenceRefresh } from './discovery-r12-evidence-refresh';
+import { validateR12MarkedPretransportClosure, type R12TerminalQualificationAuthorization } from './discovery-r12-terminal-qualification';
+export { validateR12MarkedPretransportClosure, type R12MarkedPretransportClosure, type R12TerminalQualificationAuthorization } from './discovery-r12-terminal-qualification';
 
 export const R12_FOCUSED_SUCCESSOR_LIMITS = Object.freeze({ maximumSuccessors: 1, maximumPaidCalls: 2, maximumReceiptGets: 6,
   maximumReceiptGetsPerCall: 3, dispatchWindowSeconds: 1800, receiptGraceSeconds: 1800, maximumMicrousd: 277907,
@@ -29,7 +31,8 @@ export type R12FocusedUnsentClosure = { version: 'r12.focused-pilot-unsent-closu
   pivotsUsed: 0; authorityClosed: true; knownMicrousd: '0'; heldMicrousd: '0' };
 export type R12FocusedUnsentRecoveryAuthorization = Omit<R12FocusedSuccessorAuthorization, 'version' | 'limits'> & {
   version: 'r12.focused-pilot-unsent-recovery-authorization.1'; limits: typeof R12_UNSENT_RECOVERY_LIMITS; unsentClosure: R12FocusedUnsentClosure; evidenceRefresh?: R12EvidenceRefresh };
-export type R12FocusedSuccessor = { authorization: R12FocusedSuccessorAuthorization | R12FocusedUnsentRecoveryAuthorization; authorizationHash: string };
+export const R12_TERMINAL_QUALIFICATION_LIMITS = Object.freeze({ ...R12_FOCUSED_SUCCESSOR_LIMITS, maximumTechnicalQualifications: 1 } as const);
+export type R12FocusedSuccessor = { authorization: R12FocusedSuccessorAuthorization | R12FocusedUnsentRecoveryAuthorization | R12TerminalQualificationAuthorization; authorizationHash: string };
 type Pins = { businessId: string; scopeId: string; goalId: string; ownerId?: string; budgetAuthorityRootId?: string; priorRoundId?: string; scope?: DiscoveryFocusedPilot;
   focusedPilot?: { profileHash: string; closedScopeId: string; closedPlanId: string; acceptedReviewScopeId: string } };
 const fail = (): never => { throw Error('r12_focused_successor_unverified'); };
@@ -56,13 +59,14 @@ export function validateR12FocusedSuccessor(raw: unknown, pins: Pins, now?: numb
   const pair = exact(raw, 'authorization,authorizationHash');
   if (Buffer.byteLength(JSON.stringify(raw), 'utf8') > 16384 || containsCredentialLikeValue(raw)) return fail();
   const recovery=object(pair.authorization) && pair.authorization.version==='r12.focused-pilot-unsent-recovery-authorization.1';
+  const terminal=object(pair.authorization) && pair.authorization.version==='r12.focused-pilot-terminal-qualification-authorization.1';
   const refresh = recovery && object(pair.authorization) && Object.hasOwn(pair.authorization, 'evidenceRefresh');
-  const a = exact(pair.authorization, 'version,businessId,ownerId,scopeId,scopeHash,goalId,preparedGoalRevision,preparedGoalHash,profileHash,ownerApprovalEvidenceHash,predecessorClosure,limits,createdAt,expiresAt'+(recovery?',unsentClosure':'')+(refresh?',evidenceRefresh':''));
+  const a = exact(pair.authorization, 'version,businessId,ownerId,scopeId,scopeHash,goalId,preparedGoalRevision,preparedGoalHash,profileHash,ownerApprovalEvidenceHash,predecessorClosure,limits,createdAt,expiresAt'+(recovery?',unsentClosure':terminal?',markedClosure':'')+(refresh?',evidenceRefresh':''));
   const c = exact(a.predecessorClosure, 'version,businessId,scopeId,scopeHash,goalId,planId,planHash,policyId,policyHash,profileHash,budgetAuthorityRootId,priorRoundId,originalGoalId,originalClosedPlanId,originalClosedPlanHash,acceptedReviewScopeId,acceptedReviewHash,controllerKeyHash,admissionKeyHash,dispatches,childrenCreated,repairsUsed,pivotsUsed,authorityClosed,knownMicrousd,phases');
-  if (!hash(pair.authorizationHash) || discoveryV2Hash(a) !== pair.authorizationHash || a.version !== (recovery?'r12.focused-pilot-unsent-recovery-authorization.1':'r12.focused-pilot-successor-authorization.1') ||
+  if (!hash(pair.authorizationHash) || discoveryV2Hash(a) !== pair.authorizationHash || a.version !== (recovery?'r12.focused-pilot-unsent-recovery-authorization.1':terminal?'r12.focused-pilot-terminal-qualification-authorization.1':'r12.focused-pilot-successor-authorization.1') ||
       ![a.businessId,a.ownerId,a.scopeId,a.goalId].every(id) || ![a.scopeHash,a.preparedGoalHash,a.profileHash,a.ownerApprovalEvidenceHash].every(hash) ||
       a.preparedGoalRevision !== 2 || a.businessId !== pins.businessId || a.scopeId !== pins.scopeId || a.goalId !== pins.goalId || pins.ownerId !== undefined && a.ownerId !== pins.ownerId ||
-      discoveryV2Hash(a.limits) !== discoveryV2Hash(recovery?R12_UNSENT_RECOVERY_LIMITS:R12_FOCUSED_SUCCESSOR_LIMITS) || !date(a.createdAt) || !date(a.expiresAt) || Date.parse(a.createdAt) >= Date.parse(a.expiresAt) ||
+      discoveryV2Hash(a.limits) !== discoveryV2Hash(recovery?R12_UNSENT_RECOVERY_LIMITS:terminal?R12_TERMINAL_QUALIFICATION_LIMITS:R12_FOCUSED_SUCCESSOR_LIMITS) || !date(a.createdAt) || !date(a.expiresAt) || Date.parse(a.createdAt) >= Date.parse(a.expiresAt) ||
       now !== undefined && (!Number.isFinite(now) || Date.parse(a.createdAt) > now || Date.parse(a.expiresAt) <= now) ||
       c.version !== 'r12.focused-pilot-closure.1' || c.businessId !== a.businessId ||
       pins.budgetAuthorityRootId !== undefined && c.budgetAuthorityRootId !== pins.budgetAuthorityRootId || pins.priorRoundId !== undefined && c.priorRoundId !== pins.priorRoundId ||
@@ -81,7 +85,7 @@ export function validateR12FocusedSuccessor(raw: unknown, pins: Pins, now?: numb
   }
   if (!Number.isSafeInteger(known) || known !== Number(c.knownMicrousd) ||
       c.phases[0].attemptId === c.phases[1].attemptId || c.phases[0].requestId === c.phases[1].requestId) return fail();
-  const u=recovery?validateR12FocusedUnsentClosure(a.unsentClosure,{businessId:String(a.businessId),scopeId:String((a.unsentClosure as Record<string,unknown>)?.scopeId),goalId:String((a.unsentClosure as Record<string,unknown>)?.goalId),budgetAuthorityRootId:String(c.budgetAuthorityRootId),priorRoundId:String(c.priorRoundId)}):null;
+  const u=recovery?validateR12FocusedUnsentClosure(a.unsentClosure,{businessId:String(a.businessId),scopeId:String((a.unsentClosure as Record<string,unknown>)?.scopeId),goalId:String((a.unsentClosure as Record<string,unknown>)?.goalId),budgetAuthorityRootId:String(c.budgetAuthorityRootId),priorRoundId:String(c.priorRoundId)}):terminal?validateR12MarkedPretransportClosure(a.markedClosure,{businessId:String(a.businessId),scopeId:String((a.markedClosure as Record<string,unknown>)?.scopeId),goalId:String((a.markedClosure as Record<string,unknown>)?.goalId),budgetAuthorityRootId:String(c.budgetAuthorityRootId),priorRoundId:String(c.priorRoundId)}):null;
   if(u && (new Set([a.scopeId,c.scopeId,c.acceptedReviewScopeId,u.scopeId]).size!==4 || new Set([a.goalId,c.goalId,c.originalGoalId,u.goalId]).size!==4 || [c.planId,c.originalClosedPlanId].includes(u.planId)))return fail();
   const closedPlanId=u?.planId??c.planId,closedPlanHash=u?.planHash??c.planHash,closedScopeId=u?.scopeId??c.scopeId;
   const e = pins.scope, f = pins.focusedPilot;
@@ -91,7 +95,7 @@ export function validateR12FocusedSuccessor(raw: unknown, pins: Pins, now?: numb
       c.budgetAuthorityRootId !== e.budgetAuthorityRootId || c.priorRoundId !== e.priorRoundId || e.profile.researchAllocationMicrousd !== R12_FOCUSED_SUCCESSOR_LIMITS.maximumMicrousd)) return fail();
   if (f && (a.profileHash !== f.profileHash || closedScopeId !== f.closedScopeId || closedPlanId !== f.closedPlanId || c.acceptedReviewScopeId !== f.acceptedReviewScopeId)) return fail();
   if (refresh) {
-    if (!u) return fail();
+    if (!u || !recovery) return fail();
     validateR12EvidenceRefresh(a.evidenceRefresh, { businessId: String(a.businessId), ownerId: String(a.ownerId), scopeId: String(a.scopeId), goalId: String(a.goalId),
       budgetAuthorityRootId: String(c.budgetAuthorityRootId), abandonedScopeId: u.scopeId, abandonedScopeHash: u.scopeHash,
       ownerApprovalEvidenceHash: String(a.ownerApprovalEvidenceHash), createdAt: String(a.createdAt), scope: e }, now);
