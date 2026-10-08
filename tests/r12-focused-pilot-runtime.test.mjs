@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {discoveryKnowledgeFixture} from './discovery-v2-fixtures.mjs';
 import {r12PhaseOutputFixture} from './helpers/r12-phase-output-fixture.mjs';
-import {focusedProfileFixture,focusedStrategyOutput} from './helpers/r12-focused-profile-fixture.mjs';
+import {focusedProfileFixture,focusedStrategyOutput,focusedReviewerOutput} from './helpers/r12-focused-profile-fixture.mjs';
 import {buildDiscoveryIntentFromGoal,DISCOVERY_GOAL_DEFAULT} from '../.core-tests/products/discovery-v2-goal.js';
 import {discoveryV2Hash as hash,REVIEW_CHECKS_V2,DISCOVERY_V2_EXECUTION_PREREQUISITES} from '../.core-tests/products/discovery-v2.js';
 import {discoveryAddendumReferences} from '../.core-tests/products/discovery-r12-evidence-addendum.js';
@@ -12,7 +12,7 @@ import {createDiscoveryR12Candidate,qualifyDiscoveryR12Candidate,discoveryR12Rec
 import {qualifyGenerationRouteProof} from '../.core-tests/research/generation-route.js';
 import {readDiscoveryR12PhaseInputs,buildDiscoveryR12PhaseRequest,projectDiscoveryR12Phase,reconstructDiscoveryR12Result} from '../.core-tests/products/discovery-r12-runtime.js';
 import {focusedPilotHistoricalRecord} from '../.core-tests/products/discovery-r12-focused-pilot-runtime.js';
-import {prepareDiscoveryWorkerContextV2,buildReviewerRequestV2,normalizeStrategistResponseV2,normalizeReviewerResponseV2,reviewerResponseSchemaV2} from '../.core-tests/products/discovery-v2-worker-contract.js';
+import {prepareDiscoveryWorkerContextV2,buildStrategistRequestV2,buildReviewerRequestV2,normalizeStrategistResponseV2,normalizeReviewerResponseV2,reviewerResponseSchemaV2} from '../.core-tests/products/discovery-v2-worker-contract.js';
 import {validateDiscoveryFocusedPilot} from '../.core-tests/products/discovery-r12-focused-pilot-scope.js';
 import {assertJsonSchemaValue} from '../.core-tests/workers/schema-validator.js';
 import {discoveryR12StaticSchema} from '../.core-tests/products/discovery-r12-schemas.js';
@@ -145,6 +145,96 @@ test('known focused production failure still requires REJECT rather than NME',()
  assert.equal(normalizeReviewerResponseV2(f.prepared,assessment,review,f.executions,now).outcome,'REJECT');
  assert.equal(assessment.testPlan,null);
 });
+
+// Offline prompt/contract regressions, not evidence of live model compliance.
+// Responses below are handcrafted; no test infers rights clearance or forces TEST.
+test('pending private-proposal gates preserve unclear rights and permit a reasoned TEST or NME without execution authority',()=>withClock(now,()=>{
+ const f=fixture(),before=hash(f.value),request=buildStrategistRequestV2(f.prepared,now),input=decode(request);
+ assert.match(request.messages[0].content,/their pending state alone does not make the proposal blocked/);
+ assert.match(request.messages[0].content,/Missing blanket commercial clearance for hypothetical future elements is not by itself an identified input concern/);
+ assert.deepEqual(input.futureTestProposal.executionPrerequisites,DISCOVERY_V2_EXECUTION_PREREQUISITES);
+ assert.equal(input.candidates[0].rightsStatus,'unclear');assert.equal(input.candidates[0].ownerRightsConfirmed,false);
+ assert.deepEqual(input.focusedPilot.originalDesignConstraints,f.p.originalDesignConstraints);
+ for(const outcome of ['TEST','NEEDS_MORE_EVIDENCE']){
+  const output=focusedStrategyOutput(f.prepared);output.recommendation.proposedOutcome=outcome;output.usesPinnedLearningPlan=outcome==='TEST';
+  const result=phase(f.ctx,f.value,output,now);
+  assert.equal(result.current.response.result.outcome,outcome);
+  const normalized=normalizeStrategistResponseV2(f.prepared,output,{modelId:'openai/gpt-5.6-luna',providerRequestId:'gen-inert-stage-strategy',primaryOnly:true},now);
+  assert.equal(normalized.publicationAllowed,false);assert.equal(normalized.commerceAllowed,false);
+  if(outcome==='TEST'){assert.deepEqual(normalized.testPlan,f.p.pinnedLearningPlan);assert.equal(normalized.testPlan.generationAuthorized,false);assert.equal(normalized.testPlan.spendingAuthorized,false);}
+  else assert.equal(normalized.testPlan,null);
+ }
+ assert.equal(hash(f.value),before);
+}));
+
+test('an unresolved external-asset provenance blocker retains its exact input, missing evidence and negative outcome',()=>{
+ const f=fixture(),output=focusedStrategyOutput(f.prepared),policy=output.candidates[0].dimensions.find(d=>d.dimension==='policy_ip_risk');
+ const concern={question:'What is the source and permission evidence for the declared external leaf illustration?',blockingForTest:true,reason:'The external leaf illustration has unresolved provenance and conflicts with the no-reference brief; proposing its use needs source evidence and a separately authorized input decision.'};
+ policy.uncertainties=[concern];output.recommendation.proposedOutcome='NEEDS_MORE_EVIDENCE';output.usesPinnedLearningPlan=false;
+ const executions={strategist:{modelId:'openai/gpt-5.6-luna',providerRequestId:'gen-inert-input-strategy',primaryOnly:true},reviewer:{modelId:'anthropic/claude-haiku-4.5',providerRequestId:'gen-inert-input-review',primaryOnly:true}};
+ const assessment=normalizeStrategistResponseV2(f.prepared,output,executions.strategist,now),request=buildReviewerRequestV2(f.prepared,assessment,executions.strategist,now),review=focusedReviewerOutput(f.prepared);
+ assert.match(request.messages[0].content,/name the affected input or precise material omission, cite its provenance if available, explain why it obstructs recommending this experiment, and state the smallest missing evidence or owner decision/);
+ assert.match(request.messages[0].content,/An undeclared or ambiguous external creative asset or unresolved source\/rights concern stops execution/);
+ review.outcome='NEEDS_MORE_EVIDENCE';review.dimensions.find(d=>d.dimension==='policy_ip_risk').verdict='blocking';
+ const accepted=normalizeReviewerResponseV2(f.prepared,assessment,review,executions,now);
+ assert.equal(accepted.outcome,'NEEDS_MORE_EVIDENCE');assert.ok(accepted.missingQuestions.includes(concern.question));
+ assert.deepEqual(assessment.candidates[0].dimensions.find(d=>d.dimension==='policy_ip_risk').uncertainties,[concern]);
+ assert.deepEqual(accepted.executionPrerequisites,DISCOVERY_V2_EXECUTION_PREREQUISITES);
+ review.dimensions.find(d=>d.dimension==='policy_ip_risk').verdict='nonblocking_unknown';review.outcome='TEST';
+ assert.throws(()=>normalizeReviewerResponseV2(f.prepared,assessment,review,executions,now),/cannot silently waive blocking uncertainty/);
+});
+
+test('forbidden-input conflicts remain explicit and an unsupported concern cannot be promoted to a known failure',()=>{
+ const f=fixture(),before=hash(f.p),request=buildStrategistRequestV2(f.prepared,now),prompt=request.messages[0].content;
+ for(const forbidden of ['forbidden logo','printed title','copied reference','named-style imitation'])assert.ok(prompt.includes(forbidden));
+ assert.match(prompt,/do not silently remove the conflict or waive the gate/);
+ assert.match(prompt,/Retain all existing executionPrerequisites, source-rights checks and authorization requirements/);
+ assert.match(prompt,/a supported known failure requires REJECT under the existing rules/);
+ const output=focusedStrategyOutput(f.prepared),policy=output.candidates[0].dimensions.find(d=>d.dimension==='policy_ip_risk');
+ policy.uncertainties=[{question:'Does the requested printed title conflict with the no-text brief?',blockingForTest:true,reason:'A requested title conflicts with the stated no-text brief; the exact conflict must remain unresolved pending an authorized input decision.'}];
+ output.recommendation.proposedOutcome='NEEDS_MORE_EVIDENCE';output.usesPinnedLearningPlan=false;
+ const execution={modelId:'openai/gpt-5.6-luna',providerRequestId:'gen-inert-conflict',primaryOnly:true};
+ assert.equal(normalizeStrategistResponseV2(f.prepared,output,execution,now).recommendation.proposedOutcome,'NEEDS_MORE_EVIDENCE');
+ policy.hardFailure=true;output.recommendation.proposedOutcome='REJECT';
+ assert.throws(()=>normalizeStrategistResponseV2(f.prepared,output,execution,now),/Hard failure requires a supported policy\/IP or production finding/);
+ assert.equal(hash(f.p),before);
+});
+
+test('uncreated output stays a later inspection question and four stages confer no commercial clearance',()=>withClock(now,()=>{
+ const {f,first,last}=completed(),before=hash(f.p);
+ for(const current of [first,last]){
+  const prompt=current.request.messages[0].content,input=decode(current.request);
+  for(const stage of ['Proposal assessment:','Pre-generation input screen:','Output review:','Commercial readiness:'])assert.ok(prompt.includes(stage));
+  assert.match(prompt,/uncreated pixels cannot be cleared or inspected now/);
+  assert.match(prompt,/name the later independent review gate and its stop condition/);
+  assert.match(prompt,/pinned original-byte, pixel, readability and print checks within the exact approved limits and stop rules/);
+  assert.match(prompt,/do not assume a pass or authorize a repair/);
+  assert.match(prompt,/Private use, generic subjects, AI generation and an originality declaration do not prove rights or safety/);
+  assert.match(prompt,/A private technical result establishes neither commercial clearance nor publication, upload, sale or store-action permission/);
+  assert.match(prompt,/Keep rightsStatus and ownerRightsConfirmed exactly as supplied/);
+  assert.equal(input.candidates[0].rightsStatus,'unclear');assert.equal(input.candidates[0].ownerRightsConfirmed,false);
+  assert.deepEqual(input.focusedPilot.proposedLearningPlan.successCriteria,f.p.pinnedLearningPlan.successCriteria);
+  assert.deepEqual(input.focusedPilot.proposedLearningPlan.failureCriteria,f.p.pinnedLearningPlan.failureCriteria);
+  assert.equal(input.focusedPilot.proposedLearningPlan.stopRule,f.p.pinnedLearningPlan.stopRule);
+ }
+ assert.equal(hash(f.p),before);
+}));
+
+test('replaying a synthetic saved NME preserves even a blanket-clearance blocker and exact receipt hashes',()=>withClock(now,()=>{
+ const f=fixture(),output=focusedStrategyOutput(f.prepared),policy=output.candidates[0].dimensions.find(d=>d.dimension==='policy_ip_risk');
+ policy.uncertainties=[{question:'Are every design element and source asset cleared for commercial use and policy compliance?',blockingForTest:true,reason:'Concept-specific IP screening remains pending before creative execution; this frozen negative is preserved without retrospective reclassification.'}];
+ output.recommendation.proposedOutcome='NEEDS_MORE_EVIDENCE';output.usesPinnedLearningPlan=false;
+ const first=phase(f.ctx,f.value,output,now),saved=first.saved,before=hash(saved),qualified=qualifyDiscoveryR12Candidate(saved.current.candidate,saved.current.binding,saved.current.proof);
+ // Rebuilding a future request or reprojecting a receipt is not a provider retry.
+ const request=buildStrategistRequestV2(f.prepared,now);
+ assert.match(request.messages[0].content,/never reinterpret saved outcomes, flags, receipts, costs or terminal closure, and never reopen a closed run/);
+ const replay=projectDiscoveryR12Phase(saved.context,readDiscoveryR12PhaseInputs(saved.context,saved.inputs),qualified,saved.current.binding.request);
+ assert.equal(replay.result.outcome,'NEEDS_MORE_EVIDENCE');assert.equal(replay.result.assessmentHash,saved.current.response.result.assessmentHash);
+ assert.deepEqual(saved.current.candidate.output.candidates[0].dimensions.find(d=>d.dimension==='policy_ip_risk').uncertainties,policy.uncertainties);
+ assert.equal(saved.current.candidate.output.usesPinnedLearningPlan,false);assert.equal(hash(saved),before);
+ // Database slot/revocation behavior remains covered by existing terminal tests;
+ // this pure replay asserts no retrospective output or accounting mutation.
+}));
 
 test('focused prompt clarity retains static SQL schema pins and existing request and wire ceilings',async()=>{
  const {first,last}=withClock(now,completed),migration=readFileSync('supabase/migrations/20261007005630_r12_focused_pilot.sql','utf8');
