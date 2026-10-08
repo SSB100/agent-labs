@@ -13,9 +13,13 @@ import {runR12Journeys} from '../tests/next-fixture/r12-journeys.mjs';
 import {runR12BootstrapJourney} from '../tests/next-fixture/r12-bootstrap-journey.mjs';
 import {runR12PilotJourney} from '../tests/next-fixture/r12-pilot-journey.mjs';
 import {runR12ReviewJourney} from '../tests/next-fixture/r12-review-journey.mjs';
+import {runR12TerminalJourney,R12_TERMINAL_JOURNEY_NAME} from '../tests/next-fixture/r12-focused-successor-journey.mjs';
+import {r12NextCapturePlan,assertR12CaptureFiles,r12NextSnapshotFiles} from '../tests/helpers/r12-next-capture-plan.mjs';
 import {R12_INERT_ROOT} from '../tests/next-fixture/r12-sql.mjs';
 import { R11_INERT_SERVER_KEY } from '../tests/next-fixture/r11-research.mjs';
 
+const terminalOnly=process.argv.includes('--r12-terminal-only');
+if(terminalOnly)assert.ok(!process.argv.slice(2).some(flag=>flag!=='--r12-terminal-only'&&flag!=='--http-only'),'Terminal-only mode cannot combine with another journey selector');
 const root = process.cwd(), output = path.join(root, 'test-results/r03-next');
 await mkdir(output, { recursive: true });
 // Windows sandbox tools cannot traverse arbitrary ancestors of the OS temp tree.
@@ -66,7 +70,7 @@ try {
     ['src/app/dashboard/artifacts/actions.ts','import {fetchFocusedCreativeQuote} from "@/creative/focused-quote";','import {fetchFocusedCreativeQuote} from "@/creative/focused-inert-boundary";'],
     ['src/creative/focused-owner-server.ts',"import {start} from 'workflow/api';","import {start} from './focused-inert-boundary';"],
   ]){const source=await readFile(path.join(fixture,file),'utf8');assert.equal(source.split(from).length,2,`Exact disposable substitution: ${file}`);await writeFile(path.join(fixture,file),source.replace(from,to));}
-  await writeFile(path.join(output,'isolation.json'),JSON.stringify({copiedSource:true,buildWorkers:2,substitutions:['supabase/server.ts','supabase/client.ts','supabase/proxy.ts','inert-transport.mjs','browser/watch-dependencies.ts (inert R10 authority/capture only)','research/qualification-server-dependencies.ts (inert R11 public catalogs/provider only)','products/discovery-r12-server-dependencies.ts (inert R12 public quotes/provider only; actual isolated SQL)','creative/focused-inert-boundary.ts plus exact quote/launch import substitutions (real creative owner actions and SQL; inert public catalogs and durable start only)'],credentials:'none; inert loopback identifiers plus explicit test-only R11 authority/provider placeholders; no inherited secrets',network:'loopback only; denied effects logged',fixture:'two owned Businesses; realistic saved failures and costs'},null,2));
+  await writeFile(path.join(output,'isolation.json'),JSON.stringify({verificationMode:terminalOnly?'r12-terminal-only':process.argv.length===2?'full':'selected',copiedSource:true,buildWorkers:2,substitutions:['supabase/server.ts','supabase/client.ts','supabase/proxy.ts','inert-transport.mjs','browser/watch-dependencies.ts (inert R10 authority/capture only)','research/qualification-server-dependencies.ts (inert R11 public catalogs/provider only)','products/discovery-r12-server-dependencies.ts (inert R12 public quotes/provider only; actual isolated SQL)','creative/focused-inert-boundary.ts plus exact quote/launch import substitutions (real creative owner actions and SQL; inert public catalogs and durable start only)'],credentials:'none; inert loopback identifiers plus explicit test-only R11 authority/provider placeholders; no inherited secrets',network:'loopback only; denied effects logged',fixture:'two owned Businesses; realistic saved failures and costs'},null,2));
   console.log('Building disposable production Next application with blocked external effects.');
   await completion(start(['build','--webpack'],'build.log'));
   const probe = createServer(); await new Promise(resolve => probe.listen(0,'127.0.0.1',resolve)); const port=probe.address().port; await new Promise(resolve=>probe.close(resolve));
@@ -77,8 +81,8 @@ try {
   let ready=false;
   for(let attempt=0;attempt<120;attempt++){try{const response=await fetch(origin+'/login',{redirect:'manual'});if(response.status<500){ready=true;break;}}catch{} await new Promise(resolve=>setTimeout(resolve,250));}
   assert.ok(ready,'Production Next fixture did not start');
-  await runNextJourneys({origin,boundary,output,httpOnly:process.argv.includes('--http-only')||process.argv.includes('--research-only')||process.argv.includes('--r12-only'),questsOnly:process.argv.includes('--quests-only'),controlsOnly:process.argv.includes('--controls-only'),historyOnly:process.argv.includes('--history-only'),workspaceOnly:process.argv.includes('--workspace-only'),knowledgeOnly:process.argv.includes('--knowledge-only'),browserWatchOnly:process.argv.includes('--browser-watch-only')});
-  if(!process.argv.includes('--r12-only')&&(process.argv.includes('--research-only')||!process.argv.some(flag=>['--quests-only','--controls-only','--history-only','--workspace-only','--knowledge-only','--browser-watch-only'].includes(flag)))){
+  if(!terminalOnly)await runNextJourneys({origin,boundary,output,httpOnly:process.argv.includes('--http-only')||process.argv.includes('--research-only')||process.argv.includes('--r12-only'),questsOnly:process.argv.includes('--quests-only'),controlsOnly:process.argv.includes('--controls-only'),historyOnly:process.argv.includes('--history-only'),workspaceOnly:process.argv.includes('--workspace-only'),knowledgeOnly:process.argv.includes('--knowledge-only'),browserWatchOnly:process.argv.includes('--browser-watch-only')});
+  if(!terminalOnly&&!process.argv.includes('--r12-only')&&(process.argv.includes('--research-only')||!process.argv.some(flag=>['--quests-only','--controls-only','--history-only','--workspace-only','--knowledge-only','--browser-watch-only'].includes(flag)))){
     const researchProbe=createServer();await new Promise(resolve=>researchProbe.listen(0,'127.0.0.1',resolve));const researchPort=researchProbe.address().port;await new Promise(resolve=>researchProbe.close(resolve));
     start(['start','-p',String(researchPort),'-H','127.0.0.1'],'r11-research-server.log',{VERCEL_ENV:'production',R05_ADMISSION_SERVER_KEY:R11_INERT_SERVER_KEY,OPENROUTER_API_KEY:'inert-r11-provider-placeholder'});
     const researchOrigin=`http://localhost:${researchPort}`;let researchReady=false;
@@ -86,30 +90,33 @@ try {
     assert.ok(researchReady,'R11 isolated production Next fixture did not start');
     await runResearchQualificationJourneys({origin:researchOrigin,noKeyOrigin:origin,boundary,output,httpOnly:process.argv.includes('--http-only')});
   }
-  if(process.argv.includes('--r12-only')||!process.argv.some(flag=>['--quests-only','--controls-only','--history-only','--workspace-only','--knowledge-only','--browser-watch-only','--research-only'].includes(flag))){
+  if(terminalOnly||process.argv.includes('--r12-only')||!process.argv.some(flag=>['--quests-only','--controls-only','--history-only','--workspace-only','--knowledge-only','--browser-watch-only','--research-only'].includes(flag))){
     if(!process.env.R12_SQL_TEST_HOST)throw Error('R12 isolated SQL fixture host is required');
     const directory=await mkdtemp(path.join(temporaryRoot,'r12-next-'));
     try{
-    // The measured full lifecycle takes about 100s without four gzip snapshots.
-    // Give this setup-only subprocess a finite serialization/runner margin;
-    // the ordinary SQL test keeps its independent 120s assertion deadline.
-    const captureTimeoutMs=240000,captureStarted=performance.now();
-    console.log(`Preparing R12 Next SQL snapshots (setup deadline ${captureTimeoutMs}ms).`);
-    const capture=spawn(process.execPath,['tests/r12-discovery-scope-sql.test.mjs','--r12-next-capture'],{cwd:root,env:{...process.env,R12_NEXT_FIXTURE_OUTPUT:directory,R12_POSTGRES_URL:'',R12_REQUIRE_POSTGRES:'0'},stdio:['ignore','pipe','pipe'],timeout:captureTimeoutMs,killSignal:'SIGKILL'});
-    processes.push(capture);
-    const stream=log('r12-sql-capture.log');capture.stdout.pipe(stream);capture.stderr.pipe(stream);await completion(capture);
-    console.log(`R12 Next SQL snapshot setup completed in ${Math.round(performance.now()-captureStarted)}ms.`);
-    const reviewCapture=spawn(process.execPath,['tests/helpers/r12-review-next-capture.mjs'],{cwd:root,env:{...process.env,R12_REVIEW_NEXT_OUTPUT:directory,R12_POSTGRES_URL:''},stdio:['ignore','pipe','pipe']});processes.push(reviewCapture);
-    const reviewStream=log('r12-review-capture.log');reviewCapture.stdout.pipe(reviewStream);reviewCapture.stderr.pipe(reviewStream);await completion(reviewCapture);
-    const bootstrapCapture=spawn(process.execPath,['tests/helpers/r12-bootstrap-rehearsal.mjs'],{cwd:root,env:{...process.env,R12_BOOTSTRAP_NEXT_OUTPUT:directory},stdio:['ignore','pipe','pipe']});processes.push(bootstrapCapture);
-    const bootstrapStream=log('r12-bootstrap-capture.log');bootstrapCapture.stdout.pipe(bootstrapStream);bootstrapCapture.stderr.pipe(bootstrapStream);await completion(bootstrapCapture);
+    for(const stage of r12NextCapturePlan({terminalOnly})){
+      await assertR12CaptureFiles(directory,stage.inputs);
+      const started=performance.now();console.log(`Preparing R12 ${stage.name} snapshots.`);
+      const child=spawn(process.execPath,[stage.script,...stage.args],{cwd:root,env:{...process.env,[stage.outputVariable]:directory,R12_POSTGRES_URL:'',R12_REQUIRE_POSTGRES:'0'},stdio:['ignore','pipe','pipe'],...(stage.timeoutMs?{timeout:stage.timeoutMs,killSignal:'SIGKILL'}:{})});
+      processes.push(child);const stream=log(stage.log);child.stdout.pipe(stream);child.stderr.pipe(stream);await completion(child);
+      await assertR12CaptureFiles(directory,stage.outputs);
+      console.log(`R12 ${stage.name} snapshot setup completed in ${Math.round(performance.now()-started)}ms.`);
+    }
+    if(terminalOnly)await assertR12CaptureFiles(directory,Object.values(r12NextSnapshotFiles('focused-successor-preparation')));
     const r12Probe=createServer();await new Promise(resolve=>r12Probe.listen(0,'127.0.0.1',resolve));const r12Port=r12Probe.address().port;await new Promise(resolve=>r12Probe.close(resolve));
     start(['start','-p',String(r12Port),'-H','127.0.0.1'],'r12-server.log',{VERCEL_ENV:'production',R05_ADMISSION_SERVER_KEY:R12_INERT_ROOT,OPENROUTER_API_KEY:'inert-r12-provider-placeholder'});
     const r12Origin=`http://localhost:${r12Port}`;let r12Ready=false;for(let attempt=0;attempt<120;attempt++){try{const response=await fetch(r12Origin+'/login',{redirect:'manual'});if(response.status<500){r12Ready=true;break;}}catch{}await new Promise(resolve=>setTimeout(resolve,250));}assert.ok(r12Ready,'R12 Next fixture did not start');
+    if(terminalOnly){
+      await runR12TerminalJourney({origin:r12Origin,noKeyOrigin:origin,boundary,output,directory,httpOnly:process.argv.includes('--http-only')});
+      const acceptance=JSON.parse(await readFile(path.join(output,'r12-focused-successor-acceptance.json'),'utf8'));
+      assert.equal(acceptance.selection,'terminal-only');assert.deepEqual(acceptance.results.map(row=>[row.name,row.status]),[[R12_TERMINAL_JOURNEY_NAME,'passed']]);
+      assert.deepEqual(acceptance.external,[]);if(!process.argv.includes('--http-only'))assert.equal(acceptance.browser,'actual Chromium');
+    }else{
     await runR12BootstrapJourney({origin:r12Origin,noKeyOrigin:origin,boundary,output,directory,httpOnly:process.argv.includes('--http-only')});
     await runR12Journeys({origin:r12Origin,noKeyOrigin:origin,boundary,output,directory,httpOnly:process.argv.includes('--http-only')});
     await runR12ReviewJourney({origin:r12Origin,noKeyOrigin:origin,boundary,output,directory,httpOnly:process.argv.includes('--http-only')});
     await runR12PilotJourney({origin:r12Origin,noKeyOrigin:origin,boundary,output,directory,httpOnly:process.argv.includes('--http-only')});
+    }
     }finally{await rm(directory,{recursive:true,force:true});}
   }
 

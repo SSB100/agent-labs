@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import type { AdmissionDispatchInput } from "./admission-contract";
 import { compileQuestPlan, type QuestPlan, type QuestStep } from "./quest-plan";
 import { readQuestKnowledge, type QuestKnowledgeSnapshot } from "./reviewed-knowledge";
@@ -46,6 +47,9 @@ export type QuestAdapter = {
 export type QuestStore = {
   read(): Promise<QuestSnapshot | null>;
   command(operation: string, payload: Record<string, unknown>, epoch?: number): Promise<Record<string, unknown>>;
+  /** Trusted runtime opt-in only for an explicitly authorized recovery scope.
+   * A matching pilot may renew its existing lease once after preparation. */
+  recoveryDispatchLeaseScopeId?: string;
 };
 export type QuestTickResult = {
   status: "progress" | "waiting" | "blocked" | "stopped" | "completed";
@@ -80,6 +84,11 @@ function preparedCall(input: QuestPreparedCall, context: QuestAdapterContext): Q
   if (!body || typeof body !== "object" || Array.isArray(body) || !("model" in body) || body.model !== d.providerModelId || !("max_tokens" in body) || body.max_tokens !== d.maximumOutputTokens || !("stream" in body) || body.stream !== false) throw new Error("r07_final_wire_mismatch");
   if (context.attempt.wireHash !== null && context.attempt.wireHash !== d.wireRequestHash) throw new Error("r07_reserved_wire_changed");
   return call;
+}
+function dispatchSnapshotPins(snapshot: QuestSnapshot) {
+  const { leaseExpiresAt: _expiresAt, ...head } = snapshot.head;
+  void _expiresAt;
+  return { ...snapshot, head };
 }
 
 /** One finite durable transition. A scheduler wakes on persisted deadlines or new
@@ -138,10 +147,36 @@ export async function driveQuestOnce(store: QuestStore, options: {
       return { status: "progress", reason: "readback_persisted" };
     }
     // Preparation can be repeated after a process crash; it cannot dispatch or spend.
+    const renewPreparedLease = pending.status === "reserved" && store.recoveryDispatchLeaseScopeId !== undefined;
+    if (renewPreparedLease && (plan.format !== "r12.discovery-pilot.1" || plan.discoveryScopeId !== store.recoveryDispatchLeaseScopeId)) {
+      throw new Error("r07_recovery_lease_scope_mismatch");
+    }
+    // Capture before awaiting prepare: no later mutation may rewrite the pins
+    // against which the prepared request and its dependencies were validated.
+    const dispatchPins = renewPreparedLease ? immutable(dispatchSnapshotPins(snapshot)) : null;
     const call = preparedCall(await adapter.prepare(context), context);
     if (pending.status === "scheduled") {
       const reserved = await apply("reserve", { attemptId: pending.id, descriptor: call.descriptor });
       return reserved.status === "reserved" ? { status: "progress", reason: "reserved" } : { status: "blocked", reason: String(reserved.reason ?? "reservation_denied") };
+    }
+    if (dispatchPins) {
+      // The store retains the same token. An expired or replaced lease advances
+      // its epoch; that is a new lease and cannot authorize this prepared call.
+      const renewed = await store.command("claim", { seconds: 60 });
+      if (renewed.replayed === true) throw new Error("r07_recovery_lease_unverified");
+      if (Number(renewed.epoch) !== epoch) throw new Error("r07_recovery_lease_epoch_changed");
+      const refreshed = await store.read();
+      // Canonical claim advances revision exactly once. No other change to
+      // plan, attempt, dependencies, knowledge or controller state is allowed.
+      const expectedRevision = dispatchPins.head.revision + 1;
+      if (!refreshed || refreshed.head.epoch !== epoch || !Number.isSafeInteger(expectedRevision) || refreshed.head.revision !== expectedRevision ||
+        typeof renewed.expiresAt !== "string" || !Number.isFinite(Date.parse(renewed.expiresAt)) || refreshed.head.leaseExpiresAt !== renewed.expiresAt ||
+        !isDeepStrictEqual(dispatchSnapshotPins({ ...refreshed, head: { ...refreshed.head, revision: dispatchPins.head.revision } }), dispatchPins)) {
+        throw new Error("r07_recovery_dispatch_pins_changed");
+      }
+      const attempt = refreshed.attempts.find(a => a.id === pending.id);
+      if (!attempt || attempt.status !== "reserved") throw new Error("r07_recovery_dispatch_pins_changed");
+      preparedCall(call, immutable({ ...context, attempt }));
     }
     const marked = await apply("dispatch", { attemptId: pending.id, wireHash: call.descriptor.wireRequestHash });
     if (marked.shouldDispatch !== true) return { status: "blocked", reason: String(marked.reason ?? "dispatch_denied") };

@@ -18,13 +18,16 @@ export async function readR12PilotPreparationSource(context:OwnerUiContext,input
  const {record:source}=await readDiscoveryR12Workspace(context,input.businessId,input.sourceScopeId);
  const settled=(row:typeof source)=>row&&row.planId&&row.planHash&&row.policyRevoked&&!row.activeWindow&&!row.cost.hasUnknown&&row.cost.heldMicrousd==='0'&&row.rootFunding.hasUncertainCosts===false&&row.rootFunding.pendingExposureMicrousd===0&&row.nextReviewScopeId===null;
  if(!settled(source)||!source)return fail();
- let broad=source;const recovery=!!source.focusedSuccessor;let charged=source;
+ let broad=source;const recovery=source.focusedSuccessor?.authorization.version==='r12.focused-pilot-successor-authorization.1',technical=source.focusedSuccessor?.authorization.version==='r12.focused-pilot-unsent-recovery-authorization.1';let charged=source;
+ // A terminal qualification is never an eligible source for another Goal.
+ if(source.focusedSuccessor&&!recovery&&!technical)return fail();
  if(source.focusedPilot){
   // The raw controller head can still be running/dispatched after explicit
   // authority closure. Prove final costs and the rejected review, not a fake head.
   if(source.planVersion!==1||source.phases.length!==2||source.priorReviews.length!==0)return fail();
-  if(recovery){
-   if(source.focusedSuccessor?.authorization.version!=='r12.focused-pilot-successor-authorization.1'||!source.focusedUnsentClosure||source.focusedUnsentClosure.planId!==source.planId||source.focusedUnsentClosure.planHash!==source.planHash)return fail();
+  if(recovery||technical){
+   const closure=technical?source.focusedPretransportClosure:source.focusedUnsentClosure;
+   if(!source.focusedSuccessor||!closure||closure.planId!==source.planId||closure.planHash!==source.planHash)return fail();
    const old=await readDiscoveryR12Workspace(context,input.businessId,source.focusedSuccessor.authorization.predecessorClosure.scopeId);
    if(!old.record||!settled(old.record)||!old.record.focusedPilot||old.record.focusedSuccessor||old.record.planId!==source.focusedSuccessor.authorization.predecessorClosure.planId||old.record.budgetAuthorityRootId!==source.budgetAuthorityRootId||old.record.priorRoundId!==source.priorRoundId)return fail();
    charged=old.record;
@@ -42,14 +45,14 @@ export async function readR12PilotPreparationSource(context:OwnerUiContext,input
  const prior=broad.priorReviews.at(-1);if(!prior||source.focusedPilot&&prior.scopeId!==source.focusedPilot.acceptedReviewScopeId)return fail();
  const {record:accepted}=await readDiscoveryR12Result(context,input.businessId,prior.scopeId);
  if(!accepted||accepted.review.outcome!=='NEEDS_MORE_EVIDENCE'||accepted.goalId!==broad.goalId||accepted.originalFundingRootId!==source.budgetAuthorityRootId)return fail();
- return {source,accepted,broad,successor:!!source.focusedPilot,recovery};
+ return {source,accepted,broad,successor:!!source.focusedPilot,recovery,technical};
 }
 
 /** Uses the normal owner Goal actions. A deterministic save identity is tied to
  * the stopped plan, so another tab/cutoff cannot silently create a second pilot.
  * SQL later independently checks the closed lineage and unique pilot scope. */
 export async function prepareR12PilotGoal(context:OwnerUiContext,input:R12PilotPreparationInput):Promise<R12PilotPreparationReceipt>{
- validateR12PilotPreparation(input,Date.now());const {source,accepted,broad,successor,recovery}=await readR12PilotPreparationSource(context,input),content=r12PilotGoalContent(input,successor,recovery);
+ validateR12PilotPreparation(input,Date.now());const {source,accepted,broad,successor,recovery,technical}=await readR12PilotPreparationSource(context,input),content=r12PilotGoalContent(input,successor,recovery,technical);
  const hashes=await prepareDiscoveryR12Authority(context,input.businessId,input.preparationId);
  async function save<O extends R04Operation>(operation:O,payload:R04Payloads[O],role:string){
   const {data,error}=await context.supabase.rpc(R04_RPC.transition,{p_business_id:input.businessId,p_operation:operation,p_payload:payload,p_submission_id:identity(context.userId,input.businessId,source.planId!,role)});
@@ -62,6 +65,7 @@ export async function prepareR12PilotGoal(context:OwnerUiContext,input:R12PilotP
  if(error||!row||row.id!==created.id||row.businessId!==input.businessId||row.revision!==2||row.preference!=='ready'||discoveryV2Hash(row.content)!==discoveryV2Hash(content))return fail();
  return {...input,ownerId:context.userId,goalId:row.id,goalRevision:row.revision,goalHash:row.hash,originalGoalId:broad.goalId,
   ...(recovery?{unsentClosureHash:discoveryV2Hash(source.focusedUnsentClosure)}:{}),
+  ...(technical?{pretransportClosureHash:discoveryV2Hash(source.focusedPretransportClosure)}:{}),
   ...(successor?{predecessorGoalId:source.goalId,originalClosedPlanId:broad.planId!,originalClosedPlanHash:broad.planHash!}:{}),
   closedPlanId:source.planId!,closedPlanHash:source.planHash!,acceptedReviewScopeId:accepted.scopeId,acceptedReviewHash:discoveryV2Hash(accepted.review),
   rootId:source.budgetAuthorityRootId,priorId:source.priorRoundId,installationId:identity(context.userId,input.businessId,source.planId!,'installation'),...hashes};

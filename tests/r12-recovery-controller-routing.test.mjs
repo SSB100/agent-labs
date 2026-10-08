@@ -5,7 +5,7 @@ import {createRequire} from 'node:module';
 const require=createRequire(import.meta.url),ts=require('typescript');
 function harness(recoveryScopeId,error=false){
  const calls=[],m={exports:{}};
- const deps={'server-only':{},'node:crypto':require('node:crypto'),'../core/reviewed-knowledge':{readQuestKnowledge:v=>v},'./supabase/runtime':{createRuntimeClient:()=>({rpc:async(name,args)=>{calls.push({name,args});return error?{error:{message:'private key must not escape'}}:{data:{status:'ok'}};}})}};
+ const deps={'../core/request-deadline':require('../.core-tests/core/request-deadline.js'),'server-only':{},'node:crypto':require('node:crypto'),'../core/reviewed-knowledge':{readQuestKnowledge:v=>v},'./supabase/runtime':{createRuntimeClient:()=>({rpc:async(name,args)=>{calls.push({name,args});return error?{error:{message:'private key must not escape'}}:{data:{status:'ok'}};}})}};
  const js=ts.transpileModule(readFileSync('src/lib/quest-controller-runtime.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
  new Function('require','module','exports',js)(name=>{assert.ok(name in deps,name);return deps[name];},m,m.exports);
  return{calls,store:m.exports.createQuestControllerStore('business','goal',{controllerKey:'inert-controller-key-01234567890123456789',admissionKey:'inert-admission-key-01234567890123456789',...(recoveryScopeId?{recoveryScopeId}:{})})};

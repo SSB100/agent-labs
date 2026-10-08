@@ -11,6 +11,15 @@ export function validateR12HttpDatabase(value){
  assert.ok(url.protocol==='postgresql:'&&url.hostname==='127.0.0.1'&&url.username==='r12_test'&&url.pathname==='/r12_test'&&!url.search&&!url.hash,'Only fresh isolated loopback r12_test is allowed');
  return value;
 }
+/** Restore the exact fresh cluster role baseline, so the existing guarded CI
+ * database reset can run again. Never relax its cluster membership checks. */
+export async function configureR12HttpRoles(db){
+ validateR12HttpDatabase(process.env.R12_POSTGRES_URL);
+ const snapshot=async()=>({settings:(await db.query("select r.rolname,s.setconfig from pg_roles r left join pg_db_role_setting s on s.setrole=r.oid where r.rolname in ('anon','authenticated','r12_test') order by r.rolname")).rows,memberships:(await db.query("select * from pg_auth_members where roleid in (select oid from pg_roles where rolname in ('anon','authenticated'))")).rows});
+ const before=await snapshot();assert.equal(before.settings.length,3);assert.ok(before.settings.every(r=>r.setconfig===null));assert.deepEqual(before.memberships,[]);
+ await db.exec("alter role anon set statement_timeout='3s';alter role authenticated set statement_timeout='8s';alter role r12_test set timezone='UTC';grant anon,authenticated to r12_test;");
+ return async()=>{await db.exec('revoke anon,authenticated from r12_test;alter role anon reset statement_timeout;alter role authenticated reset statement_timeout;alter role r12_test reset timezone;');assert.deepEqual(await snapshot(),before,'HTTP fixture restores API settings/membership before any subsequent isolated reset');};
+}
 const freePort=async()=>{const server=createServer();await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});const port=server.address().port;await new Promise((resolve,reject)=>server.close(error=>error?reject(error):resolve()));return port;};
 export async function startR12Postgrest({binary,databaseUrl}){
  validateR12HttpDatabase(databaseUrl);assert.equal(execFileSync(binary,['--version'],{encoding:'utf8'}).trim(),`PostgREST ${POSTGREST_VERSION}`,'Pinned official PostgREST required');
@@ -31,7 +40,7 @@ export function r12HttpRpc(base,report=[]){
   return{ok:response.ok,status:response.status,data,elapsedMs};
  };
 }
-export async function prepareCommittedR12Recovery(){
+export async function prepareCommittedR12Recovery({coldSequence=false,responseFixture=null,terminal=false}={}){
  assert.equal(process.env.R12_RPC_HTTP_ONLY,'1');assert.equal(process.env.R12_SQL_FULL_SHAPE,'1');validateR12HttpDatabase(process.env.R12_POSTGRES_URL);
  const {prepareR12OwnerWorkflows}=await import('../r12-discovery-scope-sql.test.mjs');
  const {createClosedUnsentSuccessor,exerciseFocusedPilotUnsentRecoveryLifecycle}=await import('./r12-focused-pilot-unsent-recovery-sql-fixture.mjs');
@@ -40,7 +49,10 @@ export async function prepareCommittedR12Recovery(){
  try{await fixture.captureFocusedHttp(async({db,closedFocused})=>{
   const closedUnsent=await createClosedUnsentSuccessor(db,closedFocused,{nested:true,profileFixture:fullShapeProfileFixture,strategyOutput:fullShapeFocusedStrategyOutput});
   await(await import('./r12-next-refreshed-preparation.mjs')).exerciseR12NextRefreshedPreparation(db,closedUnsent);
-  const result=await exerciseFocusedPilotUnsentRecoveryLifecycle(db,closedUnsent,{nested:true,refreshEvidence:true,profileFixture:fullShapeProfileFixture,strategyOutput:fullShapeFocusedStrategyOutput,onReservedDispatch:async ctx=>{ctx.sendFreshness=await(await import('./r12-recovery-send-freshness.mjs')).exerciseRecoverySendFreshness(ctx);context=ctx;return{capturedHttp:true};}});
+  const options={nested:true,profileFixture:fullShapeProfileFixture,strategyOutput:fullShapeFocusedStrategyOutput,responseFixture,...(coldSequence?{onRuntimeReady:async ctx=>{context=ctx;return{capturedHttp:true};}}:{onReservedDispatch:async ctx=>{ctx.sendFreshness=await(await import('./r12-recovery-send-freshness.mjs')).exerciseRecoverySendFreshness(ctx);context=ctx;return{capturedHttp:true};}})};
+  let result;
+  if(terminal){const {createReconciledMarkedRecovery,exerciseTerminalQualificationLifecycle}=await import('./r12-terminal-qualification-sql-fixture.mjs');const marked=await createReconciledMarkedRecovery(db,closedUnsent,{nested:true,guards:false,refreshEvidence:true,profileFixture:fullShapeProfileFixture,strategyOutput:fullShapeFocusedStrategyOutput});await(await import('./r12-next-refreshed-preparation.mjs')).exerciseR12NextTerminalPreparation(db,marked);result=await exerciseTerminalQualificationLifecycle(db,marked,options);}
+  else result=await exerciseFocusedPilotUnsentRecoveryLifecycle(db,closedUnsent,{...options,refreshEvidence:true});
   assert.deepEqual(result,{capturedHttp:true});
  });assert.ok(context);return{...fixture,context};}catch(error){await fixture.close();throw error;}
 }
