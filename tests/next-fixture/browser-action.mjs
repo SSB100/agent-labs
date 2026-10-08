@@ -17,24 +17,37 @@ export async function settledBrowserAction({page,name,settled,timeout=20000,onPr
  }finally{page.off('request',capture);}
 }
 
-export async function observeResearchActionStatus(page){
- await page.evaluate(()=>{
-  const container=document.querySelector('.r12Controls');
-  if(!container||container.querySelector('[role="status"]'))throw Error('Continue requires a fresh control render');
-  const witness={message:null,observer:null};window.__r12TerminalActionWitness=witness;
-  witness.observer=new MutationObserver(records=>{
-   const added=records.flatMap(record=>Array.from(record.addedNodes));
-   const status=container.querySelector('[role="status"]')??added.find(node=>node.nodeType===1&&node.matches('[role="status"]'));
-   if(status?.textContent)witness.message=status.textContent;
-  });
-  witness.observer.observe(container,{childList:true,subtree:true,characterData:true});
- });
+const substantive=record=>JSON.stringify({planId:record.planId,planVersion:record.planVersion,state:record.state,cost:record.cost,phases:record.phases});
+export function researchActionCheckpoint(before,after,now=Date.now()){
+ assert.ok(!['blocked','needs_owner','paused','stopped'].includes(after.state)&&!after.policyRevoked&&!after.paused,'Continue cannot accept a blocked or stopped result');
+ for(const phase of after.phases){
+  assert.ok(!['rejected','failed','cancelled'].includes(phase.status),'Continue cannot accept a failed phase');
+  assert.ok(!['terminal','exhausted','expired','stopped'].includes(phase.receipt?.status),'Continue cannot accept a failed receipt');
+  assert.ok(!phase.responseDiagnostic,'Continue cannot accept an unverified response');
+  assert.ok(!['dispatched','uncertain'].includes(phase.status)||phase.candidateSaved,'Continue cannot accept an unsaved dispatched response');
+  assert.ok(!phase.outcome||phase.outcome==='TEST','This TEST journey cannot accept a negative result');
+ }
+ const advancedLease=Date.parse(after.continueAfter)>now&&Date.parse(after.continueAfter)>Date.parse(before.continueAfter??'1970-01-01');
+ assert.ok(substantive(before)!==substantive(after)||advancedLease,'Continue must advance a substantive saved checkpoint');
+ if(after.state==='completed'){
+  assert.equal(after.phases.find(phase=>phase.phase==='review')?.outcome,'TEST');return{kind:'completed'};
+ }
+ const pending=after.phases.find(phase=>phase.status!=='completed');
+ if(pending?.candidateSaved&&pending.receipt?.status==='awaiting_receipt'){
+  assert.ok(Date.parse(pending.receipt.nextCheckAt)>now,'Receipt checkpoint must retain its future check boundary');
+  return{kind:'receipt',attempts:pending.receipt.attempts,at:pending.receipt.nextCheckAt};
+ }
+ assert.ok(advancedLease,'An incomplete checkpoint must expose its newly advanced lease boundary');
+ return{kind:'lease',at:after.continueAfter};
 }
-export async function awaitResearchActionStatus(page,timeout=300000){
- await page.waitForFunction(()=>!!window.__r12TerminalActionWitness?.message,{},{timeout});
- const message=await page.evaluate(()=>window.__r12TerminalActionWitness.message);
- assert.match(message,/^(Research execution completed\.|The output is saved\.|Progress is saved\.)/,'Continue must return a verified progress result');
+export async function awaitRenderedResearchCheckpoint(page,checkpoint,timeout=20000){
+ await page.waitForFunction(expected=>{
+  const section=document.querySelector('section.r12DiscoveryDetails[aria-label="Qualified discovery progress"]');if(!section)return false;
+  const text=section.textContent.replace(/\s+/g,' ');
+  if(expected.kind==='completed')return text.includes('Research execution completed')&&text.includes('Bounded test recommended');
+  const message=expected.kind==='receipt'?`Output saved. Awaiting provider receipt. Check ${expected.attempts} of 3`:'Saved progress is preserved. Continue becomes available after';
+  const time=Array.from(section.querySelectorAll('time')).some(node=>node.dateTime===expected.at);
+  const button=Array.from(section.querySelectorAll('button')).find(node=>node.textContent.trim()==='Continue approved research');
+  return text.includes(message)&&time&&button?.disabled===true;
+ },checkpoint,{timeout});
 }
-export const releaseResearchActionStatus=page=>page.evaluate(()=>{
- window.__r12TerminalActionWitness?.observer.disconnect();delete window.__r12TerminalActionWitness;
-});
