@@ -11,6 +11,12 @@ on:
         options: [release, focused]
         default: release
         required: true
+      diagnostic:
+        description: Focused diagnostic only; release always runs all required gates
+        type: choice
+        options: [terminal, owner-ui]
+        default: terminal
+        required: false
   push:
     branches:
       - main
@@ -753,7 +759,7 @@ jobs:
     name: R12 focused diagnostics (not release qualification)
     if: (github.event_name == 'pull_request' && github.event.pull_request.draft == true) || (github.event_name == 'workflow_dispatch' && inputs.gate == 'focused')
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && inputs.diagnostic == 'owner-ui' && 10 || 20 }}
     services:
       postgres:
         image: postgres:17
@@ -805,7 +811,7 @@ jobs:
         # The strict reset routine is only for a previously initialized/reused database.
         run: node --test tests/r12-terminal-boundary-preflight.test.mjs
       - name: Install pinned inert browser
-        if: steps.selection.outputs.case == 'terminal'
+        if: steps.selection.outputs.case == 'terminal' || steps.selection.outputs.case == 'owner-ui'
         run: npx playwright-core install --with-deps chromium
       - name: Verify rendered browser action settlement
         if: steps.selection.outputs.case == 'terminal'
@@ -815,6 +821,24 @@ jobs:
         env:
           R12_SQL_TEST_HOST: ${{ runner.temp }}/r12-focused-sql-host
         run: node scripts/verify-r03-next.mjs --r12-terminal-only
+      - name: Verify only the ordinary owner journey and retained Decisions controls
+        if: steps.selection.outputs.case == 'owner-ui'
+        env:
+          R12_SQL_TEST_HOST: ${{ runner.temp }}/r12-focused-sql-host
+          GUIDED_UI_BROWSER: "1"
+          NODE_OPTIONS: --import=${{ github.workspace }}/tests/next-fixture/block-network.mjs
+          NEXT_TELEMETRY_DISABLED: "1"
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:9
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: inert-ci-placeholder
+        run: |
+          set +e
+          node --test tests/console-decisions-browser.test.mjs
+          owner_ui_decisions_status=$?
+          node scripts/verify-r12-owner-next.mjs
+          owner_ui_journey_status=$?
+          if [ "$owner_ui_decisions_status" -ne 0 ] || [ "$owner_ui_journey_status" -ne 0 ]; then
+            exit 1
+          fi
       - name: Preserve focused evidence and limitations
         if: always()
         uses: actions/upload-artifact@v4
@@ -826,6 +850,8 @@ jobs:
             test-results/r03-next/*.json
             test-results/r03-next/*.log
             test-results/r03-next/r12-terminal-qualification-*.png
+            test-results/r12-owner-next/
+            test-results/guided-ui/console-decisions-*.png
           if-no-files-found: warn
           retention-days: 14
 

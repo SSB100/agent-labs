@@ -468,7 +468,7 @@ test('hosted retained React/Suspense Decisions lifecycle, account disclosure, fo
         assert.equal(typeof releaseRead, 'function'); releaseRead(); releaseRead = null;
         await page.waitForFunction(previous => window.__decisionRetainedRenderCount > previous, beforeRefresh);
         assert.equal(await goal.evaluate(node => node === document.activeElement), true);
-        assert.match(await goal.innerText(), /Open research Quests/);
+        assert.match(await goal.innerText(), /Choose Business/);
         assert.equal(await page.evaluate(() => scrollY), draftScroll, 'A background notice revision cannot move the active research opener');
         // This native dialog probes focus isolation; actual Research sheet lifecycle has its separate suite.
         await page.evaluate(() => {

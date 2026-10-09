@@ -12,7 +12,14 @@ export async function captureOwnerJourneyFailure({page,output,stage,index}) {
   const diagnostic={stage:stage.slice(0,500),url:page.url().slice(0,2048),errors:[]};
   const bounded=async work=>{let timer;try{return await Promise.race([work(),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('Failure capture exceeded 3500ms')),3500);})]);}finally{clearTimeout(timer);}};
   const snapshots=await Promise.allSettled([
-    bounded(()=>page.locator('body').evaluate(body=>({
+    bounded(()=>page.locator('body').evaluate(body=>{
+      const root=body.ownerDocument.documentElement;
+      const viewport={width:root.clientWidth,height:root.clientHeight,documentWidth:root.scrollWidth,documentHeight:root.scrollHeight};
+      const overflow=Array.from(body.querySelectorAll('*')).slice(0,1500).map(node=>{
+        const rect=node.getBoundingClientRect();
+        return{tag:node.tagName.toLowerCase(),id:node.id.slice(0,200),classes:(node.getAttribute('class')??'').slice(0,200),left:rect.left,right:rect.right,width:rect.width,height:rect.height,clientWidth:node.clientWidth,scrollWidth:node.scrollWidth};
+      }).filter(node=>node.width>0&&node.height>0&&(node.left< -1||node.right>viewport.width+1||node.scrollWidth>node.clientWidth+1)).slice(0,40);
+      return{viewport,overflow,
       text:body.innerText.slice(0,12000),
       controls:Array.from(body.querySelectorAll('select,input,button,[role="combobox"]')).slice(0,60).map(node=>({
         tag:node.tagName.toLowerCase(),id:node.id.slice(0,200),type:(node.getAttribute('type')??'').slice(0,100),
@@ -20,7 +27,8 @@ export async function captureOwnerJourneyFailure({page,output,stage,index}) {
         labels:Array.from(node.labels??[]).slice(0,4).map(label=>label.textContent.replace(/\s+/g,' ').trim().slice(0,500)),
         disabled:node.matches(':disabled'),
       })),
-    }),undefined,{timeout:2000})),
+      };
+    },undefined,{timeout:2000})),
     bounded(()=>page.locator('body').ariaSnapshot({timeout:2000})),
     bounded(()=>page.screenshot({path:path.join(output,`${stem}.png`),fullPage:false,timeout:3000})),
   ]);

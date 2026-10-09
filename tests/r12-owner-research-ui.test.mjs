@@ -114,10 +114,12 @@ test('failed browser stages retain bounded DOM, exact label text, actual accessi
   const files=new Map(),screenshots=[];
   const {captureOwnerJourneyFailure}=load('tests/next-fixture/r12-owner-initial-journey.mjs',{'node:assert/strict':assert,'node:path':path,'node:fs/promises':{writeFile:async(file,text)=>files.set(file,JSON.parse(text))},'playwright-core':{},'./r12-sql.mjs':{},'./browser-zoom.mjs':{}});
   const control={tagName:'SELECT',id:'owner-profile',getAttribute:()=>null,labels:[{textContent:'Reviewed research profile Choose a profile Synthetic profile'}],matches:()=>false};
-  const page={url:()=>`http://localhost/owner?${'x'.repeat(3000)}`,locator:()=>({evaluate:async evaluate=>evaluate({innerText:'x'.repeat(20000),querySelectorAll:()=>Array(100).fill(control)}),ariaSnapshot:async()=>`- combobox "Reviewed research profile":\n${'x'.repeat(20000)}`}),screenshot:async options=>{screenshots.push(options);}};
+  const overflowing={...control,clientWidth:290,scrollWidth:579,getBoundingClientRect:()=>({left:15,right:594,width:579,height:44})};
+  const page={url:()=>`http://localhost/owner?${'x'.repeat(3000)}`,locator:()=>({evaluate:async evaluate=>evaluate({ownerDocument:{documentElement:{clientWidth:320,clientHeight:800,scrollWidth:579,scrollHeight:5722}},innerText:'x'.repeat(20000),querySelectorAll:selector=>Array(100).fill(selector==='*'?overflowing:control)}),ariaSnapshot:async()=>`- combobox "Reviewed research profile":\n${'x'.repeat(20000)}`}),screenshot:async options=>{screenshots.push(options);}};
   const result=await captureOwnerJourneyFailure({page,output:'/inert-fixture',stage:'Choose exact profile',index:2});
   const saved=files.get('/inert-fixture/failed-stage-02.json');
   assert.equal(saved.stage,'Choose exact profile');assert.equal(saved.url.length,2048);assert.equal(saved.dom.text.length,12000);assert.equal(saved.dom.controls.length,60);
+  assert.deepEqual(saved.dom.viewport,{width:320,height:800,documentWidth:579,documentHeight:5722});assert.equal(saved.dom.overflow.length,40);assert.equal(saved.dom.overflow[0].right,594,'Overflow evidence identifies the actual offending bounds without changing layout');
   assert.deepEqual(saved.dom.controls[0].labels,[control.labels[0].textContent],'Keep the actual label text that exact getByLabel used, including unexpected options');
   assert.match(saved.accessibleNames,/combobox "Reviewed research profile"/);assert.equal(saved.accessibleNames.length,16000);
   assert.deepEqual(result,{diagnostic:'failed-stage-02.json',screenshot:'failed-stage-02.png'});assert.equal(screenshots[0].fullPage,false);assert.equal(screenshots[0].timeout,3000);

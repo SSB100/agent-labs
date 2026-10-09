@@ -24,6 +24,11 @@ export function qualifyRelease({mode,needs,commit,tree}){
 }
 export function focusedDiagnostic(eventName,event){
  assert.equal(ciGateMode(eventName,event),'focused','Diagnostic selection cannot qualify or replace release checks');
+ if(eventName==='workflow_dispatch'){
+  const selected=event.inputs?.diagnostic??'terminal';
+  assert.ok(['terminal','owner-ui'].includes(selected),'Unknown focused diagnostic');
+  return selected;
+ }
  return eventName==='pull_request'&&event.pull_request.body?.includes('<!-- r12-diagnostic: legacy-quote -->')?'legacy-quote':'terminal';
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href&&process.argv.includes('--select-focused')){
