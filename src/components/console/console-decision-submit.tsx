@@ -35,11 +35,11 @@ export function canFocusDecisionHeading(element: HTMLHeadingElement, selectionCh
   const document = element.ownerDocument;
   if (document.querySelector("dialog[open]")) return false;
   const active = document.activeElement as HTMLElement | null;
-  const editing = active?.matches("input, textarea, select") || active?.isContentEditable;
-  return selectionChanged || !editing;
+  const interacting = active && (active.matches("input, textarea, select, button, a[href], summary") || active.isContentEditable || active.tabIndex >= 0);
+  return selectionChanged || !interacting;
 }
 
-/** Exact selection/revision changes focus once; preserve dialogs and background editing. */
+/** Exact selection/revision changes focus once; preserve dialogs and active background controls. */
 export function ConsoleDecisionHeading({ noticeId, revision, children }: { noticeId: string; revision: string; children: string }) {
   const heading = useRef<HTMLHeadingElement>(null);
   const previousNotice = useRef<string | null>(null);

@@ -5,13 +5,47 @@ import {chromium} from 'playwright-core';
 import {r12OwnerRpc} from './r12-sql.mjs';
 import {actualZoomBrowser} from './browser-zoom.mjs';
 
+// Failure artifacts contain only this journey's inert fixture data. Keep each
+// browser read and screenshot bounded so diagnostics cannot hide the first error.
+export async function captureOwnerJourneyFailure({page,output,stage,index}) {
+  const stem=`failed-stage-${String(index).padStart(2,'0')}`;
+  const diagnostic={stage:stage.slice(0,500),url:page.url().slice(0,2048),errors:[]};
+  const bounded=async work=>{let timer;try{return await Promise.race([work(),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('Failure capture exceeded 3500ms')),3500);})]);}finally{clearTimeout(timer);}};
+  const snapshots=await Promise.allSettled([
+    bounded(()=>page.locator('body').evaluate(body=>({
+      text:body.innerText.slice(0,12000),
+      controls:Array.from(body.querySelectorAll('select,input,button,[role="combobox"]')).slice(0,60).map(node=>({
+        tag:node.tagName.toLowerCase(),id:node.id.slice(0,200),type:(node.getAttribute('type')??'').slice(0,100),
+        name:(node.getAttribute('name')??'').slice(0,200),ariaLabel:(node.getAttribute('aria-label')??'').slice(0,500),
+        labels:Array.from(node.labels??[]).slice(0,4).map(label=>label.textContent.replace(/\s+/g,' ').trim().slice(0,500)),
+        disabled:node.matches(':disabled'),
+      })),
+    }),undefined,{timeout:2000})),
+    bounded(()=>page.locator('body').ariaSnapshot({timeout:2000})),
+    bounded(()=>page.screenshot({path:path.join(output,`${stem}.png`),fullPage:false,timeout:3000})),
+  ]);
+  for(const [index,key]of ['dom','accessibleNames','screenshot'].entries()){
+    const result=snapshots[index];
+    if(result.status==='rejected')diagnostic.errors.push({capture:key,error:String(result.reason).slice(0,2000)});
+    else diagnostic[key]=key==='screenshot'?`${stem}.png`:key==='accessibleNames'?result.value.slice(0,16000):result.value;
+  }
+  await writeFile(path.join(output,`${stem}.json`),JSON.stringify(diagnostic,null,2));
+  return{diagnostic:`${stem}.json`,...(diagnostic.screenshot?{screenshot:diagnostic.screenshot}:{})};
+}
+
 /** Real Next/React/authenticated owner actions and migrated isolated SQL.
  * All public catalogs, provider responses and receipts are synthetic engineering
  * evidence. This journey makes no business-purpose qualification claim. */
 export async function runOwnerInitialJourney({origin,boundary,output}) {
-  const results=[],external=[],errors=[];let browserStatus='not started';
+  const results=[],external=[],errors=[];let browserStatus='not started',page;
   const report=()=>writeFile(path.join(output,'acceptance.json'),JSON.stringify({results,external,errors,browser:browserStatus,boundary:'isolated SQL and synthetic provider transport only'},null,2));
-  const check=async(name,work)=>{console.log('START:',name);try{await work();results.push({name,status:'passed'});console.log('PASS:',name);}catch(error){results.push({name,status:'failed',error:String(error.stack??error)});await report();throw error;}await report();};
+  const check=async(name,work)=>{
+    console.log('START:',name);let failure;
+    const captureFailure=async target=>{try{failure={artifacts:await captureOwnerJourneyFailure({page:target,output,stage:name,index:results.length+1})};}catch(error){failure={diagnosticError:String(error).slice(0,2000)};}};
+    try{await work(captureFailure);results.push({name,status:'passed'});console.log('PASS:',name);}
+    catch(error){if(!failure)await captureFailure(page);results.push({name,status:'failed',error:String(error.stack??error),...failure});await report();throw error;}
+    await report();
+  };
   const control=async(kind)=>{const response=await fetch(boundary.origin+'/control',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({r12Scenario:`owner-initial-${kind}`,r12DelayReceipt:false}),signal:AbortSignal.timeout(90000)});assert.equal(response.status,200,await response.text());};
   const current=()=>boundary.state().r12;
   const catalog=async(goalId=current().goalId,setupId=null)=>{const result=await r12OwnerRpc(boundary.state(),'r12_owner_research_read',{p_business_id:current().businessId,p_goal_id:goalId,p_setup_id:setupId});assert.equal(result.error,null);return result.data;};
@@ -21,7 +55,7 @@ export async function runOwnerInitialJourney({origin,boundary,output}) {
   const context=await browser.newContext({viewport:{width:1280,height:900},reducedMotion:'reduce'});
   context.setDefaultTimeout(30000);context.setDefaultNavigationTimeout(30000);
   await context.route('**/*',route=>{const url=new URL(route.request().url());if(['http:','https:'].includes(url.protocol)&&url.origin!==origin){external.push(url.origin);return route.abort('blockedbyclient');}return route.continue();});
-  const page=await context.newPage();page.on('pageerror',error=>errors.push(String(error)));
+  page=await context.newPage();page.on('pageerror',error=>errors.push(String(error)));
   const text=()=>page.locator('main').innerText();
   const choose=async()=>{await page.getByLabel('Reviewed research profile',{exact:true}).selectOption(`${current().profileId}:${current().grantId}`);await page.getByLabel('Public market set',{exact:true}).selectOption('gb');await page.getByLabel('Public topic and adult audience',{exact:true}).selectOption('astronomy');await page.getByLabel('Proposed Business lifetime limit (USD)',{exact:true}).fill('6.000000');};
   const capture=async(name)=>{const geometry=await page.evaluate(()=>({width:document.documentElement.clientWidth,height:document.documentElement.clientHeight,documentWidth:document.documentElement.scrollWidth,documentHeight:document.documentElement.scrollHeight}));assert.ok(geometry.documentWidth<=geometry.width+1,`${name}: horizontal overflow ${JSON.stringify(geometry)}`);if(geometry.width>=1280)assert.ok(geometry.documentHeight<=geometry.height+1,`${name}: desktop document escaped its viewport ${JSON.stringify(geometry)}`);await page.screenshot({path:path.join(output,`${name}.png`),fullPage:true});};
@@ -87,17 +121,17 @@ export async function runOwnerInitialJourney({origin,boundary,output}) {
       await page.goForward();await page.waitForURL(url=>!url.searchParams.has('quest'));await page.goBack();await page.waitForURL(exact);await consent().waitFor();assert.equal(await consent().isChecked(),false,'Forward/Back cannot restore unsent permission');
       await consent().check();await page.reload();await consent().waitFor();assert.equal(await consent().isChecked(),false);assert.equal((await catalog(goalId)).setups.length,1);assert.deepEqual(current().calls,[]);await capture('owner-history-consent-reset');
     });
-    await check('new owner packet supports real 200 percent browser zoom and keyboard consent without dispatch',async()=>{
-      const zoom=await actualZoomBrowser();
+    await check('new owner packet supports real 200 percent browser zoom and keyboard consent without dispatch',async captureFailure=>{
+      const zoom=await actualZoomBrowser();let zoomPage;
       try{
         await zoom.context.route('**/*',route=>{const url=new URL(route.request().url());if(['http:','https:'].includes(url.protocol)&&url.origin!==origin){external.push(url.origin);return route.abort('blockedbyclient');}return route.continue();});
-        const zoomPage=await zoom.context.newPage();zoomPage.on('pageerror',error=>errors.push(String(error)));await zoomPage.goto(page.url());assert.equal(await zoom.set(zoomPage,2),2);
+        zoomPage=await zoom.context.newPage();zoomPage.on('pageerror',error=>errors.push(String(error)));await zoomPage.goto(page.url());assert.equal(await zoom.set(zoomPage,2),2);
         await zoomPage.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
         const consent=zoomPage.getByRole('checkbox',{name:/I reviewed this exact packet/});await consent.scrollIntoViewIfNeeded();await consent.focus();await zoomPage.keyboard.press('Space');assert.equal(await consent.isChecked(),true);await zoomPage.keyboard.press('Space');assert.equal(await consent.isChecked(),false);
         const geometry=await zoomPage.evaluate(()=>({width:innerWidth,documentWidth:document.documentElement.scrollWidth}));assert.ok(geometry.width>=630&&geometry.width<=650,'Verify actual 2x browser zoom viewport');assert.ok(geometry.documentWidth<=geometry.width+1);
         const confirm=zoomPage.getByRole('button',{name:'Confirm this exact research policy',exact:true});await confirm.scrollIntoViewIfNeeded();const box=await confirm.boundingBox();assert.ok(box&&box.width>=100&&box.height>=43.5,'Zoomed confirmation stays reachable/readable');
         await zoomPage.screenshot({path:path.join(output,'owner-packet-controls-zoom200.png')});await zoomPage.getByRole('heading',{name:'Research a saved Quest',exact:true}).scrollIntoViewIfNeeded();await zoomPage.screenshot({path:path.join(output,'owner-packet-zoom200.png')});assert.deepEqual(current().calls,[]);
-      }finally{await zoom.close();}
+      }catch(error){if(zoomPage)await captureFailure(zoomPage);throw error;}finally{await zoom.close();}
     });
     await check('exact confirmation blocks repeated clicks, activates only finite authority, and opens existing Continue/Stop workspace',async()=>{
       await page.getByRole('checkbox',{name:/I reviewed this exact packet/}).check();
@@ -116,7 +150,11 @@ export async function runOwnerInitialJourney({origin,boundary,output}) {
       assert.deepEqual(current().calls,['plan','search1','select1','strategy','review']);assert.deepEqual(current().receipts,current().calls);
       assert.match(await text(),/Market evaluation/);assert.doesNotMatch(await text(),/realised profit|proven demand/i);
       await capture('05-honest-native-result');
-      await page.getByRole('button',{name:'Stop research',exact:true}).click();await page.reload();
+      await page.getByRole('button',{name:'Stop research',exact:true}).click();
+      // Pending is named "Stopping…". Wait for the settled, disabled control
+      // after the natural refresh so reload cannot cancel the Stop action.
+      await page.getByRole('button',{name:'Stop research',exact:true,disabled:true}).waitFor();
+      await page.reload();
       await page.getByRole('heading',{name:'Needs more evidence',exact:true}).waitFor();assert.equal(await page.getByRole('button',{name:'Stop research',exact:true}).isDisabled(),true);
       assert.equal(current().calls.length,5);
     });

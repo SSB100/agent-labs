@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import type { OwnerResearchCatalog, OwnerResearchPreparationInput, OwnerResearchSetupReceipt } from "@/products/discovery-r12-goal-preparation-contract";
 import { prepareOwnerResearchAction, confirmOwnerResearchAction, stopOwnerResearchAction } from "@/app/dashboard/quests/research/actions";
@@ -12,6 +12,7 @@ type Props = { ownerId: string; catalog: OwnerResearchCatalog; selectedReceipt: 
 
 export function OwnerResearchWorkspace({ ownerId, catalog, selectedReceipt, observedAt }: Props) {
   const router = useRouter(), { business, goal, funding } = catalog;
+  const fieldId = useId();
   const [profileKey, setProfileKey] = useState(selectedReceipt ? `${selectedReceipt.preview.profileId}:${selectedReceipt.grantId}` : "");
   const [marketSetKey, setMarketSetKey] = useState(selectedReceipt?.preview.selection.marketSetKey ?? "");
   const [topicKey, setTopicKey] = useState(selectedReceipt?.preview.selection.topicKey ?? "");
@@ -110,10 +111,10 @@ export function OwnerResearchWorkspace({ ownerId, catalog, selectedReceipt, obse
     {catalog.profilesTruncated ? <p role="note">Only a bounded set of current reviewed profiles is shown. Unsupported or omitted profiles cannot be selected here.</p> : null}
     {ready ? <form className="ownerResearchForm" onSubmit={event => void prepare(event)}>
       <fieldset disabled={locked}><legend>Choose reviewed public research scope</legend>
-        <label>Reviewed research profile<select required value={profileKey} onChange={event => edit(() => { setProfileKey(event.target.value); setMarketSetKey(""); setTopicKey(""); })}><option value="" disabled>Choose a profile</option>{catalog.profiles.map(item => <option key={`${item.profile.id}:${item.grantId}`} value={`${item.profile.id}:${item.grantId}`}>{item.profile.title}</option>)}</select></label>
+        <div className="ownerResearchField"><label htmlFor={`${fieldId}-profile`}>Reviewed research profile</label><select id={`${fieldId}-profile`} required value={profileKey} onChange={event => edit(() => { setProfileKey(event.target.value); setMarketSetKey(""); setTopicKey(""); })}><option value="" disabled>Choose a profile</option>{catalog.profiles.map(item => <option key={`${item.profile.id}:${item.grantId}`} value={`${item.profile.id}:${item.grantId}`}>{item.profile.title}</option>)}</select></div>
         {selected ? <p>{selected.profile.purpose}</p> : null}
-        <label>Public market set<select required disabled={!selected || locked} value={marketSetKey} onChange={event => edit(() => setMarketSetKey(event.target.value))}><option value="" disabled>Choose supported markets</option>{selected?.profile.marketSets.map(market => <option key={market.key} value={market.key}>{market.label}</option>)}</select></label>
-        <label>Public topic and adult audience<select required disabled={!selected || locked} value={topicKey} onChange={event => edit(() => setTopicKey(event.target.value))}><option value="" disabled>Choose a supported topic</option>{selected?.profile.topics.map(topic => <option key={topic.key} value={topic.key}>{topic.label} · {topic.audience}</option>)}</select></label>
+        <div className="ownerResearchField"><label htmlFor={`${fieldId}-market`}>Public market set</label><select id={`${fieldId}-market`} required disabled={!selected || locked} value={marketSetKey} onChange={event => edit(() => setMarketSetKey(event.target.value))}><option value="" disabled>Choose supported markets</option>{selected?.profile.marketSets.map(market => <option key={market.key} value={market.key}>{market.label}</option>)}</select></div>
+        <div className="ownerResearchField"><label htmlFor={`${fieldId}-topic`}>Public topic and adult audience</label><select id={`${fieldId}-topic`} required disabled={!selected || locked} value={topicKey} onChange={event => edit(() => setTopicKey(event.target.value))}><option value="" disabled>Choose a supported topic</option>{selected?.profile.topics.map(topic => <option key={topic.key} value={topic.key}>{topic.label} · {topic.audience}</option>)}</select></div>
         <p>Only reviewed public choices are supported. Your original Quest is preserved. Price is unavailable until you prepare a fresh server-quoted packet.</p>
         <label>Proposed Business lifetime limit (USD)<input required inputMode="decimal" pattern="(0|[1-9][0-9]*)(\.[0-9]{1,6})?" value={businessUsd} onChange={event => edit(() => setBusinessUsd(event.target.value))}/></label>
         <p>Current Business lifetime limit: {ownerResearchUsd(business.maximumMicrounits)}. Existing committed exposure: {ownerResearchUsd(business.committedMicrounits)}. The complete run must fit alongside existing costs.</p>

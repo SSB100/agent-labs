@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createRequire} from 'node:module';
 import {webcrypto} from 'node:crypto';
+import path from 'node:path';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import ts from 'typescript';
@@ -44,7 +45,7 @@ const deferred=()=>{let resolve;const promise=new Promise(done=>resolve=done);re
 
 function harness(f=fixture(),{selectedReceipt=f.receipt,actions={},storage=new Map()}={}) {
   let stateIndex=0,refIndex=0,effectIndex=0,sequence=100;const states=[],refs=[],effects=[],calls=[],navigation=[],listeners=new Map();
-  const hooks={...React,useState(initial){const index=stateIndex++;if(!(index in states))states[index]=initial;return[states[index],value=>states[index]=typeof value==='function'?value(states[index]):value];},useRef(initial){const index=refIndex++;return refs[index]??={current:initial};},useEffect(fn){const index=effectIndex++;effects[index]??=fn;}};
+  const hooks={...React,useId:()=>':synthetic-owner-form:',useState(initial){const index=stateIndex++;if(!(index in states))states[index]=initial;return[states[index],value=>states[index]=typeof value==='function'?value(states[index]):value];},useRef(initial){const index=refIndex++;return refs[index]??={current:initial};},useEffect(fn){const index=effectIndex++;effects[index]??=fn;}};
   const actionModule={};for(const name of ['prepareOwnerResearchAction','confirmOwnerResearchAction','stopOwnerResearchAction'])actionModule[name]=async input=>{calls.push({name,input});return actions[name]?actions[name](input):{ok:true,receipt:{...f.receipt,confirmed:name==='confirmOwnerResearchAction',stopped:name==='stopOwnerResearchAction'}};};
   const sessionStorage={getItem:key=>storage.get(key)??null,setItem:(key,value)=>storage.set(key,value)};
   const view=load('src/components/quests/owner-research-workspace.tsx',{react:hooks,'next/navigation':{useRouter:()=>({replace:href=>navigation.push(['replace',href]),refresh:()=>navigation.push(['refresh'])})},'@/app/dashboard/quests/research/actions':actionModule,'@/lib/core-ui/owner-research-form':money,'./owner-research-packet':packet},{window:{sessionStorage,setInterval:()=>1,clearInterval:()=>{},addEventListener:(name,handler)=>listeners.set(name,handler),removeEventListener:name=>listeners.delete(name)},crypto:{subtle:webcrypto.subtle,randomUUID:()=>id(++sequence)},TextEncoder});
@@ -85,6 +86,44 @@ test('native funding has only one cap input while legacy keeps its original cumu
     assert.equal(h.calls.length,0,'Rendering never prepares, confirms or dispatches');
     assert.ok(elements(tree,e=>e.type==='select').every(select=>select.props.value===''),'No first-profile, market or topic fallback');
   }
+});
+
+test('owner select labels have exact text independent of options and unique explicit associations',()=>{
+  const f=fixture(),{OwnerResearchWorkspace}=load('src/components/quests/owner-research-workspace.tsx',{'next/navigation':{useRouter:()=>({})},'@/app/dashboard/quests/research/actions':{},'@/lib/core-ui/owner-research-form':money,'./owner-research-packet':packet});
+  const expected=['Reviewed research profile','Public market set','Public topic and adult audience'];
+  // Render real React IDs, including two instances of the same Quest. Exercise
+  // both empty and populated options because nested OPTION text caused the bug.
+  for(const selectedReceipt of [null,f.receipt]){
+    const props={ownerId:id(90),catalog:f.catalog,selectedReceipt,observedAt:f.now};
+    const html=renderToStaticMarkup(React.createElement(React.Fragment,null,React.createElement(OwnerResearchWorkspace,props),React.createElement(OwnerResearchWorkspace,props)));
+    const selects=[...html.matchAll(/<select\b([^>]*)>/g)];assert.equal(selects.length,6);
+    const ids=selects.map(([,attributes])=>{const match=attributes.match(/\bid="([^"]+)"/);assert.ok(match,'Every owner select has an ID');return match[1];});
+    assert.equal(new Set(ids).size,6,'Repeated workspace instances cannot share control IDs');
+    const labels=[...html.matchAll(/<label\b[^>]*for="([^"]+)"[^>]*>([\s\S]*?)<\/label>/g)];
+    ids.forEach((controlId,index)=>{
+      const associated=labels.filter(([,target])=>target===controlId);assert.equal(associated.length,1,'Each select has exactly one associated label');
+      assert.equal(associated[0][2],expected[index%expected.length],'Label text must not include a select or option text');
+    });
+  }
+  const h=harness(),before=elements(h.render(),node=>node.type==='select').map(node=>node.props.id);
+  elements(h.render(),node=>node.type==='select')[1].props.onChange({target:{value:'gb'}});
+  assert.deepEqual(elements(h.render(),node=>node.type==='select').map(node=>node.props.id),before,'Control IDs survive selection edits');
+});
+
+test('failed browser stages retain bounded DOM, exact label text, actual accessible names and screenshot outcomes',async()=>{
+  const files=new Map(),screenshots=[];
+  const {captureOwnerJourneyFailure}=load('tests/next-fixture/r12-owner-initial-journey.mjs',{'node:assert/strict':assert,'node:path':path,'node:fs/promises':{writeFile:async(file,text)=>files.set(file,JSON.parse(text))},'playwright-core':{},'./r12-sql.mjs':{},'./browser-zoom.mjs':{}});
+  const control={tagName:'SELECT',id:'owner-profile',getAttribute:()=>null,labels:[{textContent:'Reviewed research profile Choose a profile Synthetic profile'}],matches:()=>false};
+  const page={url:()=>`http://localhost/owner?${'x'.repeat(3000)}`,locator:()=>({evaluate:async evaluate=>evaluate({innerText:'x'.repeat(20000),querySelectorAll:()=>Array(100).fill(control)}),ariaSnapshot:async()=>`- combobox "Reviewed research profile":\n${'x'.repeat(20000)}`}),screenshot:async options=>{screenshots.push(options);}};
+  const result=await captureOwnerJourneyFailure({page,output:'/inert-fixture',stage:'Choose exact profile',index:2});
+  const saved=files.get('/inert-fixture/failed-stage-02.json');
+  assert.equal(saved.stage,'Choose exact profile');assert.equal(saved.url.length,2048);assert.equal(saved.dom.text.length,12000);assert.equal(saved.dom.controls.length,60);
+  assert.deepEqual(saved.dom.controls[0].labels,[control.labels[0].textContent],'Keep the actual label text that exact getByLabel used, including unexpected options');
+  assert.match(saved.accessibleNames,/combobox "Reviewed research profile"/);assert.equal(saved.accessibleNames.length,16000);
+  assert.deepEqual(result,{diagnostic:'failed-stage-02.json',screenshot:'failed-stage-02.png'});assert.equal(screenshots[0].fullPage,false);assert.equal(screenshots[0].timeout,3000);
+  page.locator=()=>({evaluate:async()=>{throw Error('DOM unavailable');},ariaSnapshot:async()=>{throw Error('Names unavailable');}});page.screenshot=async()=>{throw Error('Screenshot unavailable');};
+  const unavailable=await captureOwnerJourneyFailure({page,output:'/inert-fixture',stage:'Unavailable browser',index:3});
+  assert.deepEqual(unavailable,{diagnostic:'failed-stage-03.json'});assert.equal(files.get('/inert-fixture/failed-stage-03.json').errors.length,3,'Capture failures stay reviewable without replacing the journey failure');
 });
 
 test('consent binds the exact setup hash, clears on edits/reload, and cannot authorize an expired quote',()=>{
