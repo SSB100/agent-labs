@@ -9,8 +9,9 @@ import { discoveryR12ServerDependencies } from "./discovery-r12-server-dependenc
 import { prepareDiscoveryR12Authority } from "./discovery-r12-server";
 import { validateOwnerResearchProfile } from "./discovery-r12-goal-scope";
 import { validateOwnerEpisodeClosure } from "./discovery-r12-owner-episode";
+import { preflightDiscoveryR12OwnerPlanner } from "./discovery-r12-planner-preflight";
 import {
-  prepareOwnerResearchPreview, prepareOwnerResearchEpisodePreview, validateOwnerResearchContinuation,
+  prepareOwnerResearchPreview, prepareOwnerResearchEpisodePreview, validateOwnerResearchContinuation, ownerResearchExecutionIntent,
   validateOwnerResearchPreparationInput, validateOwnerResearchEpisodePreparationInput, validateOwnerResearchQuote,
   validateOwnerResearchGrantRootRevision,
   type OwnerResearchCatalog, type OwnerResearchPreparationInput, type OwnerResearchEpisodePreparationInput, type OwnerResearchSetupAction,
@@ -218,9 +219,23 @@ export async function confirmOwnerResearch(context: OwnerUiContext, input: Owner
   validateOwnerResearchQuote(quote);
   validateOwnerResearchQuote(before.preview.quote);
   if (quote.maximumMicrousd > before.preview.quote.maximumMicrousd || Object.entries(quote.ceilings).some(([phase, amount]) => amount > before.preview.quote.ceilings[phase as keyof typeof quote.ceilings])) return fail();
+  // Read exact saved inputs before deriving authority. SQL rechecks this input
+  // fingerprint under its confirmation locks; this read creates no authority.
+  const preflightRead = await boundedRpc(context.supabase.rpc("r12_owner_research_preflight", {
+    p_business_id: input.businessId, p_setup_id: input.setupId, p_setup_hash: input.setupHash, p_quote: quote,
+  }), requestDeadline(15_000), 10_000);
+  const packet = preflightRead.data;
+  if (preflightRead.error || !object(packet) || packet.setupId !== input.setupId || packet.setupHash !== input.setupHash ||
+      packet.scopeId !== before.scopeId || typeof packet.cutoff !== "string" ||
+      discoveryV2Hash(packet.intent) !== discoveryV2Hash(ownerResearchExecutionIntent(before.preview, before.scopeId, packet.cutoff))) {
+    throw new Error("r12_owner_planner_preflight_unavailable");
+  }
+  let preflight;
+  try { preflight = await preflightDiscoveryR12OwnerPlanner(packet, quote); }
+  catch { throw new Error("r12_owner_planner_preflight_failed"); }
   const keys = await prepareDiscoveryR12Authority(context, input.businessId, before.scopeId);
   const { data, error } = await boundedRpc(context.supabase.rpc("r12_owner_research_server", { p_business_id: input.businessId, p_operation: before.preview.version === "r12.owner-research-episode-preview.1" ? "confirm_episode" : "confirm",
-    p_payload: { setupId: input.setupId, setupHash: input.setupHash, submissionId: input.submissionId, controllerKeyHash: keys.controllerKeyHash, admissionKeyHash: keys.admissionKeyHash, quote }, p_server_key: serverKey }), requestDeadline(20_000), 15_000);
+    p_payload: { setupId: input.setupId, setupHash: input.setupHash, submissionId: input.submissionId, controllerKeyHash: keys.controllerKeyHash, admissionKeyHash: keys.admissionKeyHash, quote, preflight }, p_server_key: serverKey }), requestDeadline(20_000), 15_000);
   if (!error && data) return parseOwnerResearchSetupReceipt(data, input.businessId, input.setupId);
   const after = await exactSetup(context, input);
   if (after.activated || after.stopped) return after;

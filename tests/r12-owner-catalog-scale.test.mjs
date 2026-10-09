@@ -47,6 +47,7 @@ test('actual SQL catalog with twenty packets and multiple profiles survives boun
    './discovery-r12-server-dependencies':{discoveryR12ServerDependencies:denied},'./discovery-r12-server':{prepareDiscoveryR12Authority:denied},
    './discovery-r12-goal-scope':core('products/discovery-r12-goal-scope'),'./discovery-r12-owner-episode':core('products/discovery-r12-owner-episode'),
    './discovery-r12-goal-preparation-contract':core('products/discovery-r12-goal-preparation-contract'),
+   './discovery-r12-planner-preflight':core('products/discovery-r12-planner-preflight'),
   });
   let mutate=null;
   const context={userId:f.ownerId,businesses:[{id:f.businessId,name:'Synthetic catalog Business'}],supabase:{

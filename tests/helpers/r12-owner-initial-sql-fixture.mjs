@@ -7,6 +7,7 @@ import {discoveryKnowledgeFixture} from '../discovery-v2-fixtures.mjs';
 import {r12QuoteFixture} from './r12-provider-fixture.mjs';
 import {buildDiscoveryIntentFromGoal} from '../../.core-tests/products/discovery-v2-goal.js';
 import {discoveryV2Hash as hash} from '../../.core-tests/products/discovery-v2.js';
+import {preflightDiscoveryR12OwnerPlanner} from '../../.core-tests/products/discovery-r12-planner-preflight.js';
 export const OWNER_BOOTSTRAP_KEY='inert-owner-initial-bootstrap-capability-qualification-only';
 export const sha=value=>createHash('sha256').update(value).digest('hex');
 export const one=async(db,sql,args=[])=>(await db.query(sql,args)).rows[0];
@@ -16,6 +17,18 @@ export async function ownerInitialRpc(db,owner,name,args){
 }
 export async function ownerInitialRuntimeRpc(db,name,args){
  await db.exec('set role anon');try{return(await one(db,`select public.${name}(${args.map((_,n)=>'$'+(n+1)).join(',')}) result`,args)).result;}finally{await db.exec('reset role');}
+}
+export async function ownerPreflightPrepared(rpc,businessId,prepared){
+ const quote=r12QuoteFixture();
+ const input=await rpc('r12_owner_research_preflight',[businessId,prepared.setupId,prepared.setupHash,quote]);
+ const receipt=await preflightDiscoveryR12OwnerPlanner(input,quote);
+ Object.defineProperty(prepared,'_plannerPreflight',{value:{quote,receipt},enumerable:false});
+ return prepared;
+}
+export function ownerConfirmPayload(prepared){
+ const pin=prepared._plannerPreflight;
+ assert.ok(pin,'Prepared SQL fixture requires a genuine owner planner preflight');
+ return {setupId:prepared.setupId,setupHash:prepared.setupHash,submissionId:randomUUID(),controllerKeyHash:sha('inert-controller-'+prepared.scopeId),admissionKeyHash:sha('inert-admission-'+prepared.scopeId),quote:pin.quote,preflight:pin.receipt};
 }
 export async function ownerInitialSqlFixture(db,{maximumScopes=4,maximumAllocation=8000000,objective='Investigate original astronomy T-shirt opportunities for adult buyers.',legacy=null,bootstrapRoot=null}={}){
  const ownerId=randomUUID(),businessId=randomUUID(),profileId=randomUUID(),bindingId=randomUUID(),rootId=randomUUID(),grantId=randomUUID();
@@ -55,11 +68,15 @@ export async function ownerInitialSqlFixture(db,{maximumScopes=4,maximumAllocati
  await db.query('insert into private.r12_owner_grant_roots(id,business_id,binding_id,maximum_scopes,maximum_allocation_microunits,approval_hash) values($1,$2,$3,$4,$5,$6)',[rootId,businessId,bindingId,maximumScopes,maximumAllocation,'1'.repeat(64)]);
  await db.query('insert into private.r12_owner_bootstrap_grants(id,root_id,business_id,owner_id,profile_id,server_key_hash,approval_hash,valid_from,valid_until,business_revision,business_hash) values($1,$2,$3,$4,$5,$6,$7,$8,$9,1,$10)',[grantId,rootId,businessId,ownerId,profileId,sha(bootstrapKey),'2'.repeat(64),profile.validFrom,profile.validUntil,businessHash]);
  const input={businessId,goalId:goal.id,goalRevision:2,profileId,profileHash:hash(profile),grantId,marketSetKey:'gb',topicKey:'astronomy',businessLifetimeLimitMicrounits:'6000000',researchLifetimeLimitMicrounits:'6000000',submissionId:randomUUID()};
+ const server=async(op,payload,key=bootstrapKey)=>{
+  const result=await rpc('r12_owner_research_server',[businessId,op,payload,key]);
+  return op==='prepare'||op==='prepare_episode'?ownerPreflightPrepared(rpc,businessId,result):result;
+ };
  return {db,ownerId,businessId,businessHash,businessRevision:1,goalId:goal.id,profileId,bindingId,rootId,grantId,profile,pins,input,content,legacy,bootstrapKey,rpc,
  read:(goalId=goal.id,setupId=null)=>rpc('r12_owner_research_read',[businessId,goalId,setupId]),
- server:(op,payload,key=bootstrapKey)=>rpc('r12_owner_research_server',[businessId,op,payload,key]),
- prepare:(changes={})=>rpc('r12_owner_research_server',[businessId,'prepare',{input:{...input,...changes},quote:r12QuoteFixture()},bootstrapKey]),
- confirmPayload:setup=>({setupId:setup.setupId,setupHash:setup.setupHash,submissionId:randomUUID(),controllerKeyHash:sha('inert-controller-'+setup.scopeId),admissionKeyHash:sha('inert-admission-'+setup.scopeId),quote:r12QuoteFixture()})};
+ server,
+ prepare:(changes={})=>server('prepare',{input:{...input,...changes},quote:r12QuoteFixture()}),
+ confirmPayload:ownerConfirmPayload};
 }
 export async function exerciseOwnerInitialSql(db){
  const f=await ownerInitialSqlFixture(db);const read=await f.read();assert.equal(read.profiles.length,1);assert.equal(read.goal.content.objective,f.content.objective);assert.equal(read.funding.binding.kind,'r05_business');

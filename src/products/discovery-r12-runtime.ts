@@ -19,6 +19,7 @@ import { discoveryEvidenceExecutionIntent, validateDiscoveryEvidenceContinuation
 import { discoveryAddendumReferences } from "./discovery-r12-evidence-addendum";
 import type { DiscoveryR12Phase } from "./discovery-r12-wire";
 import { readDiscoveryR12FocusedPilotInputs, buildDiscoveryR12FocusedPilotRequest, projectDiscoveryR12FocusedPilotPhase, reconstructDiscoveryR12FocusedPilotResult, type DiscoveryR12FocusedPilotInputs } from "./discovery-r12-focused-pilot-runtime";
+import { buildDiscoveryR12OwnerPlannerRequest } from "./discovery-r12-planner-preflight";
 
 /** These rows come from the R12 server's exact completed dependency join. They
  * are neither an owner submission nor fabricated legacy worker.output rows. */
@@ -271,9 +272,13 @@ export function buildDiscoveryR12PhaseRequest(ctx: QuestAdapterContext, input: D
   if (state.inputMode !== "dispatch" || !["scheduled", "reserved"].includes(ctx.attempt.status)) return fail();
   let request: StructuredModelRequest | WebSearchModelRequest;
   if (phase === "plan") {
-    request = buildDiscoveryPlannerRequestV2(state.scope.intent, state.knowledge, undefined, state.ownerInitial ? "owner_initial" : "qualified_public", state.ownerInitial).request;
-    request.messages[0].content += " The actual public search question is separately reviewed and fixed. Your queryFocus is advisory and cannot expand it.";
-    request.messages[1].content = JSON.stringify({ ...JSON.parse(request.messages[1].content), approvedSearchQuery: state.scope.amendment.approvedQuery });
+    if (state.ownerInitial) request = buildDiscoveryR12OwnerPlannerRequest(state.scope.intent, state.knowledge, state.ownerInitial,
+      state.scope.amendment.approvedQuery, state.committedBeforeAttemptMicrousd);
+    else {
+      request = buildDiscoveryPlannerRequestV2(state.scope.intent, state.knowledge, undefined, "qualified_public").request;
+      request.messages[0].content += " The actual public search question is separately reviewed and fixed. Your queryFocus is advisory and cannot expand it.";
+      request.messages[1].content = JSON.stringify({ ...JSON.parse(request.messages[1].content), approvedSearchQuery: state.scope.amendment.approvedQuery });
+    }
   }
   else if (phase === "search1") {
     const { query } = planAndCandidates(state);
@@ -288,7 +293,7 @@ export function buildDiscoveryR12PhaseRequest(ctx: QuestAdapterContext, input: D
 
   // Metadata is private runtime binding, not provider grammar. It preserves the
   // exact before-call accounting snapshot used to interpret the returned output.
-  if ("messages" in request) request.requestMetadata = { ...request.requestMetadata, r12CommittedBeforeAttemptMicrousd: state.committedBeforeAttemptMicrousd, r12KnowledgeHash: discoveryKnowledgeHashV2(state.knowledge), ...(state.ownerInitial ? { r12OwnerInitialScopeHash: state.ownerInitial.scopeHash } : {}) };
+  if ("messages" in request && !(phase === "plan" && state.ownerInitial)) request.requestMetadata = { ...request.requestMetadata, r12CommittedBeforeAttemptMicrousd: state.committedBeforeAttemptMicrousd, r12KnowledgeHash: discoveryKnowledgeHashV2(state.knowledge), ...(state.ownerInitial ? { r12OwnerInitialScopeHash: state.ownerInitial.scopeHash } : {}) };
   return request;
 }
 export function projectDiscoveryR12Phase(ctx: QuestAdapterContext, input: DiscoveryR12PhaseInputs, qualified: ReturnType<typeof qualifyDiscoveryR12Candidate>, request: StructuredModelRequest | WebSearchModelRequest): Omit<QuestEffectResponse, "settlement"> {

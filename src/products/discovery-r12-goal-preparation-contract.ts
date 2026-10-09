@@ -205,7 +205,7 @@ export function prepareOwnerResearchEpisodePreview(input: OwnerResearchEpisodePr
 }
 
 /** Run-local intent does not contain or replace either cumulative ledger. */
-export function ownerResearchExecutionIntent(preview: OwnerResearchPreparationPreview, scopeId: string, expiresAt: string): DiscoveryIntentV2 {
+export function ownerResearchExecutionIntent(preview: OwnerResearchAnyPreview, scopeId: string, expiresAt: string): DiscoveryIntentV2 {
   if (!UUID.test(scopeId) || !Number.isFinite(Date.parse(expiresAt))) return fail("intent_invalid");
   return { version: DISCOVERY_V2, id: scopeId, businessId: preview.businessId, objective: preview.objective,
     comparisonUniverse: { productType: "original_pod_tshirt", markets: structuredClone(preview.markets), audiences: [preview.audience], sourceDomains: [...preview.sourceDomains], selectionQuestion: preview.approvedQuery },

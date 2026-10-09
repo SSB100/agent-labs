@@ -61,6 +61,44 @@ test('validated owner-initial intent supports 1–4 markets and an unrelated adu
   assert.throws(()=>normalizeDiscoveryPlanV2(f.intent,f.output,'qualified_public',f.now),/geographic comparison markets/);
 });
 
+test('owner-initial planner keeps a long approved goal once and preserves a distinct focus through the real wire',async()=>{
+  const f=fixture(4);
+  const objectiveParts=[
+    'Evaluate original instrument-inspired shirts for adult amateur musicians across the approved countries.',
+    'Compare dated, nonpersonal public evidence with the population, occasion, geography and denominator attached to every observation.',
+    'Separate direct apparel demand from adjacent music interest, and keep every uncertainty explicit where evidence is missing.',
+    'Assess original design hypotheses without using logos, copied artwork, individual reviews or marketplace listings.',
+    'Preserve destination-specific delivered price, production, fulfilment, currency and fee unknowns for a later bounded decision.',
+    'Do not infer sales, rights clearance, seller bank country, commercial readiness or a winning market from weak signals.'
+  ];
+  f.intent.objective=objectiveParts.join(' ').repeat(2).slice(0,1059);
+  assert.equal(f.intent.objective.length,1059);
+  f.ownerInitial=bindValidatedOwnerResearchIntent(f.intent,f.pins,f.now);
+  const request=buildDiscoveryPlannerRequestV2(f.intent,f.knowledge,undefined,'owner_initial',f.ownerInitial).request;
+  const body=JSON.parse(request.messages[1].content);
+  assert.deepEqual(body.intent,f.intent);
+  assert.equal(body.intent.objective,f.intent.objective);
+  assert.equal(Object.hasOwn(body,'focus'),false);
+  const identical=buildDiscoveryPlannerRequestV2(f.intent,f.knowledge,f.intent.objective,'owner_initial',f.ownerInitial).request;
+  assert.equal(Object.hasOwn(JSON.parse(identical.messages[1].content),'focus'),false);
+  assert.deepEqual(request.outputSchema,discoveryR12OwnerInitialStaticSchema('plan'));
+  assert.equal(request.requestMetadata.r12OwnerInitialScopeHash,f.ownerInitial.scopeHash);
+  const route={modelId:request.model.providerModelId,endpoint:'azure/us',priceLimit:{prompt:1,completion:1,request:0}};
+  const routed=routeDiscoveryR12Request(request,'plan',route,false,true);
+  const inspected=await inspectDiscoveryR12Wire(routed,'plan',false,false,true);
+  assert.ok(Buffer.byteLength(JSON.stringify(routed),'utf8')<=12288);
+  assert.ok(inspected.wireBytes<=12288);
+  assert.ok(inspected.wire.body.includes(f.intent.objective));
+  const duplicate=structuredClone(routed);
+  duplicate.messages[1].content=JSON.stringify({...body,focus:f.intent.objective});
+  assert.ok(Buffer.byteLength(JSON.stringify(duplicate),'utf8')>Buffer.byteLength(JSON.stringify(routed),'utf8')+1059);
+  const distinctFocus='Investigate dated adult garment buying criteria in each approved country.';
+  const focused=buildDiscoveryPlannerRequestV2(f.intent,f.knowledge,distinctFocus,'owner_initial',f.ownerInitial).request;
+  const focusedBody=JSON.parse(focused.messages[1].content);
+  assert.deepEqual(focusedBody.intent,f.intent);
+  assert.equal(focusedBody.focus,distinctFocus);
+});
+
 test('owner-initial context is an owned frozen exact intent, query and scope binding',()=>{
   const f=fixture();
   assert.ok(Object.isFrozen(f.ownerInitial));assert.ok(Object.isFrozen(f.ownerInitial.intent.comparisonUniverse.markets[0]));

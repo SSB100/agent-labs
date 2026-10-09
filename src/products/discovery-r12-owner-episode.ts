@@ -6,6 +6,13 @@ import { validateDiscoveryOwnerInitialScope, type DiscoveryOwnerInitialScope } f
 
 /** A projection of private, immutable closure evidence. Validation of this
  * projection is not authority: SQL reconstructs the actual history under locks. */
+export type OwnerStoppedBeforeReservation = {
+  version: "r12.owner-stopped-before-reservation.1";
+  businessId: string; goalId: string; ownerId: string;
+  scopeId: string; scopeHash: string; planId: string; planHash: string; planVersion: number;
+  attemptId: string; attemptHash: string; childId: string; childHash: string;
+  policyId: string; policyHash: string; revocationsHash: string; absenceHash: string;
+};
 export type OwnerEpisodeClosure = {
   version: "r12.owner-episode-closure.1";
   businessId: string; goalId: string;
@@ -16,6 +23,9 @@ export type OwnerEpisodeClosure = {
   headRevision: number; headState: string; headReason: string;
   baseChildren: number; baseDispatches: number; baseRepairs: number; basePivots: number;
   baseKnownMicrounits: string; historyHash: string;
+  /** Optional only for canonical proofs of revoked, never-reserved scheduled
+   * planners. Omitted (not an empty array) preserves historical V1 bytes. */
+  stoppedBeforeReservation?: OwnerStoppedBeforeReservation[];
 };
 export type DiscoveryOwnerEpisodeScope = Omit<DiscoveryOwnerInitialScope, "version"> & {
   version: "r12.discovery-owner-episode.1";
@@ -32,7 +42,8 @@ export const isDiscoveryOwnerEpisodeScope = (value: { version: string }): value 
 export function validateOwnerEpisodeClosure(value: unknown): OwnerEpisodeClosure {
   if (!value || typeof value !== "object" || Array.isArray(value) || containsCredentialLikeValue(value)) return fail();
   const v = value as OwnerEpisodeClosure;
-  const keys = "version,businessId,goalId,predecessorPlanId,predecessorPlanHash,predecessorPlanVersion,predecessorScopeId,predecessorScopeHash,goalRevision,goalHash,businessRevision,businessHash,authorityRootId,priorRoundId,originalSemanticGoalHash,headRevision,headState,headReason,baseChildren,baseDispatches,baseRepairs,basePivots,baseKnownMicrounits,historyHash";
+  const keys = "version,businessId,goalId,predecessorPlanId,predecessorPlanHash,predecessorPlanVersion,predecessorScopeId,predecessorScopeHash,goalRevision,goalHash,businessRevision,businessHash,authorityRootId,priorRoundId,originalSemanticGoalHash,headRevision,headState,headReason,baseChildren,baseDispatches,baseRepairs,basePivots,baseKnownMicrounits,historyHash" +
+    (Object.hasOwn(v, "stoppedBeforeReservation") ? ",stoppedBeforeReservation" : "");
   if (Object.keys(v).sort().join(",") !== keys.split(",").sort().join(",") || v.version !== "r12.owner-episode-closure.1" ||
       ![v.businessId, v.goalId, v.predecessorPlanId, v.predecessorScopeId, v.authorityRootId].every(uuid) ||
       ![v.predecessorPlanHash, v.predecessorScopeHash, v.goalHash, v.businessHash, v.historyHash].every(hash) ||
@@ -45,6 +56,27 @@ export function validateOwnerEpisodeClosure(value: unknown): OwnerEpisodeClosure
   if (v.authorityRootId === v.businessId) {
     if (v.priorRoundId !== null || v.originalSemanticGoalHash !== null) return fail();
   } else if (!uuid(v.priorRoundId) || !hash(v.originalSemanticGoalHash)) return fail();
+  if (Object.hasOwn(v, "stoppedBeforeReservation")) {
+    const proofs = v.stoppedBeforeReservation;
+    if (!Array.isArray(proofs) || proofs.length < 1 || proofs.length > 8 || proofs.length > v.baseChildren) return fail();
+    const proofKeys = "version,businessId,goalId,ownerId,scopeId,scopeHash,planId,planHash,planVersion,attemptId,attemptHash,childId,childHash,policyId,policyHash,revocationsHash,absenceHash".split(",").sort().join(",");
+    let priorVersion = 0;
+    const identities = new Set<string>();
+    for (const proof of proofs) {
+      if (!proof || typeof proof !== "object" || Array.isArray(proof) || Object.keys(proof).sort().join(",") !== proofKeys ||
+          proof.version !== "r12.owner-stopped-before-reservation.1" || proof.businessId !== v.businessId || proof.goalId !== v.goalId ||
+          ![proof.ownerId, proof.scopeId, proof.planId, proof.attemptId, proof.childId, proof.policyId].every(uuid) ||
+          ![proof.scopeHash, proof.planHash, proof.attemptHash, proof.childHash, proof.policyHash, proof.revocationsHash, proof.absenceHash].every(hash) ||
+          !integer(proof.planVersion, priorVersion + 1, v.predecessorPlanVersion)) return fail();
+      for (const key of [proof.scopeId, proof.planId, proof.attemptId, proof.childId, proof.policyId]) {
+        if (identities.has(key)) return fail();
+        identities.add(key);
+      }
+      if (proof.planVersion === v.predecessorPlanVersion && (proof.planId !== v.predecessorPlanId || proof.planHash !== v.predecessorPlanHash ||
+          proof.scopeId !== v.predecessorScopeId || proof.scopeHash !== v.predecessorScopeHash)) return fail();
+      priorVersion = proof.planVersion;
+    }
+  }
   return structuredClone(v);
 }
 

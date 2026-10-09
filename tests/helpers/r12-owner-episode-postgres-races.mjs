@@ -7,10 +7,10 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {r04SqlBootstrap} from './r04-sql-bootstrap.mjs';
 import {sessionBootstrap} from './r10-sql-fixture.mjs';
-import {validateOwnerInitialRaceEnvironment,orderedRace,asRole} from './r12-owner-initial-postgres-races.mjs';
+import {validateOwnerInitialRaceEnvironment,orderedRace,asRole,startPlanner} from './r12-owner-initial-postgres-races.mjs';
 import {exerciseOwnerInitialRuntime} from './r12-owner-initial-runtime.mjs';
 import {enrollOwnerEpisodeGrant,episodeInput,runOwnerEpisodePhases} from './r12-owner-episode-sql-fixture.mjs';
-import {one} from './r12-owner-initial-sql-fixture.mjs';
+import {one,ownerInitialSqlFixture} from './r12-owner-initial-sql-fixture.mjs';
 import {r12QuoteFixture} from './r12-provider-fixture.mjs';
 import {appendOwnerGrantRootRevision,enrollOwnerExtensionGrant} from './r12-owner-grant-extension-sql-fixture.mjs';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
@@ -28,6 +28,34 @@ export async function exerciseOwnerEpisodePostgresRaces(env=process.env){
   await db.exec(r04SqlBootstrap+sessionBootstrap);
   for(const file of readdirSync(root+'/supabase/migrations').filter(x=>x.endsWith('.sql')).sort())await db.exec(readFileSync(root+'/supabase/migrations/'+file,'utf8'));
   const record=(name,r)=>{assert.equal(r.observedLockWait,true);races.push({name,observedLockWait:true,waitEvent:r.waitEvent});};
+  // Reserve includes R05 prepare and reserve in one transaction. No request is
+  // created while building the trusted descriptor, so Stop can win effect-free.
+  for(const stopFirst of [true,false]){
+   const f=await ownerInitialSqlFixture(db,{bootstrapRoot:'inert-stopped-planner-race-bootstrap-root-0123456789'}),s=await f.prepare();
+   await f.server('confirm',f.confirmPayload(s));const ctx=await startPlanner(db,f,s);
+   const stop=c=>asRole(c,'authenticated','r12_owner_research_server',[f.businessId,'stop',{setupId:s.setupId,setupHash:s.setupHash,submissionId:randomUUID()},''],f.ownerId);
+   const reserve=c=>asRole(c,'anon','r07_controller',[f.businessId,ctx.goalId,'reserve',ctx.payload,randomUUID(),ctx.controller,ctx.lease,ctx.epoch,ctx.admission]);
+   const race=await orderedRace({observer:db,holder,waiter,first:stopFirst?stop:reserve,second:stopFirst?reserve:stop});
+   const state=await one(db,`select
+    (select status from private.r07_attempts where id=$1) status,
+    (select count(*)::int from private.r05_requests where workflow_run_id=$1) requests,
+    (select count(*)::int from private.r05_reservations where business_id=$2) reservations,
+    (select count(*)::int from private.r05_markers where business_id=$2) markers,
+    (select count(*)::int from private.r12_discovery_transport_claims t join private.r05_requests r on r.id=t.request_id where r.business_id=$2) transports,
+    (select count(*)::int from private.r05_releases r join private.r05_requests q on q.id=r.request_id where q.business_id=$2) releases`,[ctx.attemptId,f.businessId]);
+   const proof=()=>one(db,'select private.r12_owner_episode_predecessor($1,$2) proof',[f.businessId,f.goalId]);
+   if(stopFirst){
+    assert.equal(race.first.stopped,true);assert.match(race.second.error?.message??'',/r07_server_authority_required/);
+    assert.deepEqual(state,{status:'scheduled',requests:0,reservations:0,markers:0,transports:0,releases:0});
+    const closure=(await proof()).proof;assert.equal(closure.stoppedBeforeReservation[0].attemptId,ctx.attemptId);
+    assert.deepEqual((await proof()).proof,closure);record('stop-before-reserve-retains-canonical-zero-effect-proof',race);
+   }else{
+    assert.equal(race.first.status,'reserved');assert.equal(race.second.error,undefined);assert.equal(race.second.value.stopped,true);
+    assert.deepEqual(state,{status:'reserved',requests:1,reservations:1,markers:0,transports:0,releases:0});
+    await assert.rejects(proof(),/r12_episode_unresolved_predecessor/);record('reserve-before-stop-retains-liability-and-rejects-proof',race);
+   }
+   const consumed=await one(db,'select count(*)::int n from private.r12_owner_activations where business_id=$1',[f.businessId]);assert.equal(consumed.n,1);
+  }
   await exerciseOwnerInitialRuntime(db,{onCompleted:async ctx=>{
    await ctx.server.stopDiscoveryR12(ctx.context,ctx.f.businessId,ctx.scope.id,true);
    const amount=r12QuoteFixture().maximumMicrousd,f=await enrollOwnerEpisodeGrant(db,ctx.f,{maximumEpisodes:3,maximumAllocationMicrounits:String(2*amount)});
