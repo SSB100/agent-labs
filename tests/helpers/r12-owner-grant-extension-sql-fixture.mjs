@@ -1,6 +1,6 @@
 /** Inert trusted-operator grant-root revision fixture. Never targets a live database. */
 import {randomUUID} from 'node:crypto';
-import {sha,one,ownerInitialRpc} from './r12-owner-initial-sql-fixture.mjs';
+import {sha,one,ownerInitialRpc,ownerPreflightPrepared} from './r12-owner-initial-sql-fixture.mjs';
 
 export async function appendOwnerGrantRootRevision(db,rootId,{maximumScopes,maximumAllocationMicrounits,expiresAt,approvalHash=sha(`inert-approved-extension-${rootId}-${maximumScopes}-${maximumAllocationMicrounits}`)}){
  const prior=await one(db,`select r.id root_id,r.maximum_scopes root_maximum_scopes,r.maximum_allocation_microunits root_maximum_allocation,
@@ -37,5 +37,8 @@ export async function enrollOwnerExtensionGrant(db,f,revision,{maximumEpisodes=1
  jsonb_build_object('maximumEpisodes',$4::integer,'maximumAllocationMicrounits',$5::text,'expiresAt',valid_until),$6::integer,$7::bigint,$8::integer,$9::text,
  greatest(clock_timestamp(),(select max(created_at)+interval '1 microsecond' from private.r12_owner_bootstrap_grants where business_id=$11))
  from private.r12_owner_bootstrap_grants where id=$10`,[grantId,sha(bootstrapKey),sha(`inert-approval-${grantId}`),maximumEpisodes,maximumAllocationMicrounits,revision.maximumScopes,revision.maximumAllocationMicrounits,revision.revision,revision.hash,f.grantId,f.businessId]);
- return {...f,grantId,bootstrapKey,input:{...f.input,grantId},server:(op,payload,key=bootstrapKey)=>ownerInitialRpc(db,f.ownerId,'r12_owner_research_server',[f.businessId,op,payload,key])};
+ return {...f,grantId,bootstrapKey,input:{...f.input,grantId},server:async(op,payload,key=bootstrapKey)=>{
+  const result=await ownerInitialRpc(db,f.ownerId,'r12_owner_research_server',[f.businessId,op,payload,key]);
+  return op==='prepare'||op==='prepare_episode'?ownerPreflightPrepared(f.rpc,f.businessId,result):result;
+ }};
 }

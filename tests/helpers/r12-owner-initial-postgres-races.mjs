@@ -93,7 +93,7 @@ async function prepare(f,{goalId=f.goalId,businessLimit='6000000',researchLimit=
  const input={...f.input,goalId,submissionId:randomUUID(),businessLifetimeLimitMicrounits:businessLimit,researchLifetimeLimitMicrounits:researchLimit};
  return f.server('prepare',{input,quote});
 }
-async function startPlanner(db,f,receipt){
+export async function startPlanner(db,f,receipt){
  const controller='inert-controller-'+receipt.scopeId,admission='inert-admission-'+receipt.scopeId,lease='inert-owner-race-lease-'+receipt.scopeId;
  const view=await f.rpc('r12_discovery_owner_read',[f.businessId,receipt.scopeId,true]);
  const command=(op,payload,epoch=null)=>ownerInitialRuntimeRpc(db,'r07_controller',[f.businessId,receipt.goalId,op,payload,randomUUID(),controller,lease,epoch,admission]);
@@ -109,7 +109,7 @@ async function startPlanner(db,f,receipt){
   config:{apiKey:'inert-never-transmitted-race-configuration',baseUrl:'https://openrouter.ai/api/v1',appUrl:'https://agent-labs.example.invalid',appName:'Inert race fixture'},
   store:{operation:async()=>{throw Error('No effect-store mutation in reservation preparation');},settle:async()=>{throw Error('No settlement in reservation race');},dispatchedAt:async()=>{throw Error('No dispatch in reservation race');}},project:async()=>{throw Error('No provider output in reservation race');},fetcher:async()=>{throw Error('No HTTP transport in reservation races');}});
  const call=await adapter.prepare(context);
- assert.equal(call.descriptor.liabilityMicrounits,'500000');
+ assert.equal(call.descriptor.liabilityMicrounits,context.step.maximumMicrounits);
  return {f,goalId:receipt.goalId,attemptId,controller,admission,lease,epoch:claim.epoch,payload:{attemptId,descriptor:call.descriptor,runtimeCapability:phaseRuntime}};
 }
 function reserve(db,ctx){return asRole(db,'anon','r07_controller',[ctx.f.businessId,ctx.goalId,'reserve',ctx.payload,randomUUID(),ctx.controller,ctx.lease,ctx.epoch,ctx.admission]);}

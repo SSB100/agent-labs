@@ -8,6 +8,8 @@ The existing R04 Quest is the owner's real business objective. This lane adds on
 
 The ordinary journey is: save/select the genuine Goal, choose a reviewed research profile and its supported public market/topic choices, review the complete question/source/price/financial packet, confirm the existing R05 operating policy, then Continue through the existing five-phase R07/R12 engine. The initial episode has planner, one source collection, exact-span selector, strategist and independent reviewer. TEST, REJECT and NEEDS_MORE_EVIDENCE remain honest outcomes. Creative and commerce have separate gates.
 
+The [planner preflight correction](R12_OWNER_PLANNER_PREFLIGHT.md) checks the concrete first request before confirmation and describes proof-bound closure of an explicitly stopped, never-reserved planner. Its implementation status and live limitations are recorded separately; neither correction replenishes a consumed episode.
+
 ## Reviewed catalog and registration boundary
 
 An immutable profile binds reviewed source domains/exclusions, factual-snippet purpose and evidence, a public-query template, adult topic/audience and market choices, exact installation/definitions, static schema variant and current qualification evidence. The search builder renders its public prompt from these reviewed values, without interpolating raw Goal text, private Business context or model queryFocus. The collection model can choose the downstream Exa query: this does not guarantee exact query bytes or exact-page admission. Bounded raw excerpts reach inference before exact-span selection. Inference retention controls do not establish Exa retention or residency. Unsupported questions or audiences remain visibly unsupported; no default substitutes for an owner's choice.

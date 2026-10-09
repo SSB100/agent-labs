@@ -40,3 +40,16 @@ test('new format cannot reset cumulative plan ceilings or grant extra phase allo
 test('episode keeps historical topology restrictions and fixed 32/64 ceilings',()=>{
  for(const mutate of [p=>p.maximumChildren=33,p=>p.maximumDispatches=65,p=>p.maximumRepairs=1,p=>p.maximumPivots=1,p=>p.steps.push({...p.steps[0],key:'retry'}),p=>p.steps[4].dependsOn=['strategy'],p=>p.format='r12.discovery.1']){const f=fixture();mutate(f.plan);assert.throws(()=>compileQuestPlan(f.plan),/r07_/);}
 });
+
+test('stopped-before-reservation proof is optional, exact, ordered and retains historical closure bytes',()=>{
+ const c=fixture(true).closure,original=JSON.stringify(c),oldHash=discoveryV2Hash(c);
+ assert.equal(JSON.stringify(validateOwnerEpisodeClosure(c)),original);assert.equal(discoveryV2Hash(validateOwnerEpisodeClosure(c)),oldHash);
+ const proof={version:'r12.owner-stopped-before-reservation.1',businessId:c.businessId,goalId:c.goalId,ownerId:id(110),scopeId:c.predecessorScopeId,scopeHash:c.predecessorScopeHash,
+  planId:c.predecessorPlanId,planHash:c.predecessorPlanHash,planVersion:c.predecessorPlanVersion,attemptId:id(111),attemptHash:'1'.repeat(64),childId:id(112),childHash:'2'.repeat(64),policyId:id(113),policyHash:'3'.repeat(64),revocationsHash:'4'.repeat(64),absenceHash:'5'.repeat(64)};
+ const extended={...c,stoppedBeforeReservation:[proof]};assert.deepEqual(validateOwnerEpisodeClosure(extended),extended);assert.notEqual(discoveryV2Hash(extended),oldHash);
+ // A later closed predecessor keeps the earlier proof instead of dropping it.
+ const later={...extended,predecessorPlanVersion:2,predecessorPlanId:id(120),predecessorScopeId:id(121)};
+ assert.deepEqual(validateOwnerEpisodeClosure(later),later);
+ for(const bad of [[],null,[{...proof,extra:true}],[{...proof,absenceHash:'bad'}],[{...proof,goalId:id(130)}],[{...proof,planId:id(130)}],
+  [{...proof,planVersion:2}],[proof,proof],[{...proof,version:'completed'}]])assert.throws(()=>validateOwnerEpisodeClosure({...c,stoppedBeforeReservation:bad}));
+});
