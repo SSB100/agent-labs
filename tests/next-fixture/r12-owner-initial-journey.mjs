@@ -5,6 +5,7 @@ import {chromium} from 'playwright-core';
 import sharp from 'sharp';
 import {r12OwnerRpc} from './r12-sql.mjs';
 import {actualZoomBrowser} from './browser-zoom.mjs';
+import {extendOwnerInitialNextAllowance} from './r12-owner-initial.mjs';
 
 // Failure artifacts contain only this journey's inert fixture data. Keep each
 // browser read and screenshot bounded so diagnostics cannot hide the first error.
@@ -204,6 +205,21 @@ export async function runOwnerInitialJourney({origin,boundary,output}) {
       await page.getByRole('heading',{name:'Needs more evidence',exact:true}).waitFor();assert.equal(await page.getByRole('button',{name:'Stop research',exact:true}).isDisabled(),true);
       assert.equal(current().calls.length,5);
     });
+    await check('consumed one-scope allowance stays blocked until an explicit revision of the same root',async()=>{
+      await page.goto(`${origin}/dashboard/quests/research?business=${current().businessId}&quest=${goalId}`);
+      await page.getByRole('heading',{name:'Continue research from a closed episode',exact:true}).waitFor();
+      const exhausted=await catalog(goalId);assert.equal(exhausted.profiles.length,0);
+      assert.equal(await page.getByRole('button',{name:'Prepare continuation packet',exact:true}).count(),0);
+      assert.match(await text(),/Research preparation is technically unavailable/);
+      assert.equal(current().calls.length,5);await capture('08-exhausted-one-scope-allowance');
+      const oldGrant=current().continuationGrantId,root=current().grantRootId;
+      await extendOwnerInitialNextAllowance(current());
+      assert.equal(current().grantRootId,root);assert.equal(current().grantRootRevision.rootId,root);
+      assert.equal(current().calls.length,5,'Operator approval itself makes no provider call');
+      await page.reload();await page.getByLabel('Reviewed research profile',{exact:true}).waitFor();
+      const renewed=await catalog(goalId);assert.ok(renewed.profiles.some(row=>row.grantId===current().continuationGrantId));
+      assert.ok(!renewed.profiles.some(row=>row.grantId===oldGrant),'Old exhausted grant does not inherit the extension');
+    });
     let episodeOne;
     await check('same saved Quest offers a finite continuation packet from its exact closed predecessor',async()=>{
       const initialScopeId=receipt.scopeId;
@@ -219,13 +235,18 @@ export async function runOwnerInitialJourney({origin,boundary,output}) {
       assert.ok(episodeOne);assert.equal(episodeOne.preview.episodeNumber,1);
       assert.equal(episodeOne.preview.predecessorClosure.predecessorScopeId,initialScopeId);
       assert.equal(episodeOne.preview.predecessorClosureHash,before.goal.continuation.predecessorClosureHash);
+      assert.deepEqual(episodeOne.preview.grantRootRevision,current().grantRootRevision);
       assert.match(await page.getByRole('link',{name:'View previous research and result',exact:true}).first().getAttribute('href'),new RegExp(`selected=${initialScopeId}`));
       assert.equal(episodeOne.activated,false);assert.equal(current().calls.length,5,'Preparation cannot call the provider');
       assert.match(await text(),/Planned Quest total including this new maximum/);
       assert.match(await text(),/does not cover Exa/);await capture('08-episode-one-exact-packet');
+      await page.getByRole('heading',{name:'Approved cumulative research allowance',exact:true}).scrollIntoViewIfNeeded();
+      assert.match(await text(),/Earlier consumed allocations remain counted/);await capture('08-grant-revision-desktop');
     });
     await check('continuation consent and exact packet survive mobile keyboard, history, reload and real 200 percent zoom',async captureFailure=>{
-      await page.setViewportSize({width:320,height:800});await capture('09-episode-one-packet-320');
+      await page.setViewportSize({width:320,height:800});
+      await page.getByRole('heading',{name:'Approved cumulative research allowance',exact:true}).scrollIntoViewIfNeeded();await capture('09-episode-one-packet-320');
+      await page.screenshot({path:path.join(output,'09-grant-revision-mobile-viewport.png'),fullPage:false});
       const consent=()=>page.getByRole('checkbox',{name:/I reviewed this exact packet/});
       await consent().scrollIntoViewIfNeeded();await consent().focus();await page.keyboard.press('Space');assert.equal(await consent().isChecked(),true);
       await page.keyboard.press('Space');assert.equal(await consent().isChecked(),false);
@@ -241,6 +262,7 @@ export async function runOwnerInitialJourney({origin,boundary,output}) {
         await zoomPage.keyboard.press('Space');assert.equal(await zoomConsent.isChecked(),false);
         const confirm=zoomPage.getByRole('button',{name:'Confirm this exact research policy',exact:true});
         await captureOwnerZoomViewport({page:zoomPage,target:confirm,output,name:'owner-episode-controls-zoom200.png'});
+        await captureOwnerZoomViewport({page:zoomPage,target:zoomPage.getByRole('heading',{name:'Approved cumulative research allowance',exact:true}),output,name:'owner-grant-revision-zoom200.png'});
         const geometry=await zoomPage.evaluate(()=>({width:innerWidth,documentWidth:document.documentElement.scrollWidth}));assert.ok(geometry.documentWidth<=geometry.width+1);
       }catch(error){if(zoomPage)await captureFailure(zoomPage);throw error;}finally{await zoom.close();}
       assert.equal(current().calls.length,5);

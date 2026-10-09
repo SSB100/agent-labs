@@ -12,6 +12,7 @@ import { validateOwnerEpisodeClosure } from "./discovery-r12-owner-episode";
 import {
   prepareOwnerResearchPreview, prepareOwnerResearchEpisodePreview, validateOwnerResearchContinuation,
   validateOwnerResearchPreparationInput, validateOwnerResearchEpisodePreparationInput, validateOwnerResearchQuote,
+  validateOwnerResearchGrantRootRevision,
   type OwnerResearchCatalog, type OwnerResearchPreparationInput, type OwnerResearchEpisodePreparationInput, type OwnerResearchSetupAction,
   type OwnerResearchSetupReceipt, type OwnerResearchFundingSnapshot,
 } from "./discovery-r12-goal-preparation-contract";
@@ -65,6 +66,10 @@ export function parseOwnerResearchSetupReceipt(value: unknown, businessId: strin
       value.preview.authorityCreated !== false || value.preview.maximumCalls !== 5 || value.preview.maximumCollections !== 1 || value.preview.maximumRepairs !== 0 ||
       value.preview.dispatchMinutes !== 30 || value.preview.receiptMinutes !== 30 || value.preview.maximumReceiptChecks !== 15 || !object(value.preview.finance)) return fail();
   const preview = value.preview;
+  if (preview.grantRootRevision !== undefined && preview.grantRootRevision !== null) {
+    if (preview.version !== "r12.owner-research-episode-preview.1") return fail();
+    validateOwnerResearchGrantRootRevision(preview.grantRootRevision);
+  }
   if (preview.version === "r12.owner-research-episode-preview.1") {
     if (!Number.isSafeInteger(preview.episodeNumber) || Number(preview.episodeNumber) < 1 || Number(preview.episodeNumber) > 5 ||
         !hash(preview.predecessorClosureHash)) return fail();

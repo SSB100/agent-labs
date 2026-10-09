@@ -5,6 +5,7 @@ import {randomUUID} from 'node:crypto';
 import {exerciseOwnerInitialRuntime,ownerInitialPhaseOutputs} from './r12-owner-initial-runtime.mjs';
 import {one,sha,ownerInitialRuntimeRpc,ownerInitialRpc,ownerInitialSqlFixture} from './r12-owner-initial-sql-fixture.mjs';
 import {r12QuoteFixture} from './r12-provider-fixture.mjs';
+import {appendOwnerGrantRootRevision,enrollOwnerExtensionGrant} from './r12-owner-grant-extension-sql-fixture.mjs';
 import {ownerGoalFixture} from './r12-owner-goal-fixture.mjs';
 import {discoveryV2Hash as hash} from '../../.core-tests/products/discovery-v2.js';
 import {driveQuestOnce} from '../../.core-tests/core/quest-controller.js';
@@ -13,9 +14,10 @@ import {readDiscoveryR12PhaseInputs,buildDiscoveryR12PhaseRequest,projectDiscove
 
 export async function enrollOwnerEpisodeGrant(db,f,{maximumEpisodes=3,maximumAllocationMicrounits='6000000'}={}){
  const grantId=randomUUID(),bootstrapKey='inert-owner-episode-grant-'+grantId;
- await db.query(`insert into private.r12_owner_bootstrap_grants(id,root_id,business_id,owner_id,business_revision,business_hash,profile_id,server_key_hash,approval_hash,valid_from,valid_until,continuation_bounds)
- select $1,root_id,business_id,owner_id,business_revision,business_hash,profile_id,$2,$3,valid_from,valid_until,jsonb_build_object('maximumEpisodes',$4::integer,'maximumAllocationMicrounits',$5::text,'expiresAt',valid_until)
- from private.r12_owner_bootstrap_grants where id=$6`,[grantId,sha(bootstrapKey),'7'.repeat(64),maximumEpisodes,maximumAllocationMicrounits,f.grantId]);
+ await db.query(`insert into private.r12_owner_bootstrap_grants(id,root_id,business_id,owner_id,business_revision,business_hash,profile_id,server_key_hash,approval_hash,valid_from,valid_until,continuation_bounds,created_at)
+ select $1,root_id,business_id,owner_id,business_revision,business_hash,profile_id,$2,$3,valid_from,valid_until,jsonb_build_object('maximumEpisodes',$4::integer,'maximumAllocationMicrounits',$5::text,'expiresAt',valid_until),
+ greatest(clock_timestamp(),(select max(created_at)+interval '1 microsecond' from private.r12_owner_bootstrap_grants where business_id=$7))
+ from private.r12_owner_bootstrap_grants where id=$6`,[grantId,sha(bootstrapKey),'7'.repeat(64),maximumEpisodes,maximumAllocationMicrounits,f.grantId,f.businessId]);
  return {...f,grantId,bootstrapKey,input:{...f.input,grantId},server:(op,payload,key=bootstrapKey)=>ownerInitialRpc(db,f.ownerId,'r12_owner_research_server',[f.businessId,op,payload,key])};
 }
 export async function episodeInput(db,f){
@@ -24,8 +26,10 @@ export async function episodeInput(db,f){
 }
 export async function exerciseOwnerEpisodeCatalogSql(db){
  const f=await ownerInitialSqlFixture(db),continuation=await enrollOwnerEpisodeGrant(db,f);
- const addGrant=async bounds=>{const id=randomUUID();await db.query(`insert into private.r12_owner_bootstrap_grants(id,root_id,business_id,owner_id,business_revision,business_hash,profile_id,server_key_hash,approval_hash,valid_from,valid_until,continuation_bounds)
- select $1,root_id,business_id,owner_id,business_revision,business_hash,profile_id,$2,approval_hash,valid_from,valid_until,$3 from private.r12_owner_bootstrap_grants where id=$4`,[id,sha('inert-catalog-grant-'+id),bounds,f.grantId]);return id;};
+ const addGrant=async bounds=>{const id=randomUUID();await db.query(`insert into private.r12_owner_bootstrap_grants(id,root_id,business_id,owner_id,business_revision,business_hash,profile_id,server_key_hash,approval_hash,valid_from,valid_until,continuation_bounds,created_at)
+ select $1,root_id,business_id,owner_id,business_revision,business_hash,profile_id,$2,approval_hash,valid_from,valid_until,$3,
+ greatest(clock_timestamp(),(select max(created_at)+interval '1 microsecond' from private.r12_owner_bootstrap_grants where business_id=$5))
+ from private.r12_owner_bootstrap_grants where id=$4`,[id,sha('inert-catalog-grant-'+id),bounds,f.grantId,f.businessId]);return id;};
  const initialOnly=await addGrant(null);
  const selected=async expected=>{const read=await f.read();assert.equal(read.profiles.length,1,'Keep one bounded row per profile');assert.equal(read.profiles[0].grantId,expected);};
  await selected(initialOnly);
@@ -141,15 +145,41 @@ export async function exerciseHistoricalOwnerEpisodeSql(db,evidence){
  const gv=await one(db,'select v.* from private.r04_goal_versions v join private.r04_goal_state s using(business_id,goal_id,revision) where goal_id=$1',[goalId]);
  await db.query('insert into private.r12_owner_profiles values($1,$2,$3,$4,$5,clock_timestamp())',[profile.id,profile,hash(profile),pins,hash(pins)]);
  await db.query("insert into private.r12_owner_funding_bindings(id,business_id,kind,authority_root_id,original_semantic_goal_hash) values($1,$2,'legacy_research_root',$3,$4)",[bindingId,businessId,scope.budget_authority_root_id,initialRound.variables.semanticGoalHash]);
- await db.query('insert into private.r12_owner_grant_roots(id,business_id,binding_id,maximum_scopes,maximum_allocation_microunits,approval_hash) values($1,$2,$3,2,4000000,$4)',[rootId,businessId,bindingId,'1'.repeat(64)]);
+ const amount=Number(r12QuoteFixture().maximumMicrousd);
+ await db.query('insert into private.r12_owner_grant_roots(id,business_id,binding_id,maximum_scopes,maximum_allocation_microunits,approval_hash) values($1,$2,$3,1,$4,$5)',[rootId,businessId,bindingId,amount,'1'.repeat(64)]);
  await db.query(`insert into private.r12_owner_bootstrap_grants(id,root_id,business_id,owner_id,business_revision,business_hash,profile_id,server_key_hash,approval_hash,valid_from,valid_until,continuation_bounds)
- values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,[grantId,rootId,businessId,ownerId,br.revision,br.content_hash,profile.id,sha(bootstrapKey),'2'.repeat(64),profile.validFrom,profile.validUntil,{maximumEpisodes:2,maximumAllocationMicrounits:'4000000',expiresAt:profile.validUntil}]);
+ values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,[grantId,rootId,businessId,ownerId,br.revision,br.content_hash,profile.id,sha(bootstrapKey),'2'.repeat(64),profile.validFrom,profile.validUntil,{maximumEpisodes:1,maximumAllocationMicrounits:String(amount),expiresAt:profile.validUntil}]);
  const rpc=async(name,args)=>{await db.exec('savepoint episode_owner_rpc');try{await db.query("select set_config('request.jwt.claim.sub',$1,true)",[ownerId]);await db.exec('set local role authenticated');const result=(await one(db,`select public.${name}(${args.map((_,i)=>'$'+(i+1)).join(',')}) result`,args)).result;await db.exec('reset role');return result;}catch(error){await db.exec('rollback to savepoint episode_owner_rpc');throw error;}finally{await db.exec('release savepoint episode_owner_rpc');}};
  const f={db,businessId,goalId,ownerId,bindingId,rootId,grantId,profile,pins,bootstrapKey,rpc,input:{businessId,goalId,goalRevision:gv.revision,profileId:profile.id,profileHash:hash(profile),grantId,marketSetKey:'gb',topicKey:'gardening',businessLifetimeLimitMicrounits:'6000000',researchLifetimeLimitMicrounits:'6000000',submissionId:randomUUID()},server:(op,payload,key=bootstrapKey)=>rpc('r12_owner_research_server',[businessId,op,payload,key]),confirmPayload:s=>({setupId:s.setupId,setupHash:s.setupHash,submissionId:randomUUID(),controllerKeyHash:sha('inert-controller-'+s.scopeId),admissionKeyHash:sha('inert-admission-'+s.scopeId),quote:r12QuoteFixture()})};
+ const baselineMarkers=(await one(db,'select count(*)::int n from private.r05_markers where business_id=$1',[businessId])).n;
  const input=await episodeInput(db,f),prepared=await f.server('prepare_episode',{input,quote:r12QuoteFixture()});assert.equal(prepared.preview.predecessorClosure.predecessorPlanVersion,4);
  await f.server('confirm_episode',f.confirmPayload(prepared));const head=await one(db,'select * from private.r07_heads where goal_id=$1',[goalId]);
  const successor=await one(db,'select * from private.r07_plans where id=$1',[head.plan_id]);assert.equal(successor.version,5);assert.equal(successor.previous_plan_id,latest.id);assert.equal(successor.content.format,'r12.discovery-episode.1');
  const run=await runOwnerEpisodePhases(db,f,prepared);assert.equal(run.posts,5);
+ const markersAfterFirst=(await one(db,'select count(*)::int n from private.r05_markers where business_id=$1',[businessId])).n;
+ assert.equal(markersAfterFirst,baselineMarkers+5,'The genuine first continuation sends exactly five inert calls');
+ const stopFirst=await f.server('stop',{setupId:prepared.setupId,setupHash:prepared.setupHash,submissionId:randomUUID()},'');assert.equal(stopFirst.stopped,true);
+ const used=await one(db,`select count(*)::int scopes,coalesce(sum(allocation_microunits),0)::bigint allocation from private.r12_owner_episode_activations where grant_root_id=$1`,[rootId]);
+ assert.equal(used.scopes,1);assert.equal(Number(used.allocation),amount);
+ const oldGrant=await enrollOwnerEpisodeGrant(db,f,{maximumEpisodes:2,maximumAllocationMicrounits:String(2*amount)});
+ oldGrant.server=(op,payload,key=oldGrant.bootstrapKey)=>rpc('r12_owner_research_server',[businessId,op,payload,key]);
+ await assert.rejects(oldGrant.server('prepare_episode',{input:await episodeInput(db,oldGrant),quote:r12QuoteFixture()}),/r12_owner_grant_exhausted/,'A fresh legacy grant cannot inherit an extension');
+ const revision=await appendOwnerGrantRootRevision(db,rootId,{maximumScopes:2,maximumAllocationMicrounits:String(2*amount),expiresAt:profile.validUntil});
+ assert.equal(revision.revision,1);
+ await assert.rejects(oldGrant.server('prepare_episode',{input:await episodeInput(db,oldGrant),quote:r12QuoteFixture()}),/r12_owner_grant_exhausted/,'A legacy grant stays on the original root ceiling');
+ const extended=await enrollOwnerExtensionGrant(db,f,revision,{maximumEpisodes:2,maximumAllocationMicrounits:String(2*amount)});
+ extended.server=(op,payload,key=extended.bootstrapKey)=>rpc('r12_owner_research_server',[businessId,op,payload,key]);
+ const next=await extended.server('prepare_episode',{input:await episodeInput(db,extended),quote:r12QuoteFixture()});
+ assert.equal(next.preview.predecessorClosure.predecessorPlanVersion,5);assert.equal(next.preview.episodeNumber,2);assert.deepEqual(next.preview.grantRootRevision,revision);
+ const nextActive=await extended.server('confirm_episode',extended.confirmPayload(next));assert.equal(nextActive.activated,true);
+ const head6=await one(db,'select * from private.r07_heads where business_id=$1 and goal_id=$2',[businessId,goalId]);
+ const plan6=await one(db,'select * from private.r07_plans where id=$1',[head6.plan_id]);assert.equal(plan6.version,6);assert.equal(plan6.previous_plan_id,successor.id);
+ assert.equal(plan6.content.maximumChildren,next.preview.predecessorClosure.baseChildren+5);assert.equal(plan6.content.maximumDispatches,next.preview.predecessorClosure.baseDispatches+5);
+ assert.equal((await one(db,'select grant_root_id from private.r12_owner_episode_activations where setup_id=$1',[next.setupId])).grant_root_id,rootId);
+ const stopNext=await extended.server('stop',{setupId:next.setupId,setupHash:next.setupHash,submissionId:randomUUID()},'');assert.equal(stopNext.stopped,true);
+ const cumulative=await one(db,`select count(*)::int scopes,coalesce(sum(allocation_microunits),0)::bigint allocation from private.r12_owner_episode_activations where grant_root_id=$1`,[rootId]);
+ assert.equal(cumulative.scopes,2);assert.equal(Number(cumulative.allocation),2*amount);
+ assert.equal((await one(db,'select count(*)::int n from private.r05_markers where business_id=$1',[businessId])).n,markersAfterFirst,'Second episode Stop consumes its allocation before any call');
  const before=await one(db,`select (select jsonb_agg(to_jsonb(p) order by version) from private.r07_plans p where goal_id=$1 and version<=4) plans,
  (select jsonb_agg(to_jsonb(a) order by a.id) from private.r07_attempts a join private.r07_plans p on p.id=a.plan_id where a.goal_id=$1 and p.version<=4) attempts,
  (select jsonb_agg(to_jsonb(v) order by revision) from private.r04_goal_versions v where goal_id=$1) goals`,[goalId]);assert.deepEqual(before,old);

@@ -273,4 +273,8 @@ test('episode packet discloses predecessor, prior costs, new whole run and Exa i
   const html=renderToStaticMarkup(React.createElement(packet.OwnerResearchPacket,{receipt:f.receipt}));
   for(const value of ['Episode 1','View previous research and result','USD 1.900000','New episode whole-run maximum','USD 0.400000','model chooses the downstream Exa query','raw public-source excerpts reach inference','does not cover Exa','Stop before the first Continue call'])assert.ok(html.includes(value),value);
   assert.ok(html.includes(money.ownerResearchScopeHref(f.receipt.businessId,f.receipt.goalId,closure.predecessorScopeId).replaceAll('&','&amp;')));
+  assert.ok(!html.includes('Approved cumulative research allowance'),'Old packets do not acquire a new approval');
+  f.receipt.preview.grantRootRevision={rootId:id(42),revision:1,hash:'4'.repeat(64),maximumScopes:2,maximumAllocationMicrounits:'813472',expiresAt:'2026-10-10T09:00:00Z'};
+  const extended=renderToStaticMarkup(React.createElement(packet.OwnerResearchPacket,{receipt:f.receipt}));
+  for(const value of ['Approval revision 1','2 research scopes','USD 0.813472','Earlier consumed allocations remain counted','does not add to your Business','changed approval requires a fresh packet',id(42),'4'.repeat(64)])assert.ok(extended.includes(value),value);
 });

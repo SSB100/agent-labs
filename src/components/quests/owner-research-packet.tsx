@@ -31,6 +31,11 @@ export function OwnerResearchPacket({ receipt }: { receipt: OwnerResearchSetupRe
     <p><strong>{episode ? "New episode whole-run maximum" : "Whole-run maximum"}: {ownerResearchUsd(preview.quote.maximumMicrousd)}.</strong> Up to {preview.maximumCalls} calls, {preview.maximumCollections} collection and {preview.maximumRepairs} repairs. These are ceilings; the outcome and actual cost are not promised. Usage is charged once against existing OpenRouter credit, within this bounded run; no recurring commitment is created.</p>
     <p>Quote verified <time dateTime={preview.quote.verifiedAt}>{preview.quote.verifiedAt}</time>; valid until <time dateTime={preview.quote.validUntil}>{preview.quote.validUntil}</time>.</p>
     <h3>Cumulative financial permission</h3>
+    {episode && preview.grantRootRevision ? <section aria-label="Approved cumulative research allowance">
+      <h4>Approved cumulative research allowance</h4>
+      <p>Approval revision {preview.grantRootRevision.revision} permits up to {preview.grantRootRevision.maximumScopes} research scopes and {ownerResearchUsd(preview.grantRootRevision.maximumAllocationMicrounits)} of cumulative allocation through <time dateTime={preview.grantRootRevision.expiresAt}>{preview.grantRootRevision.expiresAt}</time>. Earlier consumed allocations remain counted, including research stopped before its first call. This allowance does not add to your Business or original research funding limits.</p>
+      <p>Confirmation binds this exact revision. A changed approval requires a fresh packet.</p>
+    </section> : null}
     <p>These amounts are the immutable snapshot reviewed at preparation. The running workspace shows current costs after confirmation.</p>
     <dl className="ownerResearchFacts">
       <div><dt>Current Business lifetime limit</dt><dd>{ownerResearchUsd(preview.finance.currentBusinessLimitMicrounits)}</dd></div>
@@ -57,6 +62,7 @@ export function OwnerResearchPacket({ receipt }: { receipt: OwnerResearchSetupRe
     <p>Confirmation records this exact R05 operating policy and activates its finite authority window without making a provider call. Opening or preparing this packet does not start paid work. Use the existing research workspace’s Continue control to start bounded paid research. TEST, REJECT and NEEDS_MORE_EVIDENCE remain possible; creative generation, commerce and publication require separate permission.</p>
     <details><summary>Exact saved packet and confirmation references</summary>
       <p>Setup: {receipt.setupId}<br/>Setup hash: {receipt.setupHash}<br/>Policy: {receipt.policyId}<br/>Policy hash: {receipt.policyHash}<br/>Research scope: {receipt.scopeId}</p>
+      {episode && preview.grantRootRevision ? <p>Grant root: {preview.grantRootRevision.rootId}<br/>Grant approval revision: {preview.grantRootRevision.revision}<br/>Grant revision hash: {preview.grantRootRevision.hash}</p> : null}
       {episode ? <p>Predecessor plan: {preview.predecessorClosure.predecessorPlanId}<br/>Predecessor plan hash: {preview.predecessorClosure.predecessorPlanHash}<br/>Predecessor scope: {preview.predecessorClosure.predecessorScopeId}<br/>Predecessor scope hash: {preview.predecessorClosure.predecessorScopeHash}<br/>Closure hash: {preview.predecessorClosureHash}</p> : null}
       <pre>{JSON.stringify(preview, null, 2)}</pre>
     </details>

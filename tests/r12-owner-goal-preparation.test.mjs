@@ -2,8 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { discoveryV2Hash } from '../.core-tests/products/discovery-v2.js';
 import { validateOwnerResearchProfile, selectOwnerResearchPublicScope, validateDiscoveryOwnerInitialScope } from '../.core-tests/products/discovery-r12-goal-scope.js';
-import { prepareOwnerResearchPreview, prepareOwnerResearchEpisodePreview, validateOwnerResearchPreparationInput, validateOwnerResearchQuote, ownerResearchExecutionIntent } from '../.core-tests/products/discovery-r12-goal-preparation-contract.js';
+import { prepareOwnerResearchPreview, prepareOwnerResearchEpisodePreview, validateOwnerResearchPreparationInput, validateOwnerResearchQuote, validateOwnerResearchGrantRootRevision, ownerResearchExecutionIntent } from '../.core-tests/products/discovery-r12-goal-preparation-contract.js';
 import { ownerGoalFixture, ownerGoalId } from './helpers/r12-owner-goal-fixture.mjs';
+
+test('saved cumulative grant revision validates its exact reference while preserving expired history',()=>{
+  const reference={rootId:ownerGoalId(80),revision:1,hash:'a'.repeat(64),maximumScopes:2,maximumAllocationMicrounits:'813472',expiresAt:'2020-01-01T00:00:00Z'};
+  assert.deepEqual(validateOwnerResearchGrantRootRevision(reference),reference);
+  for(const changed of [{...reference,maximumScopes:0},{...reference,maximumScopes:33},{...reference,revision:0},{...reference,hash:'forged'},
+    {...reference,maximumAllocationMicrounits:'0'},{...reference,maximumAllocationMicrounits:'9007199254740992'},
+    {...reference,expiresAt:'invalid'},{...reference,rootId:ownerGoalId(80),authorityCreated:true}])assert.throws(()=>validateOwnerResearchGrantRootRevision(changed));
+  assert.equal(reference.maximumAllocationMicrounits,'813472');
+});
 
 test('owner preparation preserves the real Goal and all cumulative funding while returning no authority',()=>{
   const f=ownerGoalFixture(),before=structuredClone(f.current),p=prepareOwnerResearchPreview(f.input,f.current,f.now);
