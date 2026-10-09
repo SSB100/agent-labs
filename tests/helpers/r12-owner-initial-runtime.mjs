@@ -39,7 +39,9 @@ export function ownerInitialPhaseOutputs(scope) {
  * All transport is inert synthetic qualification; no real evidence or demand
  * is asserted and no network credential is loaded or provider call is made. */
 export async function exerciseOwnerInitialRuntime(db, { legacy = null, onCompleted = null } = {}) {
-  const f = await ownerInitialSqlFixture(db, { legacy });
+  // Multiple runtime scenarios share the native race database. Derive each
+  // fixture grant from its Business/owner/grant IDs instead of the default key.
+  const f = await ownerInitialSqlFixture(db, { legacy, bootstrapRoot: 'inert-owner-initial-runtime-bootstrap-root-0123456789' });
   const prepared = await f.prepare();
   const root = 'inert-owner-initial-root-configuration-0123456789';
   const derive = role => createHmac('sha256', root).update(JSON.stringify({ version: 'r12.scoped-authority.1', role, businessId: f.businessId, ownerId: f.ownerId, scopeId: prepared.scopeId })).digest('base64url');
