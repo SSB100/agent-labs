@@ -32,7 +32,7 @@ export async function rootBrowserPage(route, { unavailable = false } = {}) {
 function renderContent(React, modules, state) {
   return React.createElement(modules.ConsoleMotionBoundary, state.boundary,
     React.createElement(modules.ConsoleOverview, state.overview),
-    state.sheet ? React.createElement(modules.ConsoleResearchSheet, { returnTo: state.sheet.returnTo }, React.createElement(modules.QuestKickoff, state.sheet.quest)) : null);
+    state.sheet ? React.createElement(modules.ConsoleResearchSheet, { returnTo: state.sheet.returnTo }, React.createElement(modules.OwnerResearchEntry, state.sheet.quest)) : null);
 }
 
 let bundle;
@@ -45,14 +45,14 @@ async function browserBundle() {
       import {ConsoleMotionBoundary} from "./src/components/console/console-motion";
       import {ConsoleOverview} from "./src/components/console/console-overview";
       import {ConsoleCommandBar, ConsoleResearchSheet} from "./src/components/console/console-command";
-      import {QuestKickoff} from "./src/components/guided/quest-kickoff";
+      import {OwnerResearchEntry} from "./src/components/quests/owner-research-entry";
       const state = window.__rootBrowserState, renderContent = ${renderContent.toString()};
       window.__rootBrowserErrors = [];
       window.__rootBrowserRouter = {push: url => location.assign(url)};
       const options = {onRecoverableError: error => window.__rootBrowserErrors.push(error.message)};
       function Ready({children}) { useEffect(() => { window.__rootBrowserHydrated = true; }, []); return children; }
       if (state.overview) hydrateRoot(document.getElementById("root-browser-content"),
-        <Ready>{renderContent(React, {ConsoleMotionBoundary, ConsoleOverview, ConsoleResearchSheet, QuestKickoff}, state)}</Ready>, options);
+        <Ready>{renderContent(React, {ConsoleMotionBoundary, ConsoleOverview, ConsoleResearchSheet, OwnerResearchEntry}, state)}</Ready>, options);
       hydrateRoot(document.querySelector(".consoleCommandBar"), <ConsoleCommandBar {...state.command}/>, options);
       if (!state.overview) window.__rootBrowserHydrated = true;
     ` }, plugins: [{ name: "root-browser-safe-boundaries", setup(builder) {
@@ -67,7 +67,7 @@ async function browserBundle() {
         assert.ok(files[args.path], `Unexpected root Browser import: ${args.path}`); return { path: path.join(root, files[args.path]) };
       });
     } }] }).then(result => {
-    const allowed = new Set(['src/lib/core-ui/workspace-navigation.ts',"src/components/console/console-motion.tsx", "src/components/console/console-motion.css", "src/components/console/console-overview.tsx", "src/components/console/console-overview.css", "src/components/console/console-browser-centre.tsx", "src/components/console/console-browser-centre.css", "src/components/console/console-browser-watch.tsx", "src/components/console/console-browser-watch.css", "src/browser/console-watch-client.ts", "src/components/console/console-command.tsx", "src/components/console/console-command.css", "src/components/guided/quest-kickoff.tsx", "src/components/guided/quest-kickoff.css", "src/browser/console-view.ts", "src/components/stage7/icons.tsx", "src/lib/core-ui/console-motion-dom.ts", "src/lib/core-ui/console-motion.ts", "src/lib/core-ui/workflows.ts", "src/lib/core-ui/quest-draft.ts", "src/core/quest-intake.ts"]);
+    const allowed = new Set(['src/lib/core-ui/workspace-navigation.ts',"src/components/console/console-motion.tsx", "src/components/console/console-motion.css", "src/components/console/console-overview.tsx", "src/components/console/console-overview.css", "src/components/console/console-browser-centre.tsx", "src/components/console/console-browser-centre.css", "src/components/console/console-browser-watch.tsx", "src/components/console/console-browser-watch.css", "src/browser/console-watch-client.ts", "src/components/console/console-command.tsx", "src/components/console/console-command.css", "src/components/quests/owner-research-entry.tsx", "src/components/quests/owner-research.css", "src/browser/console-view.ts", "src/components/stage7/icons.tsx", "src/lib/core-ui/console-motion-dom.ts", "src/lib/core-ui/console-motion.ts", "src/lib/core-ui/workflows.ts", "src/lib/core-ui/quest-draft.ts", "src/core/quest-intake.ts"]);
     for (const file of Object.keys(result.metafile.inputs).filter(file => file.startsWith("src/"))) assert.ok(allowed.has(file), `Unexpected server/provider input: ${file}`);
     return result.outputFiles[0].text.replace(/<\/script/gi, "<\\/script");
   });
@@ -81,7 +81,7 @@ export async function rootBrowserDocument(route) {
     let markup = fixture.markup;
     if (fixture.overview) {
       const island = renderToString(renderContent(React, { ConsoleMotionBoundary: fixture.boundary.type, ConsoleOverview: fixture.overview.type,
-        ConsoleResearchSheet: fixture.sheet?.type, QuestKickoff: fixture.sheet?.props.children.type }, fixture.state));
+        ConsoleResearchSheet: fixture.sheet?.type, OwnerResearchEntry: fixture.sheet?.props.children.type }, fixture.state));
       const replaceBoundary = tree => {
         if (!React.isValidElement(tree)) return tree;
         if (tree.type === fixture.boundary.type) return React.createElement("div", { id: "root-browser-content", style: { display: "contents" } });

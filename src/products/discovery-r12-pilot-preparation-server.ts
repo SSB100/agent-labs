@@ -16,6 +16,7 @@ export async function readR12PilotPreparationSource(context:OwnerUiContext,input
  validateR12PilotPreparation(input);if(!id(context.userId)||!await verifyOwnerBusiness(context,input.businessId))return fail();
  const claims=await context.supabase.auth.getClaims();if(claims.error||claims.data?.claims?.sub!==context.userId)return fail();
  const {record:source}=await readDiscoveryR12Workspace(context,input.businessId,input.sourceScopeId);
+ if(source?.ownerInitial)return fail();
  const settled=(row:typeof source)=>row&&row.planId&&row.planHash&&row.policyRevoked&&!row.activeWindow&&!row.cost.hasUnknown&&row.cost.heldMicrousd==='0'&&row.rootFunding.hasUncertainCosts===false&&row.rootFunding.pendingExposureMicrousd===0&&row.nextReviewScopeId===null;
  if(!settled(source)||!source)return fail();
  let broad=source;const recovery=source.focusedSuccessor?.authorization.version==='r12.focused-pilot-successor-authorization.1',technical=source.focusedSuccessor?.authorization.version==='r12.focused-pilot-unsent-recovery-authorization.1';let charged=source;
@@ -53,6 +54,7 @@ export async function readR12PilotPreparationSource(context:OwnerUiContext,input
  * SQL later independently checks the closed lineage and unique pilot scope. */
 export async function prepareR12PilotGoal(context:OwnerUiContext,input:R12PilotPreparationInput):Promise<R12PilotPreparationReceipt>{
  validateR12PilotPreparation(input,Date.now());const {source,accepted,broad,successor,recovery,technical}=await readR12PilotPreparationSource(context,input),content=r12PilotGoalContent(input,successor,recovery,technical);
+ if(source.ownerInitial||source.priorRoundId===null)return fail();
  const hashes=await prepareDiscoveryR12Authority(context,input.businessId,input.preparationId);
  async function save<O extends R04Operation>(operation:O,payload:R04Payloads[O],role:string){
   const {data,error}=await context.supabase.rpc(R04_RPC.transition,{p_business_id:input.businessId,p_operation:operation,p_payload:payload,p_submission_id:identity(context.userId,input.businessId,source.planId!,role)});

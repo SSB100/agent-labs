@@ -33,7 +33,7 @@ function renderFixture(React, components, route, fixture) {
       React.createElement("button", { type: "button", id: "console-sheet-background" }, "Inspect saved result"),
     ),
     React.createElement("div", { className: "consoleSheetFixtureCommand" },
-      React.createElement(ConsoleCommandBar, { ownerId: fixture.ownerId, businessId: fixture.businessId, returnTo: fixture.returnTo }),
+      React.createElement(ConsoleCommandBar, { ownerId: fixture.ownerId, businessId: fixture.businessId, returnTo: fixture.returnTo, legacyDraft: true }),
     ),
     open ? React.createElement(ConsoleResearchSheet, { returnTo: fixture.returnTo },
       React.createElement(QuestKickoff, { ownerId: fixture.ownerId, businesses: fixture.businesses, available: fixture.available, quote: fixture.quote }),

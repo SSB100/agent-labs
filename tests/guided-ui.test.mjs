@@ -87,7 +87,7 @@ test("root Work view binds saved run context and research sheet preserves the UR
   const sheet = await renderDashboard({ view: "work", detail: true, sheet: true });
   assert.match(sheet, /<dialog class="consoleResearchSheet"/);
   assert.match(sheet, /Research setup/);
-  assert.match(sheet, /class="questKickoff"/);
+  assert.match(sheet, /class="ownerResearchEntry"/);
   assert.doesNotMatch(sheet, /Current provider prices are unavailable/);
 });
 
@@ -101,12 +101,12 @@ test("real WorkContext uses the matching saved intent rather than an unrelated g
   assert.match(mismatch, /Review the saved research goal/);
 });
 
-test("Products page renders the real bounded quest without starting research", async () => {
+test("Products page routes to a genuine saved Quest without starting research", async () => {
   const markup = await renderProducts();
-  assert.match(markup, /class="questKickoff"/);
-  assert.match(markup, /Find a market worth exploring/);
+  assert.match(markup, /class="ownerResearchEntry"/);
+  assert.match(markup, /Research a saved Quest/);
   assert.match(markup, /Saved research and recovery/);
-  assert.match(markup, /Experimental · live qualification incomplete/);
+  assert.match(markup, /Saving or selecting a Quest does not authorize spending/);
   assert.doesNotMatch(markup, /Current provider prices are unavailable|name="confirmResearch"/);
 });
 

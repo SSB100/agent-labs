@@ -3,7 +3,7 @@ import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { runInNewContext } from 'node:vm';
-import { rootResearchFixture, businessId, selectedId } from './helpers/console-research-root.mjs';
+import { rootResearchFixture, selectedId } from './helpers/console-research-root.mjs';
 const require = createRequire(import.meta.url), ts = require('typescript');
 function commandFixture({ goal = '', savedDraft = 'preserved existing tab draft' } = {}) {
   const f = rootResearchFixture(), drafts = f.load('src/lib/core-ui/quest-draft.ts'), pushes = [], store = new Map([['existing',savedDraft]]), effects = [], refs = [];
@@ -16,11 +16,11 @@ function commandFixture({ goal = '', savedDraft = 'preserved existing tab draft'
   },fixtureModule,fixtureModule.exports);
   return {...f,api:fixtureModule.exports,drafts,pushes,store,effects,refs};
 }
-test('actual command opens the actual Research root sheet with exact scope and Business-bound draft; Close/Escape leave saved tab draft untouched',async()=>{
+test('ordinary command opens the saved-Quest chooser with exact scope and never writes a hidden legacy draft; Close/Escape preserve storage',async()=>{
   const route=`/dashboard?view=research&type=records&selected=${selectedId}&root=${selectedId}&page=3&q=saved&searchField=hypothesis&attemptPage=2&attemptSort=oldest`,f=commandFixture({goal:'Compare original woodland shirts within my saved scope'}),root=await f.render(route);
   const command=f.api.ConsoleCommandBar(root.command);let prevented=0;command.props.onSubmit({preventDefault(){prevented++;}});assert.equal(prevented,1);assert.equal(f.pushes.length,1);
   const opened=new URL(f.pushes[0].href,'https://fixture');assert.equal(opened.searchParams.get('sheet'),'research');assert.equal(opened.searchParams.get('selected'),selectedId);assert.equal(opened.searchParams.get('root'),selectedId);assert.equal(opened.searchParams.get('attemptPage'),'2');assert.equal(opened.searchParams.get('page'),'3');assert.equal(opened.searchParams.has('business'),false);assert.deepEqual({...f.pushes[0].options},{scroll:false});
-  const saved=JSON.parse(f.store.get(f.drafts.questDraftStorageKey(f.context.userId)));assert.equal(saved.draft.businessId,businessId);assert.equal(saved.draft.goal,'Compare original woodland shirts within my saved scope');assert.equal(saved.reviewedEstimate,null);assert.ok(!Object.hasOwn(saved.draft,'confirmResearch'));
+  assert.equal(f.store.get(f.drafts.questDraftStorageKey(f.context.userId)),undefined);assert.equal(f.store.get('existing'),'preserved existing tab draft');
   const sheetRoot=await f.render(opened.pathname+opened.search),snapshot=[...f.store];const sheet=f.api.ConsoleResearchSheet(sheetRoot.sheet.props);
   sheet.props.onCancel({preventDefault(){prevented++;}});assert.equal(prevented,2);assert.equal(f.pushes[1].href,root.command.returnTo);assert.deepEqual([...f.store],snapshot);
   const header=sheet.props.children[0],button=header.props.children[1];button.props.onClick();assert.equal(f.pushes[2].href,root.command.returnTo);assert.deepEqual([...f.store],snapshot);assert.deepEqual(f.denied,[]);

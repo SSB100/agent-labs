@@ -8,15 +8,14 @@ import { consoleEmptyPage, loadConsoleWorkPage, loadConsoleActivityPage, type Co
 import { consoleCollectionOptionsFromSearch, consoleCollectionQuery, type ConsoleCollectionKind, type ConsoleCollectionQuery } from "@/lib/core-ui/console-collections-query";
 import { loadConsoleWorkDetail } from "@/lib/core-ui/console-work-detail-data";
 import { loadAccountSetupInterventions } from "@/accounts/server";
-import { loadDiscoveryGoalData } from "@/products/discovery-v2-data";
 import { deriveConsoleMotionSnapshot } from "@/lib/core-ui/console-motion";
 import { ConsoleMotionBoundary } from "./console-motion";
-import { loadConsoleObservationTime, loadConsoleResearchQuote } from "@/lib/core-ui/console-data";
+import { loadConsoleObservationTime } from "@/lib/core-ui/console-data";
 import { ConsoleShell } from "./console-shell";
 import { ConsoleCommandBar, ConsoleResearchSheet } from "./console-command";
 import { ConsoleWorkCollectionPane, ConsoleActivityCollectionPane } from "./console-collection-panes";
 import { ConsoleWorkDetail } from "./console-work-detail";
-import { QuestKickoff } from "@/components/guided/quest-kickoff";
+import { OwnerResearchEntry } from "@/components/quests/owner-research-entry";
 
 type Search = Record<string, string | string[] | undefined>;
 /** Only collection state is retained. Action/Connections query namespaces are never reinterpreted. */
@@ -63,10 +62,7 @@ export async function ConsolePopulatedDashboard({ context, query, view }: { cont
   const verifiedFilterBusinessId = activity?.workflowFilter?.business_id;
   const commandBusinessId = selected?.business_id ?? q.businessId ?? verifiedFilterBusinessId ?? undefined;
   const commandBusinesses = commandBusinessId ? context.businesses.filter(business => business.id === commandBusinessId) : context.businesses;
-  const commandContext = { ...context, businesses: commandBusinesses };
   const researchSheet = query.sheet === "research";
-  const catalog = researchSheet && !context.businessesUnavailable ? await loadDiscoveryGoalData(commandContext, []) : null;
-  const quote = researchSheet ? await loadConsoleResearchQuote(commandContext, catalog?.available === true) : null;
   const observedAt = await loadConsoleObservationTime();
   const motionSnapshot = deriveConsoleMotionSnapshot({
     runs: [...new Map([...(work?.page.items ?? []), ...(detail?.run ? [detail.run] : [])].map(run => [run.id, run])).values()], stages: detail?.stages ?? [],
@@ -85,7 +81,7 @@ export async function ConsolePopulatedDashboard({ context, query, view }: { cont
       {detail ? <ConsoleWorkDetail detail={detail} searchParams={params} episodeEvidence={detail.run && (query.step || query.agent) ? <ConsoleEpisodeEvidence context={context} businessId={detail.run.business_id} runId={detail.run.id} stepId={typeof query.step === "string" ? query.step : undefined} agentId={typeof query.agent === "string" ? query.agent : undefined}/> : null}/> : null}
     </ConsoleWorkCollectionPane> : null}
     {activity ? <ConsoleActivityCollectionPane ownerId={context.userId} businesses={context.businesses} searchParams={params} data={activity}/> : null}
-    {researchSheet ? <ConsoleResearchSheet returnTo={returnTo}><QuestKickoff ownerId={context.userId} businesses={commandBusinesses} businessesUnavailable={context.businessesUnavailable} available={catalog?.available === true} quote={quote}/></ConsoleResearchSheet> : null}
+    {researchSheet ? <ConsoleResearchSheet returnTo={returnTo}><OwnerResearchEntry businesses={commandBusinesses} businessesUnavailable={context.businessesUnavailable} selectedBusinessId={commandBusinessId}/></ConsoleResearchSheet> : null}
     </ConsoleMotionBoundary>
   </ConsoleShell>;
 }

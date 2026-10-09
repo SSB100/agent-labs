@@ -2,9 +2,7 @@ import {readDiscoveryR12Workspace} from "@/products/discovery-r12-owner";
 import {ConsoleR12Progress} from "./console-r12-discovery";
 import { readConnectionQualification } from "@/connections/server";
 import { ConsoleCommandBar, ConsoleResearchSheet } from "./console-command";
-import { QuestKickoff } from "@/components/guided/quest-kickoff";
-import { loadDiscoveryGoalData } from "@/products/discovery-v2-data";
-import { loadConsoleResearchQuote } from "@/lib/core-ui/console-data";
+import { OwnerResearchEntry } from "@/components/quests/owner-research-entry";
 import Link from "next/link";
 import type { WorkspaceIntent, WorkspaceSearch } from "@/lib/core-ui/workspace-context";
 import { carryWorkspace } from "@/lib/core-ui/workspace-navigation";
@@ -62,8 +60,7 @@ export async function ConsoleWorkspaceOverview({ scope, query }: { scope: Worksp
   returnParams.set("centre", query.centre === "browser" ? "browser" : "overview"); if (focus) returnParams.set("browserRun", focus.id); returnTo = `/dashboard?${returnParams}`;
   const observedAt = await loadConsoleObservationTime();
   if (browserData && context.readSearch) browserData.workspaceSearch = new URLSearchParams([...new URLSearchParams(context.readSearch)].filter(([key]) => ["business", "quest", "episode", "step", "agent", "sourceArtifact"].includes(key))).toString();
-  const sheet = query.sheet === "research", catalog = sheet ? await loadDiscoveryGoalData(selectedContext, []) : null;
-  const quote = sheet ? await loadConsoleResearchQuote(selectedContext, catalog?.available === true) : null;
+  const sheet = query.sheet === "research";
   const motion = deriveConsoleMotionSnapshot(collection, { businessIds: businessId ? [businessId] : [], observedAt, unavailable: scope.unavailable || collection.truncated === true });
   return <ConsoleShell active="overview" context={displayContext} navigationBusinessId={businessId ?? undefined} workflowRunId={focus?.id} commandBar={<ConsoleCommandBar ownerId={context.userId} businessId={businessId ?? undefined} returnTo={returnTo} unavailable={scope.unavailable}/> }>
     <section className="r08Workspace r08OverviewWorkspace"><WorkspacePicker scope={scope}/>
@@ -73,6 +70,6 @@ export async function ConsoleWorkspaceOverview({ scope, query }: { scope: Worksp
       {quest && !collection.runs.length && !collection.errors.length ? <p className="r08Next">No workflow episode exists for this Quest.</p> : null}
       <div className="r08OverviewContent"><ConsoleMotionBoundary ownerId={context.userId} scopeKey={`quest:${quest?.id ?? "none"}${focus ? `:episode:${focus.id}` : ""}`} snapshot={motion}><ConsoleOverview currentRunId={focus?.id} context={displayContext} collection={collection} navigationBusinessId={businessId ?? undefined} researchHref={`${returnTo}&sheet=research`} connections={consoleConnectionSummary(accounts, selectedContext.businesses[0]?.name ?? "Business", observedAt)} costs={consoleCostSummary(costs, `Exact selected episode · ${focus?.id.slice(-8) ?? "none"}`, focus?.id)} browserData={browserData ?? undefined} centreMode={query.centre === "browser" ? "browser" : "overview"} workspaceSearch={context.readSearch}/></ConsoleMotionBoundary></div>
     </section>
-    {sheet ? <ConsoleResearchSheet returnTo={returnTo}><QuestKickoff ownerId={context.userId} businesses={selectedContext.businesses} businessesUnavailable={scope.unavailable} available={catalog?.available === true} quote={quote}/></ConsoleResearchSheet> : null}
+    {sheet ? <ConsoleResearchSheet returnTo={returnTo}><OwnerResearchEntry businesses={selectedContext.businesses} businessesUnavailable={scope.unavailable} selectedBusinessId={businessId ?? undefined}/></ConsoleResearchSheet> : null}
   </ConsoleShell>;
 }

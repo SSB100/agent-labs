@@ -177,10 +177,10 @@ test('same production key starts a genuinely pending descriptor-bound read and c
   assert.equal(researchEvidencePayload(resolved, original.progressive), null); assert.deepEqual(fixture.denied, []);
 });
 
-test('ordinary browse is quote/catalogue-free; supplied Plan research URL alone loads selected B setup', async () => {
+test('ordinary browse and Plan research chooser remain quote/catalogue-free with selected Business preserved', async () => {
   const fixture = createResearchBrowserFixture(), browse = await researchClientState(offFilterRoute, fixture);
   assert.equal(fixture.ancillaryCalls.length, 0); const setup = await researchClientState(browse.pane.researchHref, fixture);
-  assert.deepEqual(fixture.ancillaryCalls, [{ name: 'catalogue', businesses: [secondBusinessId] }, { name: 'quote', businesses: [secondBusinessId] }]);
+  assert.deepEqual(fixture.ancillaryCalls, []);
   assert.equal(setup.sheet.returnTo, browse.command.returnTo); assert.deepEqual(setup.sheet.quest.businesses.map(row => row.id), [secondBusinessId]);
   assert.deepEqual(fixture.denied, []);
 });
@@ -458,7 +458,7 @@ test('hosted Research error/legacy/candidate/orphan/latest/count-null states are
       const h = await setup(browser, viewports[1], { fixtureOptions }); try {
         await h.page.goto(origin + recordsRoute); await ready(h.page); assert.match(await h.page.locator('.consoleResearchPane').innerText(), /unavailable|unverified|could not be checked/i);
         const footer = await h.page.locator('.consoleResearchPane>.consoleResearchPagination').innerText(); assert.match(footer, /Total unavailable/); assert.match(footer, /Page completeness unverified/); assert.doesNotMatch(footer, /of 0 saved|0 matching/);
-        if (state === 'business-unavailable') { assert.equal(h.fixture.reads.length, 0); assert.equal(await h.page.locator('#console-command-input').isDisabled(), true); }
+        if (state === 'business-unavailable') { assert.equal(h.fixture.reads.length, 0); assert.equal(await h.page.locator('#console-command-open').isDisabled(), true); }
         await capture(h.page, `console-r02-research-${state}`); await clean(h);
       } finally { await h.context.close(); }
     }
@@ -610,34 +610,29 @@ test('hosted stale/wrong record Business scope epoch ready and navigation-away e
   } finally { await h.context.close(); await browser.close(); }
 });
 
-test('hosted progressive ready filter edits active editor and modal retain exact scope/focus/drafts; approval never restores', { skip: !enabled, timeout: 180000 }, async () => {
+test('hosted progressive ready filter edits and saved-Quest chooser retain exact scope/focus without legacy approval', { skip: !enabled, timeout: 180000 }, async () => {
   const browser = await chromium.launch({ headless: true }), h = await setup(browser, viewports[1]), { page } = h;
   try {
     const hold = h.holdEvidence(() => true); await seedSnapshot(h, offFilterRoute, viewports[1], 2000); await page.goto(origin + offFilterRoute); await ready(page, { evidenceReady: false }); await hold.enteredPromise;
-    await page.locator('.consoleResearchToolbar [name=q]').fill('new unsent filter edit'); await page.locator('#console-command-input').fill('Compare original woodland shirts in the exact saved Business context');
-    const focused = '#console-command-input'; await page.locator(focused).focus(); const chosen = await position(page); hold.release(); await ready(page);
-    assert.equal(await page.locator('.consoleResearchToolbar [name=q]').inputValue(), 'new unsent filter edit'); assert.equal(await page.locator(focused).inputValue(), 'Compare original woodland shirts in the exact saved Business context');
+    await page.locator('.consoleResearchToolbar [name=q]').fill('new unsent filter edit');
+    const focused = '.consoleResearchToolbar [name=q]'; await page.locator(focused).focus(); const chosen = await position(page); hold.release(); await ready(page);
+    assert.equal(await page.locator('.consoleResearchToolbar [name=q]').inputValue(), 'new unsent filter edit'); assert.equal(await page.locator(focused).inputValue(), 'new unsent filter edit');
     assert.equal(await page.locator(focused).evaluate(node => document.activeElement === node), true); assert.deepEqual(await position(page), chosen);
     // Use only the actual server-supplied Plan research link to enter setup.
     assert.equal(h.fixture.ancillaryCalls.length, 0); await page.getByRole('link', { name: 'Plan research', exact: true }).click(); await ready(page);
     assert.equal(await page.locator('dialog.consoleResearchSheet').evaluate(node => node.open), true);
-    assert.deepEqual(h.fixture.ancillaryCalls.slice(-2), [{ name: 'catalogue', businesses: [secondBusinessId] }, { name: 'quote', businesses: [secondBusinessId] }]);
-    assert.equal(await page.locator('dialog [name=businessId]').inputValue(), secondBusinessId);
-    const goal = 'Compare an original woodland illustration shirt in two saved markets'; await page.locator('dialog textarea[name=goal]').fill(goal);
-    await page.getByRole('button', { name: 'Continue to scope' }).click(); await page.getByRole('button', { name: 'Review research' }).click();
-    const consent = page.locator('dialog [name=confirmResearch]'); await consent.check(); assert.equal(await consent.isChecked(), true);
-    const draftKey = h.fixture.load('src/lib/core-ui/quest-draft.ts').questDraftStorageKey(h.fixture.context.userId), draft = await page.evaluate(key => sessionStorage.getItem(key), draftKey);
-    assert.equal(JSON.parse(draft).draft.businessId, secondBusinessId); assert.equal(JSON.parse(draft).draft.goal, goal); assert.equal(Object.hasOwn(JSON.parse(draft).draft, 'confirmResearch'), false);
-    await repeatReady(page); assert.equal(await consent.isChecked(), true); await page.keyboard.press('Escape'); await ready(page);
-    assert.equal(await page.locator('dialog').count(), 0); assert.equal(await selected(page), selectedBusinessBId);
+    assert.deepEqual(h.fixture.ancillaryCalls, []);
+    const choice = page.locator('dialog select[name=business]'); assert.equal(await choice.inputValue(), secondBusinessId);
+    assert.equal(await page.locator('dialog [name=confirmResearch]').count(), 0); assert.equal(await page.locator('dialog textarea[name=goal]').count(), 0);
+    assert.equal(await page.locator('dialog form').getAttribute('action'), '/dashboard/quests/research');
+    await choice.focus(); const modalPosition = await position(page); await repeatReady(page);
+    assert.equal(await choice.evaluate(node => node === document.activeElement), true); assert.equal(await choice.inputValue(), secondBusinessId); assert.deepEqual(await position(page), modalPosition);
+    await page.keyboard.press('Escape'); await ready(page); assert.equal(await page.locator('dialog').count(), 0); assert.equal(await selected(page), selectedBusinessBId);
     for (const [key, value] of [['page', '3'], ['q', 'unmatched'], ['searchField', 'hypothesis'], ['sort', 'oldest']]) assert.equal(new URL(page.url()).searchParams.get(key), value);
-    assert.equal(new URL(page.url()).searchParams.has('business'), false); assert.equal(await page.evaluate(key => sessionStorage.getItem(key), draftKey), draft);
+    assert.equal(new URL(page.url()).searchParams.has('business'), false);
     await page.getByRole('link', { name: 'Plan research', exact: true }).click(); await ready(page);
-    assert.equal(await page.locator('dialog [name=confirmResearch]').isChecked(), false); assert.match(await page.locator('dialog').innerText(), /Approval is never saved/);
-    await page.getByRole('button', { name: 'Back to scope' }).click(); await page.getByRole('button', { name: 'Back to goal' }).click(); assert.equal(await page.locator('dialog textarea[name=goal]').inputValue(), goal);
-    await page.locator('dialog textarea[name=goal]').focus(); const modalPosition = await position(page); await repeatReady(page);
-    assert.equal(await page.locator('dialog textarea[name=goal]').evaluate(node => node === document.activeElement), true); assert.equal(await page.locator('dialog textarea[name=goal]').inputValue(), goal); assert.deepEqual(await position(page), modalPosition);
-    await capture(page, 'console-r02-research-modal-draft-approval-reset'); await page.getByRole('button', { name: 'Close research setup' }).click(); await ready(page);
+    assert.equal(await page.locator('dialog select[name=business]').inputValue(), secondBusinessId); assert.equal(await page.locator('dialog [name=confirmResearch]').count(), 0);
+    await capture(page, 'console-r12-research-saved-quest-chooser'); await page.getByRole('button', { name: 'Close research setup' }).click(); await ready(page);
     assert.equal(await selected(page), selectedBusinessBId); await clean(h);
   } finally { await h.context.close(); await browser.close(); }
 });
@@ -659,11 +654,11 @@ test('hosted initial delayed ready preserves blurred filter edits and newly open
       await modal.page.goto(origin + offFilterRoute); await ready(modal.page, { evidenceReady: false }); await firstRead.enteredPromise;
       sheetRead = modal.holdEvidence(() => true); await modal.page.getByRole('link', { name: 'Plan research', exact: true }).click(); await ready(modal.page, { evidenceReady: false }); await sheetRead.enteredPromise;
       assert.equal(await modal.page.locator('dialog').evaluate(node => node.open), true);
-      const field = modal.page.locator('dialog textarea[name=goal]'); await field.fill('Preserve this newly typed original shirt research draft while exact evidence resolves'); await field.focus();
+      const field = modal.page.locator('dialog select[name=business]'); await field.selectOption(secondBusinessId); await field.focus();
       const chosen = await position(modal.page), draft = await field.inputValue(); assert.notEqual(chosen.detail, competing.value.detail); sheetRead.release(); await ready(modal.page);
       assert.equal(await field.inputValue(), draft); assert.equal(await field.evaluate(node => node === document.activeElement), true); assert.deepEqual(await position(modal.page), chosen);
       firstRead.release(); await modal.page.waitForFunction(() => window.__researchEvidenceDiscarded >= 1);
-      await capture(modal.page, 'console-r02-research-first-ready-active-modal-editor'); await modal.page.keyboard.press('Escape'); await ready(modal.page);
+      await capture(modal.page, 'console-r12-research-first-ready-active-modal-chooser'); await modal.page.keyboard.press('Escape'); await ready(modal.page);
       assert.equal(await selected(modal.page), selectedBusinessBId); assert.equal(await modal.page.locator('dialog').count(), 0); await clean(modal);
     } finally { firstRead.release(); sheetRead?.release(); await modal.context.close(); }
   } finally { await browser.close(); }

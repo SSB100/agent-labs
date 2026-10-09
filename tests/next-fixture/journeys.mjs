@@ -223,7 +223,7 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false,que
     await check('new browser history navigation interrupts a pending modal dismissal',async()=>{
       await page.goto(origin+`/dashboard/settings?business=${business}`);
       await page.getByRole('link',{name:'Events',exact:true}).click();await page.waitForURL(/view=work/);
-      await page.locator('#console-command-input').fill('Inert research draft');await page.getByRole('button',{name:'Review goal',exact:false}).click();await page.getByRole('dialog').waitFor();
+      await page.getByRole('button',{name:'Open research Quests',exact:true}).click();await page.getByRole('dialog').waitFor();
       const pattern='**/dashboard?*';
       await page.route(pattern,async route=>{const u=new URL(route.request().url());if(u.searchParams.get('view')==='work' && !u.searchParams.has('sheet') && u.searchParams.has('_rsc'))await new Promise(resolve=>setTimeout(resolve,1800));return route.continue().catch(()=>{});});
       await page.getByRole('button',{name:'Close research setup',exact:true}).click();

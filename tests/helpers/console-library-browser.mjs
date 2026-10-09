@@ -19,10 +19,10 @@ export async function libraryClientState(route, fixture) {
 /** Production components and actual-root props; retained fixture transport is synthetic.
  * Explicit R03 limitation: this is not proof of real Next RSC/cache/server-action behavior. */
 export function libraryTree(React, modules, state) {
-  const { ConsoleShell, ConsoleCommandBar, ConsoleLibraryPane, ConsoleResearchSheet, QuestKickoff } = modules;
+  const { ConsoleShell, ConsoleCommandBar, ConsoleLibraryPane, ConsoleResearchSheet, OwnerResearchEntry } = modules;
   return React.createElement(ConsoleShell, { ...state.shell, commandBar: React.createElement(ConsoleCommandBar, state.command) },
     React.createElement(ConsoleLibraryPane, state.pane),
-    state.sheet ? React.createElement(ConsoleResearchSheet, { returnTo: state.sheet.returnTo }, React.createElement(QuestKickoff, state.sheet.quest)) : null);
+    state.sheet ? React.createElement(ConsoleResearchSheet, { returnTo: state.sheet.returnTo }, React.createElement(OwnerResearchEntry, state.sheet.quest)) : null);
 }
 const browserSource = `
 import React,{Suspense,startTransition,useEffect,useState} from 'react';
@@ -30,8 +30,8 @@ import {hydrateRoot} from 'react-dom/client';
 import {ConsoleShell} from './src/components/console/console-shell';
 import {ConsoleCommandBar,ConsoleResearchSheet} from './src/components/console/console-command';
 import {ConsoleLibraryPane} from './src/components/console/console-library-pane';
-import {QuestKickoff} from './src/components/guided/quest-kickoff';
-const modules={ConsoleShell,ConsoleCommandBar,ConsoleResearchSheet,ConsoleLibraryPane,QuestKickoff};
+import {OwnerResearchEntry} from './src/components/quests/owner-research-entry';
+const modules={ConsoleShell,ConsoleCommandBar,ConsoleResearchSheet,ConsoleLibraryPane,OwnerResearchEntry};
 const libraryTree=${libraryTree.toString()};
 window.__libraryErrors=[];window.__libraryRevision=0;window.__libraryReadRequests=[];window.__libraryCommits=0;window.__libraryDiscarded=0;window.__libraryPaidCalls=0;
 function checked(target){const url=new URL(target,location.origin);if(url.origin!==location.origin||url.pathname!=='/dashboard'||url.searchParams.get('view')!=='library'||url.searchParams.get('type')==='research')throw Error('Unsafe Library fixture navigation');return url.pathname+url.search+url.hash;}
@@ -67,15 +67,15 @@ async function browserBundle() {
       });
     }}],
   }).then(result=>{
-    const allowed=new Set(['src/components/console/history-pager.tsx','src/lib/core-ui/workspace-navigation.ts','src/components/console/console-shell.tsx','src/components/console/console-shell.css','src/components/console/console-command.tsx','src/components/console/console-command.css','src/components/console/console-collection-panes.tsx','src/components/console/console-collection-panes.css','src/components/console/console-collection-viewport.tsx','src/components/console/console-collection-scroll.ts','src/components/console/console-library-pane.tsx','src/components/console/console-library-pane.css','src/components/console/console-library-preview.tsx','src/components/console/console-library-run-lookup.tsx','src/components/console/console-library-json-focus.tsx','src/components/guided/quest-kickoff.tsx','src/components/guided/quest-kickoff.css','src/components/stage7/icons.tsx','src/lib/core-ui/workflows.ts','src/lib/core-ui/run-outcome.ts','src/lib/core-ui/console-collections-query.ts','src/lib/core-ui/console-library-query.ts','src/lib/core-ui/quest-draft.ts', 'src/core/quest-intake.ts','src/creative/cost-display.ts','src/creative/types.ts']);
+    const allowed=new Set(['src/components/console/history-pager.tsx','src/lib/core-ui/workspace-navigation.ts','src/components/console/console-shell.tsx','src/components/console/console-shell.css','src/components/console/console-command.tsx','src/components/console/console-command.css','src/components/console/console-collection-panes.tsx','src/components/console/console-collection-panes.css','src/components/console/console-collection-viewport.tsx','src/components/console/console-collection-scroll.ts','src/components/console/console-library-pane.tsx','src/components/console/console-library-pane.css','src/components/console/console-library-preview.tsx','src/components/console/console-library-run-lookup.tsx','src/components/console/console-library-json-focus.tsx','src/components/quests/owner-research-entry.tsx','src/components/quests/owner-research.css','src/components/stage7/icons.tsx','src/lib/core-ui/workflows.ts','src/lib/core-ui/run-outcome.ts','src/lib/core-ui/console-collections-query.ts','src/lib/core-ui/console-library-query.ts','src/lib/core-ui/quest-draft.ts', 'src/core/quest-intake.ts','src/creative/cost-display.ts','src/creative/types.ts']);
     for(const file of Object.keys(result.metafile.inputs).filter(file=>file.startsWith('src/')))assert.ok(allowed.has(file),`Server/provider/auth import denied: ${file}`);
     return result.outputFiles[0].text.replace(/<\/script/gi,'<\\/script');
   });
 }
 export async function libraryDocument(route, { fixture = rootLibraryFixture(), retained = true, deferHydration = false } = {}) {
-  const state=await libraryClientState(route,fixture),modules={...fixture.load('src/components/console/console-shell.tsx'),...fixture.load('src/components/console/console-command.tsx'),...fixture.load('src/components/console/console-library-pane.tsx'),...fixture.load('src/components/guided/quest-kickoff.tsx')};
+  const state=await libraryClientState(route,fixture),modules={...fixture.load('src/components/console/console-shell.tsx'),...fixture.load('src/components/console/console-command.tsx'),...fixture.load('src/components/console/console-library-pane.tsx'),...fixture.load('src/components/quests/owner-research-entry.tsx')};
   const markup=renderToString(React.createElement(React.Suspense,{fallback:React.createElement('p',{role:'status'},'Loading synthetic saved Library…')},libraryTree(React,modules,state)));
-  const styles=['src/app/globals.css','src/app/stage1.css','src/app/stage3.css','src/app/stage7.css','src/app/stage7-mobile.css','src/app/stage8.css','src/components/console/console-shell.css','src/components/console/console-command.css','src/components/console/console-panes.css','src/components/console/console-collection-panes.css','src/components/console/console-library-pane.css','src/components/guided/quest-kickoff.css'].map(file=>readFileSync(file,'utf8')).join('\n');
+  const styles=['src/app/globals.css','src/app/stage1.css','src/app/stage3.css','src/app/stage7.css','src/app/stage7-mobile.css','src/app/stage8.css','src/components/console/console-shell.css','src/components/console/console-command.css','src/components/console/console-panes.css','src/components/console/console-collection-panes.css','src/components/console/console-library-pane.css','src/components/quests/owner-research.css'].map(file=>readFileSync(file,'utf8')).join('\n');
   const hydration=await browserBundle();
   // A test-only barrier proves image errors occurring before React listeners exist.
   // It never changes production code or permits any additional request destination.

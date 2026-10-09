@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
+import {createOwnerInitialNextFixture} from './r12-owner-initial.mjs';
+import {ownerInitialPhaseOutputs} from '../helpers/r12-owner-initial-runtime.mjs';
 import {r12NextSnapshotFiles} from '../helpers/r12-next-capture-plan.mjs';
 import {createRequire} from 'node:module';
 import path from 'node:path';
@@ -23,11 +25,13 @@ export async function r12FixtureState(db,metadata,scenario){
  return{...metadata,db,scenario,calls:[],receipts:[],quoteReads:0,generations:Object.fromEntries((await db.query("select candidate->>'phase' phase,candidate->>'providerRequestId' id from private.r12_discovery_candidates")).rows.map(r=>[r.phase,r.id]))};
 }
 export async function loadR12NextFixture(state,scenario,directory,host){
- assert.ok(['current','pending','scheduled-review','completed','bootstrap','review-preparation','review-ready','review-successor-preparation','review-successor-ready','evidence-preparation','evidence-ready','pilot-preparation','focused-successor-preparation'].includes(scenario));assert.ok(path.basename(directory).startsWith('r12-next-'));
+ const ownerInitial=['owner-initial-native','owner-initial-legacy'].includes(scenario);
+ assert.ok(['owner-initial-native','owner-initial-legacy','current','pending','scheduled-review','completed','bootstrap','review-preparation','review-ready','review-successor-preparation','review-successor-ready','evidence-preparation','evidence-ready','pilot-preparation','focused-successor-preparation'].includes(scenario));if(!ownerInitial)assert.ok(path.basename(directory).startsWith('r12-next-'));
  if(state.r12)await closeR12Fixture(state);
  const require=createRequire(path.join(host,'package.json')),{PGlite}=require('@electric-sql/pglite'),{pgcrypto}=require('@electric-sql/pglite/contrib/pgcrypto');
- const files=r12NextSnapshotFiles(scenario),metadata=JSON.parse(await readFile(path.join(directory,files.metadata),'utf8')),dump=await readFile(path.join(directory,files.snapshot));
- const db=new PGlite({extensions:{pgcrypto},loadDataDir:new Blob([dump])});await db.waitReady;await db.exec("set timezone='UTC'");
+ let db,metadata;
+ if(ownerInitial){({db,metadata}=await createOwnerInitialNextFixture(host,scenario.endsWith('-legacy')?'legacy':'native'));}
+ else{const files=r12NextSnapshotFiles(scenario);metadata=JSON.parse(await readFile(path.join(directory,files.metadata),'utf8'));const dump=await readFile(path.join(directory,files.snapshot));db=new PGlite({extensions:{pgcrypto},loadDataDir:new Blob([dump])});await db.waitReady;await db.exec("set timezone='UTC'");}
  state.r12=await r12FixtureState(db,metadata,scenario);state.owner=metadata.ownerId;
  await db.query("select set_config('request.jwt.claim.sub',$1,false)",[state.owner]);
  if(scenario==='pilot-preparation'){const closed=await createClosedRejectedPlan4(db,state.r12);state.r12.closedEvidence={metadata:structuredClone(metadata),activated:{planId:closed.closedPlanId}};state.r12.sourceScopeId=metadata.scopeId;state.r12.preparationId=crypto.randomUUID();state.r12.setupUntil=new Date(Math.floor((Date.now()+2*3600000)/1000)*1000).toISOString();await seedR12Creative(state.r12);}
@@ -112,14 +116,16 @@ async function operatorRecipe(r,kind,input){
  return runOperatorRecipe(client,kind,input);
 }
 export async function closeR12Fixture(state){const r=state.r12;if(!r)return;r.closing=true;await exclusive(r,()=>r.db.close());if(state.r12===r)delete state.r12;}
-const ownedNames=['r04_quest_transition','r04_research_link_preview','r12_discovery_owner_read','r12_discovery_result_read','r04_quest_read','r07_quest_read','r05_admission_read','r05_policy_owner','r12_review_owner_read','r12_review_owner_confirm','adopt_r12_focused_test','approve_creative_candidate','begin_creative_run','fail_creative_launch','r06_read'];
+const ownedNames=['r12_owner_research_read','r12_owner_research_server','r04_quest_transition','r04_research_link_preview','r12_discovery_owner_read','r12_discovery_result_read','r04_quest_read','r07_quest_read','r05_admission_read','r05_policy_owner','r12_review_owner_read','r12_review_owner_confirm','adopt_r12_focused_test','approve_creative_candidate','begin_creative_run','fail_creative_launch','r06_read'];
 export async function r12OwnerRpc(state,name,args,mode='normal'){
  const r=state.r12;if(!r||!ownedNames.includes(name))return null;
  if(name==='r06_read'&&!['product_candidates','production_candidates','product_experiments','product_decisions'].includes(args.p_dataset))return null;
  if(mode==='unavailable')return{data:null,error:{message:'Inert owner metadata unavailable'}};
- const signatures={r12_review_owner_read:['p_business_id','p_scope_id'],r12_review_owner_confirm:['p_business_id','p_scope_id','p_proposal_hash'],r04_quest_transition:['p_business_id','p_operation','p_payload','p_submission_id'],r04_research_link_preview:['p_business_id','p_experiment_id'],r12_discovery_owner_read:['p_business_id','p_scope_id','p_activation'],r12_discovery_result_read:['p_business_id','p_scope_id'],r04_quest_read:['p_business_id','p_goal_id','p_limit','p_offset'],r07_quest_read:['p_business_id','p_goal_id','p_plan_id','p_limit','p_offset'],r05_admission_read:['p_business_id','p_policy_id','p_limit','p_offset'],r05_policy_owner:['p_business_id','p_operation','p_payload','p_submission_id']};
+ const signatures={r12_owner_research_read:['p_business_id','p_goal_id','p_setup_id'],r12_owner_research_server:['p_business_id','p_operation','p_payload','p_server_key'],r12_review_owner_read:['p_business_id','p_scope_id'],r12_review_owner_confirm:['p_business_id','p_scope_id','p_proposal_hash'],r04_quest_transition:['p_business_id','p_operation','p_payload','p_submission_id'],r04_research_link_preview:['p_business_id','p_experiment_id'],r12_discovery_owner_read:['p_business_id','p_scope_id','p_activation'],r12_discovery_result_read:['p_business_id','p_scope_id'],r04_quest_read:['p_business_id','p_goal_id','p_limit','p_offset'],r07_quest_read:['p_business_id','p_goal_id','p_plan_id','p_limit','p_offset'],r05_admission_read:['p_business_id','p_policy_id','p_limit','p_offset'],r05_policy_owner:['p_business_id','p_operation','p_payload','p_submission_id']};
  Object.assign(signatures,{adopt_r12_focused_test:['p_scope_id','p_result','p_owner_intent'],approve_creative_candidate:['p_candidate_id','p_approval','p_quote'],begin_creative_run:['p_approval_id','p_launch_nonce','p_runtime_capability'],fail_creative_launch:['p_creative_run_id','p_launch_nonce'],r06_read:['p_business_id','p_dataset','p_query']});
- return sqlRpc(r,name,signatures[name].map(k=>args[k]??null),'authenticated',['r04_quest_transition','r05_policy_owner','r12_review_owner_confirm','adopt_r12_focused_test','approve_creative_candidate','begin_creative_run','fail_creative_launch'].includes(name)?()=>mirrorR12(state):undefined);
+ const result=await sqlRpc(r,name,signatures[name].map(k=>args[k]??null),'authenticated',['r12_owner_research_server','r04_quest_transition','r05_policy_owner','r12_review_owner_confirm','adopt_r12_focused_test','approve_creative_candidate','begin_creative_run','fail_creative_launch'].includes(name)?()=>mirrorR12(state):undefined);
+ if(name==='r12_owner_research_server'&&result.data){const receipt=result.data;r.scopeId=receipt.scopeId;r.goalId=receipt.goalId;r.ownerSetup=receipt;if(receipt.activated&&r.ownerOutputsScope!==receipt.scopeId){const scope=await exclusive(r,async()=>(await r.db.query('select amendment from private.r12_discovery_scopes where id=$1',[receipt.scopeId])).rows[0].amendment);r.outputs=ownerInitialPhaseOutputs(scope);r.ownerOutputsScope=receipt.scopeId;}}
+ return result;
 }
 async function exclusive(r,fn){
  const previous=r.queue??Promise.resolve();let release;r.queue=new Promise(resolve=>release=resolve);await previous;

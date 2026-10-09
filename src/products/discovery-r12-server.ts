@@ -69,7 +69,7 @@ export async function continueDiscoveryR12(context:OwnerUiContext,businessId:str
  if(saved&&saved.planHash!==activation.planHash)return fail();
  if(!saved){
   if(row.activeWindow!==true||plan.format==='r12.discovery-review.1'||plan.format==='r12.discovery-evidence.1')return fail();
-  await controller.command('plan',{plan,expectedVersion:0,reason:'Approved bounded nature-shirt discovery',evidenceHash:scope.independentReviewHash});
+  await controller.command('plan',{plan,expectedVersion:0,reason:scope.version==='r12.discovery-owner-initial.1'?'Owner-confirmed bounded original POD research':'Approved bounded nature-shirt discovery',evidenceHash:scope.independentReviewHash});
  }
  const started=recovery?requestStarted:Date.now();
  // Existing Core takes one finite transition at a time. This request can make
@@ -88,8 +88,16 @@ export async function continueDiscoveryR12(context:OwnerUiContext,businessId:str
  return{status:'waiting',reason:'continue_saved_progress'};
 }
 /** Stop is key-free and uses the already established owner financial control. */
-export async function stopDiscoveryR12(context:OwnerUiContext,businessId:string,scopeId:string){
+export async function stopDiscoveryR12(context:OwnerUiContext,businessId:string,scopeId:string,ownerInitial=false){
  await owned(context,businessId,scopeId);
+ if(ownerInitial){
+  // This exact owner-only revocation does not depend on current source, profile,
+  // funding or grant availability. SQL resolves the immutable saved policy.
+  const native=await boundedRpc(context.supabase.rpc('r12_owner_research_server',{p_business_id:businessId,p_operation:'stop_scope',p_payload:{scopeId,submissionId:randomUUID()},p_server_key:''}),requestDeadline(20000),15000);
+  if(native.error||!object(native.data))return fail();
+  if(native.data.matched===true){if(native.data.stopped!==true||native.data.scopeId!==scopeId)return fail();return{stopped:true as const};}
+  if(native.data.matched!==false)return fail();
+ }
  const loaded=await context.supabase.rpc('r12_discovery_owner_read',{p_business_id:businessId,p_scope_id:scopeId,p_activation:true});
  if(loaded.error||!object(loaded.data))return fail();
  if(loaded.data.activation===null&&loaded.data.state==='awaiting_authority'){

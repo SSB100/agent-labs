@@ -46,10 +46,10 @@ test('Business unavailable remains explicit unknown, disables command, preserves
 
 test('explicit research sheet uses only verified selected Business and returns exact aggregate scope and independent attempt cursor on Close/Escape',async()=>{
   const f=rootResearchFixture(),route=`/dashboard?view=research&type=records&selected=${selectedId}&root=${selectedId}&page=3&q=unmatched&searchField=objective&attemptPage=2&attemptSort=oldest&sheet=research`,page=await f.render(route);
-  assert.deepEqual(plain(f.ancillaryCalls),[{name:'catalogue',businesses:[businessId]},{name:'quote',businesses:[businessId]}]);
+  assert.deepEqual(plain(f.ancillaryCalls),[], 'Opening the ordinary chooser cannot fetch a legacy catalogue or quote');
   const returned=new URL(page.sheet.props.returnTo,'https://fixture'); for(const [key,value]of Object.entries({selected:selectedId,root:selectedId,page:'3',q:'unmatched',searchField:'objective',attemptPage:'2',attemptSort:'oldest'}))assert.equal(returned.searchParams.get(key),value);
   assert.equal(returned.searchParams.has('business'),false);assert.equal(returned.searchParams.has('sheet'),false);assert.equal(page.command.returnTo,page.sheet.props.returnTo);
-  const kickoff=page.sheet.props.children;assert.deepEqual(kickoff.props.businesses.map(row=>row.id),[businessId]);assert.equal(kickoff.props.ownerId,f.context.userId);assert.equal(evidence(f).length,0);assert.deepEqual(f.denied,[]);
+  const kickoff=page.sheet.props.children;assert.deepEqual(kickoff.props.businesses.map(row=>row.id),[businessId]);assert.equal(kickoff.props.selectedBusinessId,businessId);assert.equal(kickoff.type.name,'OwnerResearchEntry');assert.equal(evidence(f).length,0);assert.deepEqual(f.denied,[]);
 });
 
 for(const suffix of ['view=research&view=research','type=unexpected','type=roots&type=records','business='+id(989898),'selected=nope','selected='+selectedId+'&experiment='+id(99),'page=0','page=2&page=3','pageSize=500','q=*','q=text','searchField=any','attemptPage=2','attemptSort=oldest','sheet=anything','sheet=research&sheet=research','artifact='+id(42),'message=success','error=old-action'])test(`actual Research rejects malformed/conflicting ${suffix} before record/catalogue/quote reads`,async()=>{

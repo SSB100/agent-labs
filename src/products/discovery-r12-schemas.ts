@@ -39,3 +39,11 @@ const STATIC_SCHEMAS: Record<"plan" | "select1" | "strategy" | "review", JsonObj
     additionalUncertainties: arr(obj({ dimension: en(DIMENSIONS), ...uncertainty.properties as Record<string, JsonObject> }), 0, 18) }),
 };
 export function discoveryR12StaticSchema(phase: "plan" | "select1" | "strategy" | "review"): JsonObject { return structuredClone(STATIC_SCHEMAS[phase]); }
+
+/** Separate owner-initial provider grammar. Historical and focused schemas keep
+ * their exact bytes/hashes; selected countries and all private values stay local. */
+const OWNER_INITIAL_STRATEGY_SCHEMA = structuredClone(STATIC_SCHEMAS.strategy);
+((OWNER_INITIAL_STRATEGY_SCHEMA.properties as JsonObject).marketComparisons as JsonObject).minItems = 1;
+export function discoveryR12OwnerInitialStaticSchema(phase: "plan" | "select1" | "strategy" | "review"): JsonObject {
+  return phase === "strategy" ? structuredClone(OWNER_INITIAL_STRATEGY_SCHEMA) : discoveryR12StaticSchema(phase);
+}

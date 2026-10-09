@@ -543,6 +543,12 @@ jobs:
           set -o pipefail
           node --test tests/r12-discovery-scope-sql.test.mjs tests/r12-owner-preparation-route.test.mjs tests/r12-bootstrap-rehearsal.test.mjs 2>&1 | tee /tmp/r12-scope-tests.log
 
+      - name: Verify ordinary owner Goal activation, funding, receipts and history
+        env:
+          R12_SQL_TEST_HOST: ${{ runner.temp }}/r12-sql-host
+        run: |
+          node --test --test-concurrency=1 tests/r12-owner-initial-sql.test.mjs tests/r12-owner-initial-security.test.mjs tests/r12-owner-initial-runtime-sql.test.mjs tests/r12-owner-catalog-scale.test.mjs
+
       - name: Verify full-shape R12 dispatch within the unchanged three-second SQL budget
         env:
           R12_SQL_TEST_HOST: ${{ runner.temp }}/r12-sql-host
@@ -603,6 +609,17 @@ jobs:
           node scripts/reset-r12-ci-database.mjs
           node --test tests/r12-recovery-reconciliation-races.test.mjs
 
+      - name: Verify ordinary owner activation, Stop and funding races on PostgreSQL
+        env:
+          R12_SQL_TEST_HOST: ${{ runner.temp }}/r12-sql-host
+          R12_REQUIRE_POSTGRES: "1"
+          R12_POSTGRES_URL: postgresql://r12_test:r12-isolated-fixture@127.0.0.1:5432/r12_test
+        run: |
+          set -o pipefail
+          export R12_CI_POSTGRES_ADDRESS="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' '${{ job.services.postgres.id }}')"
+          node scripts/reset-r12-ci-database.mjs
+          node --test tests/r12-owner-initial-postgres-races.test.mjs 2>&1 | tee /tmp/r12-owner-races-ci.log
+
       - name: Preserve recovery HTTP deadline evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -613,6 +630,7 @@ jobs:
             /tmp/r12-http-ci-report.json
             /tmp/r12-http-ci-terminal-cold.json
             /tmp/r12-races-ci-report.json
+            /tmp/r12-owner-races-ci.log
           if-no-files-found: warn
           retention-days: 14
 
@@ -639,6 +657,15 @@ jobs:
         run: |
           node tests/next-fixture/knowledge-contracts.mjs
           node scripts/verify-r03-next.mjs
+          node scripts/verify-r12-owner-next.mjs
+      - name: Preserve ordinary owner Goal browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r12-owner-next-${{ github.sha }}
+          path: test-results/r12-owner-next/
+          if-no-files-found: error
+          retention-days: 14
       - name: Preserve all screenshots and diagnostics
         if: always()
         uses: actions/upload-artifact@v4

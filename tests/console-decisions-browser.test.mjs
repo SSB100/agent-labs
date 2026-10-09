@@ -453,9 +453,9 @@ test('hosted retained React/Suspense Decisions lifecycle, account disclosure, fo
         assert.equal(await page.locator('.compactDecisionDetail').getAttribute('data-decision-id'), nextNotice.id);
         assert.equal(page.url(), origin + nextRoute);
         await navigate(`/dashboard?view=decisions&decision=${notice.id}`); await headingFocused();
-        // Background version refresh preserves the real root goal field and a native modal barrier.
-        const goal = page.locator('#console-command-input');
-        await goal.fill('Keep this live research goal draft'); await goal.focus();
+        // Background version refresh preserves the saved-Quest opener focus and a native modal barrier.
+        const goal = page.locator('#console-command-open');
+        await goal.focus();
         const draftScroll = await page.evaluate(() => scrollY);
         notice.updated_at = '2026-10-02T04:10:20.123458+00:00';
         const readHeld = new Promise(resolve => { onReadHeld = resolve; }); releaseRead = 'hold';
@@ -464,12 +464,12 @@ test('hosted retained React/Suspense Decisions lifecycle, account disclosure, fo
         await readHeld; await page.waitForFunction(() => window.__decisionReadPending === true);
         assert.equal(await page.locator('.compactDecisionDetail').isVisible(), true, 'A pending fixture read keeps the selected component mounted and visible');
         assert.equal(await goal.evaluate(node => node === document.activeElement), true);
-        assert.equal(await page.evaluate(() => scrollY), draftScroll, 'Pending read cannot collapse the document beneath an active draft');
+        assert.equal(await page.evaluate(() => scrollY), draftScroll, 'Pending read cannot collapse the document beneath an active control');
         assert.equal(typeof releaseRead, 'function'); releaseRead(); releaseRead = null;
         await page.waitForFunction(previous => window.__decisionRetainedRenderCount > previous, beforeRefresh);
         assert.equal(await goal.evaluate(node => node === document.activeElement), true);
-        assert.equal(await goal.inputValue(), 'Keep this live research goal draft');
-        assert.equal(await page.evaluate(() => scrollY), draftScroll, 'A background notice revision cannot move an active goal draft');
+        assert.match(await goal.innerText(), /Open research Quests/);
+        assert.equal(await page.evaluate(() => scrollY), draftScroll, 'A background notice revision cannot move the active research opener');
         // This native dialog probes focus isolation; actual Research sheet lifecycle has its separate suite.
         await page.evaluate(() => {
           const dialog = document.createElement('dialog'); dialog.id = 'decision-modal-focus-probe'; dialog.className = 'consoleResearchSheet';
