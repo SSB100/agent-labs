@@ -1,0 +1,7 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {createRequire} from 'node:module';import {readFileSync,readdirSync} from 'node:fs';import path from 'node:path';import {fileURLToPath} from 'node:url';
+import {r04SqlBootstrap} from './helpers/r04-sql-bootstrap.mjs';import {sessionBootstrap} from './helpers/r10-sql-fixture.mjs';import {exerciseOwnerInitialSql,exerciseOwnerInitialLegacyFunding,exerciseOwnerInitialPurposeIdentity} from './helpers/r12-owner-initial-sql-fixture.mjs';
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),host=process.env.R12_SQL_TEST_HOST??process.env.R11_SQL_TEST_HOST;
+test('Owner initial real Goal prepares and atomically confirms through genuine R05 without fake legacy or paid effects',{skip:!host,timeout:120000},async()=>{
+ const req=createRequire(path.resolve(host,'package.json')),{PGlite}=req('@electric-sql/pglite'),{pgcrypto}=req('@electric-sql/pglite/contrib/pgcrypto');const db=new PGlite({extensions:{pgcrypto}});
+ try{await db.exec(r04SqlBootstrap+sessionBootstrap);for(const file of readdirSync(root+'/supabase/migrations').filter(x=>x.endsWith('.sql')).sort())await db.exec(readFileSync(root+'/supabase/migrations/'+file,'utf8'));const result=await exerciseOwnerInitialSql(db);assert.equal(result.activated.activated,true);await exerciseOwnerInitialLegacyFunding(db);await exerciseOwnerInitialPurposeIdentity(db);}finally{await db.close();}
+});

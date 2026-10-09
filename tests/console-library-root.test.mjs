@@ -90,7 +90,7 @@ test('aggregate selection verifies command/sidebar Business without narrowing ag
   assert.equal(page.props.searchParams.has('business'),false);assert.equal(page.data.page.total,254);assert.equal(page.tree.props.navigationBusinessId,secondBusinessId);assert.equal(page.tree.props.commandBar.props.businessId,secondBusinessId);assert.equal(page.tree.props.aggregateContext,true);
   assert.match(page.markup,/All owned Businesses/);assert.ok(page.markup.includes(`view=connections&amp;business=${secondBusinessId}`));assert.match(page.markup,/href="\/dashboard\?view=decisions"/);
   const sheet=await f.render(`/dashboard?view=library&type=designs&selected=${id(11000)}&page=2&sheet=research`);
-  assert.deepEqual(plain(sheet.sheet.props.children.props.businesses),plain([f.context.businesses[1]]));assert.deepEqual(f.ancillaryCalls.map(call=>call.businesses),[[secondBusinessId],[secondBusinessId]]);
+  assert.deepEqual(plain(sheet.sheet.props.children.props.businesses),plain([f.context.businesses[1]]));assert.deepEqual(f.ancillaryCalls,[], 'The saved-Quest chooser performs no legacy catalogue or quote reads');
   const back=new URL(sheet.sheet.props.returnTo,'https://test.invalid').searchParams;assert.equal(back.get('business'),null);assert.equal(back.get('selected'),id(11000));assert.equal(back.get('page'),'2');assert.equal(back.get('sheet'),null);
   const closed=await f.render('/dashboard?view=library&type=designs&page=2');assert.equal(closed.tree.props.commandBar.props.businessId,undefined);assert.equal(closed.tree.props.navigationBusinessId,undefined);assert.deepEqual(f.denied,[]);
 });

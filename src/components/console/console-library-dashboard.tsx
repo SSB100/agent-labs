@@ -2,14 +2,13 @@ import { copyWorkspace } from "@/lib/core-ui/workspace-navigation";
 import { notFound } from "next/navigation";
 import type { OwnerUiContext } from "@/lib/core-ui/data";
 import { loadAccountSetupInterventions } from "@/accounts/server";
-import { loadDiscoveryGoalData } from "@/products/discovery-v2-data";
-import { loadConsoleObservationTime, loadConsoleResearchQuote } from "@/lib/core-ui/console-data";
+import { loadConsoleObservationTime } from "@/lib/core-ui/console-data";
 import { consoleLibraryHref, consoleLibraryOptionsFromSearch, consoleLibraryQuery, type ConsoleLibraryQuery } from "@/lib/core-ui/console-library-query";
 import { loadConsoleLibraryPage, loadConsoleLibraryRecordsPage, type ConsoleLibraryPage, type ConsoleLibraryRecordsPage } from "@/lib/core-ui/console-library-data";
 import { ConsoleShell } from "./console-shell";
 import { ConsoleCommandBar, ConsoleResearchSheet } from "./console-command";
 import { ConsoleLibraryPane } from "./console-library-pane";
-import { QuestKickoff } from "@/components/guided/quest-kickoff";
+import { OwnerResearchEntry } from "@/components/quests/owner-research-entry";
 
 type Search = Record<string, string | string[] | undefined>;
 function canonicalLibrarySearch(q: ConsoleLibraryQuery): URLSearchParams {
@@ -47,18 +46,15 @@ export async function ConsoleLibraryDashboard({ context, query }: { context: Own
   const navigationBusinessId = q.businessId ?? selectedBusinessId;
   const commandBusinessId = selectedBusinessId ?? q.businessId ?? undefined;
   const commandBusinesses = commandBusinessId ? context.businesses.filter(business => business.id === commandBusinessId) : context.businesses;
-  const commandContext = { ...context, businesses: commandBusinesses };
   const researchSheet = query.sheet === "research";
-  const [accountRequests, catalog, observedAt] = await Promise.all([
+  const [accountRequests, observedAt] = await Promise.all([
     context.businessesUnavailable ? { records: [], unavailable: true, page: undefined, globalCount:undefined } : loadAccountSetupInterventions(context),
-    researchSheet && !context.businessesUnavailable ? loadDiscoveryGoalData(commandContext, []) : null,
     loadConsoleObservationTime(),
   ]);
-  const quote = researchSheet && !context.businessesUnavailable ? await loadConsoleResearchQuote(commandContext, catalog?.available === true) : null;
   const displayContext = { ...context, needsYouCount: context.needsYouCount + (context.workspaceQuest ? accountRequests.page?.total ?? 0 : accountRequests.globalCount ?? accountRequests.page?.total ?? accountRequests.records.length), needsYouUnavailable: context.needsYouUnavailable || context.businessesUnavailable || accountRequests.unavailable };
   return <ConsoleShell active="library" context={displayContext} globalDecisionCount={!context.workspaceQuest} aggregateContext={!q.businessId} navigationBusinessId={navigationBusinessId}
     commandBar={<ConsoleCommandBar ownerId={context.userId} businessId={commandBusinessId} businessSelectionAvailable={context.businesses.length > 0} returnTo={returnTo} unavailable={context.businessesUnavailable}/> }>
     <ConsoleLibraryPane ownerId={context.userId} businesses={context.businesses} searchParams={params} data={data} now={observedAt}/>
-    {researchSheet ? <ConsoleResearchSheet returnTo={returnTo}><QuestKickoff ownerId={context.userId} businesses={commandBusinesses} businessesUnavailable={context.businessesUnavailable} available={catalog?.available === true} quote={quote}/></ConsoleResearchSheet> : null}
+    {researchSheet ? <ConsoleResearchSheet returnTo={returnTo}><OwnerResearchEntry businesses={commandBusinesses} businessesUnavailable={context.businessesUnavailable} selectedBusinessId={commandBusinessId}/></ConsoleResearchSheet> : null}
   </ConsoleShell>;
 }

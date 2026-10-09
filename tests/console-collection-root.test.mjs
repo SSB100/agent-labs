@@ -124,7 +124,7 @@ test('aggregate to exact selected research setup preserves filter scope, correct
   assert.equal(page.props.searchParams.has('business'),false);assert.equal(page.tree.props.commandBar.props.businessId,businessId);
   assert.deepEqual(plain(page.sheet.props.children.props.businesses),[businesses[0]]);assert.ok(page.sheet.props.returnTo.endsWith('#artifact-'+exactArtifactId));
   assert.equal(new URL(page.sheet.props.returnTo,'https://test.invalid').searchParams.has('sheet'),false);
-  assert.deepEqual(fixture.ancillaryCalls.map(call=>call.businesses),[[businessId],[businessId]]);assert.deepEqual(fixture.denied,[]);
+  assert.deepEqual(fixture.ancillaryCalls,[], 'The saved-Quest chooser needs no legacy catalogue or quote');assert.deepEqual(fixture.denied,[]);
 });
 
 test('actual collection and Activity context projections omit wide payloads until exact selection',async()=>{

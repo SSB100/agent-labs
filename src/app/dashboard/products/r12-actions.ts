@@ -10,6 +10,6 @@ export async function continueDiscoveryR12Action(_previous:R12ActionState,form:F
  }catch{revalidatePath('/dashboard');return{version:Date.now(),message:'This transition could not be verified. Review the saved state; an already dispatched call will not be regenerated.'};}
 }
 export async function stopDiscoveryR12Action(_previous:R12ActionState,form:FormData):Promise<R12ActionState>{
- try{const {business,scope}=selection(form),context=await requireOwnerUiContext();await stopDiscoveryR12(context,business,scope);revalidatePath('/dashboard');return{version:Date.now(),message:'Stopped. New calls and receipt checks are blocked; existing output and charges are retained.'};}
+ try{const {business,scope}=selection(form),context=await requireOwnerUiContext();await stopDiscoveryR12(context,business,scope,form.get('ownerInitial')==='1');revalidatePath('/dashboard');return{version:Date.now(),message:'Stopped. New calls and receipt checks are blocked; existing output and charges are retained.'};}
  catch{return{version:Date.now(),message:'Stop could not be verified. Reload the saved state and use the operating controls if needed.'};}
 }

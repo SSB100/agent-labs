@@ -1,3 +1,5 @@
+import { bindValidatedOwnerResearchIntent, assertValidatedOwnerResearchIntent, type ValidatedOwnerResearchIntent } from "./discovery-r12-goal-intent";
+import { validateDiscoveryOwnerInitialScope, type DiscoveryOwnerInitialScope } from "./discovery-r12-goal-scope";
 import type { JsonObject } from "../core/contracts";
 import type { QuestAdapterContext, QuestEffectResponse } from "../core/quest-controller";
 import { resolveModelRoute } from "../models/registry";
@@ -24,9 +26,14 @@ export type DiscoveryR12CompletedPhase = {
   response: { outcome: "accepted"; result: JsonObject; checkedArtifacts: unknown; planHash: string; inputHash: string };
   binding: DiscoveryR12CandidateBinding; candidate: DiscoveryR12Candidate; proof: GenerationRouteProof;
 };
+type OwnerInitialResearchScope = {
+  amendment: DiscoveryOwnerInitialScope; amendmentHash: string; intent: DiscoveryOwnerInitialScope["intent"]; intentHash: string;
+  budgetAuthorityRootId: string; originalSemanticGoalHash: string | null; priorRoundId: string | null;
+  remainingMicrousd: number; executionAuthorized: false;
+};
 export type DiscoveryR12LegacyPhaseInputs = {
   inputMode: "dispatch" | "receipt"; validationAt: number;
-  scope: AmendedDiscoveryScope; knowledge: DiscoveryKnowledgeContextV2;
+  scope: AmendedDiscoveryScope | OwnerInitialResearchScope; ownerInitial?: ValidatedOwnerResearchIntent; knowledge: DiscoveryKnowledgeContextV2;
   committedBeforeAttemptMicrousd: number; dependencies: DiscoveryR12CompletedPhase[];
   continuation?: { envelope: DiscoveryReviewContinuation; sourceValidationAt: number; sourceCommittedMicrousd: number };
   evidenceContinuation?: { envelope: DiscoveryEvidenceContinuation; sourceValidationAt: number; sourceCommittedMicrousd: number;
@@ -45,8 +52,12 @@ function verifiedDependency(dep: DiscoveryR12CompletedPhase, planHash: string, s
       dep.response.result.routeProofHash !== dep.proof.proofHash || dep.response.result.outputHash !== discoveryV2Hash(dep.candidate.output)) return fail();
   qualifyDiscoveryR12Candidate(dep.candidate, dep.binding, dep.proof);
 }
+function legacyScope(state: DiscoveryR12LegacyPhaseInputs): AmendedDiscoveryScope {
+  if (state.ownerInitial || state.scope.amendment.version !== "r12.discovery-source-scope.1") return fail();
+  return state.scope as AmendedDiscoveryScope;
+}
 function ownEvidenceInputs(ctx: QuestAdapterContext, state: DiscoveryR12LegacyPhaseInputs) {
-  const { scope, evidenceContinuation: continuation } = state;
+  const { evidenceContinuation: continuation } = state, scope = legacyScope(state);
   if (!continuation || state.continuation) return fail();
   const envelope = validateDiscoveryEvidenceContinuation(continuation.envelope, scope, state.validationAt);
   if (!continuation.predecessorAmendment || continuation.predecessorAmendment.id !== envelope.predecessorScopeId || discoveryV2Hash(continuation.predecessorAmendment) !== envelope.predecessorScopeHash) return fail();
@@ -85,6 +96,14 @@ function ownEvidenceInputs(ctx: QuestAdapterContext, state: DiscoveryR12LegacyPh
 function ownInputs(ctx: QuestAdapterContext, input: DiscoveryR12LegacyPhaseInputs) {
   const state = structuredClone(input), { scope, continuation } = state;
   if (state.evidenceContinuation) return ownEvidenceInputs(ctx, state);
+  if (state.ownerInitial) {
+    const current = validateDiscoveryOwnerInitialScope(scope.amendment as DiscoveryOwnerInitialScope, state.validationAt);
+    assertValidatedOwnerResearchIntent(scope.intent, state.ownerInitial);
+    if (continuation || state.evidenceContinuation || ctx.plan.format !== "r12.discovery.1" || current.goalRevision !== ctx.plan.goalRevision || current.goalHash !== ctx.plan.goalHash ||
+        current.businessRevision !== ctx.plan.businessRevision || current.businessHash !== ctx.plan.businessHash || state.ownerInitial.scopeHash !== scope.amendmentHash ||
+        state.ownerInitial.scopeId !== current.id || Number(ctx.plan.maximumMicrounits) !== current.intent.limits.maximumMicrousd ||
+        state.committedBeforeAttemptMicrousd !== state.dependencies.reduce((total, phase) => total + Number(phase.candidate.reportedMicrousd), 0)) return fail();
+  } else if (scope.amendment.version !== "r12.discovery-source-scope.1") return fail();
   const executionScope = continuation?.envelope ?? scope.amendment;
   if (ctx.plan.format !== (continuation ? "r12.discovery-review.1" : "r12.discovery.1") || ctx.plan.discoveryScopeId !== executionScope.id || ctx.plan.discoveryScopeHash !== discoveryV2Hash(executionScope) || scope.amendmentHash !== discoveryV2Hash(scope.amendment) || scope.intentHash !== discoveryV2Hash(scope.intent) ||
       scope.intent.businessId !== ctx.plan.businessId || scope.amendment.goalId !== ctx.plan.goalId || scope.intent.id !== scope.amendment.id ||
@@ -93,7 +112,7 @@ function ownInputs(ctx: QuestAdapterContext, input: DiscoveryR12LegacyPhaseInput
   if (!["dispatch", "receipt"].includes(state.inputMode) || !Number.isFinite(state.validationAt) || state.validationAt > Date.now()) return fail();
   validateDiscoveryKnowledgeV2(state.knowledge, state.validationAt);
   if (continuation) {
-    validateDiscoveryReviewContinuation(continuation.envelope, scope, state.validationAt);
+    validateDiscoveryReviewContinuation(continuation.envelope, legacyScope(state), state.validationAt);
     if (ctx.step.key !== "review" || state.dependencies.length !== 4 || !Number.isFinite(continuation.sourceValidationAt) || continuation.sourceValidationAt > state.validationAt ||
         !Number.isSafeInteger(continuation.sourceCommittedMicrousd) || continuation.sourceCommittedMicrousd < 0 || continuation.sourceCommittedMicrousd > state.committedBeforeAttemptMicrousd) return fail();
     const strategy = state.dependencies.find(dep => dep.stepKey === "strategy");
@@ -120,6 +139,19 @@ function ownInputs(ctx: QuestAdapterContext, input: DiscoveryR12LegacyPhaseInput
 /** Validate the exact server read before using its saved records as evidence. */
 export function readDiscoveryR12PhaseInputs(ctx: QuestAdapterContext, raw: Record<string, unknown>): DiscoveryR12PhaseInputs {
   if (ctx.plan.format === "r12.discovery-pilot.1") return readDiscoveryR12FocusedPilotInputs(ctx, raw, reconstructLegacyDiscoveryR12Result);
+  if (raw.version === "r12.discovery-owner-initial-inputs.1") {
+    if (ctx.plan.format !== "r12.discovery.1" || raw.businessId !== ctx.plan.businessId || raw.planId !== ctx.planId || raw.attemptId !== ctx.attempt.id ||
+        raw.knowledgeSnapshotHash !== ctx.step.packSnapshotHash || discoveryV2Hash(raw.knowledgeSnapshot) !== raw.knowledgeCanonicalHash ||
+        !Array.isArray(raw.dependencies) || raw.hasUncertainCosts !== false || !Number.isSafeInteger(raw.committedMicrousd) || Number(raw.committedMicrousd) < 0) return fail();
+    const validationAt = Date.parse(String(raw.validationAt)), inputMode = raw.inputMode as DiscoveryR12LegacyPhaseInputs["inputMode"];
+    const amendment = validateDiscoveryOwnerInitialScope(raw.amendment as DiscoveryOwnerInitialScope, validationAt), amendmentHash = discoveryV2Hash(amendment);
+    const ownerInitial = bindValidatedOwnerResearchIntent(amendment.intent, { scopeId: amendment.id, scopeHash: amendmentHash, approvedQuery: amendment.approvedQuery }, validationAt);
+    const snapshot = raw.knowledgeSnapshot as DiscoveryKnowledgeContextV2["snapshot"], knowledge = pinDiscoveryKnowledgeV2({ rootPackId: snapshot.rootPackId, releases: snapshot.releases }, validationAt);
+    const scope: OwnerInitialResearchScope = { amendment, amendmentHash, intent: amendment.intent, intentHash: discoveryV2Hash(amendment.intent),
+      budgetAuthorityRootId: amendment.funding.authorityRootId, originalSemanticGoalHash: amendment.funding.originalSemanticGoalHash, priorRoundId: amendment.funding.priorRoundId,
+      remainingMicrousd: amendment.intent.limits.maximumMicrousd - Number(raw.committedMicrousd), executionAuthorized: false };
+    return ownInputs(ctx, { inputMode, validationAt, scope, ownerInitial, knowledge, committedBeforeAttemptMicrousd: Number(raw.committedMicrousd), dependencies: raw.dependencies as DiscoveryR12CompletedPhase[] });
+  }
   const isContinuation = ctx.plan.format === "r12.discovery-review.1";
   const isEvidence = ctx.plan.format === "r12.discovery-evidence.1";
   if (raw.version !== (isContinuation ? "r12.discovery-review-inputs.1" : isEvidence ? "r12.discovery-evidence-inputs.1" : "r12.discovery-inputs.1") || raw.businessId !== ctx.plan.businessId || raw.planId !== ctx.planId || raw.attemptId !== ctx.attempt.id ||
@@ -140,7 +172,7 @@ function dependency(state: DiscoveryR12LegacyPhaseInputs, key: DiscoveryR12Phase
 }
 const sourceTime = (state: DiscoveryR12LegacyPhaseInputs) => state.continuation?.sourceValidationAt ?? state.evidenceContinuation?.sourceValidationAt ?? state.validationAt;
 function reviewedPlan(state: DiscoveryR12LegacyPhaseInputs, output: JsonObject) {
-  const plan = normalizeDiscoveryPlanV2(state.scope.intent, output, "qualified_public", sourceTime(state));
+  const plan = normalizeDiscoveryPlanV2(state.scope.intent, output, state.ownerInitial ? "owner_initial" : "qualified_public", sourceTime(state), state.ownerInitial);
   // Keep the model's advisory focus in its immutable candidate. The executable
   // search question comes only from the separately reviewed source amendment.
   return { ...plan, queries: [{ ...plan.queries[0], question: state.scope.amendment.approvedQuery }] };
@@ -178,7 +210,7 @@ function preparedAnalysis(state: DiscoveryR12LegacyPhaseInputs) {
   const dossier: DiscoveryDossierV2 = { version: DISCOVERY_V2, intentId: state.scope.intent.id, businessId: state.scope.intent.businessId, comparisonRationale: collected.plan.comparisonRationale,
     shortlist: collected.candidates, packRefs: [{ artifactId: persisted.artifactId, sha256: discoveryV2Hash(pack), origin: "new", query: { id: collected.query.queryId, question: collected.query.question, sourceDomains: collected.query.sourceDomains } }] };
   const validation: DiscoveryValidationContextV2 = { knowledge: state.knowledge, packs: new Map([[persisted.artifactId, persisted]]), candidates: new Map(collected.candidates.map(candidate => [candidate.id, candidate])),
-    ownerRightsConfirmedCandidateIds: [], sellerBankCountry: state.evidenceContinuation?.envelope.addendum.sellerBankCountry ?? null, committedMicrousd: state.continuation?.sourceCommittedMicrousd ?? state.committedBeforeAttemptMicrousd };
+    ownerRightsConfirmedCandidateIds: [], sellerBankCountry: state.evidenceContinuation?.envelope.addendum.sellerBankCountry ?? null, ...(state.ownerInitial ? { ownerInitial: state.ownerInitial } : {}), committedMicrousd: state.continuation?.sourceCommittedMicrousd ?? state.committedBeforeAttemptMicrousd };
   const references: EvidenceRefV2[] = pack.evidence.map(e => {
     const source = pack.sources.find(source => source.id === e.sourceId);if (!source) return fail();
     const position = source.excerpt.indexOf(e.quote);if (position < 0) return fail();
@@ -192,7 +224,7 @@ function preparedAnalysis(state: DiscoveryR12LegacyPhaseInputs) {
     validation.previousDecision = priorEvidenceDecision(state);
     references.push(...discoveryAddendumReferences(evidence.envelope.addendum));
   }
-  const intent = evidence ? discoveryEvidenceExecutionIntent(state.scope, evidence.envelope, state.validationAt) : state.scope.intent;
+  const intent = evidence ? discoveryEvidenceExecutionIntent(legacyScope(state), evidence.envelope, state.validationAt) : state.scope.intent;
   return { prepared: prepareDiscoveryWorkerContextV2(intent, dossier, validation, references, evidence ? state.validationAt : sourceTime(state)), dossier, persisted, references, validation, candidates: collected.candidates };
 }
 function strategist(state: DiscoveryR12LegacyPhaseInputs) {
@@ -200,7 +232,7 @@ function strategist(state: DiscoveryR12LegacyPhaseInputs) {
   const assessment = normalizeStrategistResponseV2(analysis.prepared, dep.candidate.output, execution, state.evidenceContinuation ? state.validationAt : sourceTime(state));
   if (dep.response.result.assessmentHash !== discoveryV2Hash(assessment)) return fail();
   const prepared = state.continuation ? prepareDiscoveryWorkerContextV2(
-    discoveryReviewExecutionIntent(state.scope, state.continuation.envelope, state.validationAt), analysis.dossier,
+    discoveryReviewExecutionIntent(legacyScope(state), state.continuation.envelope, state.validationAt), analysis.dossier,
     { ...analysis.validation, committedMicrousd: state.committedBeforeAttemptMicrousd }, analysis.references, state.validationAt) : analysis.prepared;
   return { ...analysis, prepared, assessment, execution };
 }
@@ -210,8 +242,8 @@ function priorEvidenceDecision(state: DiscoveryR12LegacyPhaseInputs): JsonObject
   if (!("messages" in saved.binding.request)) return fail();
   const committed = saved.binding.request.requestMetadata?.r12CommittedBeforeAttemptMicrousd;
   if (typeof committed !== "number" || !Number.isSafeInteger(committed)) return fail();
-  validateDiscoveryReviewContinuation(previous.predecessorAmendment, state.scope, at);
-  const historical: DiscoveryR12LegacyPhaseInputs = { inputMode: "receipt", validationAt: at, scope: state.scope, knowledge: state.knowledge,
+  validateDiscoveryReviewContinuation(previous.predecessorAmendment, legacyScope(state), at);
+  const historical: DiscoveryR12LegacyPhaseInputs = { inputMode: "receipt", validationAt: at, scope: legacyScope(state), knowledge: state.knowledge,
     committedBeforeAttemptMicrousd: committed, dependencies: previous.sourceDependencies,
     continuation: { envelope: previous.predecessorAmendment, sourceValidationAt: previous.sourceValidationAt, sourceCommittedMicrousd: previous.sourceCommittedMicrousd } };
   const original = strategist(historical);
@@ -235,7 +267,7 @@ export function buildDiscoveryR12PhaseRequest(ctx: QuestAdapterContext, input: D
   if (state.inputMode !== "dispatch" || !["scheduled", "reserved"].includes(ctx.attempt.status)) return fail();
   let request: StructuredModelRequest | WebSearchModelRequest;
   if (phase === "plan") {
-    request = buildDiscoveryPlannerRequestV2(state.scope.intent, state.knowledge, undefined, "qualified_public").request;
+    request = buildDiscoveryPlannerRequestV2(state.scope.intent, state.knowledge, undefined, state.ownerInitial ? "owner_initial" : "qualified_public", state.ownerInitial).request;
     request.messages[0].content += " The actual public search question is separately reviewed and fixed. Your queryFocus is advisory and cannot expand it.";
     request.messages[1].content = JSON.stringify({ ...JSON.parse(request.messages[1].content), approvedSearchQuery: state.scope.amendment.approvedQuery });
   }
@@ -252,7 +284,7 @@ export function buildDiscoveryR12PhaseRequest(ctx: QuestAdapterContext, input: D
 
   // Metadata is private runtime binding, not provider grammar. It preserves the
   // exact before-call accounting snapshot used to interpret the returned output.
-  if ("messages" in request) request.requestMetadata = { ...request.requestMetadata, r12CommittedBeforeAttemptMicrousd: state.committedBeforeAttemptMicrousd, r12KnowledgeHash: discoveryKnowledgeHashV2(state.knowledge) };
+  if ("messages" in request) request.requestMetadata = { ...request.requestMetadata, r12CommittedBeforeAttemptMicrousd: state.committedBeforeAttemptMicrousd, r12KnowledgeHash: discoveryKnowledgeHashV2(state.knowledge), ...(state.ownerInitial ? { r12OwnerInitialScopeHash: state.ownerInitial.scopeHash } : {}) };
   return request;
 }
 export function projectDiscoveryR12Phase(ctx: QuestAdapterContext, input: DiscoveryR12PhaseInputs, qualified: ReturnType<typeof qualifyDiscoveryR12Candidate>, request: StructuredModelRequest | WebSearchModelRequest): Omit<QuestEffectResponse, "settlement"> {
@@ -309,6 +341,7 @@ function reconstructLegacyDiscoveryR12Result(raw: Record<string, unknown>, busin
   return { version: "r12.discovery-result.1" as const, businessId, scopeId, goalId: ctx.plan.goalId, planId: ctx.planId,
     historyOnly: true as const, executionAuthorized: false as const, reviewedAt: current.candidate.receivedAt, sourceScopeExpiresAt: state.scope.amendment.expiresAt,
     originalFundingRootId: state.scope.budgetAuthorityRootId, sourceScopeHash: state.scope.amendmentHash, knowledgeHash: discoveryKnowledgeHashV2(state.knowledge),
+    ...(state.ownerInitial ? { ownerInitial: { profileId: (state.scope.amendment as DiscoveryOwnerInitialScope).profile.id, profileHash: (state.scope.amendment as DiscoveryOwnerInitialScope).profileHash, fundingKind: (state.scope.amendment as DiscoveryOwnerInitialScope).funding.kind } } : {}),
     objective: state.scope.intent.objective, planner: planAndCandidates(state).plan, dossier: found.dossier, evidence: found.persisted, assessment: found.assessment, review,
     ...(state.evidenceContinuation ? { evidenceAddendum: state.evidenceContinuation.envelope.addendum, predecessorScopeId: state.evidenceContinuation.envelope.predecessorScopeId } : {}),
     phaseReceipts: [...state.dependencies, current].map(phase => ({ phase: phase.stepKey, artifactId: phase.artifactId, responseHash: phase.responseHash, candidateHash: discoveryV2Hash(phase.candidate), routeProofHash: phase.proof.proofHash })) };

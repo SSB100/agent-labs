@@ -173,7 +173,7 @@ export function rootDecisionFixture({ tables = fixtureTables({ count: 131 }), us
       '@/etsy-publication/server': { loadPublicationInterventions: noRequests }, '@/printful/server': { loadPrintfulProductInterventions: noRequests },
       '@/products/data': { loadProductWorkspace: async () => ({ candidates: [], experiments: [], decisions: [], errors: [] }) },
       '@/creative/data': { loadCreativeWorkspace: deny }, '@/products/discovery-v2-data': { loadDiscoveryGoalData: deny },
-      '@/components/guided/quest-kickoff': { QuestKickoff: deny }, '@/components/guided/creative-library': { CreativeLibrary: deny },
+      '@/components/quests/owner-research-entry': { OwnerResearchEntry: deny }, '@/components/guided/creative-library': { CreativeLibrary: deny },
       '@/components/stage13/discovery-goal-workspace': { DiscoveryGoalResults: deny }, './accounts/account-workspace': { CompactConnectionsWorkspace: deny },
       './actions': { createBusiness: deny, resumeSyntheticReview: synthetic }, './browser-actions': { resumeBrowserControl: browser }, './packs/actions': { acknowledgeEtsySimulation: simulation }, './legacy-dashboard': deny,
       '@/components/console/console-panes.css': {}, './accounts/accounts.css': {}, './products/products.css': {},

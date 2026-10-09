@@ -117,8 +117,6 @@ test("B run to Library to Connections to hydrated research keeps B without provi
         await page.waitForURL(businessFlow.origin + businessFlow.connections);
         await page.waitForFunction(() => window.__businessHydrated);
         assert.equal(await page.locator(".accountProfileForm input[name=businessId]").inputValue(), businessFlow.businessId);
-        const goal = "Compare original hiking shirts in the approved geographic markets for this Business.";
-        await page.locator("#console-command-input").fill(goal);
         await page.locator(".consoleCommand button").click();
         await page.waitForURL(businessFlow.origin + businessFlow.sheet);
         const dialog = page.getByRole("dialog", { name: "Research setup", exact: true });
@@ -126,9 +124,10 @@ test("B run to Library to Connections to hydrated research keeps B without provi
         await page.waitForFunction(() => document.querySelector("dialog")?.matches(":modal"));
         await page.screenshot({ path: path.join(directory, `business-B-research-${width}.png`), animations: "disabled" });
         assert.deepEqual(await page.evaluate(() => window.__businessHydrationErrors), []);
-        assert.equal(await dialog.getByRole("combobox", { name: /Business context/ }).inputValue(), businessFlow.businessId);
-        assert.equal(await dialog.locator('select[name="businessId"] option').count(), 1);
-        assert.equal(await dialog.locator('textarea[name="goal"]').inputValue(), goal);
+        assert.equal(await dialog.getByRole("combobox", { name: "Business", exact: true }).inputValue(), businessFlow.businessId);
+        assert.equal(await dialog.locator(`select[name="business"] option[value="${businessFlow.businessId}"]`).count(), 1);
+        assert.equal(await dialog.locator('textarea[name="goal"]').count(), 0);
+        assert.equal(await dialog.getByRole("button", { name: "Choose a saved Quest", exact: true }).count(), 1);
         assert.equal(await page.evaluate(() => sessionStorage.getItem("fixture-paid-call")), null);
         assert.deepEqual(await page.evaluate(() => window.__businessHydrationErrors), []);
         await page.screenshot({ path: path.join(directory, `business-B-research-${width}.png`), animations: "disabled" });

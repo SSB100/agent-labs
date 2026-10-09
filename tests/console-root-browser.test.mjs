@@ -96,12 +96,12 @@ test("real root Browser toggle, saved record, history, context and research dism
         const returnTo = await page.evaluate(() => window.__rootBrowserState.command.returnTo);
         assert.equal(new URL(returnTo, origin).searchParams.get("centre"), "browser");
         assert.equal(new URL(returnTo, origin).searchParams.get("business"), id(5));
-        const goal = "Research original products using the current authorized Business.";
-        await page.locator("#console-command-input").fill(goal); await page.locator(".consoleCommand button").click();
+        await page.locator(".consoleCommand button").click();
         await page.waitForURL(origin + returnTo + "&sheet=research"); await hydrated();
         const dialog = page.getByRole("dialog", { name: "Research setup", exact: true }); await dialog.waitFor();
-        assert.equal(await dialog.getByRole("combobox", { name: "Business context", exact: true }).inputValue(), id(5));
-        assert.equal(await dialog.locator('textarea[name="goal"]').inputValue(), goal);
+        assert.equal(await dialog.getByRole("combobox", { name: "Business", exact: true }).inputValue(), id(5));
+        assert.equal(await dialog.locator('textarea[name="goal"]').count(), 0);
+        assert.equal(await dialog.getByRole("button", { name: "Choose a saved Quest", exact: true }).count(), 1);
         assert.equal(await dialog.locator('input[name="confirmResearch"]:checked').count(), 0);
         await page.screenshot({ path: path.join(directory, `console-browser-root-research-${width}.png`), fullPage: true });
         await page.keyboard.press("Escape"); await page.waitForURL(origin + returnTo); await hydrated();

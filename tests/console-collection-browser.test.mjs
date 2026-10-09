@@ -103,23 +103,21 @@ test('hosted native GET Back restores controls to URL and results rather than th
  }finally{await h.context.close();await browser.close();}
 });
 
-test('hosted retained delayed reads retain native modal barrier, saved draft fields and newest navigation',{skip:!enabled,timeout:120000},async()=>{
+test('hosted retained delayed reads retain the saved-Quest chooser barrier, inert legacy storage and newest navigation',{skip:!enabled,timeout:120000},async()=>{
  const browser=await chromium.launch({headless:true}),h=await setup(browser,{width:1280,height:720}),{page}=h;
  try{
   await page.goto(origin+'/dashboard?view=work');await ready(page);
   const draft={version:1,ownerId:owner,draft:{businessId:secondBusinessId,goal:'Compare original nature T-shirt markets and preserve my saved goal',audienceHint:'Adult woodland enthusiasts',maximumCollections:'2',maximumUsd:'0.80'},step:0,reviewedEstimate:null};
   await page.evaluate(({owner,draft})=>sessionStorage.setItem(`agentlabs:research-draft:v1:${owner}`,JSON.stringify(draft)),{owner,draft});
-  assert.equal(await page.locator('#console-command-input').inputValue(),'');await page.getByRole('button',{name:/Choose Business/}).click();await ready(page);
-  await page.locator('dialog:modal').waitFor();await page.waitForFunction(()=>document.querySelector('[name=goal]')?.value.includes('preserve my saved goal'));
-  assert.equal(await page.locator('dialog [name=businessId]').inputValue(),secondBusinessId);assert.equal(await page.locator('dialog [name=audienceHint]').inputValue(),draft.draft.audienceHint);
+  assert.equal(await page.locator('#console-command-input').count(),0);await page.getByRole('button',{name:/Choose Business/}).click();await ready(page);
+  await page.locator('dialog:modal').waitFor();const chooser=page.locator('dialog select[name=business]');assert.equal(await chooser.inputValue(),'');await chooser.selectOption(secondBusinessId);await chooser.focus();assert.equal(await chooser.inputValue(),secondBusinessId);assert.equal(await page.locator('dialog [name=goal],dialog [name=audienceHint]').count(),0);
   assert.deepEqual(await page.evaluate(owner=>JSON.parse(sessionStorage.getItem(`agentlabs:research-draft:v1:${owner}`)).draft,owner),draft.draft);
   const wait=h.holdRead(route=>!new URL(route,origin).searchParams.has('sheet'));await page.getByRole('button',{name:'Close research setup'}).click();await page.waitForFunction(()=>window.__collectionReadPending===true);
   assert.equal(await page.locator('dialog:modal').count(),1);assert.equal(await page.locator('.consoleResearchBody').getAttribute('inert'),'');
   // Modal top layer keeps outside controls unreachable during a retained read.
-  await page.locator('#console-command-input').evaluate(node=>node.focus());assert.equal(await page.locator('#console-command-input').evaluate(node=>document.activeElement===node),false);
+  await page.locator('#console-command-open').evaluate(node=>node.focus());assert.equal(await page.locator('#console-command-open').evaluate(node=>document.activeElement===node),false);
   while(!wait.release)await new Promise(resolve=>setTimeout(resolve,5));wait.release();await ready(page);assert.equal(await page.locator('dialog:modal').count(),0);
-  await page.getByRole('button',{name:/Choose Business/}).click();await ready(page);await page.waitForFunction(()=>document.querySelector('[name=goal]')?.value.includes('preserve my saved goal'));
-  assert.equal(await page.locator('dialog [name=audienceHint]').inputValue(),draft.draft.audienceHint);await page.getByRole('button',{name:'Close research setup'}).click();await ready(page);
+  await page.getByRole('button',{name:/Choose Business/}).click();await ready(page);assert.equal(await page.locator('dialog select[name=business]').inputValue(),'');assert.deepEqual(await page.evaluate(owner=>JSON.parse(sessionStorage.getItem(`agentlabs:research-draft:v1:${owner}`)).draft,owner),draft.draft);await page.getByRole('button',{name:'Close research setup'}).click();await ready(page);
   const first=h.holdRead(route=>route.includes('page=2'));await page.evaluate(()=>{window.__collectionNavigate('/dashboard?view=work&page=2');});await page.waitForFunction(()=>window.__collectionReadPending);
   await page.evaluate(route=>window.__collectionNavigate(route),selectedActivityRoute);await ready(page);while(!first.release)await new Promise(resolve=>setTimeout(resolve,5));first.release();await page.waitForFunction(()=>window.__collectionDiscarded===1);
   assert.equal(new URL(page.url()).searchParams.get('view'),'activity');assert.equal(await page.locator('.consoleCollectionPane').getAttribute('data-collection'),'activity');

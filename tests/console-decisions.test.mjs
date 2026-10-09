@@ -204,17 +204,25 @@ test('selected-heading reveal is narrow-only and respects current sticky/fixed c
 });
 
 
-test('notice refresh focus preserves native dialogs and active drafts, while explicit selection and acknowledgement can focus', () => {
-  function element({ dialog = false, tag = 'BODY', editable = false } = {}) {
+test('notice refresh preserves active controls and drafts without overriding explicit selection or modal isolation', () => {
+  function element({ dialog = false, tag = 'BODY', editable = false, href = false, tabIndex = -1, active = true } = {}) {
     return { ownerDocument: { querySelector: selector => selector === 'dialog[open]' && dialog ? {} : null,
-      activeElement: { matches: () => ['INPUT', 'TEXTAREA', 'SELECT'].includes(tag), isContentEditable: editable } } };
+      activeElement: active ? { matches: selectors => selectors.split(',').some(selector => selector.trim().toUpperCase() === tag || selector.trim() === 'a[href]' && tag === 'A' && href),
+        isContentEditable: editable, tabIndex } : null } };
   }
-  for (const selectionChanged of [false, true]) assert.equal(submit.canFocusDecisionHeading(element({ dialog: true }), selectionChanged), false);
-  for (const tag of ['INPUT', 'TEXTAREA', 'SELECT']) {
-    assert.equal(submit.canFocusDecisionHeading(element({ tag }), false), false);
-    assert.equal(submit.canFocusDecisionHeading(element({ tag }), true), true);
+  const controls = [
+    ...['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'SUMMARY'].map(tag => ({ tag })),
+    { tag: 'A', href: true }, { tag: 'DIV', editable: true }, { tag: 'DIV', tabIndex: 0 },
+  ];
+  for (const control of controls) {
+    assert.equal(submit.canFocusDecisionHeading(element(control), false), false, `Background refresh preserves ${JSON.stringify(control)}`);
+    assert.equal(submit.canFocusDecisionHeading(element(control), true), true, `Explicit selection replaces ${JSON.stringify(control)}`);
+    for (const selectionChanged of [false, true]) assert.equal(submit.canFocusDecisionHeading(element({ ...control, dialog: true }), selectionChanged), false);
   }
-  assert.equal(submit.canFocusDecisionHeading(element({ editable: true }), false), false);
-  assert.equal(submit.canFocusDecisionHeading(element({ editable: true }), true), true);
-  for (const tag of ['BODY', 'BUTTON', 'H2']) assert.equal(submit.canFocusDecisionHeading(element({ tag }), false), true);
+  for (const inactive of [{ tag: 'BODY' }, { tag: 'H2' }, { tag: 'A' }, { active: false }]) {
+    for (const selectionChanged of [false, true]) {
+      assert.equal(submit.canFocusDecisionHeading(element(inactive), selectionChanged), true, `Unoccupied focus permits a selected or acknowledged heading: ${JSON.stringify(inactive)}`);
+      assert.equal(submit.canFocusDecisionHeading(element({ ...inactive, dialog: true }), selectionChanged), false);
+    }
+  }
 });

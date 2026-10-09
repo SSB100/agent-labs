@@ -83,6 +83,7 @@ export function QuestWorkspace({ state, ownerId }: { state: R04Read; ownerId: st
     {selected ? <section aria-labelledby="selected-quest"><h2 id="selected-quest">{selected.title} · version {selected.revision}</h2>
       <p>Quest {selected.id}</p><p>{selected.content.originalIntent}</p>
       <p>Saved preference: {selected.preference}. Target achievement is unverified; an aspirational target is not a promised result.</p>
+      {selected.preference === "ready" && selected.content.ambiguities.length === 0 ? <p><Link className="coreButton" href={`/dashboard/quests/research?business=${state.businessId}&quest=${selected.id}`}>Research this Quest</Link> · Review a supported research profile and its exact financial policy before any paid work.</p> : null}
       <button className="coreButton" disabled={busy || !state.business.revision} onClick={() => void save("quest.select", { goalId: selected.id, expectedRevision: selected.revision })}>Make this the current Quest</button>
       {!state.business.revision ? <p>Save Business rules before choosing a current Quest.</p> : null}
       <button className="coreButton" disabled={busy} onClick={() => { setEditing(true); setText(selected.content.originalIntent); setTitle(selected.title); setReview(false); }}>Edit as a new Quest version</button>

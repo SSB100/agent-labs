@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation";
 import { newQuestState, questDraftStorageKey, serializeQuestDraft } from "@/lib/core-ui/quest-draft";
 import "./console-command.css";
 
-type CommandProps = { ownerId: string; businessId?: string; returnTo: string; unavailable?: boolean; businessSelectionAvailable?: boolean };
-export function ConsoleCommandBar({ ownerId, businessId, returnTo, unavailable = false, businessSelectionAvailable = false }: CommandProps) {
+type CommandProps = { ownerId: string; businessId?: string; returnTo: string; unavailable?: boolean; businessSelectionAvailable?: boolean; legacyDraft?: boolean };
+export function ConsoleCommandBar({ ownerId, businessId, returnTo, unavailable = false, businessSelectionAvailable = false, legacyDraft = false }: CommandProps) {
   const router = useRouter();
   const [goal, setGoal] = useState("");
   const [storageWarning, setStorageWarning] = useState(false);
@@ -14,7 +14,7 @@ export function ConsoleCommandBar({ ownerId, businessId, returnTo, unavailable =
     event.preventDefault();
     if (unavailable) return;
     if (!businessId && !businessSelectionAvailable) { router.push("/dashboard?view=advanced#workspace-setup"); return; }
-    if (goal.trim()) {
+    if (legacyDraft && goal.trim()) {
       try { const state = newQuestState(businessId ?? ""); if (goal.trim()) state.draft.goal = goal.trim(); window.sessionStorage.setItem(questDraftStorageKey(ownerId), serializeQuestDraft(ownerId, state)); }
       catch { setStorageWarning(true); }
     }
@@ -23,8 +23,8 @@ export function ConsoleCommandBar({ ownerId, businessId, returnTo, unavailable =
   }
   return <form className="consoleCommand" onSubmit={openResearch}>
     <span className="consoleCommandScope"><span aria-hidden="true">⌘</span>Product research</span>
-    <label className="consoleCommandInput"><span className="consoleSrOnly">Research goal</span><input id="console-command-input" value={goal} onChange={event => setGoal(event.target.value)} maxLength={1200} placeholder="What should we research?" disabled={unavailable} /></label>
-    <button type="submit" disabled={unavailable}>{unavailable ? "Unavailable" : businessId ? "Review goal" : businessSelectionAvailable ? "Choose Business" : "Create workspace"}<span aria-hidden="true">↗</span></button>
+    {legacyDraft ? <label className="consoleCommandInput"><span className="consoleSrOnly">Research goal</span><input id="console-command-input" value={goal} onChange={event => setGoal(event.target.value)} maxLength={1200} placeholder="What should we research?" disabled={unavailable} /></label> : <span className="consoleCommandInput">Choose a saved Quest or create your objective</span>}
+    <button id="console-command-open" type="submit" disabled={unavailable}>{unavailable ? "Unavailable" : businessId ? legacyDraft ? "Review goal" : "Open research Quests" : businessSelectionAvailable ? "Choose Business" : "Create workspace"}<span aria-hidden="true">↗</span></button>
     <span className="consoleCommandHint" role={storageWarning ? "status" : undefined}>{storageWarning ? "Draft storage unavailable; enter the goal in the sheet" : "Bounded workflow · approval before spend"}</span>
   </form>;
 }

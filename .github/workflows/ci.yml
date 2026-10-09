@@ -11,6 +11,12 @@ on:
         options: [release, focused]
         default: release
         required: true
+      diagnostic:
+        description: Focused diagnostic only; release always runs all required gates
+        type: choice
+        options: [terminal, owner-ui]
+        default: terminal
+        required: false
   push:
     branches:
       - main
@@ -543,6 +549,12 @@ jobs:
           set -o pipefail
           node --test tests/r12-discovery-scope-sql.test.mjs tests/r12-owner-preparation-route.test.mjs tests/r12-bootstrap-rehearsal.test.mjs 2>&1 | tee /tmp/r12-scope-tests.log
 
+      - name: Verify ordinary owner Goal activation, funding, receipts and history
+        env:
+          R12_SQL_TEST_HOST: ${{ runner.temp }}/r12-sql-host
+        run: |
+          node --test --test-concurrency=1 tests/r12-owner-initial-sql.test.mjs tests/r12-owner-initial-security.test.mjs tests/r12-owner-initial-runtime-sql.test.mjs tests/r12-owner-catalog-scale.test.mjs
+
       - name: Verify full-shape R12 dispatch within the unchanged three-second SQL budget
         env:
           R12_SQL_TEST_HOST: ${{ runner.temp }}/r12-sql-host
@@ -603,6 +615,17 @@ jobs:
           node scripts/reset-r12-ci-database.mjs
           node --test tests/r12-recovery-reconciliation-races.test.mjs
 
+      - name: Verify ordinary owner activation, Stop and funding races on PostgreSQL
+        env:
+          R12_SQL_TEST_HOST: ${{ runner.temp }}/r12-sql-host
+          R12_REQUIRE_POSTGRES: "1"
+          R12_POSTGRES_URL: postgresql://r12_test:r12-isolated-fixture@127.0.0.1:5432/r12_test
+        run: |
+          set -o pipefail
+          export R12_CI_POSTGRES_ADDRESS="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' '${{ job.services.postgres.id }}')"
+          node scripts/reset-r12-ci-database.mjs
+          node --test tests/r12-owner-initial-postgres-races.test.mjs 2>&1 | tee /tmp/r12-owner-races-ci.log
+
       - name: Preserve recovery HTTP deadline evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -613,6 +636,7 @@ jobs:
             /tmp/r12-http-ci-report.json
             /tmp/r12-http-ci-terminal-cold.json
             /tmp/r12-races-ci-report.json
+            /tmp/r12-owner-races-ci.log
           if-no-files-found: warn
           retention-days: 14
 
@@ -639,6 +663,15 @@ jobs:
         run: |
           node tests/next-fixture/knowledge-contracts.mjs
           node scripts/verify-r03-next.mjs
+          node scripts/verify-r12-owner-next.mjs
+      - name: Preserve ordinary owner Goal browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r12-owner-next-${{ github.sha }}
+          path: test-results/r12-owner-next/
+          if-no-files-found: error
+          retention-days: 14
       - name: Preserve all screenshots and diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -726,7 +759,7 @@ jobs:
     name: R12 focused diagnostics (not release qualification)
     if: (github.event_name == 'pull_request' && github.event.pull_request.draft == true) || (github.event_name == 'workflow_dispatch' && inputs.gate == 'focused')
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && inputs.diagnostic == 'owner-ui' && 10 || 20 }}
     services:
       postgres:
         image: postgres:17
@@ -778,7 +811,7 @@ jobs:
         # The strict reset routine is only for a previously initialized/reused database.
         run: node --test tests/r12-terminal-boundary-preflight.test.mjs
       - name: Install pinned inert browser
-        if: steps.selection.outputs.case == 'terminal'
+        if: steps.selection.outputs.case == 'terminal' || steps.selection.outputs.case == 'owner-ui'
         run: npx playwright-core install --with-deps chromium
       - name: Verify rendered browser action settlement
         if: steps.selection.outputs.case == 'terminal'
@@ -788,6 +821,24 @@ jobs:
         env:
           R12_SQL_TEST_HOST: ${{ runner.temp }}/r12-focused-sql-host
         run: node scripts/verify-r03-next.mjs --r12-terminal-only
+      - name: Verify only the ordinary owner journey and retained Decisions controls
+        if: steps.selection.outputs.case == 'owner-ui'
+        env:
+          R12_SQL_TEST_HOST: ${{ runner.temp }}/r12-focused-sql-host
+          GUIDED_UI_BROWSER: "1"
+          NODE_OPTIONS: --import=${{ github.workspace }}/tests/next-fixture/block-network.mjs
+          NEXT_TELEMETRY_DISABLED: "1"
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:9
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: inert-ci-placeholder
+        run: |
+          set +e
+          node --test tests/console-decisions-browser.test.mjs
+          owner_ui_decisions_status=$?
+          node scripts/verify-r12-owner-next.mjs
+          owner_ui_journey_status=$?
+          if [ "$owner_ui_decisions_status" -ne 0 ] || [ "$owner_ui_journey_status" -ne 0 ]; then
+            exit 1
+          fi
       - name: Preserve focused evidence and limitations
         if: always()
         uses: actions/upload-artifact@v4
@@ -799,6 +850,8 @@ jobs:
             test-results/r03-next/*.json
             test-results/r03-next/*.log
             test-results/r03-next/r12-terminal-qualification-*.png
+            test-results/r12-owner-next/
+            test-results/guided-ui/console-decisions-*.png
           if-no-files-found: warn
           retention-days: 14
 

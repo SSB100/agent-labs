@@ -23,20 +23,20 @@ async function hydrationBundle() {
       import React from "react";
       import { hydrateRoot } from "react-dom/client";
       import { ConsoleCommandBar, ConsoleResearchSheet } from "./src/components/console/console-command";
-      import { QuestKickoff } from "./src/components/guided/quest-kickoff";
+      import { OwnerResearchEntry } from "./src/components/quests/owner-research-entry";
       const state = window.__businessFixtureProps;
       window.__businessHydrationErrors = [];
       window.__businessRouter = { push(url) { location.assign(url); } };
       const options = { onRecoverableError: error => window.__businessHydrationErrors.push(error.message) };
       hydrateRoot(document.querySelector(".consoleCommandBar"), <ConsoleCommandBar {...state.command}/>, options);
       if (state.sheet) hydrateRoot(document.getElementById("business-research-island"),
-        <ConsoleResearchSheet returnTo={state.sheet.returnTo}><QuestKickoff {...state.sheet.quest}/></ConsoleResearchSheet>, options);
+        <ConsoleResearchSheet returnTo={state.sheet.returnTo}><OwnerResearchEntry {...state.sheet.quest}/></ConsoleResearchSheet>, options);
       window.__businessHydrated = true;
     ` },
     plugins: [{ name: "business-scoped-boundaries", setup(builder) {
-      builder.onResolve({ filter: /^next\/navigation$/ }, () => ({ path: "navigation", namespace: "business-boundary" }));
+      builder.onResolve({ filter: /^next\/(navigation|link)$/ }, args => ({ path: args.path, namespace: "business-boundary" }));
       builder.onResolve({ filter: /^@\/app\/dashboard\/products\/discovery-actions$/ }, () => ({ path: "paid-action", namespace: "business-boundary" }));
-      builder.onLoad({ filter: /.*/, namespace: "business-boundary" }, args => ({ loader: "js", contents: args.path === "navigation"
+      builder.onLoad({ filter: /.*/, namespace: "business-boundary" }, args => ({ loader: "js", resolveDir: root, contents: args.path === "next/link" ? 'import React from "react"; export default function Link({children,...props}) { return React.createElement("a",props,children); }' : args.path === "next/navigation"
         ? 'export const useRouter = () => window.__businessRouter;'
         : 'export async function startGeographicDiscovery() { sessionStorage.setItem("fixture-paid-call", "forbidden"); throw new Error("No paid action is permitted"); }' }));
       builder.onResolve({ filter: /^@\// }, args => ({ path: path.join(root, "src", `${args.path.slice(2)}.ts`) }));
@@ -55,18 +55,18 @@ export async function businessFixtureDocument(view, { detail = false, sheet = fa
     const child = findFixtureElement(tree, "ConsoleResearchSheet");
     assert.ok(child, "The real root must render the research sheet");
     state.sheet = { returnTo: child.props.returnTo, quest: child.props.children.props };
-    assert.deepEqual(Array.from(state.sheet.quest.businesses, item => item.id), [businessFlow.businessId]);
+    assert.equal(state.sheet.quest.selectedBusinessId, businessFlow.businessId);
     const noAction = () => { throw new Error("Server fixture actions cannot execute"); };
     const draft = loadSource("src/lib/core-ui/quest-draft.ts");
     const { ConsoleResearchSheet } = loadSource("src/components/console/console-command.tsx", {
       "next/navigation": { useRouter: () => ({ push: noAction }) }, "@/lib/core-ui/quest-draft": draft, "./console-command.css": {},
     });
-    const { QuestKickoff } = loadSource("src/components/guided/quest-kickoff.tsx", {
-      "@/app/dashboard/products/discovery-actions": { startGeographicDiscovery: noAction }, "@/lib/core-ui/quest-draft": draft, "./quest-kickoff.css": {},
+    const { OwnerResearchEntry } = loadSource("src/components/quests/owner-research-entry.tsx", {
+      "@/app/dashboard/products/discovery-actions": { startGeographicDiscovery: noAction }, "@/lib/core-ui/quest-draft": draft, "./owner-research.css": {},
     });
     // A hydration island uses the exact props selected by DashboardPage. Its
     // independent SSR id sequence matches its independent hydrateRoot call.
-    const dialog = renderToString(React.createElement(ConsoleResearchSheet, { returnTo: state.sheet.returnTo }, React.createElement(QuestKickoff, state.sheet.quest)));
+    const dialog = renderToString(React.createElement(ConsoleResearchSheet, { returnTo: state.sheet.returnTo }, React.createElement(OwnerResearchEntry, state.sheet.quest)));
     markup = markup.replace(/<dialog class="consoleResearchSheet"[\s\S]*?<\/dialog>/, `<div id="business-research-island">${dialog}</div>`);
   }
   const html = fixtureDocument(markup, { products: true });

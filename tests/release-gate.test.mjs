@@ -13,6 +13,8 @@ test('legacy quote diagnostic is explicit and cannot select or qualify release m
  assert.equal(focusedDiagnostic('pull_request',{pull_request:{draft:true,body:marker}}),'legacy-quote');
  assert.equal(focusedDiagnostic('pull_request',{pull_request:{draft:true,body:'ordinary correction'}}),'terminal');
  assert.equal(focusedDiagnostic('workflow_dispatch',{inputs:{gate:'focused'}}),'terminal');
+ assert.equal(focusedDiagnostic('workflow_dispatch',{inputs:{gate:'focused',diagnostic:'owner-ui'}}),'owner-ui');
+ assert.throws(()=>focusedDiagnostic('workflow_dispatch',{inputs:{gate:'focused',diagnostic:'unknown'}}),/Unknown focused diagnostic/);
  assert.throws(()=>focusedDiagnostic('pull_request',{pull_request:{draft:false,body:marker}}),/cannot qualify/);
  assert.throws(()=>focusedDiagnostic('workflow_dispatch',{inputs:{gate:'release'},pull_request:{body:marker}}),/cannot qualify/);
 });
@@ -44,7 +46,7 @@ test('actual workflow selects the same focused/full modes and requires every nam
  assert.ok(workflow.on.pull_request.types.includes('ready_for_review'));
  assert.deepEqual(workflow.on.push.branches,['main']);
  assert.equal(workflow.on.workflow_dispatch.inputs.gate.default,'release');
- const events=[['pull_request',{pull_request:{draft:true}}],['pull_request',{pull_request:{draft:false}}],['push',{ref:'refs/heads/main'}],['workflow_dispatch',{inputs:{gate:'focused'}}],['workflow_dispatch',{inputs:{gate:'release'}}]];
+ const events=[['pull_request',{pull_request:{draft:true}}],['pull_request',{pull_request:{draft:false}}],['push',{ref:'refs/heads/main'}],['workflow_dispatch',{inputs:{gate:'focused'}}],['workflow_dispatch',{inputs:{gate:'focused',diagnostic:'owner-ui'}}],['workflow_dispatch',{inputs:{gate:'release'}}],['workflow_dispatch',{inputs:{gate:'release',diagnostic:'owner-ui'}}]];
  for(const [eventName,event] of events){
   const mode=ciGateMode(eventName,event),github={event_name:eventName,event},inputs=event.inputs??{};
   const selected=job=>new Function('github','inputs',`return (${workflow.jobs[job].if});`)(github,inputs);
@@ -60,12 +62,23 @@ test('actual workflow selects the same focused/full modes and requires every nam
  const entry=focused.find(step=>step.env?.R12_TERMINAL_BOUNDARY_PREFLIGHT==='1');
  assert.equal(entry.run,'node --test tests/r12-terminal-boundary-preflight.test.mjs','A fresh service must bootstrap before any reused-database reset');
  assert.ok(!focused.slice(0,focused.indexOf(entry)).some(step=>step.run?.includes('reset-r12-ci-database')));
- for(const selectedCase of ['terminal','legacy-quote']){
+ for(const selectedCase of ['terminal','legacy-quote','owner-ui']){
   const selected=focused.filter(step=>!step.if||step.if==='always()'||new Function('steps',`return (${step.if});`)({selection:{outputs:{case:selectedCase}}}));
   assert.equal(selected.some(step=>step.run?.includes('verify-r12-legacy-quote.mjs')),selectedCase==='legacy-quote');
   assert.equal(selected.some(step=>step.run==='node scripts/verify-r03-next.mjs --r12-terminal-only'),selectedCase==='terminal');
-  assert.equal(selected.some(step=>step.run?.includes('playwright-core install')),selectedCase==='terminal');
+  assert.equal(selected.some(step=>step.run?.includes('playwright-core install')),selectedCase!=='legacy-quote');
+  assert.equal(selected.some(step=>step.run?.includes('node scripts/verify-r12-owner-next.mjs')),selectedCase==='owner-ui');
+  assert.equal(selected.some(step=>step.run?.includes('node --test tests/console-decisions-browser.test.mjs')),selectedCase==='owner-ui');
  }
+ const timeout=workflow.jobs['r12-focused']['timeout-minutes'].replace(/^\$\{\{\s*|\s*\}\}$/g,'');
+ const minutes=(eventName,diagnostic)=>new Function('github','inputs',`return (${timeout});`)({event_name:eventName},{diagnostic});
+ assert.equal(minutes('workflow_dispatch','owner-ui'),10);
+ assert.equal(minutes('workflow_dispatch','terminal'),20);
+ assert.equal(minutes('pull_request',undefined),20);
+ const ownerDiagnostic=focused.find(step=>step.run?.includes('node scripts/verify-r12-owner-next.mjs'));
+ assert.match(ownerDiagnostic.env.NODE_OPTIONS,/block-network\.mjs$/);
+ assert.equal(ownerDiagnostic.env.R12_REQUIRE_POSTGRES,undefined,'Owner browser diagnostics use isolated PGlite without a native concurrency claim');
+ assert.ok(focused.some(step=>step.if==='always()'&&step.with?.path?.includes('test-results/r12-owner-next/')));
  const legacy=focused.find(step=>step.run?.includes('verify-r12-legacy-quote.mjs'));
  assert.match(legacy.run,/set -o pipefail/);assert.match(legacy.run,/tee test-results\/r12-legacy-quote.log/);
  assert.ok(focused.some(step=>step.if==='always()'&&step.with?.path?.includes('test-results/r12-legacy-quote.*')));

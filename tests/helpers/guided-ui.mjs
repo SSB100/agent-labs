@@ -39,6 +39,8 @@ export function loadSource(file, dependencies = {}) {
     if (["../lib/core-ui/history-read", "@/lib/core-ui/history-read"].includes(name)) return loadSource("src/lib/core-ui/history-read.ts");
     if (["./history-query", "../lib/core-ui/history-query", "@/lib/core-ui/history-query"].includes(name)) return loadSource("src/lib/core-ui/history-query.ts");
     if (["@/components/console/history-pager", "./history-pager"].includes(name)) return { HistoryPager: ({page, label}) => page ? React.createElement("p", null, `${label}: ${page.total ?? 'unavailable'} total · page ${page.page}`) : null };
+    if (name === "@/components/quests/owner-research-entry") return loadSource("src/components/quests/owner-research-entry.tsx", { "./owner-research.css": {} });
+    if (name === "./discovery-r12-goal-intent" && file === "src/products/discovery-v2.ts") return { assertValidatedOwnerResearchIntent: () => { throw new Error("The legacy product fixture does not authorize owner-initial intent"); } };
     if (name === "react/jsx-runtime") return require(name);
     if (name === "react") return React;
     if (name === "react-dom") return require(name);
@@ -474,7 +476,7 @@ export function fixtureDocument(markup, { creative = false, products = false } =
     "src/components/console/console-shell.css", "src/components/console/console-workspace.css", "src/components/console/console-overview.css", "src/components/console/console-browser-centre.css", "src/components/console/console-command.css", "src/components/console/console-motion.css", "src/components/console/console-panes.css", "src/components/console/console-compact-decisions.css", "src/components/console/console-collection-panes.css", "src/components/console/console-library-pane.css",
     "src/app/dashboard/accounts/accounts.css", "src/app/dashboard/products/products.css",
     ...(creative || products ? ["src/app/dashboard/products/products.css"] : []),
-    ...(creative ? ["src/app/dashboard/artifacts/artifacts.css"] : []), ...(products ? ["src/components/guided/quest-kickoff.css"] : []),
+    ...(creative ? ["src/app/dashboard/artifacts/artifacts.css"] : []), ...(products ? ["src/components/quests/owner-research.css"] : []),
   ].map(file => readFileSync(path.join(root, file), "utf8")).join("\n");
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Agent Labs synthetic owner UI fixture</title><style>${styles}</style></head><body>${markup}</body></html>`;
 }

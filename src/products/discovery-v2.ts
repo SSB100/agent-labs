@@ -8,6 +8,7 @@ import type { EvidencePack } from "../research/types";
 import { validateDiscoveryKnowledgeV2, type DiscoveryKnowledgeContextV2 } from "./discovery-v2-knowledge";
 import { discoveryAddendumObservation, validateDiscoveryEvidenceAddendum, type DiscoveryAddendumRef, type DiscoveryEvidenceAddendum } from "./discovery-r12-evidence-addendum";
 import type { ValidatedFocusedPilot } from "./discovery-r12-focused-pilot-contract";
+import { assertValidatedOwnerResearchIntent, type ValidatedOwnerResearchIntent } from "./discovery-r12-goal-intent";
 
 /** Parallel contract. No v1 score, historical assessment, or authority is rewritten. */
 export const DISCOVERY_V2 = "pod-discovery-2.0" as const;
@@ -70,6 +71,8 @@ export type DiscoveryValidationContextV2 = {
   /** Exact immutable profile loaded and validated by the scoped pilot runtime.
    * A model response or owner JSON is never a substitute for this persistence. */
   focusedPilot?: ValidatedFocusedPilot;
+  /** Exact owner-initial scope loaded and validated by the trusted server. */
+  ownerInitial?: ValidatedOwnerResearchIntent;
 };
 export type EvidenceFactV2 = { reference: EvidenceRefV2; relevance: string };
 export type UncertaintyV2 = { question: string; blockingForTest: boolean; reason: string };
@@ -146,15 +149,17 @@ export function discoveryV2Hash(value: unknown): string {
   };
   return createHash("sha256").update(canonical(value)).digest("hex");
 }
-export function validateDiscoveryIntentV2(intent: DiscoveryIntentV2, now = Date.now(), focusedPilot?: ValidatedFocusedPilot): void {
+export function validateDiscoveryIntentV2(intent: DiscoveryIntentV2, now = Date.now(), focusedPilot?: ValidatedFocusedPilot, ownerInitial?: ValidatedOwnerResearchIntent): void {
   shape(intent, "version,id,businessId,objective,comparisonUniverse,limits,expiresAt", "discovery intent");
   if (intent.version !== DISCOVERY_V2) fail("Unknown discovery version.");
   id(intent.id, "intent identity"); id(intent.businessId, "Business identity"); prose(intent.objective, "discovery objective");
   shape(intent.comparisonUniverse, "productType,markets,audiences,sourceDomains,selectionQuestion", "comparison universe");
   const u = intent.comparisonUniverse;
   if (u.productType !== "original_pod_tshirt") fail("Discovery product scope changed.");
+  if (ownerInitial && focusedPilot) fail("Owner-initial and focused-pilot contexts conflict.");
+  if (ownerInitial) assertValidatedOwnerResearchIntent(intent, ownerInitial);
   if (focusedPilot && (focusedPilot.profileHash !== discoveryV2Hash(focusedPilot.profile) || discoveryV2Hash(intent) !== discoveryV2Hash(focusedPilot.profile.intent))) fail("Focused intent does not match trusted profile.");
-  list(u.markets, focusedPilot ? 1 : 2, focusedPilot ? 1 : 4, "geographic comparison markets");
+  list(u.markets, focusedPilot || ownerInitial ? 1 : 2, focusedPilot ? 1 : 4, "geographic comparison markets");
   for (const market of u.markets) {
     shape(market, "countryCode,currency", "geographic market");
     if (!/^[A-Z]{2}$/.test(market.countryCode) || !/^[A-Z]{3}$/.test(market.currency)) fail("Country code and scenario currency required.");
@@ -194,7 +199,8 @@ function candidateIdentity(candidate: CandidateIdentityV2) {
   if (candidate.productType !== "original_pod_tshirt" || typeof candidate.originalDesign !== "boolean" || !["confirmed", "unclear"].includes(candidate.rightsStatus)) fail("Invalid candidate declarations.");
 }
 export function validateDiscoveryDossierV2(intent: DiscoveryIntentV2, dossier: DiscoveryDossierV2, context: DiscoveryValidationContextV2, now = Date.now()): void {
-  validateDiscoveryIntentV2(intent, now, context.focusedPilot);
+  if (context.ownerInitial && (context.focusedPilot || context.evidenceAddendum || context.previousDecision)) fail("Owner-initial context cannot reuse a continuation or focused-pilot mode.");
+  validateDiscoveryIntentV2(intent, now, context.focusedPilot, context.ownerInitial);
   integer(context.committedMicrousd, 0, intent.limits.maximumMicrousd, "root committed cost");
   validateDiscoveryKnowledgeV2(context.knowledge, now);
   shape(dossier, "version,intentId,businessId,packRefs,shortlist,comparisonRationale" + (dossier.addendumRef ? ",addendumRef" : ""), "discovery dossier");
@@ -217,7 +223,7 @@ export function validateDiscoveryDossierV2(intent: DiscoveryIntentV2, dossier: D
         discoveryV2Hash(context.evidenceAddendum ?? null) !== discoveryV2Hash(profile.observations) ||
         discoveryV2Hash(dossier.addendumRef ?? null) !== discoveryV2Hash({ artifactId: profile.observations.id, sha256: discoveryV2Hash(profile.observations) })) fail("Focused dossier does not match trusted profile.");
   }
-  list(dossier.packRefs, context.focusedPilot ? 0 : 1, context.focusedPilot ? 0 : 6, "immutable dossier packs");
+  list(dossier.packRefs, context.focusedPilot ? 0 : 1, context.focusedPilot ? 0 : context.ownerInitial ? 1 : 6, "immutable dossier packs");
   if (new Set(dossier.packRefs.map(p => p.artifactId)).size !== dossier.packRefs.length || new Set(dossier.packRefs.map(p => p.query.id)).size !== dossier.packRefs.length) fail("Duplicate pack or query lineage.");
   if (dossier.packRefs.filter(p => p.origin === "new").length > intent.limits.maximumNewCollections || dossier.packRefs.filter(p => p.origin === "prior").length > 4) fail("Dossier collection budget exceeded.");
   for (const ref of dossier.packRefs) {
@@ -225,6 +231,8 @@ export function validateDiscoveryDossierV2(intent: DiscoveryIntentV2, dossier: D
     if (!sha.test(ref.sha256) || !["new", "prior"].includes(ref.origin)) fail("Invalid immutable pack reference.");
     shape(ref.query, "id,question,sourceDomains", "dossier query"); id(ref.query.id, "query identity");
     validateResearchRequest({ query: ref.query.question, allowedDomains: ref.query.sourceDomains });
+    if (context.ownerInitial && (ref.origin !== "new" || ref.query.question !== context.ownerInitial.approvedQuery ||
+        !sameSet(ref.query.sourceDomains, intent.comparisonUniverse.sourceDomains))) fail("Owner-initial evidence changed the reviewed query or source scope.");
     if (ref.query.sourceDomains.some(d => !intent.comparisonUniverse.sourceDomains.includes(d))) fail("Query expands source scope.");
     const persisted = context.packs.get(ref.artifactId);
     if (!persisted || persisted.artifactId !== ref.artifactId || persisted.businessId !== intent.businessId || persisted.queryId !== ref.query.id ||
@@ -239,6 +247,7 @@ export function validateDiscoveryDossierV2(intent: DiscoveryIntentV2, dossier: D
       shape(qualified, "version,scopeId,scopeHash,searchCandidateHash,selectorCandidateHash,searchRoute,selectorRoute", "qualified source lineage");
       if (qualified.version !== "r12.discovery-source.1" || qualified.scopeId !== persisted.collectedForIntentId || !uuid.test(qualified.scopeId) ||
           ![qualified.scopeHash, qualified.searchCandidateHash, qualified.selectorCandidateHash].every(value => sha.test(value))) fail("Qualified source scope/hash lineage required.");
+      if (context.ownerInitial && (qualified.scopeId !== context.ownerInitial.scopeId || qualified.scopeHash !== context.ownerInitial.scopeHash)) fail("Owner-initial source differs from the validated scope.");
       for (const [proof, generationId] of [[qualified.searchRoute, lineage.providerRequestId], [qualified.selectorRoute, lineage.workerRequestId]] as const)
         validateGenerationRouteProof(proof, { generationId, providerName: "Azure", requestedEndpoint: "azure/us", acceptedResponseModelIds: ["openai/gpt-5.6-luna", "openai/gpt-5.6-luna-20260709"] });
     } else if (lineage.qualifiedSource !== undefined) fail("Legacy source cannot claim a different qualified origin.");

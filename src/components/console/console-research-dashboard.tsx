@@ -4,8 +4,7 @@ import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import type { OwnerUiContext } from "@/lib/core-ui/data";
 import { loadAccountSetupInterventions } from "@/accounts/server";
-import { loadDiscoveryGoalData } from "@/products/discovery-v2-data";
-import { loadConsoleObservationTime, loadConsoleResearchQuote } from "@/lib/core-ui/console-data";
+import { loadConsoleObservationTime } from "@/lib/core-ui/console-data";
 import { consoleResearchHref, consoleResearchOptionsFromSearch, consoleResearchQuery, consoleResearchSearch, type ConsoleResearchQuery } from "@/lib/core-ui/console-research-query";
 import { CONSOLE_RESEARCH_LIMITS, loadConsoleResearchPage, loadConsoleResearchRecordsPage, type ConsoleResearchPage, type ConsoleResearchHistorical } from "@/lib/core-ui/console-research-data";
 import { loadConsoleResearchEvidence } from "@/lib/core-ui/console-research-evidence";
@@ -14,7 +13,7 @@ import { ConsoleCommandBar, ConsoleResearchSheet } from "./console-command";
 import { ConsoleResearchPane, ConsoleResearchEvidenceContent } from "./console-research-pane";
 import { ConsoleCollectionViewport } from "./console-collection-viewport";
 import { ConsoleResearchEvidenceReady } from "./console-research-evidence-ready";
-import { QuestKickoff } from "@/components/guided/quest-kickoff";
+import { OwnerResearchEntry } from "@/components/quests/owner-research-entry";
 
 type Search = Record<string, string | string[] | undefined>;
 /** Separately streamed exact content. Loading never attests a ready historical result. */
@@ -51,11 +50,7 @@ export async function ConsoleResearchDashboard({ context, query }: { context: Ow
   const expectedId = q.selectedId ?? q.rootId;
   const exact = !context.businessesUnavailable && primary.status === "found" && primary.item.id === expectedId && (await verifyOwnerBusiness(context,primary.item.business_id)) && (!q.businessId || q.businessId === primary.item.business_id) ? primary.item : null;
   const commandBusinessId = q.businessId ?? exact?.business_id;
-  const commandBusinesses = commandBusinessId ? context.businesses.filter(business => business.id === commandBusinessId) : context.businesses;
-  const commandContext = { ...context, businesses: commandBusinesses };
   const researchSheet = query.sheet === "research";
-  const catalog = researchSheet && !context.businessesUnavailable ? await loadDiscoveryGoalData(commandContext, []) : null;
-  const quote = researchSheet && !context.businessesUnavailable ? await loadConsoleResearchQuote(commandContext, catalog?.available === true) : null;
   const displayContext = { ...context, needsYouCount: context.needsYouCount + (context.workspaceQuest ? accountRequests.page?.total ?? 0 : accountRequests.globalCount ?? accountRequests.page?.total ?? accountRequests.records.length), needsYouUnavailable: context.needsYouUnavailable || context.businessesUnavailable || accountRequests.unavailable };
   const evidenceContent = exact ? <Suspense key={`${returnTo}:${observedAt}:${JSON.stringify([exact.business_id, exact.id, exact.workflow_run_id, exact.discovery_version, exact.candidate_id, exact.parent_discovery_id, exact.status, exact.completed_at, exact.source_artifact_id, exact.basis_artifact_id, exact.policy_hash, exact.authority_root_id, exact.prior_root_id])}`}
     fallback={<section className="consoleResearchNotice" role="status" aria-busy="true" data-research-evidence-loading={exact.id}><strong>Loading exact saved evidence</strong><p>Record {exact.id} · Business {exact.business_id}. Historical evidence is not ready; no recommendation or completion has been established.</p></section>}>
@@ -65,6 +60,6 @@ export async function ConsoleResearchDashboard({ context, query }: { context: Ow
     commandBar={<ConsoleCommandBar ownerId={context.userId} businessId={commandBusinessId} businessSelectionAvailable={context.businesses.length > 0} returnTo={returnTo} unavailable={context.businessesUnavailable}/> }>
     <ConsoleResearchPane data={data} evidence={null} evidenceContent={evidenceContent} ownerId={context.userId} businesses={context.businesses} searchParams={params}
       researchHref={consoleResearchHref(params, { sheet: "research" })} preparationHref={exact?.discovery_version==="pod-discovery-2.0"&&exact.candidate_id===null&&["failed","completed"].includes(exact.status??"")?`/dashboard?view=research&type=r12-prepare&business=${exact.business_id}&prior=${exact.id}`:undefined} scopeHref={returnTo} viewport={<ConsoleCollectionViewport ownerId={context.userId} scopeHref={returnTo}/>}/>
-    {researchSheet ? <ConsoleResearchSheet returnTo={returnTo}><QuestKickoff ownerId={context.userId} businesses={commandBusinesses} businessesUnavailable={context.businessesUnavailable} available={catalog?.available === true} quote={quote}/></ConsoleResearchSheet> : null}
+    {researchSheet ? <ConsoleResearchSheet returnTo={returnTo}><OwnerResearchEntry businesses={commandBusinessId ? context.businesses.filter(business => business.id === commandBusinessId) : context.businesses} businessesUnavailable={context.businessesUnavailable} selectedBusinessId={commandBusinessId}/></ConsoleResearchSheet> : null}
   </ConsoleShell>;
 }

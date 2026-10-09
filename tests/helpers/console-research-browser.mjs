@@ -190,10 +190,10 @@ export function observeResearchCloseDeparture(link) {
   document.addEventListener('click', observe, { capture: true, passive: true });
 }
 export function researchTree(React, modules, state, Progressive) {
-  const { ConsoleShell, ConsoleCommandBar, ConsoleResearchPane, ConsoleCollectionViewport, ConsoleResearchSheet, QuestKickoff } = modules;
+  const { ConsoleShell, ConsoleCommandBar, ConsoleResearchPane, ConsoleCollectionViewport, ConsoleResearchSheet, OwnerResearchEntry } = modules;
   return React.createElement(ConsoleShell, { ...state.shell, commandBar: React.createElement(ConsoleCommandBar, state.command) },
     React.createElement(ConsoleResearchPane, { ...state.pane, viewport: React.createElement(ConsoleCollectionViewport, { ownerId: state.pane.ownerId, scopeHref: state.pane.scopeHref }), evidenceContent: state.progressive ? React.createElement(Progressive, { key: state.progressive.key, descriptor: state.progressive }) : undefined }),
-    state.sheet ? React.createElement(ConsoleResearchSheet, { returnTo: state.sheet.returnTo }, React.createElement(QuestKickoff, state.sheet.quest)) : null);
+    state.sheet ? React.createElement(ConsoleResearchSheet, { returnTo: state.sheet.returnTo }, React.createElement(OwnerResearchEntry, state.sheet.quest)) : null);
 }
 function renderDomWire(React, value) {
   return Array.isArray(value) ? value.map((item, index) => React.createElement(React.Fragment, { key: index }, renderDomWire(React, item))) : value && typeof value === 'object' ? React.createElement(value.type, value.props, renderDomWire(React, value.children)) : value;
@@ -206,8 +206,8 @@ import {ConsoleCommandBar,ConsoleResearchSheet} from './src/components/console/c
 import {ConsoleResearchPane,ConsoleResearchEvidenceContent} from './src/components/console/console-research-pane';
 import {ConsoleResearchEvidenceReady} from './src/components/console/console-research-evidence-ready';
 import {ConsoleCollectionViewport} from './src/components/console/console-collection-viewport';
-import {QuestKickoff} from './src/components/guided/quest-kickoff';
-const modules={ConsoleShell,ConsoleCommandBar,ConsoleResearchSheet,ConsoleResearchPane,ConsoleCollectionViewport,QuestKickoff};
+import {OwnerResearchEntry} from './src/components/quests/owner-research-entry';
+const modules={ConsoleShell,ConsoleCommandBar,ConsoleResearchSheet,ConsoleResearchPane,ConsoleCollectionViewport,OwnerResearchEntry};
 const researchTree=${researchTree.toString()},renderDomWire=${renderDomWire.toString()},researchEvidencePayload=${researchEvidencePayload.toString()},researchEvidenceRequest=${researchEvidenceRequest.toString()};
 window.__researchErrors=[];window.__researchRevision=0;window.__researchReadRequests=[];window.__researchCommits=0;window.__researchDiscarded=0;window.__researchPaidCalls=0;window.__researchEvidenceRequests=[];window.__researchEvidenceDiscarded=0;window.__researchEvidenceGeneration=0;window.__researchEvidenceCurrent=0;window.__researchEvidencePending=false;
 function checked(target){const url=new URL(target,location.origin);if(url.origin!==location.origin||url.pathname!=='/dashboard'||url.searchParams.get('view')!=='research')throw Error('Unsafe Research fixture navigation');return url.pathname+url.search+url.hash;}
@@ -252,7 +252,7 @@ async function browserBundle() {
       });
     } }],
   }).then(result => {
-    const allowed = new Set(['src/components/console/history-pager.tsx','src/lib/core-ui/workspace-navigation.ts','src/components/console/console-shell.tsx', 'src/components/console/console-shell.css', 'src/components/console/console-command.tsx', 'src/components/console/console-command.css', 'src/components/console/console-collection-panes.tsx', 'src/components/console/console-collection-panes.css', 'src/components/console/console-collection-viewport.tsx', 'src/components/console/console-collection-scroll.ts', 'src/components/console/console-research-pane.tsx', 'src/components/console/console-research-pane.css', 'src/components/console/console-research-evidence-ready.tsx', 'src/components/guided/quest-kickoff.tsx', 'src/components/guided/quest-kickoff.css', 'src/components/stage7/icons.tsx', 'src/lib/core-ui/workflows.ts', 'src/lib/core-ui/run-outcome.ts', 'src/lib/core-ui/console-collections-query.ts', 'src/lib/core-ui/console-research-query.ts', 'src/lib/core-ui/quest-draft.ts', 'src/core/quest-intake.ts']);
+    const allowed = new Set(['src/components/console/history-pager.tsx','src/lib/core-ui/workspace-navigation.ts','src/components/console/console-shell.tsx', 'src/components/console/console-shell.css', 'src/components/console/console-command.tsx', 'src/components/console/console-command.css', 'src/components/console/console-collection-panes.tsx', 'src/components/console/console-collection-panes.css', 'src/components/console/console-collection-viewport.tsx', 'src/components/console/console-collection-scroll.ts', 'src/components/console/console-research-pane.tsx', 'src/components/console/console-research-pane.css', 'src/components/console/console-research-evidence-ready.tsx', 'src/components/quests/owner-research-entry.tsx', 'src/components/quests/owner-research.css', 'src/components/stage7/icons.tsx', 'src/lib/core-ui/workflows.ts', 'src/lib/core-ui/run-outcome.ts', 'src/lib/core-ui/console-collections-query.ts', 'src/lib/core-ui/console-research-query.ts', 'src/lib/core-ui/quest-draft.ts', 'src/core/quest-intake.ts']);
     for (const file of Object.keys(result.metafile.inputs).filter(file => file.startsWith('src/'))) assert.ok(allowed.has(file), `Server/provider/auth import denied: ${file}`);
     return result.outputFiles[0].text.replace(/<\/script/gi, '<\\/script');
   });
@@ -262,9 +262,9 @@ async function browserBundle() {
 export async function researchDocument(route, { fixture = createResearchBrowserFixture(), retained = true, initialEvidence = false } = {}) {
   const state = await researchClientState(route, fixture);
   if (initialEvidence && state.progressive) state.progressive.payload = await researchEvidenceState(state.progressive.route, fixture);
-  const modules = Object.assign({}, ...['console-shell', 'console-command', 'console-research-pane', 'console-collection-viewport', 'console-research-evidence-ready'].map(name => fixture.load(`src/components/console/${name}.tsx`)), fixture.load('src/components/guided/quest-kickoff.tsx'));
+  const modules = Object.assign({}, ...['console-shell', 'console-command', 'console-research-pane', 'console-collection-viewport', 'console-research-evidence-ready'].map(name => fixture.load(`src/components/console/${name}.tsx`)), fixture.load('src/components/quests/owner-research-entry.tsx'));
   function Progressive({ descriptor }) { return descriptor.payload ? React.createElement(React.Fragment, null, React.createElement(modules.ConsoleResearchEvidenceContent, { record: descriptor.payload.record, evidence: descriptor.payload.evidence }), React.createElement(modules.ConsoleResearchEvidenceReady, descriptor.payload.ready)) : renderDomWire(React, descriptor.loading); }
   const markup = renderToString(React.createElement(React.Suspense, { fallback: React.createElement('p', { role: 'status' }, 'Loading synthetic saved Research…') }, researchTree(React, modules, state, Progressive)));
-  const styles = ['src/app/globals.css', 'src/app/stage1.css', 'src/app/stage3.css', 'src/app/stage7.css', 'src/app/stage7-mobile.css', 'src/app/stage8.css', 'src/components/console/console-shell.css', 'src/components/console/console-command.css', 'src/components/console/console-panes.css', 'src/components/console/console-collection-panes.css', 'src/components/console/console-research-pane.css', 'src/components/guided/quest-kickoff.css'].map(file => readFileSync(file, 'utf8')).join('\n');
+  const styles = ['src/app/globals.css', 'src/app/stage1.css', 'src/app/stage3.css', 'src/app/stage7.css', 'src/app/stage7-mobile.css', 'src/app/stage8.css', 'src/components/console/console-shell.css', 'src/components/console/console-command.css', 'src/components/console/console-panes.css', 'src/components/console/console-collection-panes.css', 'src/components/console/console-research-pane.css', 'src/components/quests/owner-research.css'].map(file => readFileSync(file, 'utf8')).join('\n');
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="data:,"><title>SYNTHETIC actual-root read-only Research fixture</title><style>${styles}</style></head><body data-synthetic-fixture="read-only-research"><div id="research-root-island" style="display:contents">${markup}</div><script>window.__researchRetained=${JSON.stringify(retained)};window.__researchState=${JSON.stringify(state).replace(/</g, '\\u003c')}</script><script>${await browserBundle()}</script></body></html>`;
 }
