@@ -103,16 +103,22 @@ function compactReview(f) {
     sufficiencyRationale: f.review.sufficiencyRationale, dimensions: f.review.dimensions.map(d => ({ dimension: d.dimension, verdict: d.verdict, rationale: d.rationale, evidence: d.evidenceRefs.map(key) })), checks: f.review.checks, additionalUncertainties: [] };
 }
 
-test('focused clarity instructions leave ordinary and broad-addendum system prompts byte-identical',()=>{
+test('general review prompts keep bounded context and explicit owner proposal gates',()=>{
  const expected=[
-  ['f5f55dfdc177e0aad4ff3265b347ef00700dac6933dfafad698221b2665aee5e','e94dcae53b5cc7395816102ca4a6ac0690d44611cdda04b5a8b432fa128a0524'],
-  ['90f6635c8a164a0b311ba47159d53b77dbeaecb22c9b2372ad87b4c5384f9f21','ad0683f5237b331296ccf62155e383437b1093d6c301410c896531fb9cc080c0'],
+  ['f5f55dfdc177e0aad4ff3265b347ef00700dac6933dfafad698221b2665aee5e','2642b77cea18c58d88b6bfce1f7983a5e34cde5a78f132e1f6cd10f1fc56d51b'],
+  ['2ed8d00f22e3be6b0650662fdbf4359563b8662556b3029ab95daaf384e5654c','40c53e312efe3c1df8eba6dae6d0bef9891ecd4eebbcd83f6865ae51d817b369'],
  ];
  for(const addendumEnabled of [false,true]){
   const f=fixture();
   if(addendumEnabled){const addendum=r12AddendumFixture(f.intent,now);f.dossier.addendumRef={artifactId:addendum.id,sha256:v2.discoveryV2Hash(addendum)};f.context.evidenceAddendum=addendum;f.assessment.dossierHash=v2.discoveryV2Hash(f.dossier);}
   const prepared=worker.prepareDiscoveryWorkerContextV2(f.intent,f.dossier,f.context,f.refs,now);
   const requests=[worker.buildStrategistRequestV2(prepared,now),worker.buildReviewerRequestV2(prepared,f.assessment,f.execution,now)];
+  if(addendumEnabled){
+   assert.match(requests[0].messages[0].content,/Missing future artwork, physical samples or commercial proof alone is not a known failure/);
+   assert.match(requests[1].messages[0].content,/Missing future artwork, physical samples or commercial proof alone is not a known failure/);
+   assert.match(requests[1].messages[0].content,/A TEST recommendation grants no creative, spending, publication or commerce authority/);
+   assert.doesNotMatch(requests[1].messages[0].content,/usesPinnedLearningPlan/);
+  }
   assert.deepEqual(requests.map(r=>createHash('sha256').update(r.messages[0].content).digest('hex')),expected[Number(addendumEnabled)]);
  }
 });
@@ -476,7 +482,7 @@ test('observed-size synthetic reviewer packet keeps seventeen complete questions
   delete oldInput.assessment.rowEncoding.marketComparisons; delete oldInput.assessment.rowEncoding.feeScenarios;
   oldInput.missingQuestions = questions;
   legacy.messages[1].content = JSON.stringify(oldInput);
-  legacy.messages[0].content = legacy.messages[0].content.replace('including markets, fee scenarios, facts and uncertainties', 'including nested facts and uncertainties').replace('Resolve missingQuestions refs [c,d,u] with rowPath. Keep every question; add new missing questions explicitly.', 'Keep every unresolved question; add new missing questions explicitly.');
+  legacy.messages[0].content = legacy.messages[0].content.replace('including markets, fee scenarios, facts and uncertainties', 'including nested facts and uncertainties').replace('Resolve missingQuestions refs [c,d,u] with rowPath. Core preserves every inherited question verbatim in the saved decision. additionalUncertainties is only for NEW reviewer-only questions (maximum 18), never copies of inherited questions; return [] if there are none.', 'Keep every unresolved question; add new missing questions explicitly.');
   const bytes = value => Buffer.byteLength(JSON.stringify(value), 'utf8');
   assert.ok(bytes(legacy) > 32768, `The prior representation must reproduce the failure: ${bytes(legacy)}`);
   assert.ok(bytes(legacy) >= 33500, 'Regression includes the observed request breadth, not a toy packet');
@@ -575,6 +581,44 @@ test('review schema and projected provider schema pin the exact recommendation f
       assert.throws(() => worker.normalizeReviewerResponseV2(f.prepared, f.assessment, { ...response, ...changed }, { strategist: f.execution, reviewer: f.reviewExecution }, now), /JSON schema/);
     }
   }
+});
+
+test('three candidates retain 27 inherited questions while only new reviewer questions use the 18-item bound', () => {
+  const f = threeCandidateFixture(), questions = [];
+  f.assessment.candidates.forEach((candidate, c) => candidate.dimensions.forEach((dimension, d) => {
+    const question = `What exact evidence resolves candidate ${c + 1} dimension ${d + 1} before commerce?`;
+    questions.push(question);
+    dimension.uncertainties = [{ question, blockingForTest: false, reason: 'This question remains open for any later commercial claim.' }];
+  }));
+  f.assessment.missingQuestions = questions;
+  const prepared = worker.prepareDiscoveryWorkerContextV2(f.intent, f.dossier, f.context, f.refs, now);
+  const request = worker.buildReviewerRequestV2(prepared, f.assessment, f.execution, now);
+  const input = JSON.parse(request.messages[1].content);
+  assert.equal(questions.length, 27);
+  assert.deepEqual(resolveMissingQuestions(input), questions);
+  assert.match(request.messages[0].content, /Core preserves every inherited question verbatim/);
+  assert.match(request.messages[0].content, /additionalUncertainties is only for NEW reviewer-only questions \(maximum 18\)/);
+  assert.match(request.messages[0].content, /return \[\] if there are none/);
+  const response = compactReview({ ...f, prepared });
+  const unchanged = worker.normalizeReviewerResponseV2(prepared, f.assessment, response, { strategist: f.execution, reviewer: f.reviewExecution }, now);
+  assert.deepEqual(unchanged.additionalUncertainties, []);
+  assert.deepEqual(unchanged.missingQuestions, questions);
+  const added = { dimension: 'demand', question: 'Which new source could distinguish this concept from adjacent interest?', blockingForTest: false, reason: 'This is a new reviewer question and remains unresolved for commerce.' };
+  const withNew = worker.normalizeReviewerResponseV2(prepared, f.assessment, { ...response, additionalUncertainties: [added] }, { strategist: f.execution, reviewer: f.reviewExecution }, now);
+  assert.deepEqual(withNew.missingQuestions, [...questions, added.question]);
+  const tooMany = Array.from({ length: 19 }, (_, index) => ({ ...added, question: `Which new reviewer-only question ${index + 1} remains open before commerce?` }));
+  assert.throws(() => worker.normalizeReviewerResponseV2(prepared, f.assessment, { ...response, additionalUncertainties: tooMany }, { strategist: f.execution, reviewer: f.reviewExecution }, now), /JSON schema/);
+  const noSelection = structuredClone(f.assessment);
+  noSelection.recommendation = { ...noSelection.recommendation, proposedOutcome: 'NEEDS_MORE_EVIDENCE', candidateId: null, marketCountryCode: null,
+    alternatives: f.dossier.shortlist.map(candidate => ({ candidateId: candidate.id, rationale: prose, evidenceRefs: [] })) };
+  noSelection.testPlan = null;
+  const noSelectionRequest = worker.buildReviewerRequestV2(prepared, noSelection, f.execution, now);
+  assert.deepEqual(resolveMissingQuestions(JSON.parse(noSelectionRequest.messages[1].content)), questions);
+  const noSelectionResponse = { ...response, candidateKey: null, marketCountryCode: null, outcome: 'NEEDS_MORE_EVIDENCE', dimensions: [] };
+  const noSelectionReview = worker.normalizeReviewerResponseV2(prepared, noSelection, noSelectionResponse, { strategist: f.execution, reviewer: f.reviewExecution }, now);
+  assert.equal(noSelectionReview.candidateId, null);
+  assert.deepEqual(noSelectionReview.missingQuestions, questions);
+  assert.throws(() => worker.normalizeReviewerResponseV2(prepared, noSelection, { ...noSelectionResponse, additionalUncertainties: tooMany }, { strategist: f.execution, reviewer: f.reviewExecution }, now), /JSON schema/);
 });
 
 test('review binding follows a nonfirst selected candidate and handles an explicitly unselected recommendation', () => {
