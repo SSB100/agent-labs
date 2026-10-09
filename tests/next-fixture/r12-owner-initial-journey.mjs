@@ -95,6 +95,23 @@ export async function runOwnerInitialJourney({origin,boundary,output}) {
       assert.equal(await page.getByLabel('Reviewed research profile',{exact:true}).count(),0);assert.deepEqual(current().calls,[]);
       await capture('01-exact-quest-selection');
     });
+    await check('Business-level setup reference uses the real owner route without creating authority or dispatch',async()=>{
+      const state=async()=>(await current().db.query('select (select count(*) from private.r12_owner_setups) setups,(select count(*) from private.r12_owner_activations) initial_activations,(select count(*) from private.r12_owner_episode_activations) episode_activations,(select count(*) from private.r12_discovery_scopes) scopes')).rows[0];
+      const before=await state(),field=page.getByRole('textbox',{name:'Operator-supplied grant UUID',exact:true});
+      await page.getByRole('heading',{name:'Prepare research setup reference',exact:true}).waitFor();
+      await field.fill('not-a-uuid');assert.equal(await page.getByRole('button',{name:'Prepare setup reference',exact:true}).isDisabled(),true);
+      await field.fill(current().continuationGrantId);await page.getByRole('button',{name:'Prepare setup reference',exact:true}).click();
+      const result=page.getByRole('textbox',{name:'Nonsecret setup reference',exact:true});await result.waitFor();const reference=JSON.parse(await result.inputValue());
+      assert.deepEqual(Object.keys(reference).sort(),['authorityCreated','bootstrapKeyHash','businessId','grantId','ownerId']);
+      assert.equal(reference.businessId,current().businessId);assert.equal(reference.ownerId,current().ownerId);assert.equal(reference.grantId,current().continuationGrantId);assert.equal(reference.authorityCreated,false);assert.match(reference.bootstrapKeyHash,/^[a-f0-9]{64}$/);
+      await result.focus();assert.deepEqual(await result.evaluate(node=>[node.selectionStart,node.selectionEnd]),[0,(await result.inputValue()).length]);
+      const foreign=await page.evaluate(async()=>{const response=await fetch('/api/research/r12/owner-bootstrap',{method:'POST',credentials:'same-origin',headers:{'content-type':'application/json'},body:JSON.stringify({businessId:crypto.randomUUID(),grantId:crypto.randomUUID()})});return response.status;});assert.equal(foreign,403);
+      assert.deepEqual(await state(),before);assert.deepEqual(current().calls,[]);assert.deepEqual(current().receipts,[]);await capture('01a-nonsecret-setup-reference');
+      await field.fill(crypto.randomUUID());assert.equal(await result.count(),0,'Editing the grant clears a stale reference');
+      await page.setViewportSize({width:320,height:800});await capture('01b-setup-reference-320');
+      await field.focus();await page.keyboard.press('Tab');const focus=await page.getByRole('button',{name:'Prepare setup reference',exact:true}).evaluate(node=>({active:document.activeElement===node,visible:node.matches(':focus-visible'),outline:parseFloat(getComputedStyle(node).outlineWidth)}));assert.ok(focus.active&&focus.visible&&focus.outline>=2,'Setup reference button must have visible keyboard focus at mobile width');
+      await page.setViewportSize({width:1280,height:900});
+    });
     await check('actual R04 creation and ready preference lead to Research this Quest without substituting objective',async()=>{
       await page.getByRole('link',{name:'Create or edit a Quest',exact:true}).click();
       await page.getByRole('textbox',{name:'Quest title',exact:true}).fill('Technical owner-created astronomy research');
@@ -158,6 +175,7 @@ export async function runOwnerInitialJourney({origin,boundary,output}) {
         const geometry=await zoomPage.evaluate(()=>({width:innerWidth,documentWidth:document.documentElement.scrollWidth}));assert.ok(geometry.width>=630&&geometry.width<=650,'Verify actual 2x browser zoom viewport');assert.ok(geometry.documentWidth<=geometry.width+1);
         const confirm=zoomPage.getByRole('button',{name:'Confirm this exact research policy',exact:true});await confirm.scrollIntoViewIfNeeded();const box=await confirm.boundingBox();assert.ok(box&&box.width>=100&&box.height>=43.5,'Zoomed confirmation stays reachable/readable');
         await captureOwnerZoomViewport({page:zoomPage,target:confirm,output,name:'owner-packet-controls-zoom200.png'});
+        await captureOwnerZoomViewport({page:zoomPage,target:zoomPage.getByRole('button',{name:'Prepare setup reference',exact:true}),output,name:'owner-setup-reference-zoom200.png'});
         await captureOwnerZoomViewport({page:zoomPage,target:zoomPage.getByRole('heading',{name:'Research a saved Quest',exact:true}),output,name:'owner-packet-zoom200.png'});assert.deepEqual(current().calls,[]);
       }catch(error){if(zoomPage)await captureFailure(zoomPage);throw error;}finally{await zoom.close();}
     });

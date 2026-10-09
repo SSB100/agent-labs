@@ -10,6 +10,9 @@ Quest. Its saved packet identifies the exact predecessor plan and scope, their
 hashes, the preserved cumulative counters and costs, and a fresh whole-run quote.
 The existing R05 confirmation activates this episode. Confirmation makes no model
 call. The ordinary research workspace supplies Continue, receipts, result and Stop.
+Before separately approved operator enrollment, the same signed-in research page
+can prepare the nonsecret setup reference for an exact supplied grant UUID. This
+control works without an enrolled profile and creates no permission or execution.
 
 ## Authority and history
 
@@ -42,8 +45,9 @@ The five phases remain planner, one collection, exact-span selection, strategy a
 independent review. No two-call substitute, evidence-addendum restart or fabricated
 phase is introduced. Inert test outcomes qualify software behavior only.
 
-The StudioKindredStore geographic Quest remains canonical. A GB-only objective has
-not been confirmed. The earlier accepted NEEDS_MORE_EVIDENCE result remains history;
+The StudioKindredStore geographic Quest remains canonical. On 9 October the owner
+selected a fresh US/GB/AU/NZ comparison rather than the proposed GB-only slice.
+The earlier accepted NEEDS_MORE_EVIDENCE result remains history;
 new authority is not evidence that its demand, margin or other unknowns are resolved.
 Before live activation, the source packet must explain which earlier questions the
 new evidence can answer and which remain unknown. TEST is permitted only when the
@@ -65,17 +69,22 @@ hide older eligible continuation authority. Independent source review has no
 unresolved findings against migration SHA-256
 `b54626f2b908842fafe01b9d3fbc5f1bf818dc78d15a369547e9669dfcb66e4f`.
 
-All 13 local owner-browser stages passed against the production Next build in
+All 14 local owner-browser stages passed against the production Next build in
 Edge, including same-Goal continuation, reload/history, mobile, keyboard, actual
 200% browser zoom, zero-call Stop, and exactly five inert calls with one collection
 in the subsequent episode. Desktop/mobile/zoom screenshots were inspected;
-the browser reported no external requests or page errors. This is technical
+the browser reported no external requests or page errors. The setup-reference
+stage uses the actual authenticated route and confirms zero enrollment, activation
+or provider work, with keyboard and 200% controls visible above the fixed footer.
+This is technical
 qualification using synthetic provider responses, not a real research outcome.
 
-Seven real PostgreSQL
-race scenarios await the hosted gate; isolated SQL is not concurrency evidence.
-Seven unchanged local Windows directory-fsync failures require the Linux gate.
-Required hosted gates must run against
-the exact release tree only after a bounded CI allocation is approved. Deployment
+Hosted run 37907565536 passed the actual PostgreSQL gate at commit `d3a1579`,
+including seven new episode races and nine existing owner races, with observed
+lock waits and no provider calls. Its Linux quality gate also passed, resolving
+the seven unchanged local Windows directory-fsync failures. The final setup-reference
+UI requires qualification against the complete final tree; earlier runs do not
+qualify a later tree. Required hosted gates must run only within the approved
+bounded CI allocation. Deployment
 and signed-in verification precede any separately approved live research episode.
 Creative generation, listings, sales and paid retries remain outside this work.
