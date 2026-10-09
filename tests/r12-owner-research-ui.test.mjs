@@ -113,7 +113,7 @@ test('owner select labels have exact text independent of options and unique expl
 
 test('failed browser stages retain bounded DOM, exact label text, actual accessible names and screenshot outcomes',async()=>{
   const files=new Map(),screenshots=[];
-  const {captureOwnerJourneyFailure}=load('tests/next-fixture/r12-owner-initial-journey.mjs',{'node:assert/strict':assert,'node:path':path,'node:fs/promises':{writeFile:async(file,text)=>files.set(file,JSON.parse(text))},'playwright-core':{},sharp,'./r12-sql.mjs':{},'./browser-zoom.mjs':{}});
+  const {captureOwnerJourneyFailure}=load('tests/next-fixture/r12-owner-initial-journey.mjs',{'node:assert/strict':assert,'node:path':path,'node:fs/promises':{writeFile:async(file,text)=>files.set(file,JSON.parse(text))},'playwright-core':{},sharp,'./r12-sql.mjs':{},'./r12-owner-initial.mjs':{extendOwnerInitialNextAllowance:()=>{throw Error('Diagnostics must not mutate the SQL fixture');}},'./browser-zoom.mjs':{}});
   const control={tagName:'SELECT',id:'owner-profile',getAttribute:()=>null,labels:[{textContent:'Reviewed research profile Choose a profile Synthetic profile'}],matches:()=>false};
   const overflowing={...control,clientWidth:290,scrollWidth:579,getBoundingClientRect:()=>({left:15,right:594,width:579,height:44})};
   const page={url:()=>`http://localhost/owner?${'x'.repeat(3000)}`,locator:()=>({evaluate:async evaluate=>evaluate({ownerDocument:{documentElement:{clientWidth:320,clientHeight:800,scrollWidth:579,scrollHeight:5722}},innerText:'x'.repeat(20000),querySelectorAll:selector=>Array(100).fill(selector==='*'?overflowing:control)}),ariaSnapshot:async()=>`- combobox "Reviewed research profile":\n${'x'.repeat(20000)}`}),screenshot:async options=>{screenshots.push(options);}};
@@ -134,7 +134,7 @@ test('owner zoom evidence rejects blank native captures and offscreen or obscure
   const element={getBoundingClientRect:()=>rect},blank=await sharp({create:{width:1280,height:720,channels:3,background:{r:17,g:24,b:32}}}).png().toBuffer();
   const panel=await sharp({create:{width:600,height:100,channels:3,background:'#ffffff'}}).png().toBuffer();
   let pixels=await sharp(blank).composite([{input:panel,left:40,top:560}]).png().toBuffer();
-  const {captureOwnerZoomViewport}=load('tests/next-fixture/r12-owner-initial-journey.mjs',{'node:assert/strict':assert,'node:path':path,'node:fs/promises':{writeFile:async(file,data)=>files.set(file,data)},'playwright-core':{},sharp,'./r12-sql.mjs':{},'./browser-zoom.mjs':{}},{innerWidth:640,innerHeight:360,document:{elementFromPoint:(x,y)=>{assert.equal(x,rect.left+rect.width/2);assert.equal(y,rect.top+rect.height/2);return hit?element:null;}},requestAnimationFrame:callback=>{calls.push('paint');callback();}});
+  const {captureOwnerZoomViewport}=load('tests/next-fixture/r12-owner-initial-journey.mjs',{'node:assert/strict':assert,'node:path':path,'node:fs/promises':{writeFile:async(file,data)=>files.set(file,data)},'playwright-core':{},sharp,'./r12-sql.mjs':{},'./r12-owner-initial.mjs':{extendOwnerInitialNextAllowance:()=>{throw Error('Diagnostics must not mutate the SQL fixture');}},'./browser-zoom.mjs':{}},{innerWidth:640,innerHeight:360,document:{elementFromPoint:(x,y)=>{assert.equal(x,rect.left+rect.width/2);assert.equal(y,rect.top+rect.height/2);return hit?element:null;}},requestAnimationFrame:callback=>{calls.push('paint');callback();}});
   const cdp={send:async(method,options)=>{calls.push([method,options]);return{data:pixels.toString('base64')};},detach:async()=>calls.push('detach')};
   const page={bringToFront:async()=>calls.push('foreground'),evaluate:async evaluate=>evaluate(),viewportSize:()=>({width:1280,height:720}),context:()=>({newCDPSession:async()=>cdp})};
   const target={scrollIntoViewIfNeeded:async()=>calls.push('scroll'),evaluate:async evaluate=>evaluate(element)};
@@ -273,4 +273,8 @@ test('episode packet discloses predecessor, prior costs, new whole run and Exa i
   const html=renderToStaticMarkup(React.createElement(packet.OwnerResearchPacket,{receipt:f.receipt}));
   for(const value of ['Episode 1','View previous research and result','USD 1.900000','New episode whole-run maximum','USD 0.400000','model chooses the downstream Exa query','raw public-source excerpts reach inference','does not cover Exa','Stop before the first Continue call'])assert.ok(html.includes(value),value);
   assert.ok(html.includes(money.ownerResearchScopeHref(f.receipt.businessId,f.receipt.goalId,closure.predecessorScopeId).replaceAll('&','&amp;')));
+  assert.ok(!html.includes('Approved cumulative research allowance'),'Old packets do not acquire a new approval');
+  f.receipt.preview.grantRootRevision={rootId:id(42),revision:1,hash:'4'.repeat(64),maximumScopes:2,maximumAllocationMicrounits:'813472',expiresAt:'2026-10-10T09:00:00Z'};
+  const extended=renderToStaticMarkup(React.createElement(packet.OwnerResearchPacket,{receipt:f.receipt}));
+  for(const value of ['Approval revision 1','2 research scopes','USD 0.813472','Earlier consumed allocations remain counted','does not add to your Business','changed approval requires a fresh packet',id(42),'4'.repeat(64)])assert.ok(extended.includes(value),value);
 });

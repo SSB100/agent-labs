@@ -12,6 +12,7 @@ import {exerciseOwnerInitialRuntime} from './r12-owner-initial-runtime.mjs';
 import {enrollOwnerEpisodeGrant,episodeInput,runOwnerEpisodePhases} from './r12-owner-episode-sql-fixture.mjs';
 import {one} from './r12-owner-initial-sql-fixture.mjs';
 import {r12QuoteFixture} from './r12-provider-fixture.mjs';
+import {appendOwnerGrantRootRevision,enrollOwnerExtensionGrant} from './r12-owner-grant-extension-sql-fixture.mjs';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
 export const validateOwnerEpisodeRaceEnvironment=validateOwnerInitialRaceEnvironment;
 export async function exerciseOwnerEpisodePostgresRaces(env=process.env){
@@ -53,6 +54,29 @@ export async function exerciseOwnerEpisodePostgresRaces(env=process.env){
    const input=await episodeInput(db,f),exhausted=await orderedRace({observer:db,holder,waiter,first:async x=>{await x.query('select id from public.businesses where id=$1 for update',[f.businessId]);return true;},second:x=>owner(x,'prepare_episode',{input,quote:r12QuoteFixture()})});
    assert.match(exhausted.second.error?.message??'',/episode_grant_exhausted/);record('cumulative-allocation-bound-blocks-next-episode',exhausted);
    assert.equal((await one(db,'select count(*)::int n from private.r12_owner_episode_closures where goal_id=$1',[f.goalId])).n,2);
+  }});
+  await exerciseOwnerInitialRuntime(db,{fixtureOptions:{maximumScopes:1,maximumAllocation:Number(r12QuoteFixture().maximumMicrousd)},onCompleted:async ctx=>{
+   await ctx.server.stopDiscoveryR12(ctx.context,ctx.f.businessId,ctx.scope.id,true);
+   const amount=Number(r12QuoteFixture().maximumMicrousd),expiry=ctx.f.profile.validUntil;
+   const rev1=await appendOwnerGrantRootRevision(db,ctx.f.rootId,{maximumScopes:2,maximumAllocationMicrounits:String(2*amount),expiresAt:expiry});
+   const first=await enrollOwnerExtensionGrant(db,ctx.f,rev1,{maximumEpisodes:1,maximumAllocationMicrounits:String(amount)});
+   const staleSetup=await first.server('prepare_episode',{input:await episodeInput(db,first),quote:r12QuoteFixture()});
+   const confirm=(c,f,s)=>asRole(c,'authenticated','r12_owner_research_server',[f.businessId,'confirm_episode',f.confirmPayload(s),f.bootstrapKey],f.ownerId);
+   // Operator extension commits while confirmation waits on the immutable root.
+   const extensionFirst=await orderedRace({observer:db,holder,waiter,lockRelation:'private.r12_owner_grant_roots',first:async c=>{
+    await c.query('select id from private.r12_owner_grant_roots where id=$1 for update',[ctx.f.rootId]);
+    return appendOwnerGrantRootRevision(c,ctx.f.rootId,{maximumScopes:3,maximumAllocationMicrounits:String(3*amount),expiresAt:expiry});
+   },second:c=>confirm(c,first,staleSetup)});
+   assert.equal(extensionFirst.first.revision,2);assert.match(extensionFirst.second.error?.message??'',/extension_grant_stale/);record('extension-first-invalidates-unactivated-setup',extensionFirst);
+   assert.equal((await one(db,'select count(*)::int n from private.r12_owner_episode_activations where grant_root_id=$1',[ctx.f.rootId])).n,0);
+   const second=await enrollOwnerExtensionGrant(db,ctx.f,extensionFirst.first,{maximumEpisodes:1,maximumAllocationMicrounits:String(amount)});
+   const setup=await second.server('prepare_episode',{input:await episodeInput(db,second),quote:r12QuoteFixture()});
+   const confirmation=second.confirmPayload(setup);
+   const confirmFirst=await orderedRace({observer:db,holder,waiter,lockRelation:'private.r12_owner_grant_roots',first:c=>asRole(c,'authenticated','r12_owner_research_server',[second.businessId,'confirm_episode',confirmation,second.bootstrapKey],second.ownerId),second:c=>appendOwnerGrantRootRevision(c,ctx.f.rootId,{maximumScopes:4,maximumAllocationMicrounits:String(4*amount),expiresAt:expiry})});
+   assert.equal(confirmFirst.first.activated,true);assert.equal(confirmFirst.second.error,undefined);assert.equal(confirmFirst.second.value.revision,3);record('confirmation-first-preserves-activated-receipt',confirmFirst);
+   assert.equal((await second.server('confirm_episode',confirmation)).replayed,true);
+   const stop=await second.server('stop',{setupId:setup.setupId,setupHash:setup.setupHash,submissionId:randomUUID()},'');assert.equal(stop.stopped,true);
+   assert.equal((await one(db,'select count(*)::int n from private.r05_markers where business_id=$1',[ctx.f.businessId])).n,5,'Extension and Stop sent no provider request');
   }});
   await exerciseOwnerInitialRuntime(db,{onCompleted:async ctx=>{
    await ctx.server.stopDiscoveryR12(ctx.context,ctx.f.businessId,ctx.scope.id,true);

@@ -24,6 +24,10 @@ export type OwnerResearchContinuation = {
   eligible: boolean; reason: string | null; predecessorClosure: OwnerEpisodeClosure | null; predecessorClosureHash: string | null;
 };
 export type OwnerResearchContinuationBounds = { maximumEpisodes: number; maximumAllocationMicrounits: string; expiresAt: string };
+export type OwnerResearchGrantRootRevision = {
+  rootId: string; revision: number; hash: string; maximumScopes: number;
+  maximumAllocationMicrounits: string; expiresAt: string;
+};
 export type OwnerResearchBusinessSnapshot = {
   id: string; revision: number; hash: string; capRevision: number;
   maximumMicrounits: string; committedMicrounits: string; hasUnknown: boolean; paused: boolean;
@@ -54,6 +58,7 @@ export type OwnerResearchPreparationPreview = {
 export type OwnerResearchEpisodePreview = Omit<OwnerResearchPreparationPreview, "version"> & {
   version: "r12.owner-research-episode-preview.1";
   episodeNumber: number; predecessorClosure: OwnerEpisodeClosure; predecessorClosureHash: string;
+  grantRootRevision?: OwnerResearchGrantRootRevision | null;
 };
 export type OwnerResearchAnyPreview = OwnerResearchPreparationPreview | OwnerResearchEpisodePreview;
 export type OwnerResearchSetupReceipt = {
@@ -77,6 +82,19 @@ const HASH = /^[a-f0-9]{64}$/;
 const KEY = /^[a-z][a-z0-9_-]{0,39}$/;
 const fail = (reason = "unavailable"): never => { throw new Error(`r12_owner_research_${reason}`); };
 const money = (value: unknown) => typeof value === "string" && /^(0|[1-9][0-9]{0,15})$/.test(value) && BigInt(value) <= BigInt(Number.MAX_SAFE_INTEGER) ? BigInt(value) : fail("money_invalid");
+
+/** Validate the saved approval reference without applying today's expiry to
+ * historical receipts. SQL proves enrollment, lineage and current eligibility. */
+export function validateOwnerResearchGrantRootRevision(value: unknown): OwnerResearchGrantRootRevision {
+  if (!value || typeof value !== "object" || Array.isArray(value) ||
+      Object.keys(value).sort().join(",") !== "expiresAt,hash,maximumAllocationMicrounits,maximumScopes,revision,rootId") return fail("grant_revision_invalid");
+  const revision = value as OwnerResearchGrantRootRevision;
+  if (typeof revision.rootId !== "string" || !UUID.test(revision.rootId) || typeof revision.hash !== "string" || !HASH.test(revision.hash) ||
+      !Number.isSafeInteger(revision.revision) || revision.revision < 1 ||
+      !Number.isSafeInteger(revision.maximumScopes) || revision.maximumScopes < 1 || revision.maximumScopes > 32 ||
+      money(revision.maximumAllocationMicrounits) <= BigInt(0) || typeof revision.expiresAt !== "string" || !Number.isFinite(Date.parse(revision.expiresAt))) return fail("grant_revision_invalid");
+  return structuredClone(revision);
+}
 
 /** The browser can select catalog choices and an explicit lifetime ceiling.
  * It cannot send a quote, operation, plan, source review or server key. */

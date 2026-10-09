@@ -6,6 +6,7 @@ import path from 'node:path';
 import {r04SqlBootstrap} from './helpers/r04-sql-bootstrap.mjs';
 import {sessionBootstrap} from './helpers/r10-sql-fixture.mjs';
 import {exerciseOwnerEpisodeSql,exerciseOwnerEpisodeCatalogSql} from './helpers/r12-owner-episode-sql-fixture.mjs';
+import './r12-owner-grant-extension-sql-cases.mjs';
 const host=process.env.R12_SQL_TEST_HOST??process.env.R11_SQL_TEST_HOST;
 test('Owner episode catalog filters initial-only, expired and short-lived grants before newest-per-profile selection',{skip:!host,timeout:120000},async()=>{
  const req=createRequire(path.resolve(host,'package.json')),{PGlite}=req('@electric-sql/pglite'),{pgcrypto}=req('@electric-sql/pglite/contrib/pgcrypto'),db=new PGlite({extensions:{pgcrypto}});

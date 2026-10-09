@@ -39,24 +39,24 @@ export async function asRole(db,role,name,args,ownerId=null){
  await db.query('reset role');return result;
 }
 function owner(db,f,operation,payload){return asRole(db,'authenticated','r12_owner_research_server',[f.businessId,operation,payload,operation.startsWith('stop')?'':f.bootstrapKey],f.ownerId);}
-async function waitForBusinessLock(observer,waiter,holder,inflight){
+async function waitForBusinessLock(observer,waiter,holder,inflight,lockRelation='public.businesses'){
  const until=performance.now()+5000;
  while(performance.now()<until){
   assert.equal(inflight.done,false,'Contender completed without the required observed lock wait');
   const evidence=await one(observer,`select a.wait_event_type,a.wait_event,pg_blocking_pids(a.pid) blockers,
    exists(select 1 from pg_locks l where l.pid=a.pid and not l.granted) waiting_lock,
-   exists(select 1 from pg_locks l where l.pid=$2 and l.relation='public.businesses'::regclass and l.granted) holder_business_lock
-   from pg_stat_activity a where a.pid=$1`,[waiter.processID,holder.processID]);
+   exists(select 1 from pg_locks l where l.pid=$2 and l.relation=$3::regclass and l.granted) holder_business_lock
+   from pg_stat_activity a where a.pid=$1`,[waiter.processID,holder.processID,lockRelation]);
   if(evidence?.wait_event_type==='Lock'&&evidence.blockers.includes(holder.processID)&&evidence.waiting_lock&&evidence.holder_business_lock)return {waitEvent:evidence.wait_event,observedLockWait:true};
   await pause(10);
  }
  assert.fail('No positively observed Business lock wait between the two PostgreSQL backends');
 }
-export async function orderedRace({observer,holder,waiter,first,second}){
+export async function orderedRace({observer,holder,waiter,first,second,lockRelation='public.businesses'}){
  await begin(holder);await begin(waiter);let inflight;
  try{
   const firstResult=await first(holder);inflight=pending(()=>second(waiter));
-  const evidence=await waitForBusinessLock(observer,waiter,holder,inflight);
+  const evidence=await waitForBusinessLock(observer,waiter,holder,inflight,lockRelation);
   await holder.query('commit');const secondResult=await inflight.promise;
   await waiter.query(secondResult.error?'rollback':'commit');
   return {first:firstResult,second:secondResult,...evidence};
