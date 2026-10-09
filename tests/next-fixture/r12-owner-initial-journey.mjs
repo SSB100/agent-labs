@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import {writeFile} from 'node:fs/promises';
 import {chromium} from 'playwright-core';
+import sharp from 'sharp';
 import {r12OwnerRpc} from './r12-sql.mjs';
 import {actualZoomBrowser} from './browser-zoom.mjs';
 
@@ -39,6 +40,24 @@ export async function captureOwnerJourneyFailure({page,output,stage,index}) {
   }
   await writeFile(path.join(output,`${stem}.json`),JSON.stringify(diagnostic,null,2));
   return{diagnostic:`${stem}.json`,...(diagnostic.screenshot?{screenshot:diagnostic.screenshot}:{})};
+}
+
+// Native viewport capture avoids mixing deep-scroll offsets with real tab zoom.
+export async function captureOwnerZoomViewport({page,target,output,name}) {
+  await page.bringToFront();await target.scrollIntoViewIfNeeded();
+  await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+  const geometry=await target.evaluate(element=>{
+    const rect=element.getBoundingClientRect();
+    return{width:innerWidth,height:innerHeight,target:{left:rect.left,right:rect.right,top:rect.top,bottom:rect.bottom,width:rect.width,height:rect.height},hit:document.elementFromPoint(rect.left+rect.width/2,rect.top+rect.height/2)===element};
+  });
+  assert.ok(geometry.hit&&geometry.target.width>0&&geometry.target.height>0&&geometry.target.left>=0&&geometry.target.right<=geometry.width&&geometry.target.top>=0&&geometry.target.bottom<=geometry.height,`${name}: captured target must be visible and hit-testable in the actual zoom viewport ${JSON.stringify(geometry)}`);
+  const viewport=page.viewportSize(),cdp=await page.context().newCDPSession(page);
+  try{
+    const capture=await cdp.send('Page.captureScreenshot',{format:'png',fromSurface:true,captureBeyondViewport:false}),pixels=Buffer.from(capture.data,'base64');
+    assert.equal(pixels.readUInt32BE(16),viewport.width,'Zoom capture preserves the full physical viewport width');assert.equal(pixels.readUInt32BE(20),viewport.height);
+    await writeFile(path.join(output,name),pixels);
+    assert.ok((await sharp(pixels).stats()).channels.some(channel=>channel.stdev>5),`${name}: actual zoom capture must contain rendered content`);
+  }finally{await cdp.detach();}
 }
 
 /** Real Next/React/authenticated owner actions and migrated isolated SQL.
@@ -138,7 +157,8 @@ export async function runOwnerInitialJourney({origin,boundary,output}) {
         const consent=zoomPage.getByRole('checkbox',{name:/I reviewed this exact packet/});await consent.scrollIntoViewIfNeeded();await consent.focus();await zoomPage.keyboard.press('Space');assert.equal(await consent.isChecked(),true);await zoomPage.keyboard.press('Space');assert.equal(await consent.isChecked(),false);
         const geometry=await zoomPage.evaluate(()=>({width:innerWidth,documentWidth:document.documentElement.scrollWidth}));assert.ok(geometry.width>=630&&geometry.width<=650,'Verify actual 2x browser zoom viewport');assert.ok(geometry.documentWidth<=geometry.width+1);
         const confirm=zoomPage.getByRole('button',{name:'Confirm this exact research policy',exact:true});await confirm.scrollIntoViewIfNeeded();const box=await confirm.boundingBox();assert.ok(box&&box.width>=100&&box.height>=43.5,'Zoomed confirmation stays reachable/readable');
-        await zoomPage.screenshot({path:path.join(output,'owner-packet-controls-zoom200.png')});await zoomPage.getByRole('heading',{name:'Research a saved Quest',exact:true}).scrollIntoViewIfNeeded();await zoomPage.screenshot({path:path.join(output,'owner-packet-zoom200.png')});assert.deepEqual(current().calls,[]);
+        await captureOwnerZoomViewport({page:zoomPage,target:confirm,output,name:'owner-packet-controls-zoom200.png'});
+        await captureOwnerZoomViewport({page:zoomPage,target:zoomPage.getByRole('heading',{name:'Research a saved Quest',exact:true}),output,name:'owner-packet-zoom200.png'});assert.deepEqual(current().calls,[]);
       }catch(error){if(zoomPage)await captureFailure(zoomPage);throw error;}finally{await zoom.close();}
     });
     await check('exact confirmation blocks repeated clicks, activates only finite authority, and opens existing Continue/Stop workspace',async()=>{

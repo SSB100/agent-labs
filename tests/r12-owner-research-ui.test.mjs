@@ -7,6 +7,7 @@ import path from 'node:path';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import ts from 'typescript';
+import sharp from 'sharp';
 
 // Technical UI fixtures only. There are no real provider calls, source permissions,
 // shop claims, demand observations, purchases or production mutations here.
@@ -112,7 +113,7 @@ test('owner select labels have exact text independent of options and unique expl
 
 test('failed browser stages retain bounded DOM, exact label text, actual accessible names and screenshot outcomes',async()=>{
   const files=new Map(),screenshots=[];
-  const {captureOwnerJourneyFailure}=load('tests/next-fixture/r12-owner-initial-journey.mjs',{'node:assert/strict':assert,'node:path':path,'node:fs/promises':{writeFile:async(file,text)=>files.set(file,JSON.parse(text))},'playwright-core':{},'./r12-sql.mjs':{},'./browser-zoom.mjs':{}});
+  const {captureOwnerJourneyFailure}=load('tests/next-fixture/r12-owner-initial-journey.mjs',{'node:assert/strict':assert,'node:path':path,'node:fs/promises':{writeFile:async(file,text)=>files.set(file,JSON.parse(text))},'playwright-core':{},sharp,'./r12-sql.mjs':{},'./browser-zoom.mjs':{}});
   const control={tagName:'SELECT',id:'owner-profile',getAttribute:()=>null,labels:[{textContent:'Reviewed research profile Choose a profile Synthetic profile'}],matches:()=>false};
   const overflowing={...control,clientWidth:290,scrollWidth:579,getBoundingClientRect:()=>({left:15,right:594,width:579,height:44})};
   const page={url:()=>`http://localhost/owner?${'x'.repeat(3000)}`,locator:()=>({evaluate:async evaluate=>evaluate({ownerDocument:{documentElement:{clientWidth:320,clientHeight:800,scrollWidth:579,scrollHeight:5722}},innerText:'x'.repeat(20000),querySelectorAll:selector=>Array(100).fill(selector==='*'?overflowing:control)}),ariaSnapshot:async()=>`- combobox "Reviewed research profile":\n${'x'.repeat(20000)}`}),screenshot:async options=>{screenshots.push(options);}};
@@ -126,6 +127,25 @@ test('failed browser stages retain bounded DOM, exact label text, actual accessi
   page.locator=()=>({evaluate:async()=>{throw Error('DOM unavailable');},ariaSnapshot:async()=>{throw Error('Names unavailable');}});page.screenshot=async()=>{throw Error('Screenshot unavailable');};
   const unavailable=await captureOwnerJourneyFailure({page,output:'/inert-fixture',stage:'Unavailable browser',index:3});
   assert.deepEqual(unavailable,{diagnostic:'failed-stage-03.json'});assert.equal(files.get('/inert-fixture/failed-stage-03.json').errors.length,3,'Capture failures stay reviewable without replacing the journey failure');
+});
+
+test('owner zoom evidence rejects blank native captures and offscreen or obscured confirmation targets',async()=>{
+  const files=new Map(),calls=[],rect={left:20,right:620,top:280,bottom:324,width:600,height:44};let hit=true;
+  const element={getBoundingClientRect:()=>rect},blank=await sharp({create:{width:1280,height:720,channels:3,background:{r:17,g:24,b:32}}}).png().toBuffer();
+  const panel=await sharp({create:{width:600,height:100,channels:3,background:'#ffffff'}}).png().toBuffer();
+  let pixels=await sharp(blank).composite([{input:panel,left:40,top:560}]).png().toBuffer();
+  const {captureOwnerZoomViewport}=load('tests/next-fixture/r12-owner-initial-journey.mjs',{'node:assert/strict':assert,'node:path':path,'node:fs/promises':{writeFile:async(file,data)=>files.set(file,data)},'playwright-core':{},sharp,'./r12-sql.mjs':{},'./browser-zoom.mjs':{}},{innerWidth:640,innerHeight:360,document:{elementFromPoint:(x,y)=>{assert.equal(x,rect.left+rect.width/2);assert.equal(y,rect.top+rect.height/2);return hit?element:null;}},requestAnimationFrame:callback=>{calls.push('paint');callback();}});
+  const cdp={send:async(method,options)=>{calls.push([method,options]);return{data:pixels.toString('base64')};},detach:async()=>calls.push('detach')};
+  const page={bringToFront:async()=>calls.push('foreground'),evaluate:async evaluate=>evaluate(),viewportSize:()=>({width:1280,height:720}),context:()=>({newCDPSession:async()=>cdp})};
+  const target={scrollIntoViewIfNeeded:async()=>calls.push('scroll'),evaluate:async evaluate=>evaluate(element)};
+  const capture=()=>captureOwnerZoomViewport({page,target,output:'/inert-fixture',name:'owner-packet-controls-zoom200.png'});
+  await capture();assert.deepEqual(calls,['foreground','scroll','paint','paint',['Page.captureScreenshot',{format:'png',fromSurface:true,captureBeyondViewport:false}],'detach']);
+  assert.deepEqual(files.get('/inert-fixture/owner-packet-controls-zoom200.png'),pixels);
+  pixels=blank;calls.length=0;await assert.rejects(capture(),/actual zoom capture must contain rendered content/);assert.equal(calls.at(-1),'detach');assert.deepEqual(files.get('/inert-fixture/owner-packet-controls-zoom200.png'),blank,'Keep rejected pixels for diagnosis');
+  for(const invalid of [{bottom:361},{right:641},{top:-1},{left:-1},{width:0},{height:0},{hit:false}]){
+    const original={...rect};calls.length=0;Object.assign(rect,invalid);hit=invalid.hit!==false;
+    await assert.rejects(capture(),/captured target must be visible and hit-testable/);assert.ok(!calls.some(call=>Array.isArray(call)),'Do not accept a screenshot of an unreachable target');Object.assign(rect,original);
+  }
 });
 
 test('consent binds the exact setup hash, clears on edits/reload, and cannot authorize an expired quote',()=>{
