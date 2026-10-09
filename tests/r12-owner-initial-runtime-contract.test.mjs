@@ -101,12 +101,17 @@ test('owner-initial worker and reviewer accept exact single-market NME with unmo
     const f=workerFixture(count),request=buildStrategistRequestV2(f.prepared,f.now);
     assert.deepEqual(request.outputSchema,discoveryR12OwnerInitialStaticSchema('strategy'));
     if(count===1)assert.match(request.messages[0].content,/Evaluate the supplied geographic market/);
+    assert.match(request.messages[0].content,/Missing future artwork, physical samples or commercial proof alone is not a known failure/);
+    assert.match(request.messages[0].content,/NEEDS_MORE_EVIDENCE and REJECT remain valid, and TEST is never forced/);
     const assessment=normalizeStrategistResponseV2(f.prepared,f.strategy,f.executions.strategist,f.now);
     assert.equal(assessment.marketComparisons.length,count);
     assert.equal(assessment.recommendation.proposedOutcome,'NEEDS_MORE_EVIDENCE');
     assert.equal(assessment.testPlan,null);assert.equal(assessment.publicationAllowed,false);assert.equal(assessment.commerceAllowed,false);
     const reviewRequest=buildReviewerRequestV2(f.prepared,assessment,f.executions.strategist,f.now);
     if(count===1)assert.match(reviewRequest.messages[0].content,/supplied geographic market evaluation/);
+    assert.match(reviewRequest.messages[0].content,/additionalUncertainties is only for NEW reviewer-only questions \(maximum 18\)/);
+    assert.match(reviewRequest.messages[0].content,/A TEST recommendation grants no creative, spending, publication or commerce authority/);
+    assert.doesNotMatch(reviewRequest.messages[0].content,/usesPinnedLearningPlan/);
     const response={marketCountryCode:null,candidateKey:null,outcome:'NEEDS_MORE_EVIDENCE',sufficiencyRationale:'The synthetic contract context cannot select a creative experiment or establish real demand. All unresolved evidence gaps remain explicit.',dimensions:[],checks:REVIEW_CHECKS_V2.map(check=>({check,outcome:'PASS',rationale:'This contract response preserves the bounded scope and does not assert real demand or permission.'})),additionalUncertainties:[]};
     const review=normalizeReviewerResponseV2(f.prepared,assessment,response,f.executions,f.now);
     assert.equal(review.outcome,'NEEDS_MORE_EVIDENCE');assert.deepEqual(review.missingQuestions,assessment.missingQuestions);
