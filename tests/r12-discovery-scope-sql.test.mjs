@@ -5,6 +5,7 @@ import {fullShapePhaseOutputFixture,fullShapeProfileFixture,fullShapeFocusedStra
 import {exerciseFullShapeDispatch} from './helpers/r12-full-shape-dispatch.mjs';
 const fullShape=process.env.R12_SQL_FULL_SHAPE==='1';
 import {createClosedRejectedPlan4} from './helpers/r12-closed-plan4-fixture.mjs';
+import {exerciseHistoricalOwnerEpisodeSql} from './helpers/r12-owner-episode-sql-fixture.mjs';
 import {exerciseFocusedPilotLifecycle} from './helpers/r12-focused-pilot-sql-fixture.mjs';
 import {createClosedFocusedPredecessor,exerciseFocusedPilotSuccessorLifecycle} from './helpers/r12-focused-pilot-successor-sql-fixture.mjs';
 import {createClosedUnsentSuccessor,exerciseFocusedPilotUnsentRecoveryLifecycle,exerciseUnsentRecoveryCloseout,exerciseUnsentRecoveryBlockedCloseout} from './helpers/r12-focused-pilot-unsent-recovery-sql-fixture.mjs';
@@ -248,7 +249,7 @@ export async function prepareR12OwnerWorkflows(){
    if(name==='r12_discovery_owner_read')return{data:(await db.query('select public.r12_discovery_owner_read($1,$2,$3) result',[args.p_business_id,args.p_scope_id,args.p_activation])).rows[0].result,error:null};
    assert.equal(name,'r05_policy_owner');return{data:(await db.query('select public.r05_policy_owner($1,$2,$3,$4) result',[args.p_business_id,args.p_operation,args.p_payload,args.p_submission_id])).rows[0].result,error:null};
   }catch(error){return{data:null,error};}finally{await db.exec('reset role');}}}};
-  const ownerActions=source('src/products/discovery-r12-server.ts',{'../core/request-deadline':require('../.core-tests/core/request-deadline.js'),'./discovery-r12-focused-successor':require('../.core-tests/products/discovery-r12-focused-successor.js'),'./discovery-r12-review-preparation-contract':require('../.core-tests/products/discovery-r12-review-preparation-contract.js'),'server-only':{},'node:crypto':require('node:crypto'),'../lib/core-ui/owner-business':owner,'../core/quest-plan':require('../.core-tests/core/quest-plan.js'),'../core/quest-controller':require('../.core-tests/core/quest-controller.js'),'./discovery-v2':require('../.core-tests/products/discovery-v2.js'),'./discovery-r12-runtime':require('../.core-tests/products/discovery-r12-runtime.js'),'./discovery-r12-adapter':require('../.core-tests/products/discovery-r12-adapter.js'),'./discovery-r12-wire':require('../.core-tests/products/discovery-r12-wire.js'),'./discovery-r12-server-dependencies':{discoveryR12ServerDependencies:()=>({
+  const ownerActions=source('src/products/discovery-r12-server.ts',{'../core/request-deadline':require('../.core-tests/core/request-deadline.js'),'./discovery-r12-focused-successor':require('../.core-tests/products/discovery-r12-focused-successor.js'),'./discovery-r12-owner-episode':require('../.core-tests/products/discovery-r12-owner-episode.js'),'./discovery-r12-review-preparation-contract':require('../.core-tests/products/discovery-r12-review-preparation-contract.js'),'server-only':{},'node:crypto':require('node:crypto'),'../lib/core-ui/owner-business':owner,'../core/quest-plan':require('../.core-tests/core/quest-plan.js'),'../core/quest-controller':require('../.core-tests/core/quest-controller.js'),'./discovery-v2':require('../.core-tests/products/discovery-v2.js'),'./discovery-r12-runtime':require('../.core-tests/products/discovery-r12-runtime.js'),'./discovery-r12-adapter':require('../.core-tests/products/discovery-r12-adapter.js'),'./discovery-r12-wire':require('../.core-tests/products/discovery-r12-wire.js'),'./discovery-r12-server-dependencies':{discoveryR12ServerDependencies:()=>({
    createController:(b,g,keys)=>{assert.equal(b,business);assert.equal(g,f.g);assert.deepEqual(keys,{controllerKey:R07_KEY,admissionKey:R05_KEY});return store;},
    createClient:()=>({rpc:async(name,args)=>{assert.equal(name,'r12_discovery_server');assert.equal(args.p_server_key,R07_KEY);assert.equal(args.p_business_id,business);return{data:await operation(args.p_attempt_id,args.p_operation,args.p_payload),error:null};}}),
    quote:async()=>{const fresh=r12QuoteFixture();assert.equal(fresh.quoteHash,quote.quoteHash,'New admission keeps the approved inert prices and routing');return fresh;},createAdapter:opts=>createDiscoveryR12QuestAdapter({...opts,config:options.config,fetcher:(url,init)=>{ownerContinuationCalls++;assert.equal(opts.phase,'review','Only the final phase remains');return phaseFetchers[opts.phase](url,init);}})
@@ -256,7 +257,7 @@ export async function prepareR12OwnerWorkflows(){
   await assert.rejects(ownerActions.continueDiscoveryR12(ownerContext,business,scopeId),/owner_action_unavailable/,'SQL ownership defeats stale owner context');
   await db.query("select set_config('request.jwt.claim.sub',$1,false)",[R07_OWNER]);
   assert.deepEqual(await ownerActions.prepareDiscoveryR12Authority(ownerContext,business,scopeId),{controllerKeyHash:createHash('sha256').update(R07_KEY).digest('hex'),admissionKeyHash:createHash('sha256').update(R05_KEY).digest('hex'),authorityCreated:false});
-  const ownerApi=source('src/products/discovery-r12-owner.ts',{'./discovery-r12-observation':require('../.core-tests/products/discovery-r12-observation.js'),'../core/request-deadline':require('../.core-tests/core/request-deadline.js'),'./discovery-r12-focused-successor':require('../.core-tests/products/discovery-r12-focused-successor.js'),'server-only':{},'../lib/core-ui/owner-business':owner,'./discovery-r12-runtime':require('../.core-tests/products/discovery-r12-runtime.js')});
+  const ownerApi=source('src/products/discovery-r12-owner.ts',{'./discovery-v2':require('../.core-tests/products/discovery-v2.js'),'./discovery-r12-observation':require('../.core-tests/products/discovery-r12-observation.js'),'../core/request-deadline':require('../.core-tests/core/request-deadline.js'),'./discovery-r12-focused-successor':require('../.core-tests/products/discovery-r12-focused-successor.js'),'./discovery-r12-owner-episode':require('../.core-tests/products/discovery-r12-owner-episode.js'),'server-only':{},'../lib/core-ui/owner-business':owner,'./discovery-r12-runtime':require('../.core-tests/products/discovery-r12-runtime.js')});
   let reviewReplay;
   for(const phase of phaseKeys.slice(1)){
    const phaseStep=plan.steps.find(step=>step.key===phase);
@@ -281,7 +282,7 @@ export async function prepareR12OwnerWorkflows(){
     for(const value of ['', ' ', 'x'.repeat(241), 1, {}]){const bad=structuredClone(saved);bad.phases[4].reason=value;assert.throws(()=>ownerApi.parseDiscoveryR12Workspace(bad,business,scopeId));}
     for(const target of ['reason','diagnostic']){const bad=structuredClone(saved);if(target==='reason')bad.reason='A sentence is not a state code';else bad.phases[0].receipt.diagnostic={code:'Not a diagnostic code',httpStatus:404};assert.throws(()=>ownerApi.parseDiscoveryR12Workspace(bad,business,scopeId));}
     await captureNext('scheduled-review');
-    reviewReplay=async({successorOnly=false,focusedReady=null,captureFocusedHttp=false}={})=>{
+    reviewReplay=async({successorOnly=false,focusedReady=null,captureFocusedHttp=false,episodeReady=null}={})=>{
      if(captureFocusedHttp){assert.equal(process.env.R12_RPC_HTTP_ONLY,'1');assert.equal(successorOnly,true);validatePg(process.env.R12_POSTGRES_URL);}
      let captureComplete=false;
      const releaseReplaySavepoint=async name=>{if(!captureComplete)await db.exec('rollback to savepoint '+name);await db.exec('release savepoint '+name);};
@@ -294,7 +295,7 @@ export async function prepareR12OwnerWorkflows(){
      try{
       await exerciseR12ReviewRuntime(db,continuation.metadata,{nested:true,failureCase:'response_schema'});
       const successor=await prepareR12ReviewFixture(db,replayMetadata,{nested:true,reviewSuccessor:true});assert.equal(successor.envelope.reviewHistory.length,1);assert.equal(successor.envelope.baseKnownMicrounits,'50');
-      await db.exec('savepoint accepted_successor');try{assert.deepEqual(await exerciseR12ReviewRuntime(db,successor.metadata,{nested:true}),{providerCalls:0,inertPosts:1,inertReceiptGets:2,outcome:'NEEDS_MORE_EVIDENCE',phaseReceipts:5,dispatches:6,children:7});const evidence=await prepareR12EvidenceFixture(db,replayMetadata,{nested:true});await db.exec('savepoint focused_pilot');try{await createClosedRejectedPlan4(db,evidence.metadata,{nested:true});if(successorOnly){await db.exec('savepoint focused_successor_case');try{const closedFocused=await createClosedFocusedPredecessor(db,evidence,{nested:true,...(fullShape?{profileFixture:fullShapeProfileFixture,strategyOutput:fullShapeFocusedStrategyOutput}:{})});assert.equal(typeof focusedReady,'function');await focusedReady({db,closedFocused});captureComplete=captureFocusedHttp;}finally{await releaseReplaySavepoint('focused_successor_case');}return;}const pilot=await exerciseFocusedPilotLifecycle(db,evidence,{nested:true});assert.equal(pilot.inertPosts,2);assert.equal(pilot.outcome,'TEST');assert.equal(pilot.oldGoalUnchanged,true);const creative=await exerciseFocusedCreativeLifecycle(db,pilot);assert.equal(creative.inertPosts,4);assert.equal(creative.inertReceiptGets,8);assert.equal(creative.productionReady,true);assert.equal(creative.rootUnchanged,true);assert.equal(creative.goalUnchanged,true);}finally{await releaseReplaySavepoint('focused_pilot');}assert.deepEqual(await exerciseR12ReviewRuntime(db,evidence.metadata,{nested:true}),{providerCalls:0,inertPosts:2,inertReceiptGets:3,outcome:'NEEDS_MORE_EVIDENCE',phaseReceipts:5,dispatches:8,children:9});}finally{await releaseReplaySavepoint('accepted_successor');}
+      await db.exec('savepoint accepted_successor');try{assert.deepEqual(await exerciseR12ReviewRuntime(db,successor.metadata,{nested:true}),{providerCalls:0,inertPosts:1,inertReceiptGets:2,outcome:'NEEDS_MORE_EVIDENCE',phaseReceipts:5,dispatches:6,children:7});const evidence=await prepareR12EvidenceFixture(db,replayMetadata,{nested:true});await db.exec('savepoint focused_pilot');try{await createClosedRejectedPlan4(db,evidence.metadata,{nested:true});if(episodeReady){await episodeReady({db,evidence});return;}if(successorOnly){await db.exec('savepoint focused_successor_case');try{const closedFocused=await createClosedFocusedPredecessor(db,evidence,{nested:true,...(fullShape?{profileFixture:fullShapeProfileFixture,strategyOutput:fullShapeFocusedStrategyOutput}:{})});assert.equal(typeof focusedReady,'function');await focusedReady({db,closedFocused});captureComplete=captureFocusedHttp;}finally{await releaseReplaySavepoint('focused_successor_case');}return;}const pilot=await exerciseFocusedPilotLifecycle(db,evidence,{nested:true});assert.equal(pilot.inertPosts,2);assert.equal(pilot.outcome,'TEST');assert.equal(pilot.oldGoalUnchanged,true);const creative=await exerciseFocusedCreativeLifecycle(db,pilot);assert.equal(creative.inertPosts,4);assert.equal(creative.inertReceiptGets,8);assert.equal(creative.productionReady,true);assert.equal(creative.rootUnchanged,true);assert.equal(creative.goalUnchanged,true);}finally{await releaseReplaySavepoint('focused_pilot');}assert.deepEqual(await exerciseR12ReviewRuntime(db,evidence.metadata,{nested:true}),{providerCalls:0,inertPosts:2,inertReceiptGets:3,outcome:'NEEDS_MORE_EVIDENCE',phaseReceipts:5,dispatches:8,children:9});}finally{await releaseReplaySavepoint('accepted_successor');}
       await exerciseR12ReviewRuntime(db,successor.metadata,{nested:true,failureCase:'json_parse'});
       const last=await prepareR12ReviewFixture(db,replayMetadata,{nested:true,reviewSuccessor:true});assert.equal(last.envelope.reviewHistory.length,2);assert.equal(last.envelope.baseKnownMicrounits,'60');
       await exerciseR12ReviewRuntime(db,last.metadata,{nested:true,failureCase:'response_schema'});
@@ -323,6 +324,7 @@ export async function prepareR12OwnerWorkflows(){
   assert.equal(typeof reviewReplay,'function');
   return {
    exerciseFocused:focusedReady=>reviewReplay({successorOnly:true,focusedReady}),
+   exerciseOwnerEpisode:episodeReady=>reviewReplay({episodeReady}),
    captureFocusedHttp:focusedReady=>reviewReplay({successorOnly:true,focusedReady,captureFocusedHttp:true}),
    exerciseOwnerWorkflows:async()=>{
   await reviewReplay();
@@ -431,7 +433,10 @@ if(capture){
   let fixture;
   before(async()=>{fixture=await prepareR12OwnerWorkflows();},{timeout:120000});
   after(async()=>{await fixture?.close();},{timeout:120000});
-  describe('R12 focused successor and one-time proven-unsent recovery',{skip:!lifecycleMode.successor,concurrency:false},()=>{
+  test('Owner episode continues genuine closed four-plan history on the same canonical Goal',{timeout:120000},async()=>{
+   await fixture.exerciseOwnerEpisode(async({db,evidence})=>assert.deepEqual(await exerciseHistoricalOwnerEpisodeSql(db,evidence),{providerCalls:0,episodePosts:5,predecessorVersion:4,successorVersion:5,oldHistoryUnchanged:true}));
+  });
+  describe('R12 focused successor and one-time proven-unsent recovery',{skip:!lifecycleMode.successor||process.env.R12_OWNER_EPISODE_HISTORICAL_ONLY==='1',concurrency:false},()=>{
    let focused,closedUnsent,closedMarked,release,completion;
    before(async()=>{
     let ready,failed;const prepared=new Promise((resolve,reject)=>{ready=resolve;failed=reject;});
@@ -456,6 +461,6 @@ if(capture){
    for(const strategyOutcome of ['NEEDS_MORE_EVIDENCE','REJECT','INCONSISTENT','INVALID','TEST'])test(`Terminal qualification ${strategyOutcome} preserves reconciled history and never permits a descendant`,{skip:fullShape,timeout:120000},()=>focusedCase(focused.db,'terminal_outcome',async()=>{const result=await exerciseTerminalQualificationLifecycle(focused.db,closedMarked,{nested:true,strategyOutcome,qualificationGuards:strategyOutcome==='TEST',...(strategyOutcome==='TEST'?{onReservedDispatch:async ctx=>{await exerciseRecoverySendFreshness(ctx);return {continueLifecycle:true};}}:{})});assert.equal(result.inertPosts,strategyOutcome==='TEST'?2:1);assert.equal(result.activeAuthority,false);}));
 
   });
-  test('R12 actual owner workflows preserve funding, bounded dispatch and immutable historical results',{skip:!lifecycleMode.legacy,timeout:120000},()=>fixture.exerciseOwnerWorkflows());
+  test('R12 actual owner workflows preserve funding, bounded dispatch and immutable historical results',{skip:!lifecycleMode.legacy||process.env.R12_OWNER_EPISODE_HISTORICAL_ONLY==='1',timeout:120000},()=>fixture.exerciseOwnerWorkflows());
  });
 }

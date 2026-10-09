@@ -31,7 +31,7 @@ export function validateOwnerInitialRaceEnvironment(env){
 const observe=promise=>promise.then(value=>({value}),error=>({error}));
 function pending(action){const state={done:false};state.promise=observe(action()).then(value=>{state.done=true;return value;});return state;}
 async function begin(db){await db.query('begin isolation level read committed');await db.query("set local statement_timeout='20s';set local lock_timeout='10s';set local timezone='UTC'");}
-async function asRole(db,role,name,args,ownerId=null){
+export async function asRole(db,role,name,args,ownerId=null){
  assert.ok(['anon','authenticated'].includes(role));assert.match(name,/^[a-z][a-z0-9_]+$/);
  if(ownerId)await db.query("select set_config('request.jwt.claim.sub',$1,true)",[ownerId]);
  await db.query('set local role '+role);
@@ -52,7 +52,7 @@ async function waitForBusinessLock(observer,waiter,holder,inflight){
  }
  assert.fail('No positively observed Business lock wait between the two PostgreSQL backends');
 }
-async function orderedRace({observer,holder,waiter,first,second}){
+export async function orderedRace({observer,holder,waiter,first,second}){
  await begin(holder);await begin(waiter);let inflight;
  try{
   const firstResult=await first(holder);inflight=pending(()=>second(waiter));

@@ -1,5 +1,6 @@
 import { bindValidatedOwnerResearchIntent, assertValidatedOwnerResearchIntent, type ValidatedOwnerResearchIntent } from "./discovery-r12-goal-intent";
 import { validateDiscoveryOwnerInitialScope, type DiscoveryOwnerInitialScope } from "./discovery-r12-goal-scope";
+import { isDiscoveryOwnerEpisodeScope, validateDiscoveryOwnerEpisodeScope, validateOwnerEpisodePlan, type DiscoveryOwnerEpisodeScope } from "./discovery-r12-owner-episode";
 import type { JsonObject } from "../core/contracts";
 import type { QuestAdapterContext, QuestEffectResponse } from "../core/quest-controller";
 import { resolveModelRoute } from "../models/registry";
@@ -27,7 +28,7 @@ export type DiscoveryR12CompletedPhase = {
   binding: DiscoveryR12CandidateBinding; candidate: DiscoveryR12Candidate; proof: GenerationRouteProof;
 };
 type OwnerInitialResearchScope = {
-  amendment: DiscoveryOwnerInitialScope; amendmentHash: string; intent: DiscoveryOwnerInitialScope["intent"]; intentHash: string;
+  amendment: DiscoveryOwnerInitialScope | DiscoveryOwnerEpisodeScope; amendmentHash: string; intent: DiscoveryOwnerInitialScope["intent"]; intentHash: string;
   budgetAuthorityRootId: string; originalSemanticGoalHash: string | null; priorRoundId: string | null;
   remainingMicrousd: number; executionAuthorized: false;
 };
@@ -97,15 +98,17 @@ function ownInputs(ctx: QuestAdapterContext, input: DiscoveryR12LegacyPhaseInput
   const state = structuredClone(input), { scope, continuation } = state;
   if (state.evidenceContinuation) return ownEvidenceInputs(ctx, state);
   if (state.ownerInitial) {
-    const current = validateDiscoveryOwnerInitialScope(scope.amendment as DiscoveryOwnerInitialScope, state.validationAt);
+    const episode = isDiscoveryOwnerEpisodeScope(scope.amendment);
+    const current = isDiscoveryOwnerEpisodeScope(scope.amendment) ? validateDiscoveryOwnerEpisodeScope(scope.amendment, state.validationAt) : validateDiscoveryOwnerInitialScope(scope.amendment as DiscoveryOwnerInitialScope, state.validationAt);
+    if (isDiscoveryOwnerEpisodeScope(current)) validateOwnerEpisodePlan(ctx.plan, current);
     assertValidatedOwnerResearchIntent(scope.intent, state.ownerInitial);
-    if (continuation || state.evidenceContinuation || ctx.plan.format !== "r12.discovery.1" || current.goalRevision !== ctx.plan.goalRevision || current.goalHash !== ctx.plan.goalHash ||
+    if (continuation || state.evidenceContinuation || ctx.plan.format !== (episode ? "r12.discovery-episode.1" : "r12.discovery.1") || current.goalRevision !== ctx.plan.goalRevision || current.goalHash !== ctx.plan.goalHash ||
         current.businessRevision !== ctx.plan.businessRevision || current.businessHash !== ctx.plan.businessHash || state.ownerInitial.scopeHash !== scope.amendmentHash ||
-        state.ownerInitial.scopeId !== current.id || Number(ctx.plan.maximumMicrounits) !== current.intent.limits.maximumMicrousd ||
+        state.ownerInitial.scopeId !== current.id || !episode && Number(ctx.plan.maximumMicrounits) !== current.intent.limits.maximumMicrousd ||
         state.committedBeforeAttemptMicrousd !== state.dependencies.reduce((total, phase) => total + Number(phase.candidate.reportedMicrousd), 0)) return fail();
   } else if (scope.amendment.version !== "r12.discovery-source-scope.1") return fail();
   const executionScope = continuation?.envelope ?? scope.amendment;
-  if (ctx.plan.format !== (continuation ? "r12.discovery-review.1" : "r12.discovery.1") || ctx.plan.discoveryScopeId !== executionScope.id || ctx.plan.discoveryScopeHash !== discoveryV2Hash(executionScope) || scope.amendmentHash !== discoveryV2Hash(scope.amendment) || scope.intentHash !== discoveryV2Hash(scope.intent) ||
+  if (ctx.plan.format !== (continuation ? "r12.discovery-review.1" : isDiscoveryOwnerEpisodeScope(executionScope) ? "r12.discovery-episode.1" : "r12.discovery.1") || ctx.plan.discoveryScopeId !== executionScope.id || ctx.plan.discoveryScopeHash !== discoveryV2Hash(executionScope) || scope.amendmentHash !== discoveryV2Hash(scope.amendment) || scope.intentHash !== discoveryV2Hash(scope.intent) ||
       scope.intent.businessId !== ctx.plan.businessId || scope.amendment.goalId !== ctx.plan.goalId || scope.intent.id !== scope.amendment.id ||
       !Number.isSafeInteger(state.committedBeforeAttemptMicrousd) || state.committedBeforeAttemptMicrousd < 0 || state.committedBeforeAttemptMicrousd > scope.intent.limits.maximumMicrousd ||
       state.dependencies.length !== ctx.attempt.dependencyPins.length || new Set(state.dependencies.map(d => d.stepKey)).size !== state.dependencies.length) return fail();
@@ -139,12 +142,13 @@ function ownInputs(ctx: QuestAdapterContext, input: DiscoveryR12LegacyPhaseInput
 /** Validate the exact server read before using its saved records as evidence. */
 export function readDiscoveryR12PhaseInputs(ctx: QuestAdapterContext, raw: Record<string, unknown>): DiscoveryR12PhaseInputs {
   if (ctx.plan.format === "r12.discovery-pilot.1") return readDiscoveryR12FocusedPilotInputs(ctx, raw, reconstructLegacyDiscoveryR12Result);
-  if (raw.version === "r12.discovery-owner-initial-inputs.1") {
-    if (ctx.plan.format !== "r12.discovery.1" || raw.businessId !== ctx.plan.businessId || raw.planId !== ctx.planId || raw.attemptId !== ctx.attempt.id ||
+  if (raw.version === "r12.discovery-owner-initial-inputs.1" || raw.version === "r12.discovery-owner-episode-inputs.1") {
+    const episode = raw.version === "r12.discovery-owner-episode-inputs.1";
+    if (ctx.plan.format !== (episode ? "r12.discovery-episode.1" : "r12.discovery.1") || raw.businessId !== ctx.plan.businessId || raw.planId !== ctx.planId || raw.attemptId !== ctx.attempt.id ||
         raw.knowledgeSnapshotHash !== ctx.step.packSnapshotHash || discoveryV2Hash(raw.knowledgeSnapshot) !== raw.knowledgeCanonicalHash ||
         !Array.isArray(raw.dependencies) || raw.hasUncertainCosts !== false || !Number.isSafeInteger(raw.committedMicrousd) || Number(raw.committedMicrousd) < 0) return fail();
     const validationAt = Date.parse(String(raw.validationAt)), inputMode = raw.inputMode as DiscoveryR12LegacyPhaseInputs["inputMode"];
-    const amendment = validateDiscoveryOwnerInitialScope(raw.amendment as DiscoveryOwnerInitialScope, validationAt), amendmentHash = discoveryV2Hash(amendment);
+    const amendment = episode ? validateDiscoveryOwnerEpisodeScope(raw.amendment as DiscoveryOwnerEpisodeScope, validationAt) : validateDiscoveryOwnerInitialScope(raw.amendment as DiscoveryOwnerInitialScope, validationAt), amendmentHash = discoveryV2Hash(amendment);
     const ownerInitial = bindValidatedOwnerResearchIntent(amendment.intent, { scopeId: amendment.id, scopeHash: amendmentHash, approvedQuery: amendment.approvedQuery }, validationAt);
     const snapshot = raw.knowledgeSnapshot as DiscoveryKnowledgeContextV2["snapshot"], knowledge = pinDiscoveryKnowledgeV2({ rootPackId: snapshot.rootPackId, releases: snapshot.releases }, validationAt);
     const scope: OwnerInitialResearchScope = { amendment, amendmentHash, intent: amendment.intent, intentHash: discoveryV2Hash(amendment.intent),
@@ -341,7 +345,7 @@ function reconstructLegacyDiscoveryR12Result(raw: Record<string, unknown>, busin
   return { version: "r12.discovery-result.1" as const, businessId, scopeId, goalId: ctx.plan.goalId, planId: ctx.planId,
     historyOnly: true as const, executionAuthorized: false as const, reviewedAt: current.candidate.receivedAt, sourceScopeExpiresAt: state.scope.amendment.expiresAt,
     originalFundingRootId: state.scope.budgetAuthorityRootId, sourceScopeHash: state.scope.amendmentHash, knowledgeHash: discoveryKnowledgeHashV2(state.knowledge),
-    ...(state.ownerInitial ? { ownerInitial: { profileId: (state.scope.amendment as DiscoveryOwnerInitialScope).profile.id, profileHash: (state.scope.amendment as DiscoveryOwnerInitialScope).profileHash, fundingKind: (state.scope.amendment as DiscoveryOwnerInitialScope).funding.kind } } : {}),
+    ...(state.ownerInitial ? isDiscoveryOwnerEpisodeScope(state.scope.amendment) ? { ownerEpisode: { profileId: state.scope.amendment.profile.id, profileHash: state.scope.amendment.profileHash, fundingKind: state.scope.amendment.funding.kind, episodeNumber: state.scope.amendment.episodeNumber, predecessorClosure: state.scope.amendment.predecessorClosure, predecessorClosureHash: state.scope.amendment.predecessorClosureHash } } : { ownerInitial: { profileId: (state.scope.amendment as DiscoveryOwnerInitialScope).profile.id, profileHash: (state.scope.amendment as DiscoveryOwnerInitialScope).profileHash, fundingKind: (state.scope.amendment as DiscoveryOwnerInitialScope).funding.kind } } : {}),
     objective: state.scope.intent.objective, planner: planAndCandidates(state).plan, dossier: found.dossier, evidence: found.persisted, assessment: found.assessment, review,
     ...(state.evidenceContinuation ? { evidenceAddendum: state.evidenceContinuation.envelope.addendum, predecessorScopeId: state.evidenceContinuation.envelope.predecessorScopeId } : {}),
     phaseReceipts: [...state.dependencies, current].map(phase => ({ phase: phase.stepKey, artifactId: phase.artifactId, responseHash: phase.responseHash, candidateHash: discoveryV2Hash(phase.candidate), routeProofHash: phase.proof.proofHash })) };

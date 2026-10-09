@@ -25,7 +25,7 @@ export type QuestStep = {
   maximumRepairs: number;
 };
 export type QuestPlan = {
-  format: "r07.1" | "r12.discovery.1" | "r12.discovery-review.1" | "r12.discovery-evidence.1" | "r12.discovery-pilot.1";
+  format: "r07.1" | "r12.discovery.1" | "r12.discovery-review.1" | "r12.discovery-evidence.1" | "r12.discovery-pilot.1" | "r12.discovery-episode.1";
   /** Exact approved discovery execution scope. It grants no dispatch. */
   discoveryScopeId?: string;
   discoveryScopeHash?: string;
@@ -83,7 +83,8 @@ export function compileQuestPlan(input: unknown): QuestPlan {
   const reviewContinuation = p.format === "r12.discovery-review.1";
   const evidenceContinuation = p.format === "r12.discovery-evidence.1";
   const focusedPilot = p.format === "r12.discovery-pilot.1";
-  const discovery = p.format === "r12.discovery.1" || reviewContinuation || evidenceContinuation || focusedPilot;
+  const ownerEpisode = p.format === "r12.discovery-episode.1";
+  const discovery = p.format === "r12.discovery.1" || reviewContinuation || evidenceContinuation || focusedPilot || ownerEpisode;
   keys(p, ["format", "businessId", "goalId", "goalRevision", "goalHash", "businessRevision", "businessHash", "policyId", "policyHash", "authorityRootId", "plannerWorkerDefinitionId", "currency", "maximumMicrounits", "deadline", "expiresAt", "maximumRepairs", "maximumPivots", "maximumChildren", "maximumDispatches", "requiredChecks", "finishCondition", "stopConditions", "steps", ...(discovery ? ["discoveryScopeId", "discoveryScopeHash"] : [])]);
   for (const key of ["businessId", "goalId", "policyId", "authorityRootId", "plannerWorkerDefinitionId"]) if (!uuid(p[key])) fail("invalid_identity");
   for (const key of ["goalHash", "businessHash", "policyHash"]) if (!hash(p[key])) fail("invalid_pin");
@@ -95,7 +96,7 @@ export function compileQuestPlan(input: unknown): QuestPlan {
   if (!Array.isArray(p.steps) || p.steps.length < (reviewContinuation ? 1 : 2) || p.steps.length > 16 || p.steps.length > Number(p.maximumChildren) || p.steps.length > Number(p.maximumDispatches)) fail("invalid_steps");
   const steps = p.steps as Record<string, unknown>[];
   const discoveryKeys = ["plan", "search1", "select1", "strategy", "review"];
-  if (discovery && (!uuid(p.discoveryScopeId) || !hash(p.discoveryScopeHash) || steps.length !== (reviewContinuation ? 1 : evidenceContinuation || focusedPilot ? 2 : 5) || p.maximumChildren !== (reviewContinuation ? Number(p.maximumDispatches) + 1 : evidenceContinuation ? 9 : focusedPilot ? 2 : 5) || (reviewContinuation ? !integer(p.maximumDispatches, 5, 7) : p.maximumDispatches !== (evidenceContinuation ? 8 : focusedPilot ? 2 : 5)) ||
+  if (discovery && (!uuid(p.discoveryScopeId) || !hash(p.discoveryScopeHash) || steps.length !== (reviewContinuation ? 1 : evidenceContinuation || focusedPilot ? 2 : 5) || (ownerEpisode ? !integer(p.maximumChildren, 5, 32) : p.maximumChildren !== (reviewContinuation ? Number(p.maximumDispatches) + 1 : evidenceContinuation ? 9 : focusedPilot ? 2 : 5)) || (ownerEpisode ? !integer(p.maximumDispatches, 5, 64) : reviewContinuation ? !integer(p.maximumDispatches, 5, 7) : p.maximumDispatches !== (evidenceContinuation ? 8 : focusedPilot ? 2 : 5)) ||
       p.maximumRepairs !== 0 || p.maximumPivots !== 0 || JSON.stringify(p.requiredChecks) !== JSON.stringify(["review"]))) fail("discovery_topology_invalid");
   const seen = new Map<string, QuestStep>();
   let total = BigInt(0);

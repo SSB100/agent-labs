@@ -13,6 +13,7 @@ import type { DiscoveryR12ExecutionScope } from "./discovery-r12-review-continua
 import { DISCOVERY_R12_PHASES, type DiscoveryR12Phase } from "./discovery-r12-wire";
 import { discoveryR12ServerDependencies } from "./discovery-r12-server-dependencies";
 import { validateR12FocusedSuccessor } from "./discovery-r12-focused-successor";
+import { isDiscoveryOwnerEpisodeScope, validateDiscoveryOwnerEpisodeScope, validateOwnerEpisodePlan } from "./discovery-r12-owner-episode";
 const id=(v:unknown):v is string=>typeof v==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(v);
 const object=(v:unknown):v is Record<string,unknown>=>!!v&&typeof v==='object'&&!Array.isArray(v);
 const fail=():never=>{throw Error('r12_discovery_owner_action_unavailable');};
@@ -42,6 +43,9 @@ export async function continueDiscoveryR12(context:OwnerUiContext,businessId:str
  if(activation.mode!=='qualification'||activation.controllerKeyHash!==sha(authority.controllerKey)||activation.admissionKeyHash!==sha(authority.admissionKey)||!Array.isArray(activation.operations)||!object(activation.scope))return fail();
  const scope=activation.scope as DiscoveryR12ExecutionScope,plan=compileQuestPlan(activation.plan);
  if(scope.id!==scopeId||scope.businessId!==businessId||scope.goalId!==row.goalId||plan.businessId!==businessId||plan.goalId!==scope.goalId||plan.discoveryScopeId!==scopeId||plan.discoveryScopeHash!==discoveryV2Hash(scope))return fail();
+ // Historical scope validity permits bounded receipt recovery after dispatch
+ // expiry. SQL separately checks current authority before every new send.
+ if(isDiscoveryOwnerEpisodeScope(scope)){validateDiscoveryOwnerEpisodeScope(scope,Date.parse(scope.createdAt));validateOwnerEpisodePlan(plan,scope);}
  if(row.focusedSuccessor!==undefined&&scope.version!=='r12.discovery-focused-pilot.1')return fail();
  const successor=row.focusedSuccessor===undefined?null:validateR12FocusedSuccessor(row.focusedSuccessor,{businessId,scopeId,goalId:scope.goalId,ownerId:context.userId,...(scope.version==='r12.discovery-focused-pilot.1'?{scope}:{})});
  const recovery=successor?.authorization.version==='r12.focused-pilot-unsent-recovery-authorization.1'||successor?.authorization.version==='r12.focused-pilot-terminal-qualification-authorization.1';
@@ -68,7 +72,7 @@ export async function continueDiscoveryR12(context:OwnerUiContext,businessId:str
  const saved=await controller.read();
  if(saved&&saved.planHash!==activation.planHash)return fail();
  if(!saved){
-  if(row.activeWindow!==true||plan.format==='r12.discovery-review.1'||plan.format==='r12.discovery-evidence.1')return fail();
+  if(row.activeWindow!==true||plan.format==='r12.discovery-review.1'||plan.format==='r12.discovery-evidence.1'||plan.format==='r12.discovery-episode.1')return fail();
   await controller.command('plan',{plan,expectedVersion:0,reason:scope.version==='r12.discovery-owner-initial.1'?'Owner-confirmed bounded original POD research':'Approved bounded nature-shirt discovery',evidenceHash:scope.independentReviewHash});
  }
  const started=recovery?requestStarted:Date.now();

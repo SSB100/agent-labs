@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { discoveryV2Hash } from '../.core-tests/products/discovery-v2.js';
 import { validateOwnerResearchProfile, selectOwnerResearchPublicScope, validateDiscoveryOwnerInitialScope } from '../.core-tests/products/discovery-r12-goal-scope.js';
-import { prepareOwnerResearchPreview, validateOwnerResearchPreparationInput, validateOwnerResearchQuote, ownerResearchExecutionIntent } from '../.core-tests/products/discovery-r12-goal-preparation-contract.js';
+import { prepareOwnerResearchPreview, prepareOwnerResearchEpisodePreview, validateOwnerResearchPreparationInput, validateOwnerResearchQuote, ownerResearchExecutionIntent } from '../.core-tests/products/discovery-r12-goal-preparation-contract.js';
 import { ownerGoalFixture, ownerGoalId } from './helpers/r12-owner-goal-fixture.mjs';
 
 test('owner preparation preserves the real Goal and all cumulative funding while returning no authority',()=>{
@@ -72,3 +72,42 @@ test('profile and quote validation are inert and retain input bytes',()=>{
   validateOwnerResearchProfile(f.profile,f.now);validateOwnerResearchQuote(f.current.quote,f.now);validateOwnerResearchPreparationInput(f.input);
   assert.equal(JSON.stringify(f.profile),p);assert.equal(JSON.stringify(f.current.quote),q);assert.equal(JSON.stringify(f.input),i);
 });
+
+function episodeFixture() {
+  const f=ownerGoalFixture();
+  const closure={version:'r12.owner-episode-closure.1',businessId:f.input.businessId,goalId:f.input.goalId,
+    predecessorPlanId:ownerGoalId(30),predecessorPlanHash:'7'.repeat(64),predecessorPlanVersion:1,
+    predecessorScopeId:f.scope.id,predecessorScopeHash:discoveryV2Hash(f.scope),goalRevision:f.current.goal.revision,goalHash:f.current.goal.hash,
+    businessRevision:f.current.business.revision,businessHash:f.current.business.hash,authorityRootId:f.current.funding.binding.authorityRootId,
+    priorRoundId:f.current.funding.binding.priorRoundId,originalSemanticGoalHash:f.current.funding.binding.originalSemanticGoalHash,
+    headRevision:7,headState:'completed',headReason:'bounded episode closed',baseChildren:5,baseDispatches:5,baseRepairs:0,basePivots:0,
+    baseKnownMicrounits:'190000',historyHash:'8'.repeat(64)};
+  f.current.goal.initialRunExists=true;
+  f.current.goal.continuation={eligible:true,reason:null,predecessorClosure:closure,predecessorClosureHash:discoveryV2Hash(closure)};
+  f.current.continuationBounds={maximumEpisodes:3,maximumAllocationMicrounits:'1000000',expiresAt:new Date(f.now+3600000).toISOString()};
+  Object.assign(f.input,{predecessorPlanId:closure.predecessorPlanId,predecessorPlanHash:closure.predecessorPlanHash,
+    predecessorScopeId:closure.predecessorScopeId,predecessorScopeHash:closure.predecessorScopeHash});
+  return f;
+}
+
+test('continuation prepares the same saved Goal only from a valid exact closed predecessor',()=>{
+  const f=episodeFixture(),before=structuredClone(f.current);
+  const result=prepareOwnerResearchEpisodePreview(f.input,f.current,f.now);
+  assert.equal(result.preview.objective,f.current.goal.content.objective);
+  assert.equal(result.closureHash,f.current.goal.continuation.predecessorClosureHash);
+  assert.deepEqual(f.current,before);
+  assert.throws(()=>prepareOwnerResearchPreview(f.input,f.current,f.now),'Initial preparation remains closed');
+});
+
+for(const [name,change] of [
+  ['missing closure',f=>{f.current.goal.continuation.predecessorClosure=null;}],
+  ['forged closure hash',f=>{f.current.goal.continuation.predecessorClosureHash='0'.repeat(64);}],
+  ['stale Goal',f=>{f.current.goal.revision++;f.input.goalRevision++;}],
+  ['stale Business',f=>{f.current.business.revision++;}],
+  ['wrong predecessor',f=>{f.input.predecessorPlanId=ownerGoalId(70);}],
+  ['wrong funding root',f=>{f.current.funding.binding.authorityRootId=ownerGoalId(71);}],
+  ['ineligible continuation',f=>{f.current.goal.continuation.eligible=false;f.current.goal.continuation.reason='head_open';}],
+  ['no finite grant',f=>{f.current.continuationBounds=null;}],
+  ['expired finite grant',f=>{f.current.continuationBounds.expiresAt=new Date(f.now-1).toISOString();}],
+  ['insufficient episode allocation',f=>{f.current.continuationBounds.maximumAllocationMicrounits='1';}],
+])test(`continuation rejects ${name}`,()=>{const f=episodeFixture();change(f);assert.throws(()=>prepareOwnerResearchEpisodePreview(f.input,f.current,f.now));});

@@ -47,7 +47,7 @@ const deferred=()=>{let resolve;const promise=new Promise(done=>resolve=done);re
 function harness(f=fixture(),{selectedReceipt=f.receipt,actions={},storage=new Map()}={}) {
   let stateIndex=0,refIndex=0,effectIndex=0,sequence=100;const states=[],refs=[],effects=[],calls=[],navigation=[],listeners=new Map();
   const hooks={...React,useId:()=>':synthetic-owner-form:',useState(initial){const index=stateIndex++;if(!(index in states))states[index]=initial;return[states[index],value=>states[index]=typeof value==='function'?value(states[index]):value];},useRef(initial){const index=refIndex++;return refs[index]??={current:initial};},useEffect(fn){const index=effectIndex++;effects[index]??=fn;}};
-  const actionModule={};for(const name of ['prepareOwnerResearchAction','confirmOwnerResearchAction','stopOwnerResearchAction'])actionModule[name]=async input=>{calls.push({name,input});return actions[name]?actions[name](input):{ok:true,receipt:{...f.receipt,confirmed:name==='confirmOwnerResearchAction',stopped:name==='stopOwnerResearchAction'}};};
+  const actionModule={};for(const name of ['prepareOwnerResearchAction','prepareOwnerResearchEpisodeAction','confirmOwnerResearchAction','stopOwnerResearchAction'])actionModule[name]=async input=>{calls.push({name,input});return actions[name]?actions[name](input):{ok:true,receipt:{...f.receipt,confirmed:name==='confirmOwnerResearchAction',stopped:name==='stopOwnerResearchAction'}};};
   const sessionStorage={getItem:key=>storage.get(key)??null,setItem:(key,value)=>storage.set(key,value)};
   const view=load('src/components/quests/owner-research-workspace.tsx',{react:hooks,'next/navigation':{useRouter:()=>({replace:href=>navigation.push(['replace',href]),refresh:()=>navigation.push(['refresh'])})},'@/app/dashboard/quests/research/actions':actionModule,'@/lib/core-ui/owner-research-form':money,'./owner-research-packet':packet},{window:{sessionStorage,setInterval:()=>1,clearInterval:()=>{},addEventListener:(name,handler)=>listeners.set(name,handler),removeEventListener:name=>listeners.delete(name)},crypto:{subtle:webcrypto.subtle,randomUUID:()=>id(++sequence)},TextEncoder});
   const props={ownerId:id(90),catalog:f.catalog,selectedReceipt,observedAt:f.now};
@@ -118,7 +118,7 @@ test('failed browser stages retain bounded DOM, exact label text, actual accessi
   const overflowing={...control,clientWidth:290,scrollWidth:579,getBoundingClientRect:()=>({left:15,right:594,width:579,height:44})};
   const page={url:()=>`http://localhost/owner?${'x'.repeat(3000)}`,locator:()=>({evaluate:async evaluate=>evaluate({ownerDocument:{documentElement:{clientWidth:320,clientHeight:800,scrollWidth:579,scrollHeight:5722}},innerText:'x'.repeat(20000),querySelectorAll:selector=>Array(100).fill(selector==='*'?overflowing:control)}),ariaSnapshot:async()=>`- combobox "Reviewed research profile":\n${'x'.repeat(20000)}`}),screenshot:async options=>{screenshots.push(options);}};
   const result=await captureOwnerJourneyFailure({page,output:'/inert-fixture',stage:'Choose exact profile',index:2});
-  const saved=files.get('/inert-fixture/failed-stage-02.json');
+  const saved=files.get(path.join('/inert-fixture','failed-stage-02.json'));
   assert.equal(saved.stage,'Choose exact profile');assert.equal(saved.url.length,2048);assert.equal(saved.dom.text.length,12000);assert.equal(saved.dom.controls.length,60);
   assert.deepEqual(saved.dom.viewport,{width:320,height:800,documentWidth:579,documentHeight:5722});assert.equal(saved.dom.overflow.length,40);assert.equal(saved.dom.overflow[0].right,594,'Overflow evidence identifies the actual offending bounds without changing layout');
   assert.deepEqual(saved.dom.controls[0].labels,[control.labels[0].textContent],'Keep the actual label text that exact getByLabel used, including unexpected options');
@@ -126,7 +126,7 @@ test('failed browser stages retain bounded DOM, exact label text, actual accessi
   assert.deepEqual(result,{diagnostic:'failed-stage-02.json',screenshot:'failed-stage-02.png'});assert.equal(screenshots[0].fullPage,false);assert.equal(screenshots[0].timeout,3000);
   page.locator=()=>({evaluate:async()=>{throw Error('DOM unavailable');},ariaSnapshot:async()=>{throw Error('Names unavailable');}});page.screenshot=async()=>{throw Error('Screenshot unavailable');};
   const unavailable=await captureOwnerJourneyFailure({page,output:'/inert-fixture',stage:'Unavailable browser',index:3});
-  assert.deepEqual(unavailable,{diagnostic:'failed-stage-03.json'});assert.equal(files.get('/inert-fixture/failed-stage-03.json').errors.length,3,'Capture failures stay reviewable without replacing the journey failure');
+  assert.deepEqual(unavailable,{diagnostic:'failed-stage-03.json'});assert.equal(files.get(path.join('/inert-fixture','failed-stage-03.json')).errors.length,3,'Capture failures stay reviewable without replacing the journey failure');
 });
 
 test('owner zoom evidence rejects blank native captures and offscreen or obscured confirmation targets',async()=>{
@@ -140,8 +140,8 @@ test('owner zoom evidence rejects blank native captures and offscreen or obscure
   const target={scrollIntoViewIfNeeded:async()=>calls.push('scroll'),evaluate:async evaluate=>evaluate(element)};
   const capture=()=>captureOwnerZoomViewport({page,target,output:'/inert-fixture',name:'owner-packet-controls-zoom200.png'});
   await capture();assert.deepEqual(calls,['foreground','scroll','paint','paint',['Page.captureScreenshot',{format:'png',fromSurface:true,captureBeyondViewport:false}],'detach']);
-  assert.deepEqual(files.get('/inert-fixture/owner-packet-controls-zoom200.png'),pixels);
-  pixels=blank;calls.length=0;await assert.rejects(capture(),/actual zoom capture must contain rendered content/);assert.equal(calls.at(-1),'detach');assert.deepEqual(files.get('/inert-fixture/owner-packet-controls-zoom200.png'),blank,'Keep rejected pixels for diagnosis');
+  assert.deepEqual(files.get(path.join('/inert-fixture','owner-packet-controls-zoom200.png')),pixels);
+  pixels=blank;calls.length=0;await assert.rejects(capture(),/actual zoom capture must contain rendered content/);assert.equal(calls.at(-1),'detach');assert.deepEqual(files.get(path.join('/inert-fixture','owner-packet-controls-zoom200.png')),blank,'Keep rejected pixels for diagnosis');
   for(const invalid of [{bottom:361},{right:641},{top:-1},{left:-1},{width:0},{height:0},{hit:false}]){
     const original={...rect};calls.length=0;Object.assign(rect,invalid);hit=invalid.hit!==false;
     await assert.rejects(capture(),/captured target must be visible and hit-testable/);assert.ok(!calls.some(call=>Array.isArray(call)),'Do not accept a screenshot of an unreachable target');Object.assign(rect,original);
@@ -235,4 +235,40 @@ test('exact selection route ignores R04 current/last fallback and never guesses 
   html=renderToStaticMarkup(await route({searchParams:Promise.resolve({business:id(1),quest:id(2),setup:id(10)})}));assert.match(html,new RegExp(`data-exact-goal="${id(2)}"`));
   html=renderToStaticMarkup(await route({searchParams:Promise.resolve({business:id(1),quest:id(2),setup:id(999)})}));assert.match(html,/No substitute was selected/);assert.doesNotMatch(html,/data-exact-goal/);
   await assert.rejects(route({searchParams:Promise.resolve({quest:id(2)})}),/not found/);await assert.rejects(route({searchParams:Promise.resolve({business:[id(1),id(2)]})}),/not found/);
+});
+
+test('eligible continuation submits exact predecessor and finite grant, without restarting the initial path',async()=>{
+  const f=fixture(),closure={predecessorPlanId:id(40),predecessorPlanHash:'1'.repeat(64),predecessorScopeId:id(41),predecessorScopeHash:'2'.repeat(64),baseKnownMicrounits:'1900000',predecessorPlanVersion:1};
+  f.catalog.goal.initialRunExists=true;
+  f.catalog.goal.continuation={eligible:true,reason:null,predecessorClosure:closure,predecessorClosureHash:'3'.repeat(64)};
+  f.catalog.profiles[0].continuationBounds={maximumEpisodes:3,maximumAllocationMicrounits:'1200000',expiresAt:new Date(f.now+3600000).toISOString()};
+  const h=harness(f,{selectedReceipt:null});
+  let tree=h.render();assert.match(renderToStaticMarkup(tree),/Continue research from a closed episode/);
+  elements(tree,e=>e.type==='select')[0].props.onChange({target:{value:`${id(3)}:${id(4)}`}});
+  tree=h.render();elements(tree,e=>e.type==='select')[1].props.onChange({target:{value:'gb'}});
+  tree=h.render();elements(tree,e=>e.type==='select')[2].props.onChange({target:{value:'astronomy'}});
+  tree=h.render();assert.ok(button(tree,'Prepare continuation packet'));
+  elements(tree,e=>e.type==='form')[0].props.onSubmit({preventDefault(){}});await until(()=>h.calls.length===1);
+  assert.equal(h.calls[0].name,'prepareOwnerResearchEpisodeAction');
+  assert.deepEqual(Object.fromEntries(Object.entries(h.calls[0].input).filter(([key])=>key.startsWith('predecessor'))),{
+    predecessorPlanId:closure.predecessorPlanId,predecessorPlanHash:closure.predecessorPlanHash,
+    predecessorScopeId:closure.predecessorScopeId,predecessorScopeHash:closure.predecessorScopeHash});
+  assert.equal(h.calls[0].input.goalId,f.catalog.goal.id);
+});
+
+test('closed predecessor without a finite continuation grant has no preparation control',()=>{
+  const f=fixture();f.catalog.goal.initialRunExists=true;
+  f.catalog.goal.continuation={eligible:false,reason:'Head is still open.',predecessorClosure:null,predecessorClosureHash:null};
+  const h=harness(f,{selectedReceipt:null}),tree=h.render();
+  assert.match(renderToStaticMarkup(tree),/Head is still open/);
+  assert.equal(button(tree,'Prepare continuation packet'),undefined);
+  assert.equal(button(tree,'Prepare exact research packet'),undefined);
+});
+
+test('episode packet discloses predecessor, prior costs, new whole run and Exa inference boundary',()=>{
+  const f=fixture(),closure={predecessorPlanId:id(40),predecessorPlanHash:'1'.repeat(64),predecessorScopeId:id(41),predecessorScopeHash:'2'.repeat(64),baseKnownMicrounits:'1900000',predecessorPlanVersion:1};
+  f.receipt.preview={...f.receipt.preview,version:'r12.owner-research-episode-preview.1',episodeNumber:1,predecessorClosure:closure,predecessorClosureHash:'3'.repeat(64)};
+  const html=renderToStaticMarkup(React.createElement(packet.OwnerResearchPacket,{receipt:f.receipt}));
+  for(const value of ['Episode 1','View previous research and result','USD 1.900000','New episode whole-run maximum','USD 0.400000','model chooses the downstream Exa query','raw public-source excerpts reach inference','does not cover Exa','Stop before the first Continue call'])assert.ok(html.includes(value),value);
+  assert.ok(html.includes(money.ownerResearchScopeHref(f.receipt.businessId,f.receipt.goalId,closure.predecessorScopeId).replaceAll('&','&amp;')));
 });
