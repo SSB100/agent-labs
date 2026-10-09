@@ -179,7 +179,10 @@ export async function exerciseHistoricalOwnerEpisodeSql(db,evidence){
  assert.equal(revision.revision,1);
  await assert.rejects(oldGrant.server('prepare_episode',{input:await episodeInput(db,oldGrant),quote:r12QuoteFixture()}),/r12_owner_grant_exhausted/,'A legacy grant stays on the original root ceiling');
  const extended=await enrollOwnerExtensionGrant(db,f,revision,{maximumEpisodes:2,maximumAllocationMicrounits:String(2*amount)});
- extended.server=(op,payload,key=extended.bootstrapKey)=>rpc('r12_owner_research_server',[businessId,op,payload,key]);
+ extended.server=async(op,payload,key=extended.bootstrapKey)=>{
+  const result=await rpc('r12_owner_research_server',[businessId,op,payload,key]);
+  return op==='prepare'||op==='prepare_episode'?ownerPreflightPrepared(rpc,businessId,result):result;
+ };
  const next=await extended.server('prepare_episode',{input:await episodeInput(db,extended),quote:r12QuoteFixture()});
  assert.equal(next.preview.predecessorClosure.predecessorPlanVersion,5);assert.equal(next.preview.episodeNumber,2);assert.deepEqual(next.preview.grantRootRevision,revision);
  const nextActive=await extended.server('confirm_episode',extended.confirmPayload(next));assert.equal(nextActive.activated,true);
