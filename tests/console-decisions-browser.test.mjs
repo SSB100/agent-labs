@@ -119,7 +119,19 @@ async function assertSelectedHeadingVisible(page) {
 
 async function captureDecisionState(page, directory, name, width) {
   if (width <= 900) await page.screenshot({ path: path.join(directory, `${name}-viewport.png`), fullPage: false });
-  await page.screenshot({ path: path.join(directory, `${name}.png`), fullPage: true });
+  const scroll = await page.evaluate(() => ({ x: scrollX, y: scrollY }));
+  // Chromium's beyond-viewport capture can move document scroll. Keep artifact
+  // collection from changing the owner journey; never refocus/reveal a heading.
+  try {
+    await page.screenshot({ path: path.join(directory, `${name}.png`), fullPage: true });
+  } finally {
+    const after = await page.evaluate(() => ({ x: scrollX, y: scrollY }));
+    if (after.x !== scroll.x || after.y !== scroll.y) {
+      console.info('Full-page screenshot changed document scroll', { name, before: scroll, after });
+      await page.evaluate(({ x, y }) => window.scrollTo({ left: x, top: y, behavior: 'instant' }), scroll);
+    }
+    assert.deepEqual(await page.evaluate(() => ({ x: scrollX, y: scrollY })), scroll, 'Artifact capture must preserve document scroll');
+  }
 }
 
 async function exerciseContextDisclosure(page, desktop) {
@@ -269,6 +281,7 @@ test('hosted real-root Decisions: compact viewports, exact selection, keyboard, 
       };
       try {
         await page.goto(origin + selectedStart); await page.waitForFunction(() => window.__decisionHydrated === true);
+        await assertSelectedHeadingVisible(page);
         await captureDecisionState(page, directory, `console-decisions-root-populated-${slug}`, width);
         await ready(); await bounds();
         await assertSelectedHeadingVisible(page);
