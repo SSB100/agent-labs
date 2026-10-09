@@ -2,6 +2,20 @@
 
 ## Current continuation
 
+The 9 October 2026 R12 handoff supersedes the older application checkpoint below:
+PR77 is merged at `4c72d5dba77e962f2b0786e339d2b7c69e2845ce`, qualified tree
+`dc9a13b7b0c5f1a15d3e73cb668bb0a4cf6d997a`, with passing
+[qualification](https://github.com/SSB100/agent-labs/actions/runs/37883830719) and
+[post-merge checks](https://github.com/SSB100/agent-labs/actions/runs/37886113239).
+The initial owner migration is already installed as remote version
+`20261009045342`. Those checks used inert transports and do not prove a research
+outcome. The remaining same-Goal continuation is recorded in the
+[research episode contract](R12_OWNER_RESEARCH_EPISODES.md); local implementation
+approval does not enroll sources or grant live spending. R12 remains open in the
+canonical queue.
+
+Earlier 4 October checkpoint:
+
 Application source `a8a6122b5481e09e60d1c70ee8238c780b33c372` passed [CI440](https://github.com/SSB100/agent-labs/actions/runs/37237093278). R10's capability/live exit is qualified only for the fixed controlled-public source; see the [current contract status and retained limits](R10_PRIVATE_BROWSER_VIEWER_CONTRACT.md#scoped-qualification-status-2026-10-04). Broader browser sources, whole-app/visual acceptance and later capability gates are not implied. The active stage and sole remaining stage order are R11–R19 in the [canonical plan](AGENT_LABS_V2_IMPLEMENTATION_PLAN.md). R11 has an [qualified own-shop setup/refresh proofs and remaining external-source qualification](R11_EXTERNAL_ELIGIBILITY_CONTRACT.md); no later stage has started.
 
 The earlier R02/R03 snapshot and original-stage mappings below are dated reuse evidence, not instructions to rebuild accepted R03–R10 work or to infer fresh operational authority. Current per-capability contracts and the canonical continuation govern later work.

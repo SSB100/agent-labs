@@ -17,7 +17,7 @@ function source(file, deps) {
 
 /** Synthetic, negative-only outputs for the exact dynamically saved scope. */
 export function ownerInitialPhaseOutputs(scope) {
-  assert.equal(scope.version, 'r12.discovery-owner-initial.1');
+  assert.ok(['r12.discovery-owner-initial.1','r12.discovery-owner-episode.1'].includes(scope.version));
   const outputs = JSON.parse(JSON.stringify(r12PhaseOutputFixture(scope.intent.comparisonUniverse.audiences[0])).replaceAll('nature', 'original apparel').replaceAll('outdoor', 'adult apparel'));
   const topic = scope.profile.topics.find(t => t.key === scope.selection.topicKey);
   assert.ok(topic);
@@ -38,8 +38,10 @@ export function ownerInitialPhaseOutputs(scope) {
 /** Actual owner Continue → R07 → R05 → R12 wire/candidate/receipt/result APIs.
  * All transport is inert synthetic qualification; no real evidence or demand
  * is asserted and no network credential is loaded or provider call is made. */
-export async function exerciseOwnerInitialRuntime(db, { legacy = null } = {}) {
-  const f = await ownerInitialSqlFixture(db, { legacy });
+export async function exerciseOwnerInitialRuntime(db, { legacy = null, onCompleted = null } = {}) {
+  // Multiple runtime scenarios share the native race database. Derive each
+  // fixture grant from its Business/owner/grant IDs instead of the default key.
+  const f = await ownerInitialSqlFixture(db, { legacy, bootstrapRoot: 'inert-owner-initial-runtime-bootstrap-root-0123456789' });
   const prepared = await f.prepare();
   const root = 'inert-owner-initial-root-configuration-0123456789';
   const derive = role => createHmac('sha256', root).update(JSON.stringify({ version: 'r12.scoped-authority.1', role, businessId: f.businessId, ownerId: f.ownerId, scopeId: prepared.scopeId })).digest('base64url');
@@ -93,7 +95,7 @@ export async function exerciseOwnerInitialRuntime(db, { legacy = null } = {}) {
     'server-only': {}, 'node:crypto': require('node:crypto'), '../lib/core-ui/owner-business': ownerBusiness,
     '../core/request-deadline': core('core/request-deadline'), '../core/quest-plan': core('core/quest-plan'), '../core/quest-controller': core('core/quest-controller'),
     './discovery-v2': core('products/discovery-v2'), './discovery-r12-runtime': runtime, './discovery-r12-adapter': adapter,
-    './discovery-r12-wire': core('products/discovery-r12-wire'), './discovery-r12-focused-successor': core('products/discovery-r12-focused-successor'),
+    './discovery-r12-wire': core('products/discovery-r12-wire'), './discovery-r12-focused-successor': core('products/discovery-r12-focused-successor'),'./discovery-r12-owner-episode': core('products/discovery-r12-owner-episode'),
     './discovery-r12-review-preparation-contract': core('products/discovery-r12-review-preparation-contract'),
     './discovery-r12-server-dependencies': { discoveryR12ServerDependencies: () => ({
       createController: (businessId, goalId, keys) => { assert.equal(businessId, f.businessId); assert.equal(goalId, f.goalId); assert.deepEqual(keys, { controllerKey: controller, admissionKey: admission }); return store; },
@@ -149,6 +151,7 @@ export async function exerciseOwnerInitialRuntime(db, { legacy = null } = {}) {
     assert.equal(raw.data.version, 'r12.discovery-owner-initial-inputs.1'); assert.equal(raw.data.inputMode, 'receipt'); assert.equal(raw.data.committedMicrousd, 40);
     assert.equal(raw.data.committedMicrousd, raw.data.dependencies.reduce((n, d) => n + Number(d.candidate.reportedMicrousd), 0));
     assert.equal((await one(db, 'select count(*)::int n from public.product_experiments where business_id=$1', [f.businessId])).n, legacy ? 1 : 0, 'owner-initial execution creates no legacy experiment');
+    if (onCompleted) return await onCompleted({ f, prepared, activated, scope, saved: saved.record, rawResult: rawResult.data, context, server, owner, store, controller, admission });
     // Synthetic later activity is seeded only to test historical isolation.
     // A current funding mismatch or newer unfinished round must block fresh
     // dispatch, without erasing a completed result or permitting budget reset.

@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import type { OwnerResearchCatalog, OwnerResearchPreparationInput, OwnerResearchSetupReceipt } from "@/products/discovery-r12-goal-preparation-contract";
-import { prepareOwnerResearchAction, confirmOwnerResearchAction, stopOwnerResearchAction } from "@/app/dashboard/quests/research/actions";
-import { ownerResearchCanConfirm, ownerResearchRequestId, ownerResearchSetupHref, ownerResearchUsd, ownerResearchUsdMicrounits, ownerResearchUsdValue, ownerResearchWorkspaceHref } from "@/lib/core-ui/owner-research-form";
+import type { OwnerResearchCatalog, OwnerResearchEpisodePreparationInput, OwnerResearchPreparationInput, OwnerResearchSetupReceipt } from "@/products/discovery-r12-goal-preparation-contract";
+import { prepareOwnerResearchAction, prepareOwnerResearchEpisodeAction, confirmOwnerResearchAction, stopOwnerResearchAction } from "@/app/dashboard/quests/research/actions";
+import { ownerResearchCanConfirm, ownerResearchRequestId, ownerResearchScopeHref, ownerResearchSetupHref, ownerResearchUsd, ownerResearchUsdMicrounits, ownerResearchUsdValue, ownerResearchWorkspaceHref } from "@/lib/core-ui/owner-research-form";
 import { OwnerResearchPacket } from "./owner-research-packet";
 
 type Props = { ownerId: string; catalog: OwnerResearchCatalog; selectedReceipt: OwnerResearchSetupReceipt | null; observedAt: number };
@@ -37,7 +37,10 @@ export function OwnerResearchWorkspace({ ownerId, catalog, selectedReceipt, obse
   const legacy = funding?.binding.kind === "legacy_research_root";
   const expired = !!receipt && Date.parse(receipt.preview.quote.validUntil) <= now;
   const goalReady = !!goal && goal.preference === "ready" && goal.content.ambiguities.length === 0;
-  const ready = goalReady && !goal?.initialRunExists && !!funding && !!catalog.profiles.length && !business.paused && !business.hasUnknown && !funding.hasUnknown && funding.pendingMicrounits === "0";
+  const continuation = goal?.continuation, closure = continuation?.eligible ? continuation.predecessorClosure : null;
+  const episode = !!goal?.initialRunExists;
+  const eligible = episode ? !!closure && !!continuation?.predecessorClosureHash : !goal?.initialRunExists;
+  const ready = goalReady && eligible && !!funding && !!catalog.profiles.length && !business.paused && !business.hasUnknown && !funding.hasUnknown && funding.pendingMicrounits === "0";
   const locked = !!busy || !!receipt && (receipt.confirmed || receipt.activated || receipt.stopped);
   const base = goal ? ownerResearchSetupHref(business.id, goal.id) : `/dashboard/quests/research?business=${business.id}`;
 
@@ -56,20 +59,22 @@ export function OwnerResearchWorkspace({ ownerId, catalog, selectedReceipt, obse
 
   async function prepare(event?: FormEvent, fresh = false) {
     event?.preventDefault();
-    if (pending.current || !ready || !goal || !selected || locked) return;
+    if (pending.current || !ready || !goal || !selected || locked || episode && (!closure || !continuation?.predecessorClosureHash || !selected.continuationBounds)) return;
     const businessLimit = ownerResearchUsdMicrounits(businessUsd), researchLimit = legacy ? ownerResearchUsdMicrounits(researchUsd) : businessLimit;
     if (!businessLimit || !researchLimit || !selected.profile.marketSets.some(market => market.key === marketSetKey) || !selected.profile.topics.some(topic => topic.key === topicKey)) { setMessage("Choose a reviewed profile, market set and topic, and enter positive USD limits with at most six decimal places."); return; }
     pending.current = true; setBusy("prepare"); setConsentHash(null); setMessage("");
     const request = ++generation.current;
-    const input: Omit<OwnerResearchPreparationInput, "submissionId"> = { businessId: business.id, goalId: goal.id, goalRevision: goal.revision, profileId: selected.profile.id, profileHash: selected.profileHash, grantId: selected.grantId, marketSetKey, topicKey, businessLifetimeLimitMicrounits: businessLimit, researchLifetimeLimitMicrounits: researchLimit };
+    const initialInput: Omit<OwnerResearchPreparationInput, "submissionId"> = { businessId: business.id, goalId: goal.id, goalRevision: goal.revision, profileId: selected.profile.id, profileHash: selected.profileHash, grantId: selected.grantId, marketSetKey, topicKey, businessLifetimeLimitMicrounits: businessLimit, researchLifetimeLimitMicrounits: researchLimit };
+    const input: Omit<OwnerResearchEpisodePreparationInput, "submissionId"> | Omit<OwnerResearchPreparationInput, "submissionId"> = episode && closure ? { ...initialInput, predecessorPlanId: closure.predecessorPlanId, predecessorPlanHash: closure.predecessorPlanHash, predecessorScopeId: closure.predecessorScopeId, predecessorScopeHash: closure.predecessorScopeHash } : initialInput;
     try {
       // Replace only the known expired request. A retry after an interrupted fresh preparation reuses its new identity.
-      const submissionId = await requestId("prepare", input, fresh && expired ? receipt?.submissionId : undefined);
-      const result = await prepareOwnerResearchAction({ ...input, submissionId });
+      const submissionId = await requestId(episode ? "prepare_episode" : "prepare", input, fresh && expired ? receipt?.submissionId : undefined);
+      const result = episode ? await prepareOwnerResearchEpisodeAction({ ...input, submissionId } as OwnerResearchEpisodePreparationInput) : await prepareOwnerResearchAction({ ...input, submissionId } as OwnerResearchPreparationInput);
       if (!mounted.current || request !== generation.current) return;
       if (!result.ok) { setMessage(result.message); return; }
       const saved = result.receipt;
-      if (saved.businessId !== business.id || saved.goalId !== goal.id || saved.grantId !== selected.grantId || saved.submissionId !== submissionId || saved.preview.goalRevision !== goal.revision || saved.preview.profileHash !== selected.profileHash || saved.preview.selection.marketSetKey !== marketSetKey || saved.preview.selection.topicKey !== topicKey) { setMessage("The returned packet does not match this selection. Reload and inspect the exact saved setup before proceeding."); return; }
+      if (saved.businessId !== business.id || saved.goalId !== goal.id || saved.grantId !== selected.grantId || saved.submissionId !== submissionId || saved.preview.goalRevision !== goal.revision || saved.preview.profileHash !== selected.profileHash || saved.preview.selection.marketSetKey !== marketSetKey || saved.preview.selection.topicKey !== topicKey ||
+          (episode ? saved.preview.version !== "r12.owner-research-episode-preview.1" || saved.preview.predecessorClosureHash !== continuation?.predecessorClosureHash : saved.preview.version !== "r12.owner-research-preview.1")) { setMessage("The returned packet does not match this selection. Reload and inspect the exact saved setup before proceeding."); return; }
       setReceipt(saved); setMessage("Packet saved. Review its current quote, cumulative limits and data sharing, then confirm this exact policy. No paid work has started.");
       router.replace(ownerResearchSetupHref(business.id, goal.id, saved.setupId));
     } catch { if (mounted.current && request === generation.current) setMessage("The response was interrupted. Retry the unchanged request to recover its receipt, or reload and select the exact saved setup below. If session storage is disabled, keep this page open while retrying."); }
@@ -104,22 +109,24 @@ export function OwnerResearchWorkspace({ ownerId, catalog, selectedReceipt, obse
     <p>Reload reads saved server state. An unchecked confirmation is never restored from this tab.</p>
     <div className="ownerResearchActions"><button type="button" onClick={() => { setConsentHash(null); router.refresh(); }} disabled={!!busy}>Reload saved state</button><Link href={`/dashboard/quests?business=${business.id}&quest=${goal.id}`}>Review or edit the original Quest</Link></div>
     {!goalReady ? <p className="ownerResearchNotice">Resolve the Quest’s missing facts and record its ready preference in the original Quest workspace first. Saving readiness does not grant execution authority.</p> : null}
-    {goal.initialRunExists ? <p className="ownerResearchNotice">This Quest already has its initial research episode. Select its saved setup below to open the existing workspace. Another setup cannot restart it.</p> : null}
+    {episode && !eligible ? <p className="ownerResearchNotice">This Quest already has its initial research episode. {continuation?.reason ?? "A new episode is not currently eligible."} Select a saved setup below to inspect its exact workspace and recorded outcome.</p> : null}
+    {episode && eligible && closure ? <section className="ownerResearchContinuation" aria-label="Exact predecessor for continuation"><h3>Continue research from a closed episode</h3><p>The original Quest remains the objective. <Link href={ownerResearchScopeHref(business.id, goal.id, closure.predecessorScopeId)}>View previous research and result</Link> (version {closure.predecessorPlanVersion}). Prior known Quest costs: {ownerResearchUsd(closure.baseKnownMicrounits)}. New preparation requires a separately reviewed finite continuation grant.</p></section> : null}
     {!catalog.profiles.length || !funding ? <p role="alert">Research preparation is technically unavailable: no current reviewed profile, Business grant or verified funding binding is available for this exact Quest. No legacy workflow will be substituted.</p> : null}
     {business.paused ? <p role="alert">This Business is paused. Review its operating controls before preparing research.</p> : null}
     {business.hasUnknown || funding?.hasUnknown || funding && funding.pendingMicrounits !== "0" ? <p role="alert">Pending or unknown liabilities block fresh research. Existing costs remain cumulative.</p> : null}
     {catalog.profilesTruncated ? <p role="note">Only a bounded set of current reviewed profiles is shown. Unsupported or omitted profiles cannot be selected here.</p> : null}
     {ready ? <form className="ownerResearchForm" onSubmit={event => void prepare(event)}>
       <fieldset disabled={locked}><legend>Choose reviewed public research scope</legend>
-        <div className="ownerResearchField"><label htmlFor={`${fieldId}-profile`}>Reviewed research profile</label><select id={`${fieldId}-profile`} required value={profileKey} onChange={event => edit(() => { setProfileKey(event.target.value); setMarketSetKey(""); setTopicKey(""); })}><option value="" disabled>Choose a profile</option>{catalog.profiles.map(item => <option key={`${item.profile.id}:${item.grantId}`} value={`${item.profile.id}:${item.grantId}`}>{item.profile.title}</option>)}</select></div>
+        <div className="ownerResearchField"><label htmlFor={`${fieldId}-profile`}>Reviewed research profile</label><select id={`${fieldId}-profile`} required value={profileKey} onChange={event => edit(() => { setProfileKey(event.target.value); setMarketSetKey(""); setTopicKey(""); })}><option value="" disabled>Choose a profile</option>{catalog.profiles.filter(item => !episode || !!item.continuationBounds).map(item => <option key={`${item.profile.id}:${item.grantId}`} value={`${item.profile.id}:${item.grantId}`}>{item.profile.title}</option>)}</select></div>
         {selected ? <p>{selected.profile.purpose}</p> : null}
+        {episode && selected?.continuationBounds ? <p>Finite continuation grant: at most {selected.continuationBounds.maximumEpisodes} episodes and {ownerResearchUsd(selected.continuationBounds.maximumAllocationMicrounits)} in total allocations; expires {selected.continuationBounds.expiresAt}. The server checks previously allocated episodes, including stopped work, before accepting another.</p> : null}
         <div className="ownerResearchField"><label htmlFor={`${fieldId}-market`}>Public market set</label><select id={`${fieldId}-market`} required disabled={!selected || locked} value={marketSetKey} onChange={event => edit(() => setMarketSetKey(event.target.value))}><option value="" disabled>Choose supported markets</option>{selected?.profile.marketSets.map(market => <option key={market.key} value={market.key}>{market.label}</option>)}</select></div>
         <div className="ownerResearchField"><label htmlFor={`${fieldId}-topic`}>Public topic and adult audience</label><select id={`${fieldId}-topic`} required disabled={!selected || locked} value={topicKey} onChange={event => edit(() => setTopicKey(event.target.value))}><option value="" disabled>Choose a supported topic</option>{selected?.profile.topics.map(topic => <option key={topic.key} value={topic.key}>{topic.label} · {topic.audience}</option>)}</select></div>
         <p>Only reviewed public choices are supported. Your original Quest is preserved. Price is unavailable until you prepare a fresh server-quoted packet.</p>
         <label>Proposed Business lifetime limit (USD)<input required inputMode="decimal" pattern="(0|[1-9][0-9]*)(\.[0-9]{1,6})?" value={businessUsd} onChange={event => edit(() => setBusinessUsd(event.target.value))}/></label>
         <p>Current Business lifetime limit: {ownerResearchUsd(business.maximumMicrounits)}. Existing committed exposure: {ownerResearchUsd(business.committedMicrounits)}. The complete run must fit alongside existing costs.</p>
         {legacy && funding ? <><label>Proposed original cumulative research limit (USD)<input required inputMode="decimal" pattern="(0|[1-9][0-9]*)(\.[0-9]{1,6})?" value={researchUsd} onChange={event => edit(() => setResearchUsd(event.target.value))}/></label><p>Current original research total: {ownerResearchUsd(funding.maximumMicrounits)}; committed: {ownerResearchUsd(funding.committedMicrounits)}; pending: {ownerResearchUsd(funding.pendingMicrounits)}. Prior costs are retained. Raising this total is an explicit extension for the new lane and never resets the original research allowance.</p></> : <p>Native Business funding uses this single Business lifetime cap. The research limit equals it; there is no separate research allowance to increase.</p>}
-        <button type="submit" disabled={locked || !selected || !marketSetKey || !topicKey}>Prepare exact research packet</button>
+        <button type="submit" disabled={locked || !selected || episode && !selected.continuationBounds || !marketSetKey || !topicKey}>{episode ? "Prepare continuation packet" : "Prepare exact research packet"}</button>
       </fieldset>
     </form> : null}
     {receipt ? <>
@@ -131,11 +138,12 @@ export function OwnerResearchWorkspace({ ownerId, catalog, selectedReceipt, obse
         {!receipt.confirmed && !receipt.stopped ? <button type="button" disabled={!!busy || !ownerResearchCanConfirm(receipt, consentHash, now)} onClick={() => void transition("confirm")}>Confirm this exact research policy</button> : null}
         {expired && !receipt.confirmed && !receipt.stopped && ready ? <button type="button" disabled={!!busy} onClick={() => void prepare(undefined, true)}>Prepare fresh quote</button> : null}
         {(receipt.confirmed || receipt.activated) ? <Link href={ownerResearchWorkspaceHref(receipt)}>Open research workspace for Continue / Stop</Link> : null}
+        {episode && eligible ? <Link href={base}>Continue research from this Quest</Link> : null}
         {!receipt.stopped ? <button type="button" disabled={!!busy} onClick={() => void transition("stop")}>Stop this research setup</button> : null}
         <Link href={ownerResearchSetupHref(business.id, goal.id, receipt.setupId)}>Stable saved setup link</Link>
       </div>
     </> : null}
-    {catalog.setups.length ? <section aria-label="Saved research setups"><h2>Saved setups for this exact Quest</h2><p>Select the exact packet to review or recover its saved status. No setup is selected automatically.</p><ul className="ownerResearchList">{catalog.setups.map(saved => <li key={saved.setupId}><Link href={ownerResearchSetupHref(business.id, goal.id, saved.setupId)}>Setup {saved.setupId}</Link><span>{saved.stopped ? "Stopped" : saved.activated ? "Authority activation recorded" : saved.confirmed ? "Policy confirmed" : "Prepared"} · quote through {saved.preview.quote.validUntil}</span></li>)}</ul></section> : null}
+    {catalog.setups.length ? <section aria-label="Saved research setups"><h2>Saved setups for this exact Quest</h2><p>Select the exact packet to review or recover its saved status. No setup is selected automatically.</p><ul className="ownerResearchList">{catalog.setups.map(saved => <li key={saved.setupId}><Link href={ownerResearchSetupHref(business.id, goal.id, saved.setupId)}>Setup {saved.setupId}</Link><span>{saved.preview.version === "r12.owner-research-episode-preview.1" ? `Episode ${saved.preview.episodeNumber} · ` : "Initial episode · "}{saved.stopped ? "Stopped" : saved.activated ? "Authority activation recorded" : saved.confirmed ? "Policy confirmed" : "Prepared"} · quote through {saved.preview.quote.validUntil}</span></li>)}</ul></section> : null}
     {catalog.setupsTruncated ? <section><p role="note">Only recent saved setups are listed. Use an older packet’s stable URL or its exact setup ID to recover that packet.</p><form action="/dashboard/quests/research" method="get" className="ownerResearchForm"><input type="hidden" name="business" value={business.id}/><input type="hidden" name="quest" value={goal.id}/><label>Exact saved setup ID<input name="setup" required pattern="[a-fA-F0-9-]{36}"/></label><button type="submit">Open exact saved setup</button></form></section> : null}
     {!receipt ? <p><Link href={base}>Return to this exact Quest’s preparation</Link></p> : null}
   </div>;

@@ -45,7 +45,8 @@ test('actual SQL catalog with twenty packets and multiple profiles survives boun
    'server-only':{},'node:crypto':require('node:crypto'),'../lib/core-ui/owner-business':source('src/lib/core-ui/owner-business.ts',{}),
    '../core/request-deadline':core('core/request-deadline'),'../core/quest-intake':core('core/quest-intake'),'./discovery-v2':core('products/discovery-v2'),
    './discovery-r12-server-dependencies':{discoveryR12ServerDependencies:denied},'./discovery-r12-server':{prepareDiscoveryR12Authority:denied},
-   './discovery-r12-goal-scope':core('products/discovery-r12-goal-scope'),'./discovery-r12-goal-preparation-contract':core('products/discovery-r12-goal-preparation-contract'),
+   './discovery-r12-goal-scope':core('products/discovery-r12-goal-scope'),'./discovery-r12-owner-episode':core('products/discovery-r12-owner-episode'),
+   './discovery-r12-goal-preparation-contract':core('products/discovery-r12-goal-preparation-contract'),
   });
   let mutate=null;
   const context={userId:f.ownerId,businesses:[{id:f.businessId,name:'Synthetic catalog Business'}],supabase:{

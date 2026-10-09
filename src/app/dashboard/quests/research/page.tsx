@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { ConsoleShell } from "@/components/console/console-shell";
 import { OwnerResearchEntry } from "@/components/quests/owner-research-entry";
 import { OwnerResearchWorkspace } from "@/components/quests/owner-research-workspace";
+import { OwnerResearchBootstrapReference } from "@/components/quests/owner-research-bootstrap-reference";
 import { requireOwnerUiContext } from "@/lib/core-ui/data";
 import { loadConsoleObservationTime } from "@/lib/core-ui/console-data";
 import { ownerResearchSetupHref } from "@/lib/core-ui/owner-research-form";
@@ -37,6 +38,7 @@ export default async function OwnerResearchPage({ searchParams }: { searchParams
     <section className="ownerResearchPage" aria-labelledby="owner-research-title">
       <header><p className="coreEyebrow">A bounded episode for your actual objective</p><h1 id="owner-research-title">Research a saved Quest</h1><p>{business?.name ?? "Business unavailable"}</p></header>
       <nav aria-label="Research navigation"><Link href={`/dashboard?view=research&business=${businessId}`}>Back to research</Link><Link href={`/dashboard/quests?business=${businessId}${goalId ? `&quest=${goalId}` : ""}`}>Create or edit a Quest</Link>{goalId ? <Link href={base}>Choose another Quest</Link> : null}</nav>
+      {!businessError && business?.id === businessId ? <OwnerResearchBootstrapReference key={`${context.userId}:${businessId}`} businessId={businessId} ownerId={context.userId}/> : null}
       {unavailable ? <p role="alert">This exact Business, Quest or setup could not be verified. No substitute was selected. Reload this URL after the data service is available.</p> : !goalId && selection ? <>
         <h2>Choose your saved objective</h2><p>Saving a Quest records intent only. Select it explicitly here, then review a supported profile and complete financial packet.</p>
         <p>{selection.total} saved Quests · showing {selection.offset + (selection.quests.length ? 1 : 0)}–{selection.offset + selection.quests.length}</p>

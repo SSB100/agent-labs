@@ -84,7 +84,7 @@ export async function runOwnerInitialJourney({origin,boundary,output}) {
   await context.route('**/*',route=>{const url=new URL(route.request().url());if(['http:','https:'].includes(url.protocol)&&url.origin!==origin){external.push(url.origin);return route.abort('blockedbyclient');}return route.continue();});
   page=await context.newPage();page.on('pageerror',error=>errors.push(String(error)));
   const text=()=>page.locator('main').innerText();
-  const choose=async()=>{await page.getByLabel('Reviewed research profile',{exact:true}).selectOption(`${current().profileId}:${current().grantId}`);await page.getByLabel('Public market set',{exact:true}).selectOption('gb');await page.getByLabel('Public topic and adult audience',{exact:true}).selectOption('astronomy');await page.getByLabel('Proposed Business lifetime limit (USD)',{exact:true}).fill('6.000000');};
+  const choose=async(grantId)=>{const rows=(await catalog(goalId)).profiles.filter(row=>row.profile.id===current().profileId&&(!grantId||row.grantId===grantId));assert.equal(rows.length,1,'Exact reviewed profile and grant must be present once in the saved catalog');const profile=page.getByLabel('Reviewed research profile',{exact:true}),expected=`${current().profileId}:${rows[0].grantId}`;const options=await profile.locator('option').evaluateAll(nodes=>nodes.map(node=>node.value));assert.ok(options.includes(expected),`Reviewed UI omitted selected catalog grant: ${JSON.stringify({expected,options})}`);await profile.selectOption(expected);await page.getByLabel('Public market set',{exact:true}).selectOption('gb');await page.getByLabel('Public topic and adult audience',{exact:true}).selectOption('astronomy');await page.getByLabel('Proposed Business lifetime limit (USD)',{exact:true}).fill('6.000000');};
   const capture=async(name)=>{const geometry=await page.evaluate(()=>({width:document.documentElement.clientWidth,height:document.documentElement.clientHeight,documentWidth:document.documentElement.scrollWidth,documentHeight:document.documentElement.scrollHeight}));assert.ok(geometry.documentWidth<=geometry.width+1,`${name}: horizontal overflow ${JSON.stringify(geometry)}`);if(geometry.width>=1280)assert.ok(geometry.documentHeight<=geometry.height+1,`${name}: desktop document escaped its viewport ${JSON.stringify(geometry)}`);await page.screenshot({path:path.join(output,`${name}.png`),fullPage:true});};
   let goalId,receipt;
   try {
@@ -94,6 +94,23 @@ export async function runOwnerInitialJourney({origin,boundary,output}) {
       await page.getByRole('heading',{name:'Choose your saved objective',exact:true}).waitFor();
       assert.equal(await page.getByLabel('Reviewed research profile',{exact:true}).count(),0);assert.deepEqual(current().calls,[]);
       await capture('01-exact-quest-selection');
+    });
+    await check('Business-level setup reference uses the real owner route without creating authority or dispatch',async()=>{
+      const state=async()=>(await current().db.query('select (select count(*) from private.r12_owner_setups) setups,(select count(*) from private.r12_owner_activations) initial_activations,(select count(*) from private.r12_owner_episode_activations) episode_activations,(select count(*) from private.r12_discovery_scopes) scopes')).rows[0];
+      const before=await state(),field=page.getByRole('textbox',{name:'Operator-supplied grant UUID',exact:true});
+      await page.getByRole('heading',{name:'Prepare research setup reference',exact:true}).waitFor();
+      await field.fill('not-a-uuid');assert.equal(await page.getByRole('button',{name:'Prepare setup reference',exact:true}).isDisabled(),true);
+      await field.fill(current().continuationGrantId);await page.getByRole('button',{name:'Prepare setup reference',exact:true}).click();
+      const result=page.getByRole('textbox',{name:'Nonsecret setup reference',exact:true});await result.waitFor();const reference=JSON.parse(await result.inputValue());
+      assert.deepEqual(Object.keys(reference).sort(),['authorityCreated','bootstrapKeyHash','businessId','grantId','ownerId']);
+      assert.equal(reference.businessId,current().businessId);assert.equal(reference.ownerId,current().ownerId);assert.equal(reference.grantId,current().continuationGrantId);assert.equal(reference.authorityCreated,false);assert.match(reference.bootstrapKeyHash,/^[a-f0-9]{64}$/);
+      await result.focus();assert.deepEqual(await result.evaluate(node=>[node.selectionStart,node.selectionEnd]),[0,(await result.inputValue()).length]);
+      const foreign=await page.evaluate(async()=>{const response=await fetch('/api/research/r12/owner-bootstrap',{method:'POST',credentials:'same-origin',headers:{'content-type':'application/json'},body:JSON.stringify({businessId:crypto.randomUUID(),grantId:crypto.randomUUID()})});return response.status;});assert.equal(foreign,403);
+      assert.deepEqual(await state(),before);assert.deepEqual(current().calls,[]);assert.deepEqual(current().receipts,[]);await capture('01a-nonsecret-setup-reference');
+      await field.fill(crypto.randomUUID());assert.equal(await result.count(),0,'Editing the grant clears a stale reference');
+      await page.setViewportSize({width:320,height:800});await capture('01b-setup-reference-320');
+      await field.focus();await page.keyboard.press('Tab');const focus=await page.getByRole('button',{name:'Prepare setup reference',exact:true}).evaluate(node=>({active:document.activeElement===node,visible:node.matches(':focus-visible'),outline:parseFloat(getComputedStyle(node).outlineWidth)}));assert.ok(focus.active&&focus.visible&&focus.outline>=2,'Setup reference button must have visible keyboard focus at mobile width');
+      await page.setViewportSize({width:1280,height:900});
     });
     await check('actual R04 creation and ready preference lead to Research this Quest without substituting objective',async()=>{
       await page.getByRole('link',{name:'Create or edit a Quest',exact:true}).click();
@@ -158,6 +175,7 @@ export async function runOwnerInitialJourney({origin,boundary,output}) {
         const geometry=await zoomPage.evaluate(()=>({width:innerWidth,documentWidth:document.documentElement.scrollWidth}));assert.ok(geometry.width>=630&&geometry.width<=650,'Verify actual 2x browser zoom viewport');assert.ok(geometry.documentWidth<=geometry.width+1);
         const confirm=zoomPage.getByRole('button',{name:'Confirm this exact research policy',exact:true});await confirm.scrollIntoViewIfNeeded();const box=await confirm.boundingBox();assert.ok(box&&box.width>=100&&box.height>=43.5,'Zoomed confirmation stays reachable/readable');
         await captureOwnerZoomViewport({page:zoomPage,target:confirm,output,name:'owner-packet-controls-zoom200.png'});
+        await captureOwnerZoomViewport({page:zoomPage,target:zoomPage.getByRole('button',{name:'Prepare setup reference',exact:true}),output,name:'owner-setup-reference-zoom200.png'});
         await captureOwnerZoomViewport({page:zoomPage,target:zoomPage.getByRole('heading',{name:'Research a saved Quest',exact:true}),output,name:'owner-packet-zoom200.png'});assert.deepEqual(current().calls,[]);
       }catch(error){if(zoomPage)await captureFailure(zoomPage);throw error;}finally{await zoom.close();}
     });
@@ -184,6 +202,81 @@ export async function runOwnerInitialJourney({origin,boundary,output}) {
       await page.getByRole('button',{name:'Stop research',exact:true,disabled:true}).waitFor();
       await page.reload();
       await page.getByRole('heading',{name:'Needs more evidence',exact:true}).waitFor();assert.equal(await page.getByRole('button',{name:'Stop research',exact:true}).isDisabled(),true);
+      assert.equal(current().calls.length,5);
+    });
+    let episodeOne;
+    await check('same saved Quest offers a finite continuation packet from its exact closed predecessor',async()=>{
+      const initialScopeId=receipt.scopeId;
+      await page.goto(`${origin}/dashboard/quests/research?business=${current().businessId}&quest=${goalId}`);
+      await page.getByRole('heading',{name:'Continue research from a closed episode',exact:true}).waitFor();
+      const before=await catalog(goalId);
+      assert.equal(before.goal.id,goalId);assert.equal(before.goal.continuation.eligible,true,before.goal.continuation.reason);
+      assert.equal(before.goal.continuation.predecessorClosure.predecessorScopeId,initialScopeId);
+      assert.ok(before.profiles.find(row=>row.grantId===current().continuationGrantId)?.continuationBounds);
+      await choose(current().continuationGrantId);await page.getByRole('button',{name:'Prepare continuation packet',exact:true}).click();
+      await page.getByRole('heading',{name:'Review this exact research packet',exact:true}).waitFor();
+      episodeOne=(await catalog(goalId)).setups.find(setup=>setup.preview.version==='r12.owner-research-episode-preview.1');
+      assert.ok(episodeOne);assert.equal(episodeOne.preview.episodeNumber,1);
+      assert.equal(episodeOne.preview.predecessorClosure.predecessorScopeId,initialScopeId);
+      assert.equal(episodeOne.preview.predecessorClosureHash,before.goal.continuation.predecessorClosureHash);
+      assert.match(await page.getByRole('link',{name:'View previous research and result',exact:true}).first().getAttribute('href'),new RegExp(`selected=${initialScopeId}`));
+      assert.equal(episodeOne.activated,false);assert.equal(current().calls.length,5,'Preparation cannot call the provider');
+      assert.match(await text(),/Planned Quest total including this new maximum/);
+      assert.match(await text(),/does not cover Exa/);await capture('08-episode-one-exact-packet');
+    });
+    await check('continuation consent and exact packet survive mobile keyboard, history, reload and real 200 percent zoom',async captureFailure=>{
+      await page.setViewportSize({width:320,height:800});await capture('09-episode-one-packet-320');
+      const consent=()=>page.getByRole('checkbox',{name:/I reviewed this exact packet/});
+      await consent().scrollIntoViewIfNeeded();await consent().focus();await page.keyboard.press('Space');assert.equal(await consent().isChecked(),true);
+      await page.keyboard.press('Space');assert.equal(await consent().isChecked(),false);
+      const exact=page.url();await page.reload();await consent().waitFor();assert.equal(await consent().isChecked(),false);
+      await page.getByRole('link',{name:'Choose another Quest',exact:true}).click();await page.waitForURL(url=>!url.searchParams.has('quest'));
+      await page.goBack();await page.waitForURL(exact);await consent().waitFor();assert.equal(await consent().isChecked(),false);
+      await page.setViewportSize({width:1280,height:720});
+      const zoom=await actualZoomBrowser();let zoomPage;
+      try{
+        await zoom.context.route('**/*',route=>{const url=new URL(route.request().url());if(['http:','https:'].includes(url.protocol)&&url.origin!==origin){external.push(url.origin);return route.abort('blockedbyclient');}return route.continue();});
+        zoomPage=await zoom.context.newPage();zoomPage.on('pageerror',error=>errors.push(String(error)));await zoomPage.goto(exact);assert.equal(await zoom.set(zoomPage,2),2);
+        const zoomConsent=zoomPage.getByRole('checkbox',{name:/I reviewed this exact packet/});await zoomConsent.scrollIntoViewIfNeeded();await zoomConsent.focus();await zoomPage.keyboard.press('Space');assert.equal(await zoomConsent.isChecked(),true);
+        await zoomPage.keyboard.press('Space');assert.equal(await zoomConsent.isChecked(),false);
+        const confirm=zoomPage.getByRole('button',{name:'Confirm this exact research policy',exact:true});
+        await captureOwnerZoomViewport({page:zoomPage,target:confirm,output,name:'owner-episode-controls-zoom200.png'});
+        const geometry=await zoomPage.evaluate(()=>({width:innerWidth,documentWidth:document.documentElement.scrollWidth}));assert.ok(geometry.documentWidth<=geometry.width+1);
+      }catch(error){if(zoomPage)await captureFailure(zoomPage);throw error;}finally{await zoom.close();}
+      assert.equal(current().calls.length,5);
+    });
+    await check('Stop before the first continuation call consumes its episode without provider work',async()=>{
+      await page.getByRole('checkbox',{name:/I reviewed this exact packet/}).check();
+      await page.getByRole('button',{name:'Confirm this exact research policy',exact:true}).click();
+      await page.getByRole('link',{name:'Open research workspace for Continue / Stop',exact:true}).waitFor();
+      episodeOne=(await catalog(goalId,episodeOne.setupId)).setups[0];assert.equal(episodeOne.activated,true);
+      assert.equal(current().calls.length,0);
+      await page.getByRole('button',{name:'Stop this research setup',exact:true}).click();
+      await page.getByText('Saved setup status: stopped.',{exact:true}).waitFor();
+      assert.equal(current().calls.length,0);
+      await page.reload();assert.equal((await catalog(goalId,episodeOne.setupId)).setups[0].stopped,true);
+      await capture('10-episode-one-stopped-before-call');
+    });
+    await check('second finite continuation episode runs the real five-phase engine once with one collection',async()=>{
+      await page.goto(`${origin}/dashboard/quests/research?business=${current().businessId}&quest=${goalId}`);
+      await page.getByRole('heading',{name:'Continue research from a closed episode',exact:true}).waitFor();
+      const before=await catalog(goalId);assert.equal(before.goal.continuation.predecessorClosure.predecessorScopeId,episodeOne.scopeId);
+      await choose(current().continuationGrantId);await page.getByRole('button',{name:'Prepare continuation packet',exact:true}).click();
+      await page.getByRole('heading',{name:'Review this exact research packet',exact:true}).waitFor();
+      const second=(await catalog(goalId)).setups.find(setup=>setup.preview.version==='r12.owner-research-episode-preview.1'&&setup.preview.episodeNumber===2);
+      assert.ok(second);assert.equal(second.preview.predecessorClosure.predecessorScopeId,episodeOne.scopeId);
+      await page.getByRole('checkbox',{name:/I reviewed this exact packet/}).check();
+      await page.getByRole('button',{name:'Confirm this exact research policy',exact:true}).click();
+      await page.getByRole('link',{name:'Open research workspace for Continue / Stop',exact:true}).click();
+      await page.getByRole('button',{name:'Continue approved research',exact:true}).click();
+      await page.getByRole('heading',{name:'Needs more evidence',exact:true}).waitFor({timeout:90000});
+      assert.deepEqual(current().calls,['plan','search1','select1','strategy','review']);
+      assert.equal(current().calls.filter(phase=>phase==='search1').length,1);
+      assert.deepEqual(current().receipts,current().calls);
+      assert.match(await text(),/Earlier outcomes, costs and limits remain preserved/);
+      assert.doesNotMatch(await text(),/proven demand/i);
+      await capture('11-episode-two-honest-result');
+      await page.reload();await page.getByRole('heading',{name:'Needs more evidence',exact:true}).waitFor();
       assert.equal(current().calls.length,5);
     });
     await control('legacy');

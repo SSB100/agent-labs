@@ -70,7 +70,7 @@ export async function exerciseFocusedCreativeLifecycle(db,pilot){
  const {qualifiedQuote,catalogByUrl,imageCatalog}=await focusedCreativeCatalogFixture();
  const preparation={businessId,approvalId,creativeRunId:runId,workflowRunId:wid,goalId:result.goalId,approvalHash:approved.approvalHash,admissionKeyHash:createHash('sha256').update(serverKey).digest('hex'),runtimeCapabilityHash:createHash('sha256').update(capability).digest('hex'),dispatchAuthorized:false};
  const {runOperatorRecipe}=await import('../../scripts/r12-focused-creative-bootstrap.mjs');
- const {reviewRecipeClient}=await import(repo+'/tests/helpers/r12-review-fixture.mjs');
+ const {reviewRecipeClient}=await import('./r12-review-fixture.mjs');
  const operator=reviewRecipeClient(db,true);
  const stageInput={preparation,quote:qualifiedQuote,sourceDomains:['printful.com'],dataClassesByPhase,executionReviewHash:'a'.repeat(64),eligibilityReviewHash:'b'.repeat(64),interpretationHash:'c'.repeat(64)};
  const staged=await runOperatorRecipe(operator,'stage',stageInput);assert.equal(staged.authorityCreated,false);assert.equal(staged.shouldDispatch,false);
@@ -187,7 +187,7 @@ export async function exerciseFocusedCreativeLifecycle(db,pilot){
 
 async function focusedCreativeCatalogFixture(){
  const imageCatalog={id:'black-forest-labs/flux.2-klein-4b',endpoints:[{provider_name:'Black Forest Labs',provider_slug:'black-forest-labs',provider_tag:'black-forest-labs',supported_parameters:{aspect_ratio:{type:'enum',values:['1:1']},output_format:{type:'enum',values:['png','jpeg']},n:{type:'range',min:1,max:1},input_references:{type:'range',min:0,max:4},seed:{type:'boolean'}},allowed_passthrough_parameters:['steps','guidance','safety_tolerance'],supports_streaming:false,pricing:[{billable:'output_image',unit:'megapixel',cost_usd:.014}]}]};
- const {r12CatalogFixture}=await import(repo+'/tests/helpers/r12-provider-fixture.mjs');
+ const {r12CatalogFixture}=await import('./r12-provider-fixture.mjs');
  const publicCatalogs=r12CatalogFixture();
  const lowerInertPrices=value=>{if(Array.isArray(value)){value.forEach(lowerInertPrices);return;}if(!value||typeof value!=='object')return;if('prompt'in value||'completion'in value){for(const key of ['prompt','completion','input_cache_read','input_cache_write','input_cache_write_1h','internal_reasoning'])if(Number(value[key])>0)value[key]='0.00000001';}Object.values(value).forEach(lowerInertPrices);};
  Object.values(publicCatalogs).forEach(s=>lowerInertPrices(s.payload));

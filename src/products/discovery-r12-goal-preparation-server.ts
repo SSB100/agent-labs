@@ -8,9 +8,11 @@ import { discoveryV2Hash } from "./discovery-v2";
 import { discoveryR12ServerDependencies } from "./discovery-r12-server-dependencies";
 import { prepareDiscoveryR12Authority } from "./discovery-r12-server";
 import { validateOwnerResearchProfile } from "./discovery-r12-goal-scope";
+import { validateOwnerEpisodeClosure } from "./discovery-r12-owner-episode";
 import {
-  prepareOwnerResearchPreview, validateOwnerResearchPreparationInput, validateOwnerResearchQuote,
-  type OwnerResearchCatalog, type OwnerResearchPreparationInput, type OwnerResearchSetupAction,
+  prepareOwnerResearchPreview, prepareOwnerResearchEpisodePreview, validateOwnerResearchContinuation,
+  validateOwnerResearchPreparationInput, validateOwnerResearchEpisodePreparationInput, validateOwnerResearchQuote,
+  type OwnerResearchCatalog, type OwnerResearchPreparationInput, type OwnerResearchEpisodePreparationInput, type OwnerResearchSetupAction,
   type OwnerResearchSetupReceipt, type OwnerResearchFundingSnapshot,
 } from "./discovery-r12-goal-preparation-contract";
 
@@ -59,10 +61,19 @@ export function parseOwnerResearchSetupReceipt(value: unknown, businessId: strin
   if (containsCredentialLikeValue(value) || !object(value) || value.businessId !== businessId || setupId !== undefined && value.setupId !== setupId ||
       ![value.businessId, value.goalId, value.setupId, value.scopeId, value.grantId, value.submissionId, value.policyId].every(id) || ![value.setupHash, value.policyHash].every(hash) ||
       ![value.confirmed, value.activated, value.stopped].every(item => typeof item === "boolean") || value.activated === true && value.confirmed !== true ||
-      !object(value.preview) || value.preview.version !== "r12.owner-research-preview.1" || value.preview.businessId !== businessId || value.preview.goalId !== value.goalId ||
+      !object(value.preview) || !["r12.owner-research-preview.1", "r12.owner-research-episode-preview.1"].includes(String(value.preview.version)) || value.preview.businessId !== businessId || value.preview.goalId !== value.goalId ||
       value.preview.authorityCreated !== false || value.preview.maximumCalls !== 5 || value.preview.maximumCollections !== 1 || value.preview.maximumRepairs !== 0 ||
       value.preview.dispatchMinutes !== 30 || value.preview.receiptMinutes !== 30 || value.preview.maximumReceiptChecks !== 15 || !object(value.preview.finance)) return fail();
   const preview = value.preview;
+  if (preview.version === "r12.owner-research-episode-preview.1") {
+    if (!Number.isSafeInteger(preview.episodeNumber) || Number(preview.episodeNumber) < 1 || Number(preview.episodeNumber) > 5 ||
+        !hash(preview.predecessorClosureHash)) return fail();
+    const closure = validateOwnerEpisodeClosure(preview.predecessorClosure);
+    if (discoveryV2Hash(closure) !== preview.predecessorClosureHash || closure.businessId !== businessId || closure.goalId !== value.goalId ||
+        closure.goalRevision !== preview.goalRevision || closure.goalHash !== preview.goalHash ||
+        closure.businessRevision !== preview.businessRevision || closure.businessHash !== preview.businessHash ||
+        closure.authorityRootId !== (object(preview.funding) && object(preview.funding.binding) ? preview.funding.binding.authorityRootId : null)) return fail();
+  }
   if (!hash(preview.goalHash) || !hash(preview.businessHash) || !hash(preview.profileHash) || !id(preview.profileId) ||
       !object(preview.selection) || typeof preview.selection.marketSetKey !== "string" || typeof preview.selection.topicKey !== "string" ||
       typeof preview.title !== "string" || preview.title.length > 200 || typeof preview.objective !== "string" || preview.objective.length > 1200 ||
@@ -96,10 +107,26 @@ export async function readOwnerResearchCatalog(context: OwnerUiContext, business
       if (containsCredentialLikeValue(row) || !object(row) || !id(row.grantId) || !hash(row.profileHash) || !object(row.profile)) return fail();
       const profile = validateOwnerResearchProfile(row.profile as unknown as OwnerResearchCatalog["profiles"][number]["profile"]);
       if (row.profileHash !== discoveryV2Hash(profile)) return fail();
+      if (row.continuationBounds !== undefined && row.continuationBounds !== null) {
+        if (!object(row.continuationBounds) || !Number.isSafeInteger(row.continuationBounds.maximumEpisodes) || Number(row.continuationBounds.maximumEpisodes) < 1 || Number(row.continuationBounds.maximumEpisodes) > 5 ||
+            !money(row.continuationBounds.maximumAllocationMicrounits) || !Number.isFinite(Date.parse(String(row.continuationBounds.expiresAt)))) return fail();
+      }
     }
     if (data.goal !== null && (containsCredentialLikeValue(data.goal) || !object(data.goal) || !id(data.goal.id) || data.goal.businessId !== businessId || goalId !== null && data.goal.id !== goalId ||
         !hash(data.goal.hash) || !Number.isSafeInteger(data.goal.revision) || Number(data.goal.revision) < 1 || typeof data.goal.preference !== "string" ||
         !object(data.goal.content) || typeof data.goal.initialRunExists !== "boolean")) return fail();
+    if (object(data.goal) && data.goal.continuation !== undefined && data.goal.continuation !== null) {
+      const continuation = data.goal.continuation;
+      if (!object(continuation) || typeof continuation.eligible !== "boolean" ||
+          !(continuation.reason === null || typeof continuation.reason === "string" && continuation.reason.length <= 160) ||
+          !(continuation.predecessorClosureHash === null || hash(continuation.predecessorClosureHash)) ||
+          !(continuation.predecessorClosure === null || object(continuation.predecessorClosure)) ||
+          (continuation.eligible && (!continuation.predecessorClosure || !continuation.predecessorClosureHash))) return fail();
+      if (continuation.predecessorClosure) {
+        const closure = validateOwnerEpisodeClosure(continuation.predecessorClosure);
+        if (discoveryV2Hash(closure) !== continuation.predecessorClosureHash || closure.businessId !== businessId || closure.goalId !== data.goal.id) return fail();
+      }
+    }
     if (goalId !== null && data.goal === null) return fail();
     const parsedFunding = data.funding === null ? null : funding(data.funding, businessId);
     const setups = data.setups.map(receipt => parseOwnerResearchSetupReceipt(receipt, businessId, setupId ?? undefined));
@@ -143,6 +170,41 @@ export async function prepareOwnerResearch(context: OwnerUiContext, input: Owner
   return fail();
 }
 
+export async function prepareOwnerResearchEpisode(context: OwnerUiContext, input: OwnerResearchEpisodePreparationInput): Promise<OwnerResearchSetupReceipt> {
+  validateOwnerResearchEpisodePreparationInput(input);
+  const loaded = await readOwnerResearchCatalog(context, input.businessId, input.goalId, null);
+  if (!loaded.available || !loaded.catalog?.goal || !loaded.catalog.funding) return fail();
+  const catalog = loaded.catalog, goal = catalog.goal!, funding = catalog.funding!;
+  const selected = catalog.profiles.find(row => row.profile.id === input.profileId && row.profileHash === input.profileHash && row.grantId === input.grantId);
+  if (!selected) return fail();
+  const closure = validateOwnerResearchContinuation(goal.continuation!, goal, catalog.business);
+  if (closure.predecessorPlanId !== input.predecessorPlanId || closure.predecessorPlanHash !== input.predecessorPlanHash ||
+      closure.predecessorScopeId !== input.predecessorScopeId || closure.predecessorScopeHash !== input.predecessorScopeHash ||
+      closure.authorityRootId !== funding.binding.authorityRootId || closure.priorRoundId !== funding.binding.priorRoundId ||
+      closure.originalSemanticGoalHash !== funding.binding.originalSemanticGoalHash) return fail();
+  const serverKey = bootstrapCapability(context, input.businessId, input.grantId), quote = await discoveryR12ServerDependencies().quote({});
+  if (quote.version !== "r12.discovery-quote.1") return fail();
+  prepareOwnerResearchEpisodePreview(input, { business: catalog.business, goal, profile: selected.profile, continuationBounds: selected.continuationBounds ?? null, funding, quote });
+  const { data, error } = await boundedRpc(context.supabase.rpc("r12_owner_research_server", { p_business_id: input.businessId, p_operation: "prepare_episode",
+    p_payload: { input, quote }, p_server_key: serverKey }), requestDeadline(20_000), 15_000);
+  if (!error && data) {
+    const receipt = parseOwnerResearchSetupReceipt(data, input.businessId);
+    if (receipt.preview.version !== "r12.owner-research-episode-preview.1" || receipt.preview.predecessorClosureHash !== goal.continuation!.predecessorClosureHash ||
+        receipt.preview.predecessorClosure.predecessorPlanId !== input.predecessorPlanId || receipt.preview.predecessorClosure.predecessorScopeId !== input.predecessorScopeId) return fail();
+    return receipt;
+  }
+  const readback = await readOwnerResearchCatalog(context, input.businessId, input.goalId, null);
+  const receipt = readback.catalog?.setups.find(row => row.submissionId === input.submissionId);
+  if (readback.available && receipt?.preview.version === "r12.owner-research-episode-preview.1" && receipt.preview.goalRevision === input.goalRevision &&
+      receipt.preview.predecessorClosureHash === goal.continuation!.predecessorClosureHash &&
+      receipt.preview.predecessorClosure.predecessorPlanId === input.predecessorPlanId && receipt.preview.predecessorClosure.predecessorScopeId === input.predecessorScopeId &&
+      receipt.preview.profileId === input.profileId && receipt.preview.profileHash === input.profileHash && receipt.grantId === input.grantId &&
+      receipt.preview.selection.marketSetKey === input.marketSetKey && receipt.preview.selection.topicKey === input.topicKey &&
+      receipt.preview.finance.proposedBusinessLimitMicrounits === input.businessLifetimeLimitMicrounits &&
+      receipt.preview.finance.proposedResearchLimitMicrounits === input.researchLifetimeLimitMicrounits) return receipt;
+  return fail();
+}
+
 export async function confirmOwnerResearch(context: OwnerUiContext, input: OwnerResearchSetupAction): Promise<OwnerResearchSetupReceipt> {
   const before = await exactSetup(context, input);
   if (before.activated || before.stopped) return before;
@@ -152,7 +214,7 @@ export async function confirmOwnerResearch(context: OwnerUiContext, input: Owner
   validateOwnerResearchQuote(before.preview.quote);
   if (quote.maximumMicrousd > before.preview.quote.maximumMicrousd || Object.entries(quote.ceilings).some(([phase, amount]) => amount > before.preview.quote.ceilings[phase as keyof typeof quote.ceilings])) return fail();
   const keys = await prepareDiscoveryR12Authority(context, input.businessId, before.scopeId);
-  const { data, error } = await boundedRpc(context.supabase.rpc("r12_owner_research_server", { p_business_id: input.businessId, p_operation: "confirm",
+  const { data, error } = await boundedRpc(context.supabase.rpc("r12_owner_research_server", { p_business_id: input.businessId, p_operation: before.preview.version === "r12.owner-research-episode-preview.1" ? "confirm_episode" : "confirm",
     p_payload: { setupId: input.setupId, setupHash: input.setupHash, submissionId: input.submissionId, controllerKeyHash: keys.controllerKeyHash, admissionKeyHash: keys.admissionKeyHash, quote }, p_server_key: serverKey }), requestDeadline(20_000), 15_000);
   if (!error && data) return parseOwnerResearchSetupReceipt(data, input.businessId, input.setupId);
   const after = await exactSetup(context, input);

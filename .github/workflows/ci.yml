@@ -553,7 +553,7 @@ jobs:
         env:
           R12_SQL_TEST_HOST: ${{ runner.temp }}/r12-sql-host
         run: |
-          node --test --test-concurrency=1 tests/r12-owner-initial-sql.test.mjs tests/r12-owner-initial-security.test.mjs tests/r12-owner-initial-runtime-sql.test.mjs tests/r12-owner-catalog-scale.test.mjs
+          node --test --test-concurrency=1 tests/r12-owner-initial-sql.test.mjs tests/r12-owner-initial-security.test.mjs tests/r12-owner-initial-runtime-sql.test.mjs tests/r12-owner-catalog-scale.test.mjs tests/r12-owner-episode-sql.test.mjs
 
       - name: Verify full-shape R12 dispatch within the unchanged three-second SQL budget
         env:
@@ -625,6 +625,8 @@ jobs:
           export R12_CI_POSTGRES_ADDRESS="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' '${{ job.services.postgres.id }}')"
           node scripts/reset-r12-ci-database.mjs
           node --test tests/r12-owner-initial-postgres-races.test.mjs 2>&1 | tee /tmp/r12-owner-races-ci.log
+          node scripts/reset-r12-ci-database.mjs
+          node --test tests/r12-owner-episode-postgres-races.test.mjs 2>&1 | tee -a /tmp/r12-owner-races-ci.log
 
       - name: Preserve recovery HTTP deadline evidence
         if: always()

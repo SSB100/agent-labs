@@ -1,5 +1,6 @@
+import Link from "next/link";
 import type { OwnerResearchSetupReceipt } from "@/products/discovery-r12-goal-preparation-contract";
-import { ownerResearchUsd } from "@/lib/core-ui/owner-research-form";
+import { ownerResearchScopeHref, ownerResearchUsd } from "@/lib/core-ui/owner-research-form";
 
 const phases = { plan: "Planner", search1: "One public-source collection", select1: "Exact-span evidence selector", strategy: "Strategist", review: "Independent reviewer" } as const;
 
@@ -7,22 +8,27 @@ const phases = { plan: "Planner", search1: "One public-source collection", selec
 export function OwnerResearchPacket({ receipt }: { receipt: OwnerResearchSetupReceipt }) {
   const { preview } = receipt;
   const legacy = preview.funding.binding.kind === "legacy_research_root";
+  const episode = preview.version === "r12.owner-research-episode-preview.1";
   return <section className="ownerResearchPacket" aria-labelledby="research-packet-title">
     <h2 id="research-packet-title">Review this exact research packet</h2>
     <p><strong>{preview.title}</strong> · Quest version {preview.goalRevision}</p>
     <p>{preview.objective}</p>
+    {episode ? <section aria-label="Closed predecessor"><h3>Episode {preview.episodeNumber}: previous research</h3>
+      <p><Link href={ownerResearchScopeHref(preview.businessId, preview.goalId, preview.predecessorClosure.predecessorScopeId)}>View previous research and result</Link> · Previous research version {preview.predecessorClosure.predecessorPlanVersion}. Review the saved result and its limits before approving another episode.</p>
+      <p>Known Quest costs before this episode: {ownerResearchUsd(preview.predecessorClosure.baseKnownMicrounits)}. New quoted whole-run maximum: {ownerResearchUsd(preview.quote.maximumMicrousd)}. Planned Quest total including this new maximum: {ownerResearchUsd(BigInt(preview.predecessorClosure.baseKnownMicrounits) + BigInt(preview.quote.maximumMicrousd))}. Prior evidence and costs stay recorded; a prior NEEDS_MORE_EVIDENCE result is not treated as proof of demand.</p>
+    </section> : null}
     <dl className="ownerResearchFacts">
       <div><dt>Reviewed profile</dt><dd>{preview.profileId} · market choice {preview.selection.marketSetKey} · topic choice {preview.selection.topicKey}</dd></div>
       <div><dt>Selected markets</dt><dd>{preview.markets.map(market => `${market.countryCode} (${market.currency})`).join(", ")}</dd></div>
       <div><dt>Audience</dt><dd>{preview.audience}</dd></div>
-      <div><dt>Exact public search query</dt><dd>{preview.approvedQuery}</dd></div>
+      <div><dt>Reviewed public prompt</dt><dd>{preview.approvedQuery}</dd></div>
       <div><dt>Permitted factual-snippet sources</dt><dd>{preview.sourceDomains.join(", ")}</dd></div>
       <div><dt>Excluded sources</dt><dd>{preview.excludedDomains.join(", ") || "None listed in this reviewed profile"}</dd></div>
     </dl>
-    <p>The public query is rendered from the reviewed market and topic choices. Private Business context and raw Quest text are not added to that search query. Unsupported questions require another reviewed profile.</p>
+    <p>The reviewed profile pins a public prompt and domain filters. The model chooses the downstream Exa query within those bounds; this displayed query is the approved public prompt, not a promise of the exact query Exa receives. Private Business context and raw Quest text are not interpolated into the public prompt. Unsupported questions require another reviewed profile.</p>
     <h3>Five-phase quote</h3>
     <ol>{Object.entries(phases).map(([phase, name]) => <li key={phase}>{name}: at most {ownerResearchUsd(preview.quote.ceilings[phase as keyof typeof phases])}</li>)}</ol>
-    <p><strong>Whole-run maximum: {ownerResearchUsd(preview.quote.maximumMicrousd)}.</strong> Up to {preview.maximumCalls} calls, {preview.maximumCollections} collection and {preview.maximumRepairs} repairs. These are ceilings; the outcome and actual cost are not promised. Usage is charged once against existing OpenRouter credit, within this bounded run; no recurring commitment is created.</p>
+    <p><strong>{episode ? "New episode whole-run maximum" : "Whole-run maximum"}: {ownerResearchUsd(preview.quote.maximumMicrousd)}.</strong> Up to {preview.maximumCalls} calls, {preview.maximumCollections} collection and {preview.maximumRepairs} repairs. These are ceilings; the outcome and actual cost are not promised. Usage is charged once against existing OpenRouter credit, within this bounded run; no recurring commitment is created.</p>
     <p>Quote verified <time dateTime={preview.quote.verifiedAt}>{preview.quote.verifiedAt}</time>; valid until <time dateTime={preview.quote.validUntil}>{preview.quote.validUntil}</time>.</p>
     <h3>Cumulative financial permission</h3>
     <p>These amounts are the immutable snapshot reviewed at preparation. The running workspace shows current costs after confirmation.</p>
@@ -45,12 +51,13 @@ export function OwnerResearchPacket({ receipt }: { receipt: OwnerResearchSetupRe
     <p>Funding version {preview.funding.revision}; Business cap version {preview.finance.expectedCapRevision}. {preview.funding.hasUnknown ? "Unknown research charges block new dispatch." : "No unknown research charge is reported in this packet."} Pending or unknown liabilities must be resolved before fresh dispatch.</p>
     <h3>Data recipients and retention</h3>
     <p>Research inference is routed through OpenRouter to {preview.quote.luna.providerName} ({preview.quote.luna.modelId}, {preview.quote.luna.endpoint}) and the independent reviewer {preview.quote.reviewer.providerName} ({preview.quote.reviewer.modelId}, {preview.quote.reviewer.endpoint}). The bounded research objective, approved scope and phase evidence are processed for this research.</p>
-    <p>The public query is sent to Exa through OpenRouter. Search query retention, improvement and training may apply. The quoted inference endpoints require no-training zero-data-retention routing; only static, nonprivate structured-output schemas are shared as schemas.</p>
+    <p>The model-selected query is sent to Exa through OpenRouter. Bounded raw public-source excerpts reach inference before evidence selection. Exa search query retention, improvement and training may apply; the inference zero-data-retention requirement does not cover Exa. The quoted inference endpoints require no-training zero-data-retention routing; only static, nonprivate structured-output schemas are shared as schemas.</p>
     <h3>Finite authority and stopping</h3>
-    <p>The dispatch clock starts at confirmation: {preview.dispatchMinutes} minutes for dispatch, then {preview.receiptMinutes} additional minutes for existing receipts; at most {preview.maximumReceiptChecks} receipt checks. Stop closes remaining authority. Already dispatched work, possible charges and saved evidence remain recorded.</p>
+    <p>The dispatch clock starts at confirmation: {preview.dispatchMinutes} minutes for dispatch, then {preview.receiptMinutes} additional minutes for existing receipts; at most {preview.maximumReceiptChecks} receipt checks. {episode ? "After confirmation, Stop before the first Continue call consumes this episode’s allocation and closes its remaining authority." : "Stop closes remaining authority."} Already dispatched work, possible charges and saved evidence remain recorded.</p>
     <p>Confirmation records this exact R05 operating policy and activates its finite authority window without making a provider call. Opening or preparing this packet does not start paid work. Use the existing research workspace’s Continue control to start bounded paid research. TEST, REJECT and NEEDS_MORE_EVIDENCE remain possible; creative generation, commerce and publication require separate permission.</p>
     <details><summary>Exact saved packet and confirmation references</summary>
       <p>Setup: {receipt.setupId}<br/>Setup hash: {receipt.setupHash}<br/>Policy: {receipt.policyId}<br/>Policy hash: {receipt.policyHash}<br/>Research scope: {receipt.scopeId}</p>
+      {episode ? <p>Predecessor plan: {preview.predecessorClosure.predecessorPlanId}<br/>Predecessor plan hash: {preview.predecessorClosure.predecessorPlanHash}<br/>Predecessor scope: {preview.predecessorClosure.predecessorScopeId}<br/>Predecessor scope hash: {preview.predecessorClosure.predecessorScopeHash}<br/>Closure hash: {preview.predecessorClosureHash}</p> : null}
       <pre>{JSON.stringify(preview, null, 2)}</pre>
     </details>
   </section>;

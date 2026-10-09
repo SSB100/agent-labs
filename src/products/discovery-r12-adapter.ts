@@ -9,6 +9,7 @@ import { inspectDiscoveryR12Wire, routeDiscoveryR12Request, type DiscoveryR12Pha
 import { discoveryR12PhaseCeiling, type DiscoveryR12ExecutionQuote } from "./discovery-r12-quote";
 import { isDiscoveryReviewContinuation, type DiscoveryR12ExecutionScope } from "./discovery-r12-review-continuation";
 import { isDiscoveryOwnerInitialScope } from "./discovery-r12-goal-scope";
+import { isDiscoveryOwnerEpisodeScope, validateOwnerEpisodePlan } from "./discovery-r12-owner-episode";
 import { isDiscoveryFocusedPilot } from "./discovery-r12-focused-pilot-scope";
 import { isDiscoveryEvidenceContinuation } from "./discovery-r12-evidence-continuation";
 import { observeR12ReviewResponse, r12ReviewDiagnostic, type R12ReviewObservation, type R12ReviewDiagnosticCode } from "./discovery-r12-observation";
@@ -45,7 +46,8 @@ export function createDiscoveryR12QuestAdapter(options: {
   const scope = structuredClone(options.scope), identity = structuredClone(options.identity), phase = options.phase;
   const scopeHash = discoveryV2Hash(scope), now = options.now ?? Date.now;
   function context(ctx: QuestAdapterContext) {
-    if (ctx.plan.format !== (isDiscoveryFocusedPilot(scope) ? "r12.discovery-pilot.1" : isDiscoveryReviewContinuation(scope) ? "r12.discovery-review.1" : isDiscoveryEvidenceContinuation(scope) ? "r12.discovery-evidence.1" : "r12.discovery.1") || (isDiscoveryReviewContinuation(scope) && phase !== "review") || ((isDiscoveryEvidenceContinuation(scope) || isDiscoveryFocusedPilot(scope)) && !["strategy", "review"].includes(phase)) || ctx.plan.discoveryScopeId !== scope.id || ctx.plan.discoveryScopeHash !== scopeHash || ctx.plan.businessId !== scope.businessId || ctx.plan.goalId !== scope.goalId || ctx.step.key !== phase ||
+    if (isDiscoveryOwnerEpisodeScope(scope)) validateOwnerEpisodePlan(ctx.plan, scope);
+    if (ctx.plan.format !== (isDiscoveryOwnerEpisodeScope(scope) ? "r12.discovery-episode.1" : isDiscoveryFocusedPilot(scope) ? "r12.discovery-pilot.1" : isDiscoveryReviewContinuation(scope) ? "r12.discovery-review.1" : isDiscoveryEvidenceContinuation(scope) ? "r12.discovery-evidence.1" : "r12.discovery.1") || (isDiscoveryReviewContinuation(scope) && phase !== "review") || ((isDiscoveryEvidenceContinuation(scope) || isDiscoveryFocusedPilot(scope)) && !["strategy", "review"].includes(phase)) || ctx.plan.discoveryScopeId !== scope.id || ctx.plan.discoveryScopeHash !== scopeHash || ctx.plan.businessId !== scope.businessId || ctx.plan.goalId !== scope.goalId || ctx.step.key !== phase ||
       ctx.step.adapter !== `r12.discovery.${scope.id}.${phase}` || ctx.step.operationKey !== `research.r12.${scope.id}.${phase}` || ctx.step.qualificationHash !== identity.qualificationHash || ctx.step.workflowDefinitionId !== identity.workflowDefinitionId || ctx.step.workerDefinitionId !== identity.workerDefinitionId) return fail();
   }
   function descriptor(ctx: QuestAdapterContext, request: Request, body: string): QuestPreparedCall {
@@ -61,7 +63,7 @@ export function createDiscoveryR12QuestAdapter(options: {
     const binding = saved.binding as WireBinding;
     if (binding.version !== "r12.discovery-wire.1" || binding.scopeId !== scope.id || binding.scopeHash !== scopeHash || binding.attemptId !== ctx.attempt.id || binding.requestId !== ctx.attempt.requestId || binding.phase !== phase ||
       binding.requestHash !== discoveryV2Hash(JSON.parse(binding.requestJson)) || binding.wireHash !== hash(binding.wireBody) || binding.wireHash !== ctx.attempt.wireHash || discoveryV2Hash(binding.dependencyPins) !== discoveryV2Hash(ctx.attempt.dependencyPins)) return fail();
-    const inspected = await inspectDiscoveryR12Wire(JSON.parse(binding.requestJson) as Request, phase, isDiscoveryEvidenceContinuation(scope), isDiscoveryFocusedPilot(scope), isDiscoveryOwnerInitialScope(scope));
+    const inspected = await inspectDiscoveryR12Wire(JSON.parse(binding.requestJson) as Request, phase, isDiscoveryEvidenceContinuation(scope), isDiscoveryFocusedPilot(scope), isDiscoveryOwnerInitialScope(scope) || isDiscoveryOwnerEpisodeScope(scope));
     if (inspected.wire.body !== binding.wireBody) return fail();
     return { ...saved, binding };
   }
@@ -130,7 +132,8 @@ export function createDiscoveryR12QuestAdapter(options: {
       const quote = await options.quote();
       if ((quote.version === "r12.discovery-pilot-quote.1") !== isDiscoveryFocusedPilot(scope) || (quote.version === "r12.discovery-evidence-quote.1") !== isDiscoveryEvidenceContinuation(scope) || Date.parse(quote.validUntil) <= now() || discoveryR12PhaseCeiling(quote, phase) > Number(ctx.step.maximumMicrounits)) return fail();
       const route = phase === "review" ? quote.reviewer : quote.luna;
-      const request = routeDiscoveryR12Request(await options.request(ctx), phase, route, isDiscoveryFocusedPilot(scope), isDiscoveryOwnerInitialScope(scope)), wire = await inspectDiscoveryR12Wire(request, phase, isDiscoveryEvidenceContinuation(scope), isDiscoveryFocusedPilot(scope), isDiscoveryOwnerInitialScope(scope));
+      const ownerSchema = isDiscoveryOwnerInitialScope(scope) || isDiscoveryOwnerEpisodeScope(scope);
+      const request = routeDiscoveryR12Request(await options.request(ctx), phase, route, isDiscoveryFocusedPilot(scope), ownerSchema), wire = await inspectDiscoveryR12Wire(request, phase, isDiscoveryEvidenceContinuation(scope), isDiscoveryFocusedPilot(scope), ownerSchema);
       const call = descriptor(ctx, request, wire.wire.body);
       if (ctx.attempt.requestId) {
         const binding: WireBinding = { version: "r12.discovery-wire.1", scopeId: scope.id, scopeHash, attemptId: ctx.attempt.id, requestId: ctx.attempt.requestId, phase,

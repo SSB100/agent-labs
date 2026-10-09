@@ -8,14 +8,15 @@ export function ownerResearchUsdMicrounits(value: string): string | null {
   return amount > BigInt(0) && amount <= BigInt(Number.MAX_SAFE_INTEGER) ? amount.toString() : null;
 }
 
-export function ownerResearchUsdValue(value: string | number): string {
+export function ownerResearchUsdValue(value: string | number | bigint): string {
   const amount = BigInt(value);
   return `${amount / BigInt(1_000_000)}.${(amount % BigInt(1_000_000)).toString().padStart(6, "0")}`;
 }
 
-export const ownerResearchUsd = (value: string | number) => `USD ${ownerResearchUsdValue(value)}`;
+export const ownerResearchUsd = (value: string | number | bigint) => `USD ${ownerResearchUsdValue(value)}`;
 export const ownerResearchSetupHref = (businessId: string, goalId: string, setupId?: string) => `/dashboard/quests/research?business=${encodeURIComponent(businessId)}&quest=${encodeURIComponent(goalId)}${setupId ? `&setup=${encodeURIComponent(setupId)}` : ""}`;
-export const ownerResearchWorkspaceHref = (receipt: OwnerResearchSetupReceipt) => `/dashboard?view=research&type=r12&business=${receipt.businessId}&selected=${receipt.scopeId}&quest=${receipt.goalId}`;
+export const ownerResearchScopeHref = (businessId: string, goalId: string, scopeId: string) => `/dashboard?view=research&type=r12&business=${encodeURIComponent(businessId)}&selected=${encodeURIComponent(scopeId)}&quest=${encodeURIComponent(goalId)}`;
+export const ownerResearchWorkspaceHref = (receipt: OwnerResearchSetupReceipt) => ownerResearchScopeHref(receipt.businessId, receipt.goalId, receipt.scopeId);
 
 export function ownerResearchCanConfirm(receipt: OwnerResearchSetupReceipt | null, consentHash: string | null, now: number): boolean {
   return !!receipt && !receipt.confirmed && !receipt.activated && !receipt.stopped && receipt.setupHash === consentHash && Date.parse(receipt.preview.quote.validUntil) > now;
