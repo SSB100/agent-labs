@@ -10,6 +10,7 @@ import {fixture as browserFixture} from './etsy-insights-playwright-fixture.mjs'
 import {r12CatalogFixture} from './r12-provider-fixture.mjs';
 import {r12PhaseOutputFixture} from './r12-phase-output-fixture.mjs';
 import {directModelExpectation} from './r12-direct-controller-model-fixture.mjs';
+import {directRepairModelExpectation} from './r12-direct-controller-repair-model-fixture.mjs';
 const require=createRequire(import.meta.url),ts=require('typescript');
 const core=name=>require('../../.core-tests/'+name+'.js');
 const model=core('products/discovery-r12-public-model'),modelRuntime=core('products/discovery-r12-public-model-runtime');
@@ -19,25 +20,26 @@ const {publicResearchQuestionHash}=core('products/discovery-r12-public-contracts
 export const INERT_DIRECT_RUNTIME_ROOT='inert-owner-initial-runtime-bootstrap-root-0123456789';
 
 function actualSourceModule(file,deps){
- const source=readFileSync(file,'utf8'),module={exports:{}};
+ const source=readFileSync(file,'utf8'),loadedModule={exports:{}};
  const code=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
- new Function('require','module','exports',code)(name=>{assert.ok(Object.hasOwn(deps,name),'Unexpected runtime import: '+name);return deps[name];},module,module.exports);
- return {...module.exports,sourceHash:createHash('sha256').update(source).digest('hex')};
+ new Function('require','module','exports',code)(name=>{assert.ok(Object.hasOwn(deps,name),'Unexpected runtime import: '+name);return deps[name];},loadedModule,loadedModule.exports);
+ return {...loadedModule.exports,sourceHash:createHash('sha256').update(source).digest('hex')};
 }
 function outputFor(f,attempt){
  const raw=r12PhaseOutputFixture(f.profile.audience),i=attempt.inputs;
  if(attempt.phase==='plan'){raw.plan.queryFocus=[];return raw.plan;}
  if(attempt.phase==='strategy'){raw.strategy.marketComparisons=raw.strategy.marketComparisons.filter(x=>x.countryCode==='GB');return{assessment:raw.strategy,measurement:null};}
  assert.equal(attempt.phase,'review');
- const ctx=model.readPublicResearchModelInputs(i,directModelExpectation(i)),ref=ctx.evidence.find(x=>x.kind==='searches').ref;
+ const ctx=model.readPublicResearchModelInputs(i,f.policy.version==='r12.direct-etsy-attempt-policy.2'?directRepairModelExpectation(i):directModelExpectation(i)),ref=ctx.evidence.find(x=>x.kind==='searches').ref;
  const quality=Object.fromEntries(PUBLIC_RESEARCH_DIMENSIONS.map(d=>[d,{score:3,anchorId:`${d}.3`,rationale:'Literal aggregate observations leave candidate demand and exposure unresolved.',evidenceRefs:[ref],contraryRefs:[ref],missingFacts:['Eligible exposure is unknown.']}]));
  const next={...f.initial,query:'astronomy graduation gifts',namedGap:'Which astronomy graduation gift wording is visible?',questionHash:publicResearchQuestionHash('Which astronomy graduation gift wording is visible?')};
  return{version:'r12.direct-etsy-review.1',proposalHash:i.dependencies.strategy.response.result.proposalHash,quality,hypothesisFinding:'undetermined',learningRecommendation:'NME',conclusion:'The descriptive result is concrete but the hypothesis remains unmeasured.',conclusionEvidenceRefs:[ref],contraryEvidenceRefs:[ref],proposedCommand:next};
 }
 
-export function directRuntimeComposition(db,f){
+export function directRuntimeComposition(db,f,{rpcTransport=null,modelOutput=null,policyVersion='r12.direct-etsy-attempt-policy.1'}={}){
+ assert.equal(f.policy.version,policyVersion,'The fixture must explicitly select the versioned authority under test');
  const calls=[],modelPosts=[],modelGets=[],catalogGets=[],browserPosts=[],browsers=[],sourceResults=[],modelResults=[],sqlErrors=[];
- const faults={proofUnavailable:false,sourceFinishUnavailable:0};
+ const faults={proofUnavailable:false,sourceFinishUnavailable:0,failModelPhaseOnce:null};
  const client={rpc:async(name,args)=>{
   assert.ok(['r12_direct_controller_server','r12_direct_browser_ledger'].includes(name));
   const operation=args.p_operation;calls.push({name,operation,payload:structuredClone(args.p_payload)});
@@ -48,7 +50,7 @@ export function directRuntimeComposition(db,f){
   if(name==='r12_direct_controller_server')assert.equal(args.p_scope_id,f.prepared.scopeId);
   if(operation==='source_finish'&&faults.sourceFinishUnavailable>0){faults.sourceFinishUnavailable--;return{data:null,error:new Error('Inert unavailable source finish before SQL')};}
   const values=name==='r12_direct_controller_server'?[args.p_business_id,args.p_scope_id,operation,args.p_payload,args.p_server_key]:[args.p_business_id,args.p_operation_id,operation,args.p_payload,args.p_server_key];
-  try{return{data:await ownerInitialRuntimeRpc(db,name,values),error:null};}
+  try{return{data:rpcTransport?await rpcTransport(name,args):await ownerInitialRuntimeRpc(db,name,values),error:null};}
   catch(error){sqlErrors.push({operation,message:error.message});return{data:null,error};}
  }};
  const catalogFetch=async(address,init)=>{
@@ -65,7 +67,8 @@ export function directRuntimeComposition(db,f){
     const wire=await one(db,'select binding from private.r12_direct_phase_wires where attempt_id=$1',[attemptId]);
     assert.equal(init.body,wire.binding.wireBody);assert.equal(modelPosts.some(x=>x.attemptId===attemptId),false,'Never resend an admitted model attempt');
     const providerRequestId='gen-inert-driver-'+randomUUID();modelPosts.push({attemptId,phase:attempt.phase,providerRequestId});
-    return Response.json({id:providerRequestId,model:route.modelId,choices:[{finish_reason:'stop',message:{content:JSON.stringify(outputFor(f,attempt))}}],usage:{prompt_tokens:100,completion_tokens:50,total_tokens:150,cost:0.000001}});
+    const output=faults.failModelPhaseOnce===attempt.phase?(faults.failModelPhaseOnce=null,{}):modelOutput?modelOutput(attempt):outputFor(f,attempt);
+    return Response.json({id:providerRequestId,model:route.modelId,choices:[{finish_reason:'stop',message:{content:JSON.stringify(output)}}],usage:{prompt_tokens:100,completion_tokens:50,total_tokens:150,cost:0.000001}});
    }
    assert.equal(init.method,'GET');assert.ok(attempt.candidate,'Candidate persistence must precede route receipt lookup');
    const url=new URL(address);assert.equal(url.origin+url.pathname,'https://openrouter.ai/api/v1/generation');assert.equal(url.searchParams.get('id'),attempt.candidate.providerRequestId);
@@ -102,6 +105,7 @@ export function directRuntimeComposition(db,f){
   './discovery-r12-public-preparation':core('products/discovery-r12-public-preparation'),
   './discovery-r12-public-driver':core('products/discovery-r12-public-driver'),
   './discovery-r12-public-cycle':core('products/discovery-r12-public-cycle'),
+  './discovery-r12-public-repair':core('products/discovery-r12-public-repair'),
   './discovery-r12-adaptive-quote':{...quote,fetchAdaptiveResearchQuote:options=>quote.fetchAdaptiveResearchQuote({...options,fetch:catalogFetch})},
   './discovery-r12-public-model-runtime':{...modelRuntime,async runPublicResearchModelAttempt(args,deps){const result=await modelRuntime.runPublicResearchModelAttempt(args,{...deps,provider:modelProvider(args.attemptId)});modelResults.push(result);return result;}},
   '../browser/etsy-insights-rpc-runtime':{...sourceRuntime,createEtsyInsightsRpcRuntime:actualSource},

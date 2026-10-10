@@ -6,7 +6,7 @@ import type { ModelDispatchAdmission, ModelProviderResponse, StructuredModelRequ
 import { fetchGenerationRouteProofOnce, validateGenerationRouteProof, type GenerationRouteProof } from "../research/generation-route";
 import { discoveryR12ReceiptExpectation, type DiscoveryR12Candidate, type DiscoveryR12CandidateBinding } from "./discovery-r12-receipt";
 import type { DiscoveryR12CompletedPhase } from "./discovery-r12-runtime";
-import { buildPublicResearchModelRequest, inspectPublicResearchModelWire, projectPublicResearchModelPhase, readPublicResearchModelInputs, type PublicResearchModelContext, type PublicResearchModelInputs, type PublicResearchModelPhase } from "./discovery-r12-public-model";
+import { publicResearchModelCurrentCycleOrdinal, publicResearchModelCurrentRequestHash, buildPublicResearchModelRequest, inspectPublicResearchModelWire, projectPublicResearchModelPhase, readPublicResearchModelInputs, type PublicResearchModelContext, type PublicResearchModelInputs, type PublicResearchModelPhase } from "./discovery-r12-public-model";
 import { exactPublicKeys as exact, publicHash, publicResearchHash as hash, publicTime, publicUuid } from "./discovery-r12-public-utils";
 
 /** Server-authenticated setup pins. Browser forms and model output cannot supply
@@ -91,14 +91,14 @@ function authority(raw: PublicResearchModelRuntimeAuthority): PublicResearchMode
 }
 function context(input: PublicResearchModelInputs, expected: PublicResearchModelRuntimeAuthority, attemptId: string): PublicResearchModelContext {
   if (!input || input.policy?.policyHash !== expected.policyHash) fail();
-  return readPublicResearchModelInputs(input, { ...expected, phaseAttemptId: attemptId, phase: input.phase, inputHash: input.inputHash, reviewQualificationHash: hash(input.reviewQualification), quoteRouteEvidenceHash: input.executionQuoteProof.routeEvidenceHash, quoteAuthoritySnapshotHash: input.executionQuoteProof.authoritySnapshotHash, sourceReceiptHashes: input.sourcePackets.map(p => p.receipt.receiptHash), dependencyResponseHashes: Object.values(input.dependencies).filter(x => x !== null).map(x => x.responseHash) });
+  return readPublicResearchModelInputs(input, { ...expected, ...(input.version === "r12.public-research-phase-inputs.2" ? {stateHash:input.state.stateHash,repairBindingHash:input.repair.bindingHash} : {}), phaseAttemptId: attemptId, phase: input.phase, inputHash: input.inputHash, reviewQualificationHash: hash(input.reviewQualification), quoteRouteEvidenceHash: input.executionQuoteProof.routeEvidenceHash, quoteAuthoritySnapshotHash: input.executionQuoteProof.authoritySnapshotHash, sourceReceiptHashes: input.sourcePackets.map(p => p.receipt.receiptHash), dependencyResponseHashes: Object.values(input.dependencies).filter(x => x !== null).map(x => x.responseHash) });
 }
 function readAttempt(raw: unknown, expected: PublicResearchModelRuntimeAuthority, attemptId: string): { attempt: Attempt; context: PublicResearchModelContext } {
   if (!exact(raw, "attemptId,requestId,phase,ordinal,dependencyPins,inputs,status,dispatched,binding,candidate,completed,failure")) fail();
   const a = structuredClone(raw) as unknown as Attempt;
   if (a.attemptId !== attemptId || !publicUuid(a.requestId) || !["plan", "strategy", "review"].includes(a.phase) || typeof a.dispatched !== "boolean" || !["scheduled", "reserved", "dispatched", "uncertain", "responded", "completed", "rejected", "failed", "cancelled"].includes(a.status) || !Array.isArray(a.dependencyPins) || a.dependencyPins.length > 3) fail();
   const ctx = context(a.inputs, expected, attemptId);
-  if (ctx.input.phase !== a.phase || ctx.input.state.attempts.at(-1)?.ordinal !== a.ordinal || a.dispatched !== (a.binding !== null)) fail();
+  if (ctx.input.phase !== a.phase || publicResearchModelCurrentCycleOrdinal(ctx) !== a.ordinal || a.dispatched !== (a.binding !== null)) fail();
   for (const p of a.dependencyPins) if (!exact(p, "stepKey,attemptId,resultHash,receiptHash") || !["plan", "source", "strategy"].includes(p.stepKey) || !publicUuid(p.attemptId) || !publicHash(p.resultHash) || !publicHash(p.receiptHash)) fail();
   if (new Set(a.dependencyPins.map(p => p.stepKey)).size !== a.dependencyPins.length || !a.dispatched && (a.candidate !== null || a.completed !== null || a.failure !== null) || a.completed !== null && a.failure !== null) fail();
   if (a.binding) validateBinding(a.binding, ctx, a.requestId);
@@ -186,7 +186,7 @@ export async function runPublicResearchModelAttempt(args: { authority: PublicRes
         if (!object(raw) || raw.shouldDispatch !== true || raw.attemptId !== attemptId || raw.requestId !== requestId || raw.requestHash !== wire.requestHash || raw.wireHash !== wire.wireHash) fail();
         const final = context(raw.inputs as PublicResearchModelInputs, pins, attemptId), binding = structuredClone(raw.binding) as DiscoveryR12CandidateBinding;
         validateBinding(binding, final, requestId!);
-        if (!same(buildPublicResearchModelRequest(final), request) || (await inspectPublicResearchModelWire(final)).wire.body !== actual.body || final.input.state.attempts.at(-1)!.dispatches.at(-1)!.requestHash !== wire.requestHash || now() >= publicTime(final.input.executionQuoteProof.validUntil)) fail();
+        if (!same(buildPublicResearchModelRequest(final), request) || (await inspectPublicResearchModelWire(final)).wire.body !== actual.body || publicResearchModelCurrentRequestHash(final) !== wire.requestHash || now() >= publicTime(final.input.executionQuoteProof.validUntil)) fail();
         admitted.value = { inputs: final.input, binding }; ctx = final; sent = true;
       });
       if (!admitted.value || !sent) fail();

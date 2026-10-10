@@ -20,6 +20,7 @@ on:
   push:
     branches:
       - main
+      - codex/r12-steel-insights-wip-20261010
 
 permissions:
   contents: read

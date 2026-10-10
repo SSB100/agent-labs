@@ -1,3 +1,4 @@
+import{validatePublicResearchRepairPolicy,validatePublicResearchRepairState}from './discovery-r12-public-repair';
 import {createHmac,randomBytes,randomUUID} from 'node:crypto';
 import {awaitRequestDeadline,boundedRpc,requestDeadline} from '../core/request-deadline';
 import {createRuntimeClient} from '../lib/supabase/runtime';
@@ -32,7 +33,7 @@ export async function executePublicResearchRuntimeStep(input:PublicResearchRunti
  // only a first attachment requires live scheduling authority.
  check(object(raw)&&object(raw.setup)&&object(raw.setup.preview));const setup=raw.setup;check(object(setup.preview));const p=setup.preview;
  check(setup.confirmed===true&&setup.businessId===input.businessId&&setup.goalId===input.goalId&&setup.scopeId===input.scopeId&&setup.scopeHash===input.scopeHash&&setup.planHash===input.planHash&&setup.testEnvelopeId===input.testEnvelopeId&&p.testEnvelopeHash===input.envelopeHash&&hash(p)===setup.setupHash);
- const policy=validatePublicResearchPolicy(p.policy),profile=validatePublicResearchProfile(p.profile);
+ const policy=object(p.policy)&&p.policy.version==='r12.direct-etsy-attempt-policy.2'?validatePublicResearchRepairPolicy(p.policy):validatePublicResearchPolicy(p.policy),profile=validatePublicResearchProfile(p.profile);
  check(policy.policyHash===input.policyHash&&profile.profileHash===input.profileHash);
  const decision=decidePublicResearchDriverAction(policy,raw.state as Parameters<typeof decidePublicResearchDriverAction>[1]);
  if(decision.kind==='stage_complete'||decision.kind==='pause')return{continue:false,reason:decision.kind==='pause'?decision.reason:'research_window_complete',questComplete:false};
@@ -52,7 +53,7 @@ export async function executePublicResearchRuntimeStep(input:PublicResearchRunti
  if(attempt.dispatched){
   // Recovery never creates another session. SQL can finish only an already
   // captured immutable receipt with qualified cleanup and bounded accounting.
-  const settled=await rpc('source','source_finish',{attemptId});check(object(settled));const current=await rpc('controller','read');check(object(current));const state=validatePublicResearchState(current.state,policy),before=validatePublicResearchState(raw.state,policy);const progressed=state.stateHash!==before.stateHash;return{continue:progressed,reason:progressed?'source_reconciled':'source_recovery_pending',questComplete:false};
+  const settled=await rpc('source','source_finish',{attemptId});check(object(settled));const current=await rpc('controller','read');check(object(current));const state=policy.version==='r12.direct-etsy-attempt-policy.2'?validatePublicResearchRepairState(current.state,policy):validatePublicResearchState(current.state,policy),before=policy.version==='r12.direct-etsy-attempt-policy.2'?validatePublicResearchRepairState(raw.state,policy):validatePublicResearchState(raw.state,policy);const progressed=state.stateHash!==before.stateHash;return{continue:progressed,reason:progressed?'source_reconciled':'source_recovery_pending',questComplete:false};
  }
  const pending:Promise<void>[]=[];
  const source=createEtsyInsightsRpcRuntime({scope:attempt.inputs as EtsyInsightsScope,routeHash:input.routeHash,signal,registerCleanup:work=>{pending.push(work);},sourceRpc:(operation,payload)=>rpc('source',operation,payload),ledgerRpc:async(operation,payload)=>{const s=attempt.inputs as EtsyInsightsScope;const r=await boundedRpc(client.rpc('r12_direct_browser_ledger',{p_business_id:input.businessId,p_operation_id:s.operationId,p_operation:operation,p_payload:payload,p_server_key:key('evidence')}),requestDeadline(15000),10000);check(!r.error&&r.data!==null);return r.data;}});

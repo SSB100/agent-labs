@@ -1,6 +1,6 @@
 import { quoteTextTokenCost } from "../research/qualification-quote";
 import { DISCOVERY_V2_BUDGET } from "./discovery-v2-budget";
-import { containsCredentialLikeValue } from "../core/quest-intake";
+import { containsCredentialLikeValue, containsCredentialLikeContent } from "../core/quest-intake";
 import { validateAdaptiveResearchQuote,type EtsyAdaptiveResearchQuote } from "./discovery-r12-adaptive-quote";
 import { validatePublicResearchPredecessor,validatePublicResearchOriginHistory,type PublicResearchPredecessor,type PublicResearchOriginHistory } from "./discovery-r12-public-origin";
 import { validatePublicResearchCapProposal,projectPublicResearchCapProposal,type PublicResearchCapProposal } from "./discovery-r12-public-caps";
@@ -55,6 +55,34 @@ export type PublicResearchOwnerTestEnvelope={version:"r12.owner-direct-test-enve
  researchPins:Record<string,unknown>;profileTemplate:Record<string,unknown>;requiresPersistentAccessApproval:true;existingGoalBudget:{amount:string;currency:string|null};expiresAt:string};
 export type PublicResearchOwnerTestReceipt={version:"r12.owner-direct-test-receipt.1";businessId:string;goalId:string;testEnvelopeId:string;testEnvelopeHash:string;confirmed:boolean;stopped:boolean;createdAt:string;expiresAt:string;preview:PublicResearchOwnerTestEnvelope};
 function inertProjection(v:unknown):v is Record<string,unknown>{if(!v||typeof v!=="object"||Array.isArray(v)||containsCredentialLikeValue(v))return false;publicBoundedJson(v,65536);return true;}
+/** Complete private reviewed-pins projection only. This changes neither the
+ * legacy generic projection limits nor any provider wire/token/cash ceiling. */
+export function validatePublicResearchReviewedPinsProjection(raw:unknown):Record<string,unknown>{
+ const active=new WeakSet<object>();let nodes=0,bytes=0;
+ const add=(n:number)=>{bytes+=n;if(bytes>262144)return fail("r12_public_reviewed_pins_bounds");};
+ function visit(value:unknown,depth:number):void{
+  if(++nodes>12000||depth>24)return fail("r12_public_reviewed_pins_bounds");
+  if(typeof value==="string"){if(containsCredentialLikeContent(value))return fail("r12_public_reviewed_pins_unverified");add(Buffer.byteLength(JSON.stringify(value)));return;}
+  if(value===null||typeof value==="boolean"||typeof value==="number"&&Number.isFinite(value)){add(Buffer.byteLength(JSON.stringify(value)));return;}
+  if(!value||typeof value!=="object"||active.has(value))return fail("r12_public_reviewed_pins_unverified");
+  const array=Array.isArray(value),prototype=Object.getPrototypeOf(value);
+  if(array?prototype!==Array.prototype:prototype!==Object.prototype&&prototype!==null)return fail("r12_public_reviewed_pins_unverified");
+  active.add(value);add(2);
+  const keys=Reflect.ownKeys(value);if(keys.length>12000)return fail("r12_public_reviewed_pins_bounds");
+  if(array){const length=Object.getOwnPropertyDescriptor(value,"length");if(!length||!("value"in length)||!Number.isSafeInteger(length.value)||length.value<0||length.value>12000||keys.length!==length.value+1)return fail("r12_public_reviewed_pins_unverified");}
+  let emitted=0;
+  for(const key of keys){
+   if(typeof key!=="string"||containsCredentialLikeContent(key))return fail("r12_public_reviewed_pins_unverified");
+   const d=Object.getOwnPropertyDescriptor(value,key);if(!d||!("value"in d))return fail("r12_public_reviewed_pins_unverified");
+   if(array&&key==="length")continue;
+   if(!d.enumerable||array&&!/^(0|[1-9][0-9]*)$/.test(key))return fail("r12_public_reviewed_pins_unverified");
+   if(emitted++)add(1);if(!array)add(Buffer.byteLength(JSON.stringify(key))+1);visit(d.value,depth+1);
+  }
+  active.delete(value);
+ }
+ if(!raw||typeof raw!=="object"||Array.isArray(raw))return fail("r12_public_reviewed_pins_unverified");
+ try{visit(raw,0);return structuredClone(raw)as Record<string,unknown>;}catch{return fail("r12_public_reviewed_pins_unverified");}
+}
 function validateFunding(v:PublicResearchOwnerFunding,businessId:string,rootId:string,bindingId:string):void{
  if(!exact(v,"bindingId,bindingKind,authorityRootId,business,root,funding")||v.bindingId!==bindingId||v.authorityRootId!==rootId||!["r05_business","legacy_research_root"].includes(v.bindingKind)||!exact(v.business,"revision,currentLimitMicrounits,conservativeExposureMicrounits,headroomMicrounits")||!exact(v.root,"revision,currentLimitMicrounits,conservativeExposureMicrounits,headroomMicrounits,bindingHash")||!hash(v.root.bindingHash)||!inertProjection(v.funding))return fail();
  for(const k of ["business","root"]as const){const x=v[k],limit=money(x.currentLimitMicrounits),exposure=money(x.conservativeExposureMicrounits);if(!integer(x.revision)||money(x.headroomMicrounits)!==(limit>exposure?limit-exposure:BigInt(0)))return fail();}
@@ -65,7 +93,12 @@ function validateFunding(v:PublicResearchOwnerFunding,businessId:string,rootId:s
 /** Receipt-only reader: expired and stopped saved envelopes remain readable.
  * It validates immutable integrity/binding, not live dispatch authorization. */
 export function validatePublicResearchOwnerTestReceipt(raw:unknown,expected:{businessId:string;goalId:string;testEnvelopeId?:string;testEnvelopeHash?:string}):PublicResearchOwnerTestReceipt{
- if(!exact(raw,"version,businessId,goalId,testEnvelopeId,testEnvelopeHash,confirmed,stopped,createdAt,expiresAt,preview"))return fail();publicBoundedJson(raw);const r=raw as unknown as PublicResearchOwnerTestReceipt;
+ if(!exact(raw,"version,businessId,goalId,testEnvelopeId,testEnvelopeHash,confirmed,stopped,createdAt,expiresAt,preview"))return fail();
+ // Inspect data descriptors before JSON serialization or canonical hashing can
+ // evaluate a hostile accessor in this otherwise inert reviewed projection.
+ const previewDescriptor=Object.getOwnPropertyDescriptor(raw,"preview");if(!previewDescriptor||!("value"in previewDescriptor)||!previewDescriptor.value||typeof previewDescriptor.value!=="object")return fail();
+ const pinsDescriptor=Object.getOwnPropertyDescriptor(previewDescriptor.value,"researchPins");if(!pinsDescriptor||!("value"in pinsDescriptor))return fail();validatePublicResearchReviewedPinsProjection(pinsDescriptor.value);
+ publicBoundedJson(raw);const r=raw as unknown as PublicResearchOwnerTestReceipt;
  if(r.version!=="r12.owner-direct-test-receipt.1"||![r.businessId,r.goalId,r.testEnvelopeId].every(uuid)||!hash(r.testEnvelopeHash)||typeof r.confirmed!=="boolean"||typeof r.stopped!=="boolean"||time(r.expiresAt)<=time(r.createdAt))return fail();for(const[k,v]of Object.entries(expected))if(r[k as keyof typeof r]!==v)return fail();
  const p=r.preview;if(!exact(p,"version,testEnvelopeId,businessId,goalId,ownerId,authorityRootId,bindingId,policyId,grantId,grantRootId,grantReviewHash,originDirectRunId,input,origin,originHash,funding,capProposal,maximumMicrounits,maximumAttemptsInWindow,setupOperation,verificationOperation,setupQuote,verificationQuote,researchPins,profileTemplate,requiresPersistentAccessApproval,existingGoalBudget,expiresAt")||p.version!=="r12.owner-direct-test-envelope.1"||p.requiresPersistentAccessApproval!==true||![p.ownerId,p.authorityRootId,p.bindingId,p.policyId,p.grantId,p.grantRootId,p.originDirectRunId].every(uuid)||![p.grantReviewHash,p.originHash].every(hash)||p.testEnvelopeId!==r.testEnvelopeId||p.businessId!==r.businessId||p.goalId!==r.goalId||p.expiresAt!==r.expiresAt||publicResearchHash(p)!==r.testEnvelopeHash)return fail();
  const i=validatePublicResearchOwnerTestInput(p.input);if(i.businessId!==p.businessId||i.goalId!==p.goalId||i.grantId!==p.grantId||i.maximumAttemptsInWindow!==p.maximumAttemptsInWindow||i.maximumRunMicrounits!==p.maximumMicrounits||publicResearchHash(i.capProposal)!==publicResearchHash(p.capProposal))return fail();
@@ -76,7 +109,7 @@ export function validatePublicResearchOwnerTestReceipt(raw:unknown,expected:{bus
  if(money(projection.business.projectedHeadroomMicrounits)<money(p.maximumMicrounits)||money(projection.root.projectedHeadroomMicrounits)<money(p.maximumMicrounits))return fail();
  if(p.funding.bindingKind==="r05_business"&&p.capProposal.business.proposedLimitMicrounits!==p.capProposal.root.proposedLimitMicrounits)return fail();
  for(const[operation,quote]of [[p.setupOperation,p.setupQuote],[p.verificationOperation,p.verificationQuote]]as const){if(!exact(operation,"operationKey,workflowDefinitionId,workflowHash,qualificationHash,routeHash,quoteHash,maximumMicrounits")||!text(operation.operationKey,120)||!uuid(operation.workflowDefinitionId)||![operation.workflowHash,operation.qualificationHash,operation.routeHash,operation.quoteHash].every(hash))return fail();validatePublicResearchBrowserQuote(quote,time(quote.verifiedAt));if(quote.qualified!==true||operation.quoteHash!==quote.browserQuoteHash||operation.routeHash!==quote.routeHash||operation.qualificationHash!==quote.qualificationHash||operation.maximumMicrounits!==quote.maximumMicrounits||money(operation.maximumMicrounits)<=BigInt(0)||quote.zeroCostQualificationHash!==null)return fail();}
- if(p.setupQuote.providerProjectId!==p.verificationQuote.providerProjectId||p.setupQuote.routeHash!==p.verificationQuote.routeHash||p.setupOperation.operationKey===p.verificationOperation.operationKey||money(p.setupOperation.maximumMicrounits)+money(p.verificationOperation.maximumMicrounits)>=money(p.maximumMicrounits)||!inertProjection(p.researchPins)||!inertProjection(p.profileTemplate)||!exact(p.existingGoalBudget,"amount,currency")||!text(p.existingGoalBudget.amount,120)||(p.existingGoalBudget.currency!==null&&!text(p.existingGoalBudget.currency,30)))return fail();
+ if(p.setupQuote.providerProjectId!==p.verificationQuote.providerProjectId||p.setupQuote.routeHash!==p.verificationQuote.routeHash||p.setupOperation.operationKey===p.verificationOperation.operationKey||money(p.setupOperation.maximumMicrounits)+money(p.verificationOperation.maximumMicrounits)>=money(p.maximumMicrounits)||!inertProjection(p.profileTemplate)||!exact(p.existingGoalBudget,"amount,currency")||!text(p.existingGoalBudget.amount,120)||(p.existingGoalBudget.currency!==null&&!text(p.existingGoalBudget.currency,30)))return fail();
  return structuredClone(r);
 }
 
