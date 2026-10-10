@@ -7,6 +7,7 @@ import { BrowserProviderError } from "../types";
 import { requireTransportAdmission, type TransportAdmission } from "../../core/transport-admission";
 
 import { awaitRequestDeadline, requestDeadline } from "../../core/request-deadline";
+import {captureSteelCreateGuard,steelCreateConfigurationAdmission,validateSteelCreateConfigurationPermit,type SteelCreateConfigurationGuard} from "../etsy-steel-create-binding";
 
 const DEFAULT_BASE_URL = "https://api.steel.dev";
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -73,15 +74,20 @@ export class SteelBrowserAdapter implements BrowserProviderAdapter {
   private readonly config: SteelConfig;
   private readonly fetcher: typeof fetch;
   private readonly admitDispatch?: TransportAdmission;
+  private readonly createConfigurationGuard?: Readonly<SteelCreateConfigurationGuard>;
 
   constructor(options?: {
     config?: SteelConfig;
     fetcher?: typeof fetch;
     admitDispatch?: TransportAdmission;
+    createConfigurationGuard?: SteelCreateConfigurationGuard;
   }) {
-    this.config = options?.config ?? getSteelConfig();
+    // Capture once: the binding, authenticated HTTP and CDP must use exactly
+    // the same credential/configuration even if an injected object is mutated.
+    this.config = Object.freeze({...(options?.config ?? getSteelConfig())});
     this.fetcher = options?.fetcher ?? fetch;
     this.admitDispatch = options?.admitDispatch;
+    this.createConfigurationGuard = options?.createConfigurationGuard ? captureSteelCreateGuard(options.createConfigurationGuard) : undefined;
   }
 
   private async request(
@@ -290,7 +296,20 @@ export class SteelBrowserAdapter implements BrowserProviderAdapter {
   private async createScopedResearchSession(sessionId:string,projectId:string,timeoutMs:number,profileId:string|null,beforeDispatch:()=>void,signal?:AbortSignal):Promise<BrowserProviderSession> {
     const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
     if(!uuid.test(sessionId)||!uuid.test(projectId)||profileId!==null&&!uuid.test(profileId)||typeof beforeDispatch!=='function'||!Number.isSafeInteger(timeoutMs)||timeoutMs<15_000||timeoutMs>(profileId===null?900_000:120_000))throw new BrowserProviderError('provider_rejected','Scoped Steel lifetime or identity is invalid.',false);
-    const record=await this.scopedResearchRequest('/v1/sessions',profileId===null?'browser.etsy.owner_handoff.create':'browser.etsy.insights.create',{method:'POST',body:JSON.stringify({sessionId,projectId,timeout:timeoutMs,persistProfile:profileId===null,...(profileId===null?{}:{profileId}),debugConfig:{interactive:profileId===null,systemCursor:profileId===null},useProxy:false,solveCaptcha:false,stealthConfig:{autoCaptchaSolving:false,humanizeInteractions:false,skipFingerprintInjection:true}})},beforeDispatch,signal);
+    const body=JSON.stringify({sessionId,projectId,timeout:timeoutMs,persistProfile:profileId===null,...(profileId===null?{}:{profileId}),debugConfig:{interactive:profileId===null,systemCursor:profileId===null},useProxy:false,solveCaptcha:false,stealthConfig:{autoCaptchaSolving:false,humanizeInteractions:false,skipFingerprintInjection:true}});
+    const guard=this.createConfigurationGuard;
+    if(!guard)throw new BrowserProviderError('configuration_required','Scoped Steel configuration admission is required.',false);
+    let request:ReturnType<typeof steelCreateConfigurationAdmission>,permit:ReturnType<typeof validateSteelCreateConfigurationPermit>;
+    try{
+      const admissionSignal=AbortSignal.any([requestDeadline(10000),...(signal?[signal]:[])]);admissionSignal.throwIfAborted();
+      request=steelCreateConfigurationAdmission(this.config,guard,sessionId,projectId,body);
+      const raw=await awaitRequestDeadline(guard.admit(request,admissionSignal),admissionSignal);
+      permit=validateSteelCreateConfigurationPermit(raw,request,(guard.now??Date.now)());
+    }catch{throw new BrowserProviderError('configuration_required','Scoped Steel configuration admission was not verified.',false);}
+    const record=await this.scopedResearchRequest('/v1/sessions',profileId===null?'browser.etsy.owner_handoff.create':'browser.etsy.insights.create',{method:'POST',body},()=>{
+      validateSteelCreateConfigurationPermit(permit,request,(guard.now??Date.now)());
+      return beforeDispatch();
+    },signal);
     const session=this.scopedResearchSession(record,sessionId,projectId);
     if(session.status!=='live'||profileId!==null&&session.profileId!==profileId)throw new BrowserProviderError('provider_rejected','Scoped Steel session is not ready.',false);return session;
   }

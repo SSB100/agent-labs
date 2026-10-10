@@ -1,3 +1,4 @@
+import {inertSteelCreateConfigurationGuard} from './helpers/etsy-steel-create-config-fixture.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createEtsySteelHandoffPort} from '../.core-tests/accounts/etsy-steel-handoff-port.js';
@@ -16,7 +17,7 @@ function fixture(options={}){
  const policy=options.bootstrap?{...BOOTSTRAP,...options.policy}:{...POLICY,...options.policy};
  const q={version:options.bootstrap?'etsy.owner-bootstrap-qualification.1':'etsy.owner-handoff-renderer-qualification.1',operationId:id(1),providerProjectId:id(4),policy,policyHash:options.bootstrap?etsyOwnerBootstrapPolicyHash(policy):etsyInsightsRendererPolicyHash(policy),expiresAt:new Date(Date.now()+120000).toISOString(),...options.qualification};
  const qualification={...q,qualificationHash:hash(q)};
- const port=createEtsySteelHandoffPort({providerProjectId:id(4),rendererQualification:options.noQualification?undefined:qualification,recordRendererDecision:options.recordRendererDecision,config:{apiKey:'inert-port-key',baseUrl:'https://api.steel.dev'},beforeCreate:options.beforeCreate??(()=>events.push('marker')),
+ const port=createEtsySteelHandoffPort({providerProjectId:id(4),createConfigurationGuard:Object.hasOwn(options,'createConfigurationGuard')?options.createConfigurationGuard:inertSteelCreateConfigurationGuard(),rendererQualification:options.noQualification?undefined:qualification,recordRendererDecision:options.recordRendererDecision,config:{apiKey:'inert-port-key',baseUrl:'https://api.steel.dev'},beforeCreate:options.beforeCreate??(()=>events.push('marker')),
   admitDispatch:async()=>{events.push('admission');if(options.deny)throw Error('denied');},registerCleanup:work=>cleanups.push(work),
   connect:async endpoint=>{events.push('connect');assert.equal(new URL(endpoint).hostname,'connect.steel.dev');return options.connect?options.connect(browser):browser;},
   fetcher:async(address,init)=>{const path=new URL(address).pathname;calls.push({path,method:init.method??'GET'});
@@ -109,4 +110,16 @@ for(const kind of ['redirect','auth','popup','child','navigation','bad-status'])
  if(kind==='child')f.handlers.get('Target.attachedToTarget')({targetInfo:{targetId:'child'}});
  if(kind==='navigation')await f.handlers.get('Fetch.requestPaused')({requestId:'n',frameId:'main',resourceType:'Document',request:{url:'https://www.etsy.com/your/orders',method:'GET'}});
  await assert.rejects(s.disconnectForOwner(f.signal));await Promise.all(f.cleanups);assert.ok(f.events.includes('release'));assert.ok(!f.cdpCalls.some(c=>c.name==='Fetch.continueRequest'));
+});
+
+test('owner port requires explicit create configuration admission and cleanup stays usable',async()=>{
+ const f=fixture({createConfigurationGuard:undefined});await assert.rejects(f.port.createSession(f.request,f.signal));
+ assert.equal(f.events.includes('marker'),false);assert.equal(f.calls.some(c=>c.path==='/v1/sessions'),false);
+ await f.port.releaseSession(id(1));assert.ok(f.events.includes('release'));await Promise.all(f.cleanups);
+});
+test('owner port forwards the exact guard pins before transport and one-shot marker',async()=>{
+ const seen=[],guard=inertSteelCreateConfigurationGuard();const admit=guard.admit;guard.admit=async(request,signal)=>{seen.push(request);return admit(request,signal);};
+ const f=fixture({createConfigurationGuard:guard});const s=await f.port.createSession(f.request,f.signal);
+ assert.equal(seen.length,1);assert.equal(seen[0].scopeHash,guard.scopeHash);assert.equal(seen[0].deploymentId,guard.deployment.deploymentId);assert.equal(seen[0].operationId,id(1));assert.equal(seen[0].providerProjectId,id(4));assert.ok(Object.isFrozen(seen[0]));
+ await s.disconnectForOwner(f.signal);await Promise.all(f.cleanups);
 });

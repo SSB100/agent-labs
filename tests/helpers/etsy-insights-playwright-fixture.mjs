@@ -1,3 +1,4 @@
+import {inertSteelCreateConfigurationGuard} from './etsy-steel-create-config-fixture.mjs';
 import assert from 'node:assert/strict';
 import {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -78,7 +79,7 @@ function fixture(o={}) {
   async unrouteAll(){events.push('route-drain');if(o.drainFail)throw Error('drain');if(o.hang==='route-drain')return hang();await drain('route');},async removeAllListeners(){events.push('context-drain');if(o.hang==='context-drain')return hang();await drain('context');},
  };
  const browser={contexts:()=>[context],isConnected:()=>connected,async close(){events.push('disconnect');if(o.disconnectFail)throw Error('disconnect');if(o.hang==='disconnect')return hang();if(o.strictDisposalOrdering)assert.deepEqual([...drained].sort(),['context','page','route'],'Disconnect cannot destroy pending observer acknowledgements');connected=false;cdpConnected=false;}};
- const input={providerProjectId:s.providerProjectId,config:{apiKey:'inert-only-etsy-port-key',baseUrl:'https://api.steel.dev'},
+ const input={providerProjectId:s.providerProjectId,createConfigurationGuard:Object.hasOwn(o,'createConfigurationGuard')?o.createConfigurationGuard:inertSteelCreateConfigurationGuard(),config:{apiKey:'inert-only-etsy-port-key',baseUrl:'https://api.steel.dev'},
   now:()=>time,registerCleanup:p=>cleanup.push(p),admitDispatch:async()=>{events.push('transport');if(o.transportDenied)throw Error('denied');},
   async resolveAttempt(arg){assert.ok(Object.isFrozen(arg.accountBinding));return {sourceAttemptId:s.sourceAttemptId,requestHash:hash(s),sessionId:id(90),profileId:id(91),providerProjectId:s.providerProjectId,
    accountBindingHash:s.accountBinding.bindingHash,profileBindingId:s.accountBinding.profileBindingId,profileBindingRevision:s.accountBinding.profileBindingRevision,...o.resolved};},

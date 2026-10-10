@@ -1,3 +1,4 @@
+import {inertSteelCreateConfigurationGuard,inertSteelCreateConfigurationPermit} from './helpers/etsy-steel-create-config-fixture.mjs';
 import {researchRendererFixture} from './helpers/etsy-insights-research-renderer-fixture.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -15,7 +16,9 @@ const TELEMETRY=REFS.optionalTelemetry.find(r=>r.origin==='https://bat.bing.com'
 const POLICY2={...POLICY,version:'etsy.insights-renderer-policy.2',staticAssets:[],optionalTelemetry:[TELEMETRY],provenanceHash:PROVENANCE};
 
 // Actual runtime + confined Playwright port + provider parsing. All I/O endpoints
-// are injected inert doubles. These are no substitute for migrated-SQL or live UI proof.
+// are injected inert doubles, including the explicit create-configuration admission
+// below. This leaf is not a private SQL attestation or current-chain 21300 proof.
+// These tests are no substitute for migrated-SQL or live UI proof.
 function fixture(o={}){
  const browserOptions={...o.browser},f=o.research?researchRendererFixture(browserOptions):browserFixture(browserOptions),s=f.s,calls=[],evidence=[],receipts=[],uploads=[],transports=[],rendererRequests=[];
  let admitted=0,bound=false,sourceReceipt=null,reconciled=false,gets=0;
@@ -76,7 +79,11 @@ function fixture(o={}){
   }
   throw Error(`Unhandled ledger ${operation}`);
  }
- const runtime=createEtsyInsightsRpcRuntime({scope:s,routeHash:q.routeHash,sourceRpc,ledgerRpc,signal:f.stop.signal,registerCleanup:f.input.registerCleanup,now:()=>NOW,monotonic:()=>0,
+ const createConfigurationGuard=o.omitConfigurationGuard?undefined:inertSteelCreateConfigurationGuard({scopeHash:hash(s),now:()=>NOW,async admit(request,signal){
+  signal.throwIfAborted();calls.push('configuration:admit');assert.equal(request.scopeHash,hash(s));assert.equal(request.operationId,s.operationId);assert.equal(request.providerProjectId,s.providerProjectId);
+  if(o.configurationDenied)throw Error('inert configuration denial');return inertSteelCreateConfigurationPermit(request,NOW);
+ }});
+ const runtime=createEtsyInsightsRpcRuntime({scope:s,routeHash:q.routeHash,sourceRpc,ledgerRpc,signal:f.stop.signal,registerCleanup:f.input.registerCleanup,now:()=>NOW,monotonic:()=>0,createConfigurationGuard,
   config:f.input.config,connect:f.input.connect,fetcher:async(address,init)=>{if(init.method!=='POST')gets++;return f.input.fetcher(address,init);}});
  return{...f,runtime,calls,evidence,receipts,uploads,transports,rendererRequests,get sourceReceipt(){return sourceReceipt;},get gets(){return gets;}};
 }
@@ -85,11 +92,14 @@ test('actual source composition reserves, binds, captures private PNG, releases,
  const f=fixture(),r=await f.runtime.run();assert.equal(r.run.receipt.status,'completed',r.run.receipt.reason);assert.equal(r.run.persistence,'verified');assert.equal(r.accounting,'qualified_bounded_pending');assert.equal(r.completion.accepted,true);
  assert.equal(f.events.filter(e=>e==='create').length,1);assert.equal(f.events.filter(e=>e==='submit').length,1);assert.equal(f.uploads.length,1);assert.equal(r.run.receipt.liabilityState,'receipt_required');
  assert.equal(r.run.receipt.captures[0].competitorSales,'unknown');assert.equal(r.run.receipt.captures[0].commercialDemandProven,false);
- assert.ok(f.calls.indexOf('source:source_admit')<f.calls.indexOf('source:source_transport'));assert.ok(f.calls.indexOf('source:cleanup_complete')<f.calls.indexOf('source:source_receipt'));
+ assert.ok(f.calls.indexOf('source:source_admit')<f.calls.indexOf('configuration:admit'));assert.ok(f.calls.indexOf('configuration:admit')<f.calls.indexOf('source:source_transport'));assert.ok(f.calls.indexOf('source:cleanup_complete')<f.calls.indexOf('source:source_receipt'));
  assert.ok(f.calls.indexOf('ledger:reconcile')<f.calls.indexOf('source:source_finish'));
  assert.equal(f.evidence.filter(e=>e.kind==='release').length,2);assert.deepEqual(...f.evidence.filter(e=>e.kind==='release'));assert.equal(f.gets,2,'one release status plus one cached terminal usage readback');
  assert.equal(f.receipts.length,1);await assert.rejects(f.runtime.run(),/insights_run_replayed/);await Promise.all(f.cleanup);
  const before=f.events.length;await f.runtime.finishRecorded();assert.equal(f.events.length,before,'recovery finish never creates or navigates');
+});
+for(const [name,options]of [['missing',{omitConfigurationGuard:true}],['denied',{configurationDenied:true}]])test(`${name} configuration admission pauses before provider create without inventing source or accounting`,async()=>{
+ const f=fixture(options),r=await f.runtime.run();assert.equal(r.run.receipt.status,'paused');assert.ok(!f.events.includes('create'));assert.ok(!f.events.includes('submit'));assert.ok(!f.calls.includes('source:source_transport'));assert.ok(!f.calls.includes('source:source_finish'));assert.ok(!f.calls.includes('ledger:reconcile'));await Promise.all(f.cleanup);
 });
 test('late observer completion cannot upgrade the actual persisted paused source receipt',async()=>{
  const hold=setTimeout(()=>{},4000);let finish;const promise=new Promise(resolve=>{finish=resolve;});

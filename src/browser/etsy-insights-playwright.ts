@@ -1,3 +1,4 @@
+import type { SteelCreateConfigurationGuard } from './etsy-steel-create-binding';
 import {isEtsyInsightsResearchRendererPolicy,validateEtsyInsightsResearchRendererPolicy,etsyInsightsResearchRendererPolicyHash,validateEtsyInsightsResearchReadiness,classifyEtsyInsightsResearchRendererRequest,type EtsyInsightsResearchRendererPolicy,type EtsyInsightsResearchReadiness} from './etsy-insights-renderer-research';
 import {isEtsyInsightsVerificationCandidate,validateEtsyInsightsVerificationCandidate,etsyInsightsVerificationCandidateHash,classifyEtsyInsightsVerificationCandidateRequest,type EtsyInsightsVerificationCandidatePolicy,type EtsyInsightsCandidateMetadata,type EtsyInsightsCandidateDisposition} from './etsy-insights-renderer-candidate';
 import {readEtsyInsightsLandingControls,ETSY_INSIGHTS_LANDING_CONTROL_ID,ETSY_INSIGHTS_LANDING_CONTROLS_VERSION,ETSY_INSIGHTS_LANDING_CONTROLS_HASH} from './etsy-insights-landing-controls';
@@ -70,7 +71,7 @@ export type EtsyInsightsPlaywrightPortInput = {
   qualifyRenderer(scope: Readonly<EtsyInsightsScope>): Promise<EtsyInsightsRendererQualification>;
   admitRenderer(request: Readonly<EtsyInsightsRendererRequest>, signal: AbortSignal): Promise<void>;
   registerCleanup(work: Promise<void>): void;
-  config?: SteelConfig; fetcher?: typeof fetch; connect?: typeof chromium.connectOverCDP;
+  createConfigurationGuard?: SteelCreateConfigurationGuard; config?: SteelConfig; fetcher?: typeof fetch; connect?: typeof chromium.connectOverCDP;
   now?: () => number;
 };
 
@@ -137,7 +138,7 @@ async function readView(page: Page, scope: EtsyInsightsScope, signal: AbortSigna
 
 export function createEtsyInsightsPlaywrightPort(input: EtsyInsightsPlaywrightPortInput): Pick<EtsyInsightsDependencies, 'createSession'> {
   if (!insightsUuid(input.providerProjectId) || ![input.resolveAttempt,input.beforeCreate,input.qualifyRenderer,input.admitRenderer,input.registerCleanup,input.admitDispatch].every(f=>typeof f==='function')) return insightsFail('renderer_qualification_required');
-  const provider = new SteelBrowserAdapter({config: input.config,fetcher: input.fetcher,admitDispatch: input.admitDispatch});
+  const provider = new SteelBrowserAdapter({config: input.config,fetcher: input.fetcher,admitDispatch: input.admitDispatch,createConfigurationGuard:input.createConfigurationGuard});
   const connect = input.connect ?? chromium.connectOverCDP.bind(chromium), now = input.now ?? Date.now;
   return { async createSession(raw, signal): Promise<EtsyInsightsSession> {
     const scope = frozen(validateEtsyInsightsScope(raw, now())), requestHash = insightsHash(scope);
@@ -293,7 +294,7 @@ export type EtsyInsightsVerificationPortInput={
   beforeCreate(input:Readonly<EtsyInsightsVerificationInputs>):void;
   qualifyRenderer(scope:Readonly<EtsyInsightsVerificationScope>):Promise<EtsyInsightsRendererQualification<EtsyInsightsRendererPolicy|EtsyInsightsVerificationCandidatePolicy>>;
   admitRenderer(input:Readonly<{operationId:string;requestId:string;scopeHash:string;qualificationHash:string;sequence:number;url:string;method:string;resourceType:string;navigation:boolean}&({version:'etsy.insights-verification-renderer-request.1'}|{version:'etsy.insights-verification-renderer-request.2';disposition:'allow'|'deny_optional_telemetry';policyHash:string;provenanceHash:string})|EtsyInsightsVerificationCandidateRequest>,signal:AbortSignal):Promise<void>;
-  registerCleanup(work:Promise<void>):void;config?:SteelConfig;fetcher?:typeof fetch;connect?:typeof chromium.connectOverCDP;now?:()=>number;
+  registerCleanup(work:Promise<void>):void;createConfigurationGuard?:SteelCreateConfigurationGuard;config?:SteelConfig;fetcher?:typeof fetch;connect?:typeof chromium.connectOverCDP;now?:()=>number;
 };
 function verifyScope(raw:EtsyInsightsVerificationInputs,now:number):EtsyInsightsVerificationInputs{
   const keys='version,operationId,setupOperationId,handoffId,ownerId,businessId,goalId,authorityRootId,testEnvelopeId,testEnvelopeHash,providerProjectId,profileBindingId,profileBindingRevision,profileCandidateHash,profileId,approvalId,approvalRevision,disclosureHash,purpose,expectedShopName,expectedShopId,quoteHash,maximumBrowserMicrounits,maximumSessionMs,expiresAt,profileAccessExpiresAt';
@@ -312,7 +313,7 @@ function verifyScope(raw:EtsyInsightsVerificationInputs,now:number):EtsyInsights
  * verification-purpose SQL key before issuing an authenticated account binding. */
 export function createEtsyInsightsVerificationPort(input:EtsyInsightsVerificationPortInput){
   if(!insightsUuid(input.providerProjectId)||![input.admitDispatch,input.admitStage,input.beforeCreate,input.qualifyRenderer,input.admitRenderer,input.registerCleanup].every(f=>typeof f==='function'))return insightsFail('verification_admission_required');
-  const provider=new SteelBrowserAdapter({config:input.config,fetcher:input.fetcher,admitDispatch:input.admitDispatch}),connect=input.connect??chromium.connectOverCDP.bind(chromium),now=input.now??Date.now;
+  const provider=new SteelBrowserAdapter({config:input.config,fetcher:input.fetcher,admitDispatch:input.admitDispatch,createConfigurationGuard:input.createConfigurationGuard}),connect=input.connect??chromium.connectOverCDP.bind(chromium),now=input.now??Date.now;
   return {async verify(raw:EtsyInsightsVerificationInputs,signal:AbortSignal):Promise<{status:'verified'|'paused';reason:string;verification:EtsyInsightsAccountVerification|null;release:{sessionId:string;released:boolean;terminalReadback:boolean;observersDisposed:boolean}}>{
     const authority=verifyScope(raw,now()),scope=authority.scope;if(scope.providerProjectId!==input.providerProjectId)return insightsFail('provider_project_mismatch');
     const bounded=AbortSignal.any([signal,requestDeadline(scope.maximumSessionMs)]);

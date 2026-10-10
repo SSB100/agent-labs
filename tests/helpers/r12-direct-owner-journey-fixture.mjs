@@ -2,8 +2,10 @@
  * Next hosting/shell and provider/browser leaf IO are inert. The explicit legacy
  * enrollment read has no offers. Existing authority RPCs, owner ACLs, persistent
  * access approval, encrypted handoff and verification are real.
+ * The new configuration admission is an explicitly synthetic pre-21300 leaf.
  * This does not qualify Next action serialization, Chromium, or hosted workflows. */
 import assert from 'node:assert/strict';
+import {inertSteelCreateConfigurationPermit} from './etsy-steel-create-config-fixture.mjs';
 import {createRequire} from 'node:module';
 import {readFileSync,writeFileSync} from 'node:fs';
 import {createHash,randomUUID} from 'node:crypto';
@@ -45,13 +47,30 @@ export async function ownerJourneyAuthority(db){
  }});
 }
 export function ownerJourneyComposition(db,a){
- const rpcCalls=[],errors=[],cleanup=[],providerCalls=[],browsers=[],workflowStarts=[],resumes=[],sourceHashes={};
+ const rpcCalls=[],errors=[],cleanup=[],providerCalls=[],browsers=[],workflowStarts=[],resumes=[],sourceHashes={},boundarySubstitutions=[];
  const preparation={...core('products/discovery-r12-public-preparation'),validatePublicResearchOwnerTestReceipt(...args){try{return core('products/discovery-r12-public-preparation').validatePublicResearchOwnerTestReceipt(...args);}catch(error){errors.push({name:'receipt_validation',message:error.stack,pinsBytes:Buffer.byteLength(JSON.stringify(args[0]?.preview?.researchPins??null))});throw error;}}};
  const profileId=randomUUID(),sessions=new Map(),transports=[];let activeUser=a.f.ownerId,tail=Promise.resolve();
  const serial=work=>{const next=tail.then(work,work);tail=next.catch(()=>{});return next;};
- const allowed=new Set(['r12_owner_direct_enrollment_read','r12_owner_direct_read','r12_owner_direct_server','r12_etsy_steel_owner','r12_owner_etsy_steel_verification_read','r12_owner_etsy_steel_renderer_review','r12_etsy_steel_server','r12_etsy_steel_verification_server','r12_direct_browser_ledger','r12_direct_setup_quote_revalidate','r12_direct_owner_renderer_qualification','r12_direct_controller_server']);
+ const allowed=new Set(['r12_steel_create_config_admit','r12_owner_direct_enrollment_read','r12_owner_direct_read','r12_owner_direct_server','r12_etsy_steel_owner','r12_owner_etsy_steel_verification_read','r12_owner_etsy_steel_renderer_review','r12_etsy_steel_server','r12_etsy_steel_verification_server','r12_direct_browser_ledger','r12_direct_setup_quote_revalidate','r12_direct_owner_renderer_qualification','r12_direct_controller_server']);
  function client(role){return{rpc:async(name,args)=>serial(async()=>{
   assert.ok(allowed.has(name));const owner=activeUser;rpcCalls.push({role,name,operation:args.p_operation,owner});
+  // This owner journey ends before 21300. The only new boundary substitution
+  // echoes a correctly scoped inert configuration permit; it is forbidden if
+  // real configuration authority exists in the database.
+  if(name==='r12_steel_create_config_admit'){
+   assert.equal(role,'anon');assert.equal(args.p_business_id,a.f.businessId);
+   assert.equal((await one(db,"select to_regprocedure('public.r12_steel_create_config_admit(uuid,jsonb,text)') is null absent")).absent,true,'Historical configuration leaf cannot bypass 21300');
+   const saved=await one(db,`select o.scope_hash,o.scope->>'providerProjectId' project,
+    case when s.operation_id is not null then 'handoff' else 'verification' end expected_purpose,k.purpose
+    from private.r12_direct_browser_operations o
+    join private.r12_direct_test_envelopes e on e.id=o.envelope_id and e.business_id=$2
+    left join private.r12_etsy_steel_setups s on s.operation_id=o.id
+    join private.r12_etsy_steel_keys k on k.envelope_id=e.id and k.route_hash=o.route_hash and k.key_hash=encode(extensions.digest(convert_to($3,'UTF8'),'sha256'),'hex')
+    where o.id=$1`,[args.p_request.operationId,a.f.businessId,args.p_server_key]);
+   assert.ok(saved);assert.equal(saved.purpose,saved.expected_purpose);assert.equal(args.p_request.scopeHash,saved.scope_hash);assert.equal(args.p_request.providerProjectId,saved.project);
+   if(!boundarySubstitutions.length)boundarySubstitutions.push('historical_pre_21300_configuration_admission_leaf');
+   return{data:inertSteelCreateConfigurationPermit(args.p_request),error:null};
+  }
   await db.query("select set_config('request.jwt.claim.sub',$1,false)",[role==='authenticated'?owner:'']);await db.exec('set role '+role);
   try{
    // Explicit legacy-only UI projection. The separate enrollment journey executes
@@ -89,6 +108,7 @@ export function ownerJourneyComposition(db,a){
  const load=(file,deps)=>{const result=loadActualOwnerModule(file,{...shared,...deps});sourceHashes[file]=result.sourceHash;return result;};
  const owner=load('src/accounts/etsy-steel-handoff-owner-server.ts',{'./etsy-steel-handoff-contracts':core('accounts/etsy-steel-handoff-contracts'),'./etsy-steel-handoff-owner':load('src/accounts/etsy-steel-handoff-owner.ts',{'./etsy-steel-handoff-contracts':core('accounts/etsy-steel-handoff-contracts')})});
  const account=load('src/accounts/etsy-steel-handoff-server.ts',{
+  get '../browser/etsy-steel-create-binding'(){const actual=core('browser/etsy-steel-create-binding');return{...actual,getSteelCreateDeployment:()=>actual.getSteelCreateDeployment({VERCEL_ENV:'production',VERCEL_DEPLOYMENT_ID:'dpl_inert_historical_owner',VERCEL_GIT_COMMIT_SHA:'1'.repeat(40)})};},
   'next/server':{after:work=>cleanup.push(work)},'./etsy-steel-handoff-owner-server':owner,'./etsy-steel-handoff-contracts':core('accounts/etsy-steel-handoff-contracts'),
   './etsy-steel-handoff-rpc':{...handoff,createEtsySteelHandoffRpcDependencies:input=>{const f=browser();return handoff.createEtsySteelHandoffRpcDependencies({...input,config,fetcher,connect:f.input.connect});}},
   '../browser/providers/steel':{SteelBrowserAdapter:class extends SteelBrowserAdapter{constructor(input){super({...input,config,fetcher});}}},
@@ -121,7 +141,7 @@ export function ownerJourneyComposition(db,a){
   '/dashboard/accounts/etsy-research/sign-in':load('src/app/dashboard/accounts/etsy-research/sign-in/page.tsx',{...renderDeps,'@/accounts/etsy-steel-handoff-server':account,'@/accounts/etsy-steel-handoff-contracts':core('accounts/etsy-steel-handoff-contracts'),'../actions':accountActions}).default,
  };
  async function handle(request){const url=new URL(request.url);try{if(request.method==='GET'){assert.ok(pages[url.pathname]);const element=await pages[url.pathname]({searchParams:Promise.resolve(Object.fromEntries(url.searchParams))});return new Response(renderToStaticMarkup(element),{headers:{'Content-Type':'text/html'}});}assert.equal(request.method,'POST');const action=actionMap.get(url.pathname.split('/').at(-1));assert.ok(action);await action(await request.formData());throw Error('Action returned without redirect');}catch(error){if(error instanceof Redirect)return new Response(null,{status:303,headers:{Location:error.url}});throw error;}finally{await Promise.all(cleanup.splice(0));}}
- return{a,owner,account,product,enrollment,uiState,context,runtime,handle,sourceHashes,rpcCalls,errors,providerCalls,browsers,workflowStarts,resumes,hooks,faults,profileId,sessions,setUser:id=>{activeUser=id;},async invoke(group,name,args){const target={product,account,owner,enrollment}[group];assert.ok(target&&typeof target[name]==='function'&&name!=='sourceHash');try{return await target[name](context(),...args);}finally{await Promise.all(cleanup.splice(0));}},get:async path=>handle(new Request('http://inert.local'+path)),async post(action,data){return handle(new Request('http://inert.local/__inert_owner_action/'+action,{method:'POST',body:new URLSearchParams(data)}));}};
+ return{a,boundarySubstitutions,owner,account,product,enrollment,uiState,context,runtime,handle,sourceHashes,rpcCalls,errors,providerCalls,browsers,workflowStarts,resumes,hooks,faults,profileId,sessions,setUser:id=>{activeUser=id;},async invoke(group,name,args){const target={product,account,owner,enrollment}[group];assert.ok(target&&typeof target[name]==='function'&&name!=='sourceHash');try{return await target[name](context(),...args);}finally{await Promise.all(cleanup.splice(0));}},get:async path=>handle(new Request('http://inert.local'+path)),async post(action,data){return handle(new Request('http://inert.local/__inert_owner_action/'+action,{method:'POST',body:new URLSearchParams(data)}));}};
 }
 export function ownerRenderedForm(html,button){
  const decode=s=>s.replaceAll('&amp;','&').replaceAll('&quot;','"').replaceAll('&#x27;',"'").replaceAll('&lt;','<').replaceAll('&gt;','>');

@@ -62,7 +62,8 @@
     "src/browser/watch/**/*.ts",
     "src/browser/etsy-insights-*.ts",
     "src/browser/etsy-steel-accounting.ts",
-    "src/products/discovery-r12-*.ts"
+    "src/products/discovery-r12-*.ts",
+    "src/browser/etsy-steel-config-readback.ts"
   ],
   "exclude": [
     "src/research/qualification-server.ts",

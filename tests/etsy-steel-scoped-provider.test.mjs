@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {SteelBrowserAdapter} from '../.core-tests/browser/providers/steel.js';
+import {inertSteelCreateConfigurationGuard} from './helpers/etsy-steel-create-config-fixture.mjs';
 const id=n=>`76000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
 const session=()=>({id:id(1),projectId:id(4),profileId:id(2),status:'live',debugUrl:`https://api.steel.dev/v1/sessions/${id(1)}/player`,solveCaptcha:false,useProxy:false,proxyBytesUsed:0,stealthConfig:{autoCaptchaSolving:false,humanizeInteractions:false,skipFingerprintInjection:true},websocketUrl:'wss://untrusted.example/never-use'});
 function fixture({admit=async()=>{},response=session(),baseUrl='https://api.steel.dev',fetcher}={}){
  const calls=[],admissions=[];let markers=0;
- const adapter=new SteelBrowserAdapter({config:{apiKey:'inert-test-key',baseUrl},admitDispatch:async r=>{admissions.push(r);await admit(r);},fetcher:fetcher??(async(url,init)=>{calls.push({url:String(url),init});return Response.json(response);})});
+ const adapter=new SteelBrowserAdapter({config:{apiKey:'inert-test-key',baseUrl},createConfigurationGuard:inertSteelCreateConfigurationGuard(),admitDispatch:async r=>{admissions.push(r);await admit(r);},fetcher:fetcher??(async(url,init)=>{calls.push({url:String(url),init});return Response.json(response);})});
  return{adapter,calls,admissions,marker:()=>{markers++;},markers:()=>markers};
 }
 test('exact one-shot owner session uses disabled proxy, captcha and fingerprint features',async()=>{

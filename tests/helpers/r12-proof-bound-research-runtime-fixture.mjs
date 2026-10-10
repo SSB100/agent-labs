@@ -1,6 +1,10 @@
 /** Test-only leaf IO injection. The actual driver, model/source runtimes,
- * serializers, key derivation and all migrated public RPCs remain unchanged. */
+ * serializers, key derivation and all migrated public RPCs remain unchanged.
+ * HISTORICAL BOUNDARY: migrations stop before 21300. Current adapter config
+ * admission is an explicitly inert leaf here; this is not final-chain create
+ * qualification. The leaf refuses a database that has the real 21300 RPC. */
 import assert from 'node:assert/strict';
+import {inertSteelCreateConfigurationPermit} from './etsy-steel-create-config-fixture.mjs';
 import {createRequire} from 'node:module';
 import {readFileSync} from 'node:fs';
 import {createHash,randomUUID} from 'node:crypto';
@@ -42,7 +46,15 @@ export function proofBoundResearchRuntimeComposition(db,f,{rpcTransport=null,mod
  assert.equal(f.policy.version,policyVersion,'The fixture must explicitly select the versioned authority under test');
  const calls=[],modelPosts=[],modelGets=[],catalogGets=[],browserPosts=[],browsers=[],sourceResults=[],modelResults=[],sqlErrors=[];
  const faults={proofUnavailable:false,sourceFinishUnavailable:0,failModelPhaseOnce:null};
+ const boundarySubstitutions=['historical_pre_21300_configuration_admission_leaf'];
  const client={rpc:async(name,args)=>{
+  if(name==='r12_steel_create_config_admit'){
+   assert.equal((await one(db,"select to_regprocedure('public.r12_steel_create_config_admit(uuid,jsonb,text)') is null absent")).absent,true,'Historical leaf must never bypass current-chain configuration admission');
+   assert.equal(args.p_business_id,f.authority.f.businessId);assert.equal(args.p_server_key,f.keys.source);
+   const saved=await one(db,"select p.source_scope from private.r12_direct_browser_operations o join private.r12_direct_phase_attempts p on p.request_id=o.request_id and p.phase='source' where o.id=$1 and o.envelope_id=$2",[args.p_request.operationId,f.authority.prepared.testEnvelopeId]);
+   assert.equal(args.p_request.scopeHash,core('products/discovery-v2-hash').discoveryV2Hash(saved.source_scope));calls.push({name,operation:'historical_configuration_leaf',payload:structuredClone(args.p_request)});
+   return{data:inertSteelCreateConfigurationPermit(args.p_request),error:null};
+  }
   assert.ok(['r12_direct_controller_server','r12_direct_browser_ledger'].includes(name));
   const operation=args.p_operation;calls.push({name,operation,payload:structuredClone(args.p_payload)});
   assert.equal(args.p_business_id,f.authority.f.businessId);
@@ -101,6 +113,7 @@ export function proofBoundResearchRuntimeComposition(db,f,{rpcTransport=null,mod
  const loaded=actualSourceModule('src/products/discovery-r12-public-runtime.ts',{
   'node:crypto':require('node:crypto'),'../core/request-deadline':core('core/request-deadline'),
   '../lib/supabase/runtime':{createRuntimeClient:()=>client},
+  get '../browser/etsy-steel-create-binding'(){const actual=core('browser/etsy-steel-create-binding');return{...actual,getSteelCreateDeployment:()=>actual.getSteelCreateDeployment({VERCEL_ENV:'production',VERCEL_DEPLOYMENT_ID:'dpl_inert_historical_boundary',VERCEL_GIT_COMMIT_SHA:'1'.repeat(40)})};},
   './discovery-r12-public-server-key':core('products/discovery-r12-public-server-key'),
   './discovery-r12-public-utils':core('products/discovery-r12-public-utils'),
   './discovery-r12-public-contracts':core('products/discovery-r12-public-contracts'),
@@ -117,6 +130,6 @@ export function proofBoundResearchRuntimeComposition(db,f,{rpcTransport=null,mod
   testEnvelopeId:f.authority.prepared.testEnvelopeId,envelopeHash:f.authority.prepared.testEnvelopeHash,routeHash:f.authority.routeHash,
   scopeId:f.prepared.scopeId,scopeHash:f.prepared.scopeHash,planHash:f.prepared.planHash,profileHash:f.profile.profileHash,policyHash:f.policy.policyHash};
  const runtimeRunId='inert-driver-'+randomUUID();
- return{input,runtimeRunId,sourceHash:loaded.sourceHash,calls,modelPosts,modelGets,catalogGets,browserPosts,browsers,sourceResults,modelResults,sqlErrors,faults,
+ return{input,runtimeRunId,sourceHash:loaded.sourceHash,boundarySubstitutions,calls,modelPosts,modelGets,catalogGets,browserPosts,browsers,sourceResults,modelResults,sqlErrors,faults,
   step:(id=runtimeRunId,pins=input)=>loaded.executePublicResearchRuntimeStep(pins,id)};
 }

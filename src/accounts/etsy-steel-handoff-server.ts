@@ -1,3 +1,4 @@
+import {getSteelCreateDeployment,type SteelCreateConfigurationAdmission} from '../browser/etsy-steel-create-binding';
 import 'server-only';
 import {createRuntimeClient} from '../lib/supabase/runtime';
 import {createHmac} from 'node:crypto';
@@ -60,11 +61,14 @@ async function dependencies(context:OwnerUiContext,businessId:string,operationId
    const qualified=await boundedRpc(runtimeClient.rpc('r12_direct_owner_renderer_qualification',{p_business_id:businessId,p_operation_id:operationId,p_server_key:key}),requestDeadline(15000),10000);
    handoffAssert(!qualified.error,'handoff_renderer_qualification_required');rendererQualification=qualified.data;
  }
- const d=createEtsySteelHandoffRpcDependencies({scope,vaultKey,signal,registerCleanup:work=>after(work),rpc,rendererQualification,
+ const createConfigAdmit=(serverKey:string)=>async(request:Readonly<SteelCreateConfigurationAdmission>,admissionSignal:AbortSignal)=>{const result=await boundedRpc(runtimeClient.rpc('r12_steel_create_config_admit',{p_business_id:businessId,p_request:request,p_server_key:serverKey}),AbortSignal.any([admissionSignal,requestDeadline(15000)]),10000);handoffAssert(!result.error&&result.data!==null,'steel_create_configuration_unqualified');return result.data;};
+ const verificationCreateConfigurationGuard=()=>({deployment:getSteelCreateDeployment(),admit:createConfigAdmit(verificationKey)});
+ const createConfigurationGuard=forCreate?{scopeHash:discoveryV2Hash(scope),deployment:getSteelCreateDeployment(),admit:createConfigAdmit(key)}:undefined;
+ const d=createEtsySteelHandoffRpcDependencies({scope,vaultKey,signal,createConfigurationGuard,registerCleanup:work=>after(work),rpc,rendererQualification,
    recordRendererDecision:async decision=>{const result=await rpc('renderer_decision',{operationId,decision});handoffAssert(object(result)&&result.accepted===true,'handoff_renderer_decision_unconfirmed');}});
- return{view,d,rpc,ledger,ledgerFor,verificationRpc,refreshVerification,provider,routeHash:p.setupOperation.routeHash};
+ return{view,d,rpc,ledger,ledgerFor,verificationRpc,refreshVerification,verificationCreateConfigurationGuard,provider,routeHash:p.setupOperation.routeHash};
 }
-export async function startApprovedEtsySteelSetup(context:OwnerUiContext,businessId:string,operationId:string){const{view,d}=await dependencies(context,businessId,operationId,true);handoffAssert(view.status==='approved','handoff_owner_approval_required');return beginEtsySteelHandoff(view.scope,d);}
+export async function startApprovedEtsySteelSetup(context:OwnerUiContext,businessId:string,operationId:string){const{view,d}=await dependencies(context,businessId,operationId,true);handoffAssert(view.status==='approved','handoff_owner_approval_required');handoffAssert(Date.parse(view.scope.approvalExpiresAt)-Date.now()>=view.scope.maximumSessionMs,'handoff_setup_expiry_requires_review');return beginEtsySteelHandoff(view.scope,d);}
 export async function readPrivateEtsySteelOwnerHandoff(context:OwnerUiContext,businessId:string,operationId:string,handoffId:string){const{view,d}=await dependencies(context,businessId,operationId);handoffAssert(view.status==='approved'&&handoffUuid(handoffId),'handoff_owner_approval_required');return openEtsySteelOwnerHandoff({ownerId:context.userId,businessId},handoffId,d);}
 export async function finishApprovedEtsySteelSetup(context:OwnerUiContext,businessId:string,operationId:string,handoffId:string,action:'return'|'stop'){
  const{view,d,rpc,ledger,provider,routeHash}=await dependencies(context,businessId,operationId),owner={ownerId:context.userId,businessId};
@@ -85,11 +89,11 @@ export async function finishApprovedEtsySteelSetup(context:OwnerUiContext,busine
 
 
 export async function verifyApprovedEtsySteelSetup(context:OwnerUiContext,businessId:string,operationId:string){
- const{view,ledgerFor,verificationRpc,refreshVerification,routeHash}=await dependencies(context,businessId,operationId);
+ const{view,ledgerFor,verificationRpc,refreshVerification,verificationCreateConfigurationGuard,routeHash}=await dependencies(context,businessId,operationId);
  handoffAssert(view.status==='approved','verification_owner_approval_required');
  const receipt=view.receipts.find(r=>r.status==='profile_pending_verification'&&r.releaseState==='verified');
  handoffAssert(receipt,'verification_profile_candidate_required');
  await refreshVerification();
  return verifyApprovedEtsySteelProfile({setupScope:view.scope,handoffReceiptHash:receipt.receiptHash,routeHash,
-   signal:requestDeadline(180000),registerCleanup:work=>after(work),rpc:verificationRpc,ledger:ledgerFor});
+   signal:requestDeadline(180000),registerCleanup:work=>after(work),rpc:verificationRpc,ledger:ledgerFor,createConfigurationGuard:verificationCreateConfigurationGuard()});
 }

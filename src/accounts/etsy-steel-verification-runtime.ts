@@ -1,3 +1,4 @@
+import type {SteelCreateConfigurationGuard} from '../browser/etsy-steel-create-binding';
 import {awaitRequestDeadline,requestDeadline} from '../core/request-deadline';
 import {createEtsyInsightsVerificationPort,type EtsyInsightsVerificationInputs} from '../browser/etsy-insights-playwright';
 import {SteelBrowserAdapter,type SteelConfig} from '../browser/providers/steel';
@@ -12,7 +13,7 @@ async function verifyProfile(input:{setupScope:EtsySteelHandoffScope;handoffRece
  signal:AbortSignal;registerCleanup(work:Promise<void>):void;
  rpc(operation:string,payload:Record<string,unknown>):Promise<unknown>;
  ledger(operationId:string,operation:'read'|'bind_session'|'receipt'|'evidence'|'reconcile',payload:Record<string,unknown>):Promise<unknown>;
- routeHash:string;now?:()=>number;config?:SteelConfig;fetcher?:typeof fetch;
+ routeHash:string;createConfigurationGuard?:Omit<SteelCreateConfigurationGuard,'scopeHash'>;now?:()=>number;config?:SteelConfig;fetcher?:typeof fetch;
  connect?:Parameters<typeof createEtsyInsightsVerificationPort>[0]['connect'];
 }){
  const originalRpc=input.rpc,originalLedger=input.ledger;
@@ -22,13 +23,14 @@ async function verifyProfile(input:{setupScope:EtsySteelHandoffScope;handoffRece
  const authority=raw as unknown as EtsyInsightsVerificationInputs,s=authority.scope;
  check(s.setupOperationId===setup.operationId&&s.operationId===setup.verificationOperationId&&s.businessId===setup.businessId&&s.ownerId===setup.ownerId&&s.goalId===setup.goalId&&s.testEnvelopeId===setup.testEnvelopeId&&s.testEnvelopeHash===setup.testEnvelopeHash&&s.providerProjectId===setup.providerProjectId&&s.quoteHash===setup.verificationQuoteHash&&s.maximumBrowserMicrounits===setup.verificationMaximumMicrounits,'verification_scope_changed');
  for(const k of ['authorityRootId','approvalId','approvalRevision','disclosureHash','expectedShopName','expectedShopId','profileAccessExpiresAt'] as const)check(s[k]===setup[k],'verification_scope_changed');
+ const createConfigurationGuard=input.createConfigurationGuard?{...input.createConfigurationGuard,scopeHash:authority.scopeHash}:undefined;
  let reserved=false,ready=false,sent=false,permitExpires=0;
  const admitDispatch:Parameters<typeof createEtsyInsightsVerificationPort>[0]['admitDispatch']=async request=>{
   const result=await input.rpc('transport',{operationId:s.operationId,request});check(object(result)&&result.allowed===true&&result.operationId===s.operationId,'verification_transport_unconfirmed');
   if(request.operation==='browser.etsy.insights.create'){check(reserved&&!ready&&!sent,'verification_create_replayed');ready=true;}
  };
- const provider=new SteelBrowserAdapter({config:input.config,fetcher:input.fetcher,admitDispatch});
- const port=createEtsyInsightsVerificationPort({providerProjectId:s.providerProjectId,now:input.now,config:input.config,fetcher:input.fetcher,connect:input.connect,registerCleanup:input.registerCleanup,admitDispatch,
+ const provider=new SteelBrowserAdapter({config:input.config,fetcher:input.fetcher,createConfigurationGuard,admitDispatch});
+ const port=createEtsyInsightsVerificationPort({providerProjectId:s.providerProjectId,now:input.now,config:input.config,fetcher:input.fetcher,connect:input.connect,registerCleanup:input.registerCleanup,createConfigurationGuard,admitDispatch,
   admitStage:async stage=>{check(stage.operationId===s.operationId&&stage.scopeHash===authority.scopeHash&&stage.requestId===authority.requestId&&stage.workflowRunId===authority.workflowRunId,'verification_stage_mismatch');
    if(stage.operation==='create'){check(!reserved&&!sent,'verification_create_replayed');const r=await input.rpc('admit',{operationId:s.operationId});handoffExact(r,'version,operationId,scopeHash,reservationId,reservationHash,reservedBrowserMicrounits,expiresAt','verification_reservation_unconfirmed');check(r.version==='etsy.steel-account-verification-permit.1'&&r.operationId===s.operationId&&r.scopeHash===authority.scopeHash&&handoffUuid(r.reservationId)&&handoffHash(r.reservationHash)&&r.reservedBrowserMicrounits===s.maximumBrowserMicrounits&&handoffInstant(r.expiresAt)&&Date.parse(r.expiresAt as string)>(input.now??Date.now)()&&Date.parse(r.expiresAt as string)<=Math.min(Date.parse(s.expiresAt),(input.now??Date.now)()+30000),'verification_reservation_unconfirmed');permitExpires=Date.parse(r.expiresAt as string);reserved=true;}
    else{const current=await input.rpc('inputs',{operationId:s.operationId});check(hash(current)===hash(authority),'verification_inputs_changed');}},

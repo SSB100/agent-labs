@@ -1,12 +1,14 @@
 /** Actual verification runtime and SQL authority with inert Playwright/Steel IO.
- * No runtime authority, result, proof, receipt or accounting response is mocked.
+ * Existing SQL authority, proof, receipt and accounting are real; only the
+ * explicitly declared pre-21300 configuration-admission leaf is synthetic.
  */
 import assert from 'node:assert/strict';
+import {inertSteelCreateConfigurationGuard,inertSteelCreateConfigurationPermit,createConfigHash} from './etsy-steel-create-config-fixture.mjs';
 import {verificationFixture as browserFixture} from './etsy-insights-playwright-fixture.mjs';
 import {verifyApprovedEtsySteelProfile} from '../../.core-tests/accounts/etsy-steel-verification-runtime.js';
 
 export function sqlBackedEtsySteelVerification(ctx,{shop=ctx.a.scope.expectedShopName,beforeRendererRequest=null,beforeNavigate=null}={}){
- const {authority,x,a,receipt}=ctx,calls=[],providerRequests=[],cleanup=[],transportQueue=[];
+ const {authority,x,a,receipt}=ctx,calls=[],providerRequests=[],cleanup=[],transportQueue=[],boundarySubstitutions=[];
  let prepared=null,released=false,created=false,browser;
  browser=browserFixture({shop,beforeNavigate:async url=>{
   // Exercise the real request-stage renderer guard and its durable SQL decision.
@@ -14,7 +16,17 @@ export function sqlBackedEtsySteelVerification(ctx,{shop=ctx.a.scope.expectedSho
   await browser.request(url);
   if(beforeNavigate)await beforeNavigate(ctx);
  }});
- const input={setupScope:a.scope,handoffReceiptHash:receipt.receiptHash,routeHash:authority.routeHash,
+ // Historical fixtures stop before 21300. The refusal is delayed until the
+ // injected leaf is actually used; a successor caller may replace this guard
+ // with the real stored-permit RPC before running the current runtime.
+ const createConfigurationGuard={deployment:inertSteelCreateConfigurationGuard().deployment,async admit(request,signal){
+  signal.throwIfAborted();
+  assert.equal((await authority.db.query("select to_regprocedure('public.r12_steel_create_config_admit(uuid,jsonb,text)') is null absent")).rows[0].absent,true,'Historical configuration leaf cannot bypass 21300');
+  assert.ok(prepared);assert.equal(request.operationId,prepared.scope.operationId);assert.equal(request.scopeHash,createConfigHash(prepared.scope));assert.equal(request.providerProjectId,prepared.scope.providerProjectId);
+  if(!boundarySubstitutions.length)boundarySubstitutions.push('historical_pre_21300_configuration_admission_leaf');
+  return inertSteelCreateConfigurationPermit(request);
+ }};
+ const input={createConfigurationGuard,setupScope:a.scope,handoffReceiptHash:receipt.receiptHash,routeHash:authority.routeHash,
   signal:browser.stop.signal,registerCleanup:work=>cleanup.push(work),config:browser.input.config,connect:browser.input.connect,
   rpc:async(operation,payload)=>{
    calls.push({operation,payload:structuredClone(payload)});
@@ -56,6 +68,6 @@ export function sqlBackedEtsySteelVerification(ctx,{shop=ctx.a.scope.expectedSho
     proxyBytesUsed:0,proxySource:null,timeout:s.maximumSessionMs,duration:1000});
   },
  };
- return{input,calls,providerRequests,browser,cleanup,get prepared(){return prepared;},
+ return{input,boundarySubstitutions,calls,providerRequests,browser,cleanup,get prepared(){return prepared;},
   async run(){const result=await verifyApprovedEtsySteelProfile(input);await Promise.all(cleanup);assert.equal(transportQueue.length,0);return result;}};
 }

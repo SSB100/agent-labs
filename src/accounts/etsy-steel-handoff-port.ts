@@ -1,3 +1,4 @@
+import type { SteelCreateConfigurationGuard } from '../browser/etsy-steel-create-binding';
 import { validateEtsyOwnerBootstrapPolicy, etsyOwnerBootstrapPolicyHash, classifyEtsyOwnerBootstrapRequest, type EtsyOwnerBootstrapPolicy } from './etsy-steel-owner-bootstrap';
 import { chromium, type Browser, type BrowserContext, type CDPSession, type Page } from 'playwright-core';
 import { SteelBrowserAdapter, type SteelConfig } from '../browser/providers/steel';
@@ -39,9 +40,9 @@ function rendererQualification(raw:EtsySteelHandoffRendererQualification|undefin
 export function createEtsySteelHandoffPort(input:{providerProjectId:string;admitDispatch:TransportAdmission;beforeCreate:()=>void;
   registerCleanup(work:Promise<void>):void;rendererQualification?:EtsySteelHandoffRendererQualification;
   recordRendererDecision?(decision:Readonly<EtsySteelHandoffRendererDecision>,signal:AbortSignal):Promise<void>;
-  config?:SteelConfig;fetcher?:typeof fetch;connect?:typeof chromium.connectOverCDP;now?:()=>number;
+  createConfigurationGuard?:SteelCreateConfigurationGuard;config?:SteelConfig;fetcher?:typeof fetch;connect?:typeof chromium.connectOverCDP;now?:()=>number;
 }):Pick<EtsySteelHandoffDependencies,'createSession'|'releaseSession'|'readProfile'> {
-  const provider=new SteelBrowserAdapter({config:input.config,fetcher:input.fetcher,admitDispatch:input.admitDispatch});
+  const provider=new SteelBrowserAdapter({config:input.config,fetcher:input.fetcher,admitDispatch:input.admitDispatch,createConfigurationGuard:input.createConfigurationGuard});
   const connect=input.connect??chromium.connectOverCDP.bind(chromium),now=input.now??Date.now;
   const fail=():never=>{throw new Error('etsy_steel_owner_port_unverified');};
   return{

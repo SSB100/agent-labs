@@ -1,3 +1,4 @@
+import type { SteelCreateConfigurationGuard } from '../browser/etsy-steel-create-binding';
 import type { SteelConfig } from '../browser/providers/steel';
 import { awaitRequestDeadline, requestDeadline } from '../core/request-deadline';
 import { createEtsySteelHandoffPort } from './etsy-steel-handoff-port';
@@ -10,7 +11,7 @@ export function createEtsySteelHandoffRpcDependencies(input:{scope:EtsySteelHand
   rpc(operation:string,payload:Record<string,unknown>):Promise<unknown>;registerCleanup(work:Promise<void>):void;
   rendererQualification?:Parameters<typeof createEtsySteelHandoffPort>[0]['rendererQualification'];
   recordRendererDecision?:Parameters<typeof createEtsySteelHandoffPort>[0]['recordRendererDecision'];
-  config?:SteelConfig;fetcher?:typeof fetch;connect?:Parameters<typeof createEtsySteelHandoffPort>[0]['connect'];
+  createConfigurationGuard?:SteelCreateConfigurationGuard;config?:SteelConfig;fetcher?:typeof fetch;connect?:Parameters<typeof createEtsySteelHandoffPort>[0]['connect'];
 }):EtsySteelHandoffDependencies {
   const scope=validateEtsySteelHandoffScope(input.scope),scopeHash=etsySteelHash(scope);
   let createReserved=false,createReady=false,createConsumed=false;
@@ -19,7 +20,7 @@ export function createEtsySteelHandoffRpcDependencies(input:{scope:EtsySteelHand
     try{return await awaitRequestDeadline(input.rpc(operation,payload),signal) as T;}
     catch{throw new Error('etsy_steel_rpc_unconfirmed');}
   };
-  const port=createEtsySteelHandoffPort({providerProjectId:scope.providerProjectId,config:input.config,fetcher:input.fetcher,connect:input.connect,
+  const port=createEtsySteelHandoffPort({providerProjectId:scope.providerProjectId,createConfigurationGuard:input.createConfigurationGuard,config:input.config,fetcher:input.fetcher,connect:input.connect,
     registerCleanup:input.registerCleanup,rendererQualification:input.rendererQualification,recordRendererDecision:input.recordRendererDecision,
     admitDispatch:async request=>{
       const cleanup=['browser.etsy.session.release','browser.etsy.session.release_readback'].includes(request.operation);

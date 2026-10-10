@@ -1,24 +1,24 @@
-/** Test-only leaf IO injection. The actual driver, model/source runtimes,
- * serializers, key derivation and all migrated public RPCs remain unchanged.
- * HISTORICAL BOUNDARY: migrations stop before 21300. Current adapter config
- * admission is an explicitly inert leaf here; this is not final-chain create
- * qualification. The leaf refuses a database that has the real 21300 RPC. */
+/** Successor-only copy of the frozen proof-bound driver fixture. New inputs
+ * inject current Steel configuration admission; real driver/source RPCs remain. */
 import assert from 'node:assert/strict';
-import {inertSteelCreateConfigurationPermit} from './etsy-steel-create-config-fixture.mjs';
 import {createRequire} from 'node:module';
 import {readFileSync} from 'node:fs';
 import {createHash,randomUUID} from 'node:crypto';
 import sharp from 'sharp';
+import {INERT_STEEL_CONFIG,INERT_STEEL_DEPLOYMENT,admitSteelConfig} from './r12-steel-config-sql-fixture.mjs';
+import {discoveryV2Hash as hash} from '../../.core-tests/products/discovery-v2-hash.js';
 import {one,ownerInitialRuntimeRpc} from './r12-owner-initial-sql-fixture.mjs';
-import {fixture as browserFixture} from './etsy-insights-playwright-fixture.mjs';
+import {researchRendererFixture} from './etsy-insights-research-renderer-fixture.mjs';
+import {resolve} from 'node:path';
 import {r12CatalogFixture} from './r12-provider-fixture.mjs';
+import {directSonnetCatalogFixture} from './r12-direct-sonnet-catalog-fixture.mjs';
 import {r12PhaseOutputFixture} from './r12-phase-output-fixture.mjs';
 import {directModelExpectation} from './r12-direct-controller-model-fixture.mjs';
 import {directRepairModelExpectation} from './r12-direct-controller-repair-model-fixture.mjs';
 const require=createRequire(import.meta.url),ts=require('typescript');
 const core=name=>require('../../.core-tests/'+name+'.js');
 const model=core('products/discovery-r12-public-model'),modelRuntime=core('products/discovery-r12-public-model-runtime');
-const quote=core('products/discovery-r12-adaptive-quote'),sourceRuntime=core('browser/etsy-insights-rpc-runtime');
+const quote=core('products/discovery-r12-adaptive-quote'),sourceRuntime=require(resolve(process.env.R12_INSIGHTS_CORE_DIR||'.core-tests','browser/etsy-insights-rpc-runtime.js'));
 const {PUBLIC_RESEARCH_DIMENSIONS}=core('products/discovery-r12-public-quality');
 const {publicResearchQuestionHash}=core('products/discovery-r12-public-contracts');
 export const INERT_DIRECT_RUNTIME_ROOT='inert-owner-initial-runtime-bootstrap-root-0123456789';
@@ -40,19 +40,11 @@ function outputFor(f,attempt){
  return{version:'r12.direct-etsy-review.1',proposalHash:i.dependencies.strategy.response.result.proposalHash,quality,hypothesisFinding:'undetermined',learningRecommendation:'NME',conclusion:'The descriptive result is concrete but the hypothesis remains unmeasured.',conclusionEvidenceRefs:[ref],contraryEvidenceRefs:[ref],proposedCommand:next};
 }
 
-export function directRuntimeComposition(db,f,{rpcTransport=null,modelOutput=null,policyVersion='r12.direct-etsy-attempt-policy.1'}={}){
+export function steelConfigResearchRuntimeComposition(db,f,{rpcTransport=null,modelOutput=null,policyVersion='r12.direct-etsy-attempt-policy.1',browserFactory=researchRendererFixture,afterSourceCreate=null,configurationAdmit=null}={}){
  assert.equal(f.policy.version,policyVersion,'The fixture must explicitly select the versioned authority under test');
  const calls=[],modelPosts=[],modelGets=[],catalogGets=[],browserPosts=[],browsers=[],sourceResults=[],modelResults=[],sqlErrors=[];
  const faults={proofUnavailable:false,sourceFinishUnavailable:0,failModelPhaseOnce:null};
- const boundarySubstitutions=['historical_pre_21300_configuration_admission_leaf'];
  const client={rpc:async(name,args)=>{
-  if(name==='r12_steel_create_config_admit'){
-   assert.equal((await one(db,"select to_regprocedure('public.r12_steel_create_config_admit(uuid,jsonb,text)') is null absent")).absent,true,'Historical leaf must never bypass current-chain configuration admission');
-   assert.equal(args.p_business_id,f.authority.f.businessId);assert.equal(args.p_server_key,f.keys.source);
-   const saved=await one(db,"select p.source_scope from private.r12_direct_browser_operations o join private.r12_direct_phase_attempts p on p.request_id=o.request_id and p.phase='source' where o.id=$1 and o.envelope_id=$2",[args.p_request.operationId,f.authority.prepared.testEnvelopeId]);
-   assert.equal(args.p_request.scopeHash,core('products/discovery-v2-hash').discoveryV2Hash(saved.source_scope));calls.push({name,operation:'historical_configuration_leaf',payload:structuredClone(args.p_request)});
-   return{data:inertSteelCreateConfigurationPermit(args.p_request),error:null};
-  }
   assert.ok(['r12_direct_controller_server','r12_direct_browser_ledger'].includes(name));
   const operation=args.p_operation;calls.push({name,operation,payload:structuredClone(args.p_payload)});
   assert.equal(args.p_business_id,f.authority.f.businessId);
@@ -67,7 +59,7 @@ export function directRuntimeComposition(db,f,{rpcTransport=null,modelOutput=nul
  }};
  const catalogFetch=async(address,init)=>{
   assert.equal(init.method,'GET');assert.equal(init.credentials,'omit');assert.equal(init.redirect,'error');
-  const item=Object.values(r12CatalogFixture()).find(x=>x.url===String(address));assert.ok(item,'Only fixed public catalog endpoints may be read');
+  const item=Object.values(f.quote.version==='r12.public-research-quote.3'?directSonnetCatalogFixture(Date.now()):r12CatalogFixture()).find(x=>x.url===String(address));assert.ok(item,'Only fixed public catalog endpoints may be read');
   catalogGets.push(String(address));return Response.json(item.payload);
  };
  const modelProvider=attemptId=>modelRuntime.createPublicResearchModelProvider({
@@ -90,17 +82,18 @@ export function directRuntimeComposition(db,f,{rpcTransport=null,modelOutput=nul
  });
  function actualSource(input){
   const s=input.scope,options={shop:s.accountBinding.observedShopName,summaryQuery:s.query,headingQuery:s.query};
-  const browser=browserFixture(options);browsers.push(browser);let released=false,created=false;
-  options.beforeNavigate=url=>browser.request(url);options.beforeSubmit=url=>browser.request(url);
+  const browser=browserFactory(options);browsers.push(browser);let released=false,created=false;
+
   browser.page.screenshot=async({clip})=>{browser.events.push('screenshot');assert.ok(clip.x>=300);return sharp({create:{width:clip.width,height:clip.height,channels:4,background:{r:0,g:0,b:0,alpha:0}}}).png({compressionLevel:9,palette:true}).toBuffer();};
-  const runtime=sourceRuntime.createEtsyInsightsRpcRuntime({...input,config:browser.input.config,connect:browser.input.connect,
+  const runtime=sourceRuntime.createEtsyInsightsRpcRuntime({...input,config:INERT_STEEL_CONFIG,connect:browser.input.connect,
+   createConfigurationGuard:{scopeHash:hash(s),deployment:INERT_STEEL_DEPLOYMENT,admit:request=>configurationAdmit?configurationAdmit(request):admitSteelConfig(db,f.authority.f.businessId,request,f.keys.source)},
    fetcher:async(address,init={})=>{
     const url=new URL(address),method=init.method??'GET';assert.equal(url.origin,'https://api.steel.dev');
     if(url.pathname==='/v1/sessions'){
      assert.equal(method,'POST');assert.equal(created,false);created=true;
      assert.equal((await one(db,'select count(*)::int n from private.r12_direct_source_transport_claims where attempt_id=$1',[s.sourceAttemptId])).n,1);
      const body=JSON.parse(init.body);assert.deepEqual(body,{sessionId:s.operationId,projectId:s.providerProjectId,timeout:s.limits.maximumSessionMs,persistProfile:false,profileId:f.approved.profileId,debugConfig:{interactive:false,systemCursor:false},useProxy:false,solveCaptcha:false,stealthConfig:{autoCaptchaSolving:false,humanizeInteractions:false,skipFingerprintInjection:true}});
-     browserPosts.push({operationId:s.operationId,attemptId:s.sourceAttemptId});
+     browserPosts.push({operationId:s.operationId,attemptId:s.sourceAttemptId});if(afterSourceCreate)await afterSourceCreate({scope:s,browser});
     }else if(url.pathname===`/v1/sessions/${s.operationId}/release`){assert.equal(method,'POST');assert.equal(created,true);assert.equal(released,false);released=true;return Response.json({success:true});}
     else{assert.equal(method,'GET');assert.equal(url.pathname,`/v1/sessions/${s.operationId}`);assert.equal(released,true);}
     return Response.json({id:s.operationId,projectId:s.providerProjectId,profileId:f.approved.profileId,status:released?'released':'live',debugUrl:`https://api.steel.dev/v1/sessions/${s.operationId}/player`,solveCaptcha:false,useProxy:false,proxyBytesUsed:0,proxySource:null,timeout:s.limits.maximumSessionMs,duration:1000});
@@ -111,7 +104,6 @@ export function directRuntimeComposition(db,f,{rpcTransport=null,modelOutput=nul
  const loaded=actualSourceModule('src/products/discovery-r12-public-runtime.ts',{
   'node:crypto':require('node:crypto'),'../core/request-deadline':core('core/request-deadline'),
   '../lib/supabase/runtime':{createRuntimeClient:()=>client},
-  get '../browser/etsy-steel-create-binding'(){const actual=core('browser/etsy-steel-create-binding');return{...actual,getSteelCreateDeployment:()=>actual.getSteelCreateDeployment({VERCEL_ENV:'production',VERCEL_DEPLOYMENT_ID:'dpl_inert_historical_boundary',VERCEL_GIT_COMMIT_SHA:'1'.repeat(40)})};},
   './discovery-r12-public-server-key':core('products/discovery-r12-public-server-key'),
   './discovery-r12-public-utils':core('products/discovery-r12-public-utils'),
   './discovery-r12-public-contracts':core('products/discovery-r12-public-contracts'),
@@ -122,12 +114,13 @@ export function directRuntimeComposition(db,f,{rpcTransport=null,modelOutput=nul
   './discovery-r12-adaptive-quote':{...quote,fetchAdaptiveResearchQuote:options=>quote.fetchAdaptiveResearchQuote({...options,fetch:catalogFetch})},
   get './discovery-r12-public-reviewer-quote'(){const actual=core('products/discovery-r12-public-reviewer-quote');return{...actual,fetchDirectSonnetInferenceQuote:options=>actual.fetchDirectSonnetInferenceQuote({...options,fetch:catalogFetch})};},
   './discovery-r12-public-model-runtime':{...modelRuntime,async runPublicResearchModelAttempt(args,deps){const result=await modelRuntime.runPublicResearchModelAttempt(args,{...deps,provider:modelProvider(args.attemptId)});modelResults.push(result);return result;}},
+  get '../browser/etsy-steel-create-binding'(){return core('browser/etsy-steel-create-binding');},
   '../browser/etsy-insights-rpc-runtime':{...sourceRuntime,createEtsyInsightsRpcRuntime:actualSource},
  });
  const input={businessId:f.authority.f.businessId,goalId:f.authority.f.goalId,ownerId:f.authority.f.ownerId,grantId:f.authority.f.grantId,
   testEnvelopeId:f.authority.prepared.testEnvelopeId,envelopeHash:f.authority.prepared.testEnvelopeHash,routeHash:f.authority.routeHash,
   scopeId:f.prepared.scopeId,scopeHash:f.prepared.scopeHash,planHash:f.prepared.planHash,profileHash:f.profile.profileHash,policyHash:f.policy.policyHash};
  const runtimeRunId='inert-driver-'+randomUUID();
- return{input,runtimeRunId,sourceHash:loaded.sourceHash,boundarySubstitutions,calls,modelPosts,modelGets,catalogGets,browserPosts,browsers,sourceResults,modelResults,sqlErrors,faults,
+ return{input,runtimeRunId,sourceHash:loaded.sourceHash,calls,modelPosts,modelGets,catalogGets,browserPosts,browsers,sourceResults,modelResults,sqlErrors,faults,
   step:(id=runtimeRunId,pins=input)=>loaded.executePublicResearchRuntimeStep(pins,id)};
 }

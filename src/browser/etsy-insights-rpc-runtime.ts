@@ -1,3 +1,4 @@
+import type {SteelCreateConfigurationGuard} from './etsy-steel-create-binding';
 import {SteelBrowserAdapter,type SteelConfig} from './providers/steel';
 import {createEtsyInsightsPlaywrightPort,type EtsyInsightsPlaywrightPortInput} from './etsy-insights-playwright';
 import {runEtsyInsightsResearch} from './etsy-insights-runtime';
@@ -18,7 +19,7 @@ export type EtsyInsightsRpcRuntimeInput={
  /** These closures must already be authenticated and pinned to the immutable
   * Business/scope/attempt and source/evidence purpose keys. No user/model JSON
   * can supply keys, qualify a route, enroll authority or select a profile. */
- scope:EtsyInsightsScope;routeHash:string;
+ scope:EtsyInsightsScope;routeHash:string;createConfigurationGuard?:SteelCreateConfigurationGuard;
  sourceRpc(operation:SourceOperation,payload:Record<string,unknown>):Promise<unknown>;
  ledgerRpc(operation:LedgerOperation,payload:Record<string,unknown>):Promise<unknown>;
  signal:AbortSignal;registerCleanup(work:Promise<void>):void;
@@ -32,6 +33,7 @@ export type EtsyInsightsRpcRunResult={run:EtsyInsightsRunResult;accounting:'qual
 export function createEtsyInsightsRpcRuntime(input:EtsyInsightsRpcRuntimeInput){
  const scope=freeze(validateEtsyInsightsScope(input.scope,(input.now??Date.now)(),true)),requestHash=hash(scope);
  check(isHash(input.routeHash)&&typeof input.sourceRpc==='function'&&typeof input.ledgerRpc==='function'&&typeof input.registerCleanup==='function'&&input.signal instanceof AbortSignal,'insights_rpc_configuration_required');
+ check(!input.createConfigurationGuard||input.createConfigurationGuard.scopeHash===requestHash,'insights_create_configuration_scope_changed');
  let ran=false,reserved=false,dispatchReady=false,dispatchConsumed=false;
  let closed:Release|null=null,usage:Usage|null=null,releaseEvidenceHash:string|null=null,disposalProofHash:string|null=null;
  let accounting:EtsyInsightsRpcRunResult['accounting']='not_attempted',persistedReceiptHash:string|null=null;
@@ -48,7 +50,7 @@ export function createEtsyInsightsRpcRuntime(input:EtsyInsightsRpcRuntimeInput){
    check(reserved&&!dispatchReady&&!dispatchConsumed,'insights_create_replayed');dispatchReady=true;
   }
  };
- const provider=new SteelBrowserAdapter({config:input.config,fetcher:input.fetcher,admitDispatch:transport});
+ const provider=new SteelBrowserAdapter({config:input.config,fetcher:input.fetcher,createConfigurationGuard:input.createConfigurationGuard,admitDispatch:transport});
  async function bindSession(){
   const read=await ledger('read',{});
   check(object(read)&&read.operationId===scope.operationId&&read.requestHash===requestHash&&read.operationMaximumMicrounits===scope.maximumBrowserMicrounits&&object(read.qualification),'insights_browser_ledger_mismatch');
@@ -57,7 +59,7 @@ export function createEtsyInsightsRpcRuntime(input:EtsyInsightsRpcRuntimeInput){
   const result=await ledger('bind_session',{sessionId:scope.operationId,providerProjectId:scope.providerProjectId,providerAccountHash:q.providerAccountHash});
   check(object(result)&&result.operationId===scope.operationId&&isHash(result.usageIdentityHash),'insights_session_binding_unconfirmed');
  }
- const port=createEtsyInsightsPlaywrightPort({providerProjectId:scope.providerProjectId,config:input.config,fetcher:input.fetcher,connect:input.connect,now:input.now,registerCleanup:input.registerCleanup,admitDispatch:transport,
+ const port=createEtsyInsightsPlaywrightPort({providerProjectId:scope.providerProjectId,config:input.config,fetcher:input.fetcher,connect:input.connect,now:input.now,registerCleanup:input.registerCleanup,createConfigurationGuard:input.createConfigurationGuard,admitDispatch:transport,
   async resolveAttempt(actual){
    check(hash(actual)===requestHash,'insights_scope_changed');const result=await rpc('resolve_source',{attemptId:scope.sourceAttemptId});
    check(exact(result,'sourceAttemptId,requestHash,sessionId,profileId,providerProjectId,accountBindingHash,profileBindingId,profileBindingRevision'),'insights_profile_resolution_unconfirmed');

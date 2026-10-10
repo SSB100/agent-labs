@@ -124,6 +124,13 @@ jobs:
             pattern: '.'
           - file: r12-direct-enrollment-owner-journey-sql.test.mjs
             pattern: '.'
+          - file: r12-steel-config-admission-sql.test.mjs
+            pattern: '.'
+          - file: r12-steel-config-postgres-races.test.mjs
+            pattern: '.'
+          - file: r12-mapped-steel-postgrest-http.test.mjs
+            pattern: 'native PostgREST qualifies fresh mapped enrollment'
+            http: true
     services:
       postgres:
         image: public.ecr.aws/docker/library/postgres@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3
