@@ -10,6 +10,7 @@ import {directControllerFixture} from './helpers/r12-direct-controller-fixture.m
 import {directRuntimeComposition,INERT_DIRECT_RUNTIME_ROOT} from './helpers/r12-direct-runtime-composition-fixture.mjs';
 import {prepareDirectHttpHistory,directHttpModelOutput,directHttpSchedulePayload} from './helpers/r12-direct-http-fixture.mjs';
 import {one} from './helpers/r12-owner-initial-sql-fixture.mjs';
+import {installDirectHttpDispatchFault} from './helpers/r12-direct-http-dispatch-fault.mjs';
 import {discoveryV2Hash as hash} from '../.core-tests/products/discovery-v2-hash.js';
 import {validateR12HttpDatabase,configureR12HttpRoles,startR12Postgrest,r12HttpRpc} from './helpers/r12-postgrest-http.mjs';
 const http=process.env.R12_REQUIRE_POSTGREST==='1',inertOnly=process.env.R12_DIRECT_HTTP_FIXTURE_ONLY==='1';
@@ -25,7 +26,7 @@ async function qualify(useHttp){
  let server,restoreRoles,locker;
  process.env.R05_ADMISSION_SERVER_KEY=INERT_DIRECT_RUNTIME_ROOT;process.env.VERCEL_ENV='production';
  try{
-  for(const file of ['20261010120610_r12_direct_source_renderer_v2.sql','20261010120620_r12_direct_owner_server_context.sql','20261010120630_r12_direct_late_receipt_head_fence.sql','20261010120640_r12_direct_owner_access_navigation.sql','20261010120650_r12_direct_owner_test_exposure.sql','20261010120700_r12_direct_phase_repair.sql','20261010120750_r12_direct_legacy_compatibility.sql','20261010120755_r12_direct_grant_total_compatibility.sql'])await db.exec(readFileSync('supabase/migrations/'+file,'utf8'));
+  for(const file of ['20261010120610_r12_direct_source_renderer_v2.sql','20261010120620_r12_direct_owner_server_context.sql','20261010120630_r12_direct_late_receipt_head_fence.sql','20261010120640_r12_direct_owner_access_navigation.sql','20261010120650_r12_direct_owner_test_exposure.sql','20261010120700_r12_direct_phase_repair.sql','20261010120750_r12_direct_legacy_compatibility.sql','20261010120755_r12_direct_grant_total_compatibility.sql','20261010120760_r12_historical_attempt_projection.sql'])await db.exec(readFileSync('supabase/migrations/'+file,'utf8'));
   const f=await directControllerFixture(db);f.authority.db=db;
   const state=await prepareDirectHttpHistory(f);report.priorRealCycles=state.windowAttemptsStarted;
   const before=await one(db,'select children_created,dispatches from private.r07_heads where goal_id=$1',[f.authority.f.goalId]);
@@ -85,10 +86,9 @@ async function qualify(useHttp){
   if(useHttp){
    // Delay the real private post-marker body, while HTTP still enters the
    // unchanged outer RPC. The role deadline must roll back every actual write.
-   const sig='private.r12_direct_dispatch(uuid,jsonb)',canonical=await one(db,'select pg_get_functiondef(oid) definition,proowner,proacl,proconfig,provolatile,prosecdef from pg_proc where oid=$1::regprocedure',[sig]);
-   const anchor="return jsonb_build_object('shouldDispatch',true";assert.equal(canonical.definition.split(anchor).length,2);
    const timeoutBaseline=await fingerprint();
-   await db.exec(canonical.definition.replace(anchor,'perform pg_sleep(4);'+anchor));
+   const fault=await installDirectHttpDispatchFault(db,f.prepared.scopeId,'r12.direct-etsy-attempt-policy.1');
+   report.faultDelegate=fault.signature;
    try{
     const result=await h.step();assert.equal(result.reason,'pending');assert.equal(h.modelPosts.length,0);
     assert.ok(report.trials.some(t=>t.operation==='dispatch'&&t.code==='57014'));
@@ -97,9 +97,10 @@ async function qualify(useHttp){
     assert.deepEqual(await one(db,`select a.status,(select count(*)::int from private.r05_markers where request_id=x.request_id) markers,
      (select count(*)::int from private.r05_reservations where request_id=x.request_id) reservations,(select count(*)::int from private.r12_direct_phase_wires where attempt_id=a.id) wires
      from private.r07_attempts a join private.r12_direct_phase_attempts x on x.attempt_id=a.id where a.id=$1`,[current.attemptId]),{status:'scheduled',markers:0,reservations:0,wires:0});
-   }finally{await db.exec(canonical.definition);assert.deepEqual(await one(db,'select pg_get_functiondef(oid) definition,proowner,proacl,proconfig,provolatile,prosecdef from pg_proc where oid=$1::regprocedure',[sig]),canonical);}
+   }finally{await fault.restore();}
    report.guards.push('actual_post_marker_timeout_rolls_back_reservation_wire_and_marker');
   }
+  if(!useHttp){const fault=await installDirectHttpDispatchFault(db,f.prepared.scopeId,'r12.direct-etsy-attempt-policy.1');await fault.restore();report.guards.push('dry_exact_dispatch_router_resolution_and_restoration');}
   h.faults.proofUnavailable=true;
   assert.equal((await h.step()).reason,'pending');assert.equal(h.modelPosts.length,1);
   assert.equal((await h.step()).reason,'pending');assert.equal(h.modelPosts.length,1,'Pending receipt does not resend');

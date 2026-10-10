@@ -13,7 +13,7 @@ export type EtsyRequestAdmission = { seal():void; drain():Promise<boolean> };
  * unexpected pages with context routing before their original request dispatch.
  * Do not detach/disable this guard while provider release is still uncertain. */
 export async function installEtsyRequestAdmission(input:{cdp:CDPSession;signal:AbortSignal;
-  admit(request:EtsyRequestMetadata):Promise<void|'deny_optional_telemetry'|'deny_owner_subresource'>;invalidate(reason:string):void}):Promise<EtsyRequestAdmission>{
+  admit(request:EtsyRequestMetadata):Promise<void|'deny_optional_telemetry'|'deny_owner_subresource'|'deny_candidate_ancillary'>;invalidate(reason:string):void}):Promise<EtsyRequestAdmission>{
   const {cdp,signal}=input;
   let sealed=false, disposalFailed=false;
   let admissions:Promise<void>=Promise.resolve();
@@ -43,8 +43,8 @@ export async function installEtsyRequestAdmission(input:{cdp:CDPSession;signal:A
         admissions=decision.then(()=>undefined,()=>undefined);
         const disposition=await awaitRequestDeadline(decision,signal);
         signal.throwIfAborted();if(sealed)throw Error('renderer_admission_closed');
-        if(disposition==='deny_optional_telemetry'||disposition==='deny_owner_subresource'){
-          // A reviewed optional pixel/script is blocked, never continued. Its
+        if(disposition==='deny_optional_telemetry'||disposition==='deny_owner_subresource'||disposition==='deny_candidate_ancillary'){
+          // A reviewed blocked dependency is never continued. Its
           // failure acknowledgement is required before the request is settled.
           await awaitRequestDeadline(send('Fetch.failRequest',e.requestId),signal);
         }else if(disposition===undefined)await awaitRequestDeadline(cdp.send('Fetch.continueRequest',{requestId:e.requestId}),signal);

@@ -8,7 +8,7 @@ function done(businessId:string,operationId:string,result:string):never{revalida
 export async function approveEtsyResearchAccess(form:FormData){
  const context=await requireOwnerUiContext(),businessId=field(form,'businessId'),operationId=field(form,'operationId');
  if(field(form,'persistentAccessConsent')!=='on')done(businessId,operationId,'consent-required');
- try{await approveEtsySteelOwnerSetup(context,businessId,operationId,{operationId,scopeHash:field(form,'scopeHash'),disclosureHash:field(form,'disclosureHash'),expectedApprovalRevision:field(form,'approvalRevision'),persistentAccessApproved:true,budgetApproved:true});}catch{done(businessId,operationId,'unavailable');}
+ try{await approveEtsySteelOwnerSetup(context,businessId,operationId,{operationId,scopeHash:field(form,'scopeHash'),disclosureHash:field(form,'disclosureHash'),expectedApprovalRevision:field(form,'approvalRevision'),persistentAccessApproved:true,budgetApproved:true,...(form.has('rendererReviewHash')?{rendererReviewHash:field(form,'rendererReviewHash')}:{})});}catch{done(businessId,operationId,'unavailable');}
  done(businessId,operationId,'approved');
 }
 export async function stopEtsyResearchAccess(form:FormData){

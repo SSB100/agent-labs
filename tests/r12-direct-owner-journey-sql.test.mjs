@@ -13,7 +13,7 @@ test('ordinary rendered owner forms use actual authenticated SQL authority, one 
  const db=await directControllerDatabase(),fetch=globalThis.fetch,env={VERCEL_ENV:process.env.VERCEL_ENV,R05_ADMISSION_SERVER_KEY:process.env.R05_ADMISSION_SERVER_KEY,ACCOUNTS_VAULT_KEY:process.env.ACCOUNTS_VAULT_KEY};let external=0;
  globalThis.fetch=async()=>{external++;throw Error('No external transport');};
  try{
-  for(const file of ['20261010120610_r12_direct_source_renderer_v2.sql','20261010120620_r12_direct_owner_server_context.sql','20261010120630_r12_direct_late_receipt_head_fence.sql','20261010120640_r12_direct_owner_access_navigation.sql','20261010120650_r12_direct_owner_test_exposure.sql','20261010120700_r12_direct_phase_repair.sql'])await db.exec(readFileSync('supabase/migrations/'+file,'utf8'));
+  for(const file of ['20261010120610_r12_direct_source_renderer_v2.sql','20261010120620_r12_direct_owner_server_context.sql','20261010120630_r12_direct_late_receipt_head_fence.sql','20261010120640_r12_direct_owner_access_navigation.sql','20261010120650_r12_direct_owner_test_exposure.sql','20261010120700_r12_direct_phase_repair.sql','20261010120750_r12_direct_legacy_compatibility.sql','20261010120755_r12_direct_grant_total_compatibility.sql','20261010120760_r12_historical_attempt_projection.sql','20261010120800_r12_insights_landing_controls_v2.sql','20261010120900_r12_insights_verification_candidate_v3.sql'])await db.exec(readFileSync('supabase/migrations/'+file,'utf8'));
   const a=await ownerJourneyAuthority(db);Object.assign(process.env,{VERCEL_ENV:'production',R05_ADMISSION_SERVER_KEY:INERT_DIRECT_RUNTIME_ROOT,ACCOUNTS_VAULT_KEY:'a'.repeat(64)});
   const j=ownerJourneyComposition(db,a);t.diagnostic('Actual owner source hashes: '+JSON.stringify(j.sourceHashes));const base=`/dashboard/products/etsy-research?business=${a.f.businessId}&goal=${a.f.goalId}`;
   const page=async url=>{try{const r=await j.get(url);assert.equal(r.status,200);return r.text();}catch(error){error.message=new URL(url,'http://inert.local').pathname+': '+error.message;throw error;}};
@@ -34,6 +34,9 @@ test('ordinary rendered owner forms use actual authenticated SQL authority, one 
   const accountUrl=location,operationId=new URL(location,'http://inert.local').searchParams.get('operation');
   const duplicateAccess=await j.product.prepareDirectEtsyAccess(j.context(),a.f.businessId,a.f.goalId,envelopeId,'SyntheticShop');assert.equal(duplicateAccess.operationId,operationId);assert.equal((await counts()).setups,1);
   html=await page(accountUrl);assert.match(html,/Steel hosts the browser and records/);assert.match(html,/reusable browser authentication profile/);assert.match(html,/This application access expiry does not establish when Steel deletes the profile/);assert.match(html,/Verification submits no research query/);assert.equal(j.providerCalls.length,0);
+  assert.equal((await j.owner.readEtsySteelOwnerRendererReview(j.context(),a.f.businessId,operationId)).status,'legacy');
+  assert.equal(html.includes('name="rendererReviewHash"'),false,'Explicit legacy review retains the old approval shape');
+  j.faults.rendererReadUnavailable=true;const unavailable=await page(accountUrl);assert.match(unavailable,/saved browser policy review is unavailable/);assert.equal(unavailable.includes('Approve reviewed access'),false);j.faults.rendererReadUnavailable=false;
   const approvalForm=ownerRenderedForm(html,'Approve reviewed access');
   const denied=await j.post(approvalForm.action,{...approvalForm.fields,scopeHash:'f'.repeat(64),persistentAccessConsent:'on'});assert.equal(new URL(denied.headers.get('Location'),'http://inert.local').searchParams.get('result'),'unavailable');
   assert.equal((await j.owner.readEtsySteelOwnerSetup(j.context(),a.f.businessId,operationId)).status,'pending_approval');
@@ -74,7 +77,7 @@ test('ordinary rendered owner forms use actual authenticated SQL authority, one 
   const callsBefore=j.providerCalls.length;await j.product.resumeDirectResearch(j.context(),a.f.businessId,a.f.goalId,envelopeId);assert.equal(j.resumes.length,2);assert.ok(j.resumes.every(r=>r.token==='agent-labs:direct-etsy-reconcile:'+i.scopeId&&r.payload.operation==='reconcile'));assert.equal(j.providerCalls.length,callsBefore);
   const stoppedView=await j.owner.readEtsySteelOwnerVerification(j.context(),a.f.businessId,operationId);assert.notEqual(stoppedView.status,'verified');assert.equal(stoppedView.observedShopName,null);
   j.setUser(randomUUID());await assert.rejects(j.product.resumeDirectResearch(j.context(),a.f.businessId,a.f.goalId,envelopeId));await assert.rejects(j.owner.readEtsySteelOwnerVerification(j.context(),a.f.businessId,operationId));assert.equal(j.resumes.length,2);
-  for(const c of j.rpcCalls){if(['r12_owner_direct_read','r12_owner_direct_server','r12_etsy_steel_owner','r12_owner_etsy_steel_verification_read'].includes(c.name))assert.equal(c.role,'authenticated');else assert.equal(c.role,'anon');}
+  for(const c of j.rpcCalls){if(['r12_owner_direct_read','r12_owner_direct_server','r12_etsy_steel_owner','r12_owner_etsy_steel_verification_read','r12_owner_etsy_steel_renderer_review'].includes(c.name))assert.equal(c.role,'authenticated');else assert.equal(c.role,'anon');}
   assert.equal(external,0);assert.equal(j.providerCalls.filter(x=>x.path==='/v1/sessions').length,2);
  }finally{globalThis.fetch=fetch;for(const[k,v]of Object.entries(env))if(v===undefined)delete process.env[k];else process.env[k]=v;await db.close();}
 });

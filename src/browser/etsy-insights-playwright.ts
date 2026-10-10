@@ -1,3 +1,6 @@
+import {isEtsyInsightsResearchRendererPolicy,validateEtsyInsightsResearchRendererPolicy,etsyInsightsResearchRendererPolicyHash,validateEtsyInsightsResearchReadiness,classifyEtsyInsightsResearchRendererRequest,type EtsyInsightsResearchRendererPolicy,type EtsyInsightsResearchReadiness} from './etsy-insights-renderer-research';
+import {isEtsyInsightsVerificationCandidate,validateEtsyInsightsVerificationCandidate,etsyInsightsVerificationCandidateHash,classifyEtsyInsightsVerificationCandidateRequest,type EtsyInsightsVerificationCandidatePolicy,type EtsyInsightsCandidateMetadata,type EtsyInsightsCandidateDisposition} from './etsy-insights-renderer-candidate';
+import {readEtsyInsightsLandingControls,ETSY_INSIGHTS_LANDING_CONTROL_ID,ETSY_INSIGHTS_LANDING_CONTROLS_VERSION,ETSY_INSIGHTS_LANDING_CONTROLS_HASH} from './etsy-insights-landing-controls';
 import { installEtsyRequestAdmission, releaseEtsyTransportAndDispose, type EtsyRequestAdmission } from './etsy-request-admission';
 import { randomUUID } from 'node:crypto';
 import { classifyEtsyInsightsRendererRequest, validateEtsyInsightsRendererPolicy, etsyInsightsRendererPolicyHash, type EtsyInsightsRendererPolicy } from './etsy-insights-renderer-policy';
@@ -36,7 +39,23 @@ type EtsyInsightsRendererRequestBase = { operationId: string; sourceAttemptId: s
   requestHash: string; qualificationHash: string; sequence: number; url: string; method: string;
   resourceType: string; navigation: boolean;
 };
-export type EtsyInsightsRendererRequest=EtsyInsightsRendererRequestBase&({version:'r12.etsy-insights-renderer-request.1'}|{version:'r12.etsy-insights-renderer-request.2';disposition:'allow'|'deny_optional_telemetry';policyHash:string;provenanceHash:string});
+export type EtsyInsightsResearchRendererRequest={version:'r12.etsy-insights-renderer-request.3';operationId:string;sourceAttemptId:string;requestHash:string;qualificationHash:string;policyHash:string;provenanceHash:string;sequence:number;disposition:EtsyInsightsCandidateDisposition;decisionHash:string}&EtsyInsightsCandidateMetadata;
+export type EtsyInsightsRendererRequest=(EtsyInsightsRendererRequestBase&({version:'r12.etsy-insights-renderer-request.1'}|{version:'r12.etsy-insights-renderer-request.2';disposition:'allow'|'deny_optional_telemetry';policyHash:string;provenanceHash:string}))|EtsyInsightsResearchRendererRequest;
+export type EtsyInsightsRendererQualification<P=EtsyInsightsRendererPolicy|EtsyInsightsResearchRendererPolicy>={requestHash:string;qualificationHash:string;expiresAt:string;maximumRequests:number;policy:P;policyHash:string}&(
+ {version:'r12.etsy-insights-renderer-qualification.1'}|
+ {version:'r12.etsy-insights-renderer-qualification.2';landingControlsVersion:typeof ETSY_INSIGHTS_LANDING_CONTROLS_VERSION;landingControlsHash:string}|
+ {version:'r12.etsy-insights-renderer-qualification.3';landingControlsVersion:typeof ETSY_INSIGHTS_LANDING_CONTROLS_VERSION;landingControlsHash:string;readiness:EtsyInsightsResearchReadiness});
+function qualifiedLandingV2(q:EtsyInsightsRendererQualification<unknown>):boolean{
+ if(q.version==='r12.etsy-insights-renderer-qualification.1'){
+  if('landingControlsVersion' in q||'landingControlsHash' in q)return insightsFail('renderer_landing_contract_invalid');
+  return false;
+ }
+ if(!['r12.etsy-insights-renderer-qualification.2','r12.etsy-insights-renderer-qualification.3'].includes(q.version)||q.landingControlsVersion!==ETSY_INSIGHTS_LANDING_CONTROLS_VERSION||q.landingControlsHash!==ETSY_INSIGHTS_LANDING_CONTROLS_HASH)return insightsFail('renderer_landing_contract_invalid');
+ const {qualificationHash,...body}=q;
+ const keys='expiresAt,landingControlsHash,landingControlsVersion,maximumRequests,policy,policyHash,qualificationHash,requestHash,version'+(q.version==='r12.etsy-insights-renderer-qualification.3'?',readiness':'');
+ if(Object.keys(q).sort().join(',')!==keys.split(',').sort().join(',')||qualificationHash!==insightsHash(body))return insightsFail('renderer_landing_contract_invalid');
+ return true;
+}
 export type EtsyInsightsPlaywrightPortInput = {
   providerProjectId: string; admitDispatch: TransportAdmission;
   /** Trusted immutable ledger lookup, not browser/model/caller account JSON.
@@ -48,8 +67,7 @@ export type EtsyInsightsPlaywrightPortInput = {
   /** A reviewed server record must qualify the renderer route BEFORE paid create.
    * No built-in wildcard network approval is provided. Renderer traffic is never
    * evidence; no request/response bodies or headers are read or exposed. */
-  qualifyRenderer(scope: Readonly<EtsyInsightsScope>): Promise<{ version: 'r12.etsy-insights-renderer-qualification.1';
-    requestHash: string; qualificationHash: string; expiresAt: string; maximumRequests: number; policy:EtsyInsightsRendererPolicy; policyHash:string }>;
+  qualifyRenderer(scope: Readonly<EtsyInsightsScope>): Promise<EtsyInsightsRendererQualification>;
   admitRenderer(request: Readonly<EtsyInsightsRendererRequest>, signal: AbortSignal): Promise<void>;
   registerCleanup(work: Promise<void>): void;
   config?: SteelConfig; fetcher?: typeof fetch; connect?: typeof chromium.connectOverCDP;
@@ -72,7 +90,7 @@ async function literal(locator: Locator, page: Page, signal: AbortSignal, maximu
 }
 /** Read only the already-visible aggregate nodes. The input value is deliberately
  * absent: both the independent results heading and summary query must agree. */
-async function readView(page: Page, scope: EtsyInsightsScope, signal: AbortSignal): Promise<View> {
+async function readView(page: Page, scope: EtsyInsightsScope, signal: AbortSignal, landingV2=false): Promise<View> {
   // A popup/credential overlay is never part of aggregate evidence. These are
   // conservative exclusion checks, not claimed site-specific login selectors.
   if (await page.getByRole('dialog').filter({visible:true}).count() || await page.locator('input[type="password"]').filter({visible:true}).count()) return insightsFail('blocked_unknown');
@@ -84,6 +102,10 @@ async function readView(page: Page, scope: EtsyInsightsScope, signal: AbortSigna
   if (shopUrl.origin !== 'https://www.etsy.com' || decodeURIComponent(shopUrl.pathname) !== `/shop/${shop}` ||
       [...shopUrl.searchParams.keys()].some(k => k !== 'ref') || shopUrl.searchParams.getAll('ref').length!==1 ||
       shopUrl.searchParams.get('ref')!=='seller-platform-mcnav') return insightsFail('account_mismatch');
+  if(route.kind==='landing'&&landingV2){
+    await readEtsyInsightsLandingControls(page,signal,{visible,literal});
+    return {url,kind:'landing',shop,query:null,window:null,searches:null,results:null,conversion:null,trend:null,clip:null};
+  }
   const form = main.locator(S.form), query = form.locator(S.query), submit = form.getByRole('button', { name: 'Search', exact: true });
   await visible(query, page, signal); await visible(submit, page, signal);
   if (await query.getAttribute('type') !== 'text' || !await query.isEnabled() || await submit.getAttribute('type') !== 'submit' || !await submit.isEnabled()) return insightsFail('insights_query_unavailable');
@@ -126,11 +148,16 @@ export function createEtsyInsightsPlaywrightPort(input: EtsyInsightsPlaywrightPo
         resolved.providerProjectId !== scope.providerProjectId || resolved.accountBindingHash !== scope.accountBinding.bindingHash ||
         resolved.profileBindingId !== scope.accountBinding.profileBindingId || resolved.profileBindingRevision !== scope.accountBinding.profileBindingRevision) return insightsFail('profile_binding_unverified');
     const qualification = frozen(structuredClone(await awaitRequestDeadline(input.qualifyRenderer(scope),bounded)));
-    if (qualification.version !== 'r12.etsy-insights-renderer-qualification.1' || qualification.requestHash !== requestHash || !insightsIsHash(qualification.qualificationHash) ||
+    const landingV2=qualifiedLandingV2(qualification),controlId=landingV2?ETSY_INSIGHTS_LANDING_CONTROL_ID:CONTROL;
+    if (qualification.requestHash !== requestHash || !insightsIsHash(qualification.qualificationHash) ||
         !Number.isSafeInteger(qualification.maximumRequests) || qualification.maximumRequests < 1 || qualification.maximumRequests > 512 ||
         !Number.isFinite(Date.parse(qualification.expiresAt)) || Date.parse(qualification.expiresAt) <= now() || Date.parse(qualification.expiresAt) > Date.parse(scope.expiresAt)) return insightsFail('renderer_qualification_required');
-    const rendererPolicy=validateEtsyInsightsRendererPolicy(qualification.policy);
-    if(qualification.policyHash!==etsyInsightsRendererPolicyHash(rendererPolicy)||qualification.maximumRequests!==rendererPolicy.maximumRequests)return insightsFail('renderer_policy_invalid');
+    const research=qualification.version==='r12.etsy-insights-renderer-qualification.3';
+    const rendererPolicy=research?validateEtsyInsightsResearchRendererPolicy(qualification.policy):validateEtsyInsightsRendererPolicy(qualification.policy);
+    if(research&&!isEtsyInsightsResearchRendererPolicy(rendererPolicy))return insightsFail('renderer_research_policy_invalid');
+    const readiness=research&&isEtsyInsightsResearchRendererPolicy(rendererPolicy)?validateEtsyInsightsResearchReadiness(qualification.readiness,scope,rendererPolicy,now()):null;
+    const rendererHash=isEtsyInsightsResearchRendererPolicy(rendererPolicy)?etsyInsightsResearchRendererPolicyHash(rendererPolicy):etsyInsightsRendererPolicyHash(rendererPolicy);
+    if(qualification.policyHash!==rendererHash||qualification.maximumRequests!==rendererPolicy.maximumRequests||readiness&&Date.parse(qualification.expiresAt)>Date.parse(readiness.expiresAt))return insightsFail('renderer_policy_invalid');
     let browser: Browser|null=null, context: BrowserContext|null=null, page: Page|null=null, cdp: CDPSession|null=null;
     let marked=false, closed=false, opened=false, submitted=false, captured=false, invalid=false, invalidReason='source_invalidated', epoch=0, lastHash:string|null=null, requests=0;
     let networkGuard:EtsyRequestAdmission|null=null;
@@ -174,6 +201,12 @@ export function createEtsyInsightsPlaywrightPort(input: EtsyInsightsPlaywrightPo
         invalidate(reason){invalid=true;invalidReason=reason;},
         async admit(r){
           active();if(++requests>qualification.maximumRequests)return insightsFail('renderer_request_limit');
+          if(isEtsyInsightsResearchRendererPolicy(rendererPolicy)){
+            const {metadata,disposition}=classifyEtsyInsightsResearchRendererRequest(rendererPolicy,r,scope.query);
+            const body={version:'r12.etsy-insights-renderer-request.3' as const,operationId:scope.operationId,sourceAttemptId:scope.sourceAttemptId,requestHash,qualificationHash:qualification.qualificationHash,policyHash:qualification.policyHash,provenanceHash:rendererPolicy.candidatePolicy.provenanceHash,sequence:requests,...metadata,disposition};
+            await awaitRequestDeadline(input.admitRenderer(Object.freeze({...body,decisionHash:insightsHash(body)}),bounded),bounded);active();
+            if(disposition==='deny_candidate_ancillary')return disposition;return;
+          }
           const disposition=classifyEtsyInsightsRendererRequest(rendererPolicy,r,scope.query);
           const metadata=disposition==='deny_optional_telemetry'?{...r,url:new URL(r.url).origin+new URL(r.url).pathname}:r;
           const base={operationId:scope.operationId,sourceAttemptId:scope.sourceAttemptId,requestHash,qualificationHash:qualification.qualificationHash,sequence:requests,...metadata};
@@ -184,21 +217,22 @@ export function createEtsyInsightsPlaywrightPort(input: EtsyInsightsPlaywrightPo
       });
       const identity=Object.freeze({sessionId:resolved.sessionId,contextId:randomUUID(),pageId:randomUUID(),providerProjectId:scope.providerProjectId,
         profileBindingId:scope.accountBinding.profileBindingId,profileBindingRevision:scope.accountBinding.profileBindingRevision,accountBindingHash:scope.accountBinding.bindingHash});
-      async function read(s:AbortSignal){active();s.throwIfAborted();const v=await readView(page!,scope,AbortSignal.any([s,bounded]));active();
+      async function read(s:AbortSignal){active();s.throwIfAborted();const v=await readView(page!,scope,AbortSignal.any([s,bounded]),landingV2);active();
         const hash=insightsHash(v);if(lastHash!==null&&hash!==lastHash)epoch++;lastHash=hash;return v;}
       return Object.freeze({...identity,persistProfile:false as const,
         async openApprovedInsights(s:AbortSignal){active();if(opened)return insightsFail('already_opened');opened=true;s.throwIfAborted();
           await awaitRequestDeadline(page!.goto(LANDING,{waitUntil:'domcontentloaded',timeout:20000}),AbortSignal.any([s,bounded]));active();etsyInsightsUrl(page!.url(),scope.query,'landing');},
         async observeAggregateView(s:AbortSignal){const v=await read(s);return {...identity,documentEpoch:epoch,url:v.url,view:v.kind,block:'none' as const,
           unexpectedNavigation:false,unapprovedRequest:false,popupOpened:false,visibleShopName:v.shop,visibleShopId:null,query:v.query,
-          queryControl:{id:CONTROL,kind:'insights_query' as const,sensitive:false as const}};},
+          queryControl:{id:v.kind==='landing'?controlId:CONTROL,kind:'insights_query' as const,sensitive:false as const}};},
         async submitObservedQuery(control:string,expectedEpoch:number,query:string,s:AbortSignal){
-          const prior=await read(s);if(submitted||!opened||control!==CONTROL||expectedEpoch!==epoch||query!==scope.query||prior.kind!=='landing')return insightsFail('observed_control_invalid');
+          const prior=await read(s);if(submitted||!opened||control!==controlId||expectedEpoch!==epoch||query!==scope.query||prior.kind!=='landing')return insightsFail('observed_control_invalid');
           submitted=true;const stop=AbortSignal.any([s,bounded]),form=page!.locator(S.main).locator(S.form);
-          await awaitRequestDeadline(form.locator(S.query).fill(query,{timeout:1000}),stop);active();
+          const controls=landingV2?await readEtsyInsightsLandingControls(page!,stop,{visible,literal}):{input:form.locator(S.query),submit:form.getByRole('button',{name:'Search',exact:true})};
+          await awaitRequestDeadline(controls.input.fill(query,{timeout:1000}),stop);active();
           // Recheck visible account after filling, before the one quota-consuming submit.
           await read(s);if(expectedEpoch!==epoch)return insightsFail('source_invalidated');
-          await awaitRequestDeadline(form.getByRole('button',{name:'Search',exact:true}).click({timeout:1000}),stop);active();
+          await awaitRequestDeadline(controls.submit.click({timeout:1000}),stop);active();
           await awaitRequestDeadline(page!.locator(S.main).locator(S.header).locator(S.heading).filter({hasText:query}).waitFor({state:'visible',timeout:15000}),stop);
           await awaitRequestDeadline(page!.locator(S.date).waitFor({state:'visible',timeout:15000}),stop);active();
           // The live result initially exposed its heading while the chart was
@@ -240,23 +274,24 @@ export type EtsyInsightsVerificationScope = {
 };
 export type EtsyInsightsVerificationInputs={scope:EtsyInsightsVerificationScope;scopeHash:string;requestId:string;workflowRunId:string};
 export type EtsyInsightsAccountVerification={
-  version:'etsy.steel-account-verification.1';operationId:string;setupOperationId:string;handoffId:string;
+  version:'etsy.steel-account-verification.1'|'etsy.steel-account-verification.2';operationId:string;setupOperationId:string;handoffId:string;
   profileBindingId:string;profileBindingRevision:string;providerProjectId:string;testEnvelopeId:string;testEnvelopeHash:string;
   profileId:string;sessionId:string;contextId:string;pageId:string;observedShopName:string;observedShopId:null;
   verifiedAt:string;expiresAt:string;accountIdentityVerified:true;insightsAccessVerified:true;
   visibleShopHref:string;canonicalUrl:string;insightsHeading:string;queryControlWitnessHash:string;documentEpoch:number;
   verifiedContextHash:string;verificationHash:string;
-};
+}&({version:'etsy.steel-account-verification.1'}|{version:'etsy.steel-account-verification.2';landingControlsVersion:typeof ETSY_INSIGHTS_LANDING_CONTROLS_VERSION;landingControlsHash:string});
 export const ETSY_INSIGHTS_QUERY_CONTROL_WITNESS=Object.freeze({formAriaLabel:'search bar form',inputAriaLabel:'Input to search for keywords',inputType:'text',
   buttonName:'Search',buttonType:'submit',formVisible:true,inputVisible:true,inputEnabled:true,buttonVisible:true,buttonEnabled:true});
+export type EtsyInsightsVerificationCandidateRequest={version:'etsy.insights-verification-renderer-request.3';operationId:string;requestId:string;scopeHash:string;qualificationHash:string;policyHash:string;provenanceHash:string;sequence:number;disposition:EtsyInsightsCandidateDisposition;decisionHash:string}&EtsyInsightsCandidateMetadata;
 export type EtsyInsightsVerificationPortInput={
   providerProjectId:string;admitDispatch:TransportAdmission;
   /** Must authenticate these exact SQL inputs and recheck current stored owner
    * approval, candidate, purpose and envelope. Create is one-shot, never replay. */
   admitStage(input:Readonly<{operation:'create'|'open'|'observe'|'accept';operationId:string;scopeHash:string;requestId:string;workflowRunId:string}>):Promise<void>;
   beforeCreate(input:Readonly<EtsyInsightsVerificationInputs>):void;
-  qualifyRenderer(scope:Readonly<EtsyInsightsVerificationScope>):Promise<{version:'r12.etsy-insights-renderer-qualification.1';requestHash:string;qualificationHash:string;expiresAt:string;maximumRequests:number;policy:EtsyInsightsRendererPolicy;policyHash:string}>;
-  admitRenderer(input:Readonly<{operationId:string;requestId:string;scopeHash:string;qualificationHash:string;sequence:number;url:string;method:string;resourceType:string;navigation:boolean}&({version:'etsy.insights-verification-renderer-request.1'}|{version:'etsy.insights-verification-renderer-request.2';disposition:'allow'|'deny_optional_telemetry';policyHash:string;provenanceHash:string})>,signal:AbortSignal):Promise<void>;
+  qualifyRenderer(scope:Readonly<EtsyInsightsVerificationScope>):Promise<EtsyInsightsRendererQualification<EtsyInsightsRendererPolicy|EtsyInsightsVerificationCandidatePolicy>>;
+  admitRenderer(input:Readonly<{operationId:string;requestId:string;scopeHash:string;qualificationHash:string;sequence:number;url:string;method:string;resourceType:string;navigation:boolean}&({version:'etsy.insights-verification-renderer-request.1'}|{version:'etsy.insights-verification-renderer-request.2';disposition:'allow'|'deny_optional_telemetry';policyHash:string;provenanceHash:string})|EtsyInsightsVerificationCandidateRequest>,signal:AbortSignal):Promise<void>;
   registerCleanup(work:Promise<void>):void;config?:SteelConfig;fetcher?:typeof fetch;connect?:typeof chromium.connectOverCDP;now?:()=>number;
 };
 function verifyScope(raw:EtsyInsightsVerificationInputs,now:number):EtsyInsightsVerificationInputs{
@@ -281,7 +316,7 @@ export function createEtsyInsightsVerificationPort(input:EtsyInsightsVerificatio
     const authority=verifyScope(raw,now()),scope=authority.scope;if(scope.providerProjectId!==input.providerProjectId)return insightsFail('provider_project_mismatch');
     const bounded=AbortSignal.any([signal,requestDeadline(scope.maximumSessionMs)]);
     let browser:Browser|null=null,context:BrowserContext|null=null,page:Page|null=null,cdp:CDPSession|null=null;
-    let marked=false,invalid=false,invalidReason='verification_unconfirmed',epoch=0,requests=0,qualification:{qualificationHash:string;maximumRequests:number;expiresAt:string;policy:EtsyInsightsRendererPolicy}|null=null;
+    let marked=false,invalid=false,invalidReason='verification_unconfirmed',epoch=0,requests=0,qualification:EtsyInsightsRendererQualification<EtsyInsightsRendererPolicy|EtsyInsightsVerificationCandidatePolicy>|null=null;
     let proof:EtsyInsightsAccountVerification|null=null,reason='verification_failed';
     let networkGuard:EtsyRequestAdmission|null=null;
     let cleanupWork:Promise<{sessionId:string;released:boolean;terminalReadback:boolean;observersDisposed:boolean}>|null=null;
@@ -302,8 +337,13 @@ export function createEtsyInsightsVerificationPort(input:EtsyInsightsVerificatio
     const abort=()=>input.registerCleanup(cleanup().then(()=>undefined));bounded.addEventListener('abort',abort,{once:true});
     try{
       await admit('create');const q=await awaitRequestDeadline(input.qualifyRenderer(scope),bounded);
-      if(q.version!=='r12.etsy-insights-renderer-qualification.1'||q.requestHash!==authority.scopeHash||!insightsIsHash(q.qualificationHash)||!Number.isSafeInteger(q.maximumRequests)||q.maximumRequests<1||q.maximumRequests>512||Date.parse(q.expiresAt)>Date.parse(scope.expiresAt)||!Number.isFinite(Date.parse(q.expiresAt))||Date.parse(q.expiresAt)<=now())return insightsFail('renderer_policy_admission_required');
-      const rendererPolicy=validateEtsyInsightsRendererPolicy(q.policy);if(q.policyHash!==etsyInsightsRendererPolicyHash(rendererPolicy)||q.maximumRequests!==rendererPolicy.maximumRequests)return insightsFail('renderer_policy_invalid');
+      if(q.version==='r12.etsy-insights-renderer-qualification.3')return insightsFail('renderer_verification_purpose_required');
+      const landingV2=qualifiedLandingV2(q);
+      if(q.requestHash!==authority.scopeHash||!insightsIsHash(q.qualificationHash)||!Number.isSafeInteger(q.maximumRequests)||q.maximumRequests<1||q.maximumRequests>512||Date.parse(q.expiresAt)>Date.parse(scope.expiresAt)||!Number.isFinite(Date.parse(q.expiresAt))||Date.parse(q.expiresAt)<=now())return insightsFail('renderer_policy_admission_required');
+      const candidate=isEtsyInsightsVerificationCandidate(q.policy);if(candidate&&!landingV2)return insightsFail('renderer_candidate_landing_contract_required');
+      const rendererPolicy=candidate?validateEtsyInsightsVerificationCandidate(q.policy):validateEtsyInsightsRendererPolicy(q.policy);
+      const rendererHash=isEtsyInsightsVerificationCandidate(rendererPolicy)?etsyInsightsVerificationCandidateHash(rendererPolicy):etsyInsightsRendererPolicyHash(rendererPolicy);
+      if(q.policyHash!==rendererHash||q.maximumRequests!==rendererPolicy.maximumRequests)return insightsFail('renderer_policy_invalid');
       qualification=frozen({...structuredClone(q),policy:rendererPolicy});active();
       const session=await provider.createInsightsSession(scope.operationId,scope.providerProjectId,scope.profileId,scope.maximumSessionMs,()=>{active();synchronousMarker(()=>input.beforeCreate(authority));marked=true;},bounded);
       const connection=connect(session.automationEndpoint,{timeout:20000});input.registerCleanup(connection.then(async b=>{if(bounded.aborted||closing){const release=cleanup();await awaitRequestDeadline(b.close(),requestDeadline(1000)).catch(()=>undefined);await release;}},()=>undefined));
@@ -322,7 +362,14 @@ export function createEtsyInsightsVerificationPort(input:EtsyInsightsVerificatio
       networkGuard=await installEtsyRequestAdmission({cdp,signal:bounded,
         invalidate(reason){invalid=true;invalidReason=reason;},
         async admit(r){active();if(++requests>qualification!.maximumRequests)return insightsFail('renderer_request_limit');
-          const policy=qualification!.policy,disposition=classifyEtsyInsightsRendererRequest(policy,r,null);
+          const policy=qualification!.policy;
+          if(isEtsyInsightsVerificationCandidate(policy)){
+            const {metadata,disposition}=classifyEtsyInsightsVerificationCandidateRequest(policy,r);
+            const body={version:'etsy.insights-verification-renderer-request.3' as const,operationId:scope.operationId,requestId:authority.requestId,scopeHash:authority.scopeHash,qualificationHash:qualification!.qualificationHash,policyHash:etsyInsightsVerificationCandidateHash(policy),provenanceHash:policy.provenanceHash,sequence:requests,...metadata,disposition};
+            await awaitRequestDeadline(input.admitRenderer(Object.freeze({...body,decisionHash:insightsHash(body)}),bounded),bounded);active();
+            if(disposition==='deny_candidate_ancillary')return disposition;return;
+          }
+          const disposition=classifyEtsyInsightsRendererRequest(policy,r,null);
           const metadata=disposition==='deny_optional_telemetry'?{...r,url:new URL(r.url).origin+new URL(r.url).pathname}:r;
           const base={operationId:scope.operationId,requestId:authority.requestId,scopeHash:authority.scopeHash,qualificationHash:qualification!.qualificationHash,sequence:requests,...metadata};
           const request=policy.version==='etsy.insights-renderer-policy.2'?{...base,version:'etsy.insights-verification-renderer-request.2' as const,disposition,policyHash:etsyInsightsRendererPolicyHash(policy),provenanceHash:policy.provenanceHash}:{...base,version:'etsy.insights-verification-renderer-request.1' as const};
@@ -340,6 +387,8 @@ export function createEtsyInsightsVerificationPort(input:EtsyInsightsVerificatio
         if(u.origin!=='https://www.etsy.com'||decodeURIComponent(u.pathname)!==`/shop/${shopName}`||u.search!=='?ref=seller-platform-mcnav')return insightsFail('account_mismatch');
         const heading=await literal(main.getByRole('heading',{name:'Marketplace Insights',exact:true}),page!,bounded,100);
         if(heading!=='Marketplace Insights')return insightsFail('insights_access_unverified');
+        if(landingV2){const controls=await readEtsyInsightsLandingControls(page!,bounded,{visible,literal});
+          return {observedShopName:shopName,observedShopId:null,visibleShopHref:u.href,canonicalUrl:page!.url(),insightsHeading:heading,queryControlWitnessHash:controls.witnessHash,documentEpoch:epoch};}
         const form=main.locator(S.form),field=form.locator(S.query),button=form.getByRole('button',{name:'Search',exact:true});
         await visible(form,page!,bounded);await visible(field,page!,bounded);await visible(button,page!,bounded);
         const witness={formAriaLabel:await form.getAttribute('aria-label'),inputAriaLabel:await field.getAttribute('aria-label'),inputType:await field.getAttribute('type'),
@@ -353,8 +402,9 @@ export function createEtsyInsightsVerificationPort(input:EtsyInsightsVerificatio
       const a=await read(),b=await read();active();if(insightsHash(a)!==insightsHash(b))return insightsFail('verification_epoch_changed');
       const pins={operationId:scope.operationId,setupOperationId:scope.setupOperationId,handoffId:scope.handoffId,profileBindingId:scope.profileBindingId,profileBindingRevision:scope.profileBindingRevision,
         providerProjectId:scope.providerProjectId,testEnvelopeId:scope.testEnvelopeId,testEnvelopeHash:scope.testEnvelopeHash,profileId:scope.profileId,sessionId:scope.operationId,contextId:randomUUID(),pageId:randomUUID()};
-      const contextProof={version:'etsy.steel-visible-account-context.1',...pins,...a,verifiedAt:new Date(now()).toISOString()};
-      const body={version:'etsy.steel-account-verification.1' as const,...pins,...a,observedShopId:null,verifiedAt:contextProof.verifiedAt,expiresAt:scope.profileAccessExpiresAt,
+      const landingPins=landingV2?{landingControlsVersion:ETSY_INSIGHTS_LANDING_CONTROLS_VERSION,landingControlsHash:ETSY_INSIGHTS_LANDING_CONTROLS_HASH}:{};
+      const contextProof={version:landingV2?'etsy.steel-visible-account-context.2':'etsy.steel-visible-account-context.1',...pins,...a,...landingPins,verifiedAt:new Date(now()).toISOString()};
+      const body={...(landingV2?{version:'etsy.steel-account-verification.2' as const,landingControlsVersion:ETSY_INSIGHTS_LANDING_CONTROLS_VERSION,landingControlsHash:ETSY_INSIGHTS_LANDING_CONTROLS_HASH}:{version:'etsy.steel-account-verification.1' as const}),...pins,...a,observedShopId:null,verifiedAt:contextProof.verifiedAt,expiresAt:scope.profileAccessExpiresAt,
         accountIdentityVerified:true as const,insightsAccessVerified:true as const,verifiedContextHash:insightsHash(contextProof)};
       proof={...body,verificationHash:insightsHash(body)};
     }catch(error){reason=signal.aborted?'stopped':invalid?invalidReason:error instanceof EtsyInsightsFailure?error.reason:'verification_unconfirmed';proof=null;}

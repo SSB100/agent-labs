@@ -1,3 +1,4 @@
+import {researchRendererFixture} from './helpers/etsy-insights-research-renderer-fixture.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
@@ -16,10 +17,10 @@ const POLICY2={...POLICY,version:'etsy.insights-renderer-policy.2',staticAssets:
 // Actual runtime + confined Playwright port + provider parsing. All I/O endpoints
 // are injected inert doubles. These are no substitute for migrated-SQL or live UI proof.
 function fixture(o={}){
- const browserOptions={...o.browser},f=browserFixture(browserOptions),s=f.s,calls=[],evidence=[],receipts=[],uploads=[],transports=[],rendererRequests=[];
+ const browserOptions={...o.browser},f=o.research?researchRendererFixture(browserOptions):browserFixture(browserOptions),s=f.s,calls=[],evidence=[],receipts=[],uploads=[],transports=[],rendererRequests=[];
  let admitted=0,bound=false,sourceReceipt=null,reconciled=false,gets=0;
- browserOptions.beforeNavigate=async url=>{await f.request(url);if(o.telemetry)await f.request(TELEMETRY.origin+TELEMETRY.path+'?inert_private_value=redacted',{resourceType:'Script',...o.telemetryRequest});};
- browserOptions.beforeSubmit=url=>f.request(url);
+ if(!o.research)browserOptions.beforeNavigate=async url=>{await f.request(url);if(o.telemetry)await f.request(TELEMETRY.origin+TELEMETRY.path+'?inert_private_value=redacted',{resourceType:'Script',...o.telemetryRequest});};
+ if(!o.research)browserOptions.beforeSubmit=url=>f.request(url);
  f.page.screenshot=async({clip})=>{f.events.push('screenshot');assert.ok(clip.x>=300);return sharp({create:{width:clip.width,height:clip.height,channels:4,background:{r:0,g:0,b:0,alpha:0}}}).png({compressionLevel:9,palette:true}).toBuffer();};
  const q={providerProjectId:s.providerProjectId,providerAccountHash:H(60),routeHash:H(61),tariffHash:H(62),qualificationHash:H(63),maximumSessionMs:s.limits.maximumSessionMs,maximumSessionMicrounits:s.maximumBrowserMicrounits,revoked:false,
   usageBound:{version:'r12.steel-usage-bound.1',maximumProxyBytes:0,tariffCoversSessionAndProfileLifecycle:true,captchaDisabled:true,extraServicesDisabled:true},...o.route};
@@ -34,10 +35,12 @@ function fixture(o={}){
   }
   if(operation==='resolve_source')return{sourceAttemptId:s.sourceAttemptId,requestHash:hash(s),sessionId:s.operationId,profileId:id(91),providerProjectId:s.providerProjectId,accountBindingHash:s.accountBinding.bindingHash,profileBindingId:s.accountBinding.profileBindingId,profileBindingRevision:s.accountBinding.profileBindingRevision,...o.resolved};
   if(operation==='qualify_renderer'){
+   if(o.research)return{...await f.input.qualifyRenderer(s),...o.rendererQualification};
    const policy=o.rendererPolicy??POLICY,body={version:'r12.etsy-insights-renderer-qualification.1',requestHash:hash(s),expiresAt:s.expiresAt,maximumRequests:policy.maximumRequests,policy,policyHash:etsyInsightsRendererPolicyHash(policy)};
    return{...body,qualificationHash:hash(body),...o.rendererQualification};
   }
   if(operation==='admit_renderer'){const r=payload.request;assert.ok(Object.isFrozen(r));assert.equal(r.requestHash,hash(s));rendererRequests.push(structuredClone(r));
+   if(r.version==='r12.etsy-insights-renderer-request.3')return{accepted:true,allowed:r.disposition==='allow',sequence:r.sequence,disposition:r.disposition,decisionHash:r.decisionHash,qualificationHash:r.qualificationHash,policyHash:r.policyHash,provenanceHash:r.provenanceHash,...(r.disposition==='deny_candidate_ancillary'?o.denialAck:{}),...o.rendererAck};
    if(r.version==='r12.etsy-insights-renderer-request.2')return{accepted:true,allowed:r.disposition==='allow',sequence:r.sequence,disposition:r.disposition,...(r.disposition==='deny_optional_telemetry'?o.denialAck:{}),...o.rendererAck};
    return{allowed:!o.rendererDenied,sequence:r.sequence,...o.rendererAck};}
   if(operation==='source_transport'){transports.push(payload.request);if(payload.request.operation==='browser.etsy.insights.create')assert.equal(admitted,1);return{allowed:true,operationId:s.operationId,...o.transport};}
@@ -155,4 +158,19 @@ test('renderer .2 acknowledged denial cannot hide stale query or account evidenc
 });
 test('legacy renderer .1 cannot accept the .2 acknowledgement shape',async()=>{
  const f=fixture({rendererAck:{accepted:true,disposition:'allow'}}),r=await f.runtime.run();assert.equal(r.run.receipt.status,'paused');assert.ok(!f.events.includes('submit'));await Promise.all(f.cleanup);
+});
+
+
+test('proof-bound source RPC .3 composes counted query, private PNG, exact decision echo and qualified receipt without resend',async()=>{
+ const f=fixture({research:true}),r=await f.runtime.run();assert.equal(r.run.receipt.status,'completed',r.run.receipt.reason);assert.equal(r.run.persistence,'verified');assert.equal(r.accounting,'qualified_bounded_pending');assert.equal(r.completion.accepted,true);
+ assert.equal(f.events.filter(e=>e==='create').length,1);assert.equal(f.events.filter(e=>e==='submit').length,1);assert.equal(f.uploads.length,1);assert.equal(f.calls.filter(c=>c==='source:source_admit').length,9);
+ const denial=f.rendererRequests.find(r=>r.disposition==='deny_candidate_ancillary');assert.ok(denial);assert.equal(denial.url,undefined);assert.equal(denial.origin,'https://bat.bing.com');assert.equal(denial.pathnameHash,hash('/bat.js'));
+ assert.equal(f.cdpCommands.filter(c=>c.name==='Fetch.failRequest').length,1);assert.equal(f.cdpCommands.filter(c=>c.name==='Fetch.continueRequest').length,2);
+ const count=f.events.length;await f.runtime.finishRecorded();assert.equal(f.events.length,count);await assert.rejects(f.runtime.run());await Promise.all(f.cleanup);
+});
+for(const [name,denialAck] of Object.entries({allowed:{allowed:true},accepted:{accepted:false},sequence:{sequence:999},disposition:{disposition:'allow'},decisionHash:{decisionHash:H(200)},qualificationHash:{qualificationHash:H(201)},policyHash:{policyHash:H(202)},provenanceHash:{provenanceHash:H(203)},extra:{untrusted:true}}))test(`proof-bound source .3 rejects altered ${name} acknowledgment before transmitting blocked dependency`,async()=>{
+ const f=fixture({research:true,denialAck}),r=await f.runtime.run();assert.equal(r.run.receipt.status,'paused');assert.equal(r.run.receipt.captures.length,0);assert.equal(f.events.includes('submit'),false);assert.equal(f.cdpCommands.filter(c=>c.name==='Fetch.continueRequest').length,1);await Promise.all(f.cleanup);
+});
+test('proof-bound source .3 preserves honest pause and held accounting when result dependency or release is unknown',async()=>{
+ for(const browser of [{resultRequest:{url:'https://unknown.example/result.js'}},{releaseFail:true},{drainFail:true}]){const f=fixture({research:true,browser}),r=await f.runtime.run();assert.equal(r.run.receipt.status,'paused');assert.equal(r.run.receipt.captures.length,0);assert.ok(f.events.filter(e=>e==='submit').length<=1);if(browser.releaseFail||browser.drainFail){assert.equal(r.completion,null);assert.equal(r.run.receipt.liabilityState,'unknown');}await Promise.all(f.cleanup);}
 });

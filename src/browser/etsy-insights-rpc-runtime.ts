@@ -66,13 +66,15 @@ export function createEtsyInsightsRpcRuntime(input:EtsyInsightsRpcRuntimeInput){
   beforeCreate(actual,sessionId){input.signal.throwIfAborted();check(hash(actual)===requestHash&&sessionId===scope.operationId&&reserved&&dispatchReady&&!dispatchConsumed,'insights_create_unadmitted');dispatchConsumed=true;dispatchReady=false;},
   async qualifyRenderer(actual){
    check(hash(actual)===requestHash,'insights_scope_changed');const result=await rpc('qualify_renderer',{attemptId:scope.sourceAttemptId});
-   check(exact(result,'version,requestHash,qualificationHash,expiresAt,maximumRequests,policy,policyHash'),'insights_renderer_qualification_unconfirmed');
+   check(exact(result,object(result)&&result.version==='r12.etsy-insights-renderer-qualification.3'?'version,requestHash,qualificationHash,expiresAt,maximumRequests,policy,policyHash,landingControlsVersion,landingControlsHash,readiness':object(result)&&result.version==='r12.etsy-insights-renderer-qualification.2'?'version,requestHash,qualificationHash,expiresAt,maximumRequests,policy,policyHash,landingControlsVersion,landingControlsHash':'version,requestHash,qualificationHash,expiresAt,maximumRequests,policy,policyHash'),'insights_renderer_qualification_unconfirmed');
    const {qualificationHash,...body}=result;check(qualificationHash===hash(body),'insights_renderer_qualification_unconfirmed');
    return result as Awaited<ReturnType<EtsyInsightsPlaywrightPortInput['qualifyRenderer']>>;
   },
   async admitRenderer(request){
    const result=await rpc('admit_renderer',{attemptId:scope.sourceAttemptId,request});
-   if(request.version==='r12.etsy-insights-renderer-request.2'){
+   if(request.version==='r12.etsy-insights-renderer-request.3'){
+    check(exact(result,'accepted,allowed,sequence,disposition,decisionHash,qualificationHash,policyHash,provenanceHash')&&result.accepted===true&&result.allowed===(request.disposition==='allow')&&result.sequence===request.sequence&&result.disposition===request.disposition&&result.decisionHash===request.decisionHash&&result.qualificationHash===request.qualificationHash&&result.policyHash===request.policyHash&&result.provenanceHash===request.provenanceHash,'insights_renderer_admission_unconfirmed');
+   }else if(request.version==='r12.etsy-insights-renderer-request.2'){
     // Acknowledgment records a decision; it never turns a blocked telemetry
     // request into network permission. The port must still await failRequest.
     check(exact(result,'accepted,allowed,sequence,disposition')&&result.accepted===true&&result.allowed===(request.disposition==='allow')&&result.sequence===request.sequence&&result.disposition===request.disposition,'insights_renderer_admission_unconfirmed');

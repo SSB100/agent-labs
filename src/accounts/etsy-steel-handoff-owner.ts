@@ -10,7 +10,9 @@ export function validateEtsySteelOwnerView(raw:unknown,expected:{ownerId:string;
  }return structuredClone(v);
 }
 export function etsySteelOwnerApproval(view:EtsySteelOwnerView,input:unknown){
- handoffExact(input,'operationId,scopeHash,disclosureHash,expectedApprovalRevision,persistentAccessApproved,budgetApproved','handoff_owner_approval_required');
+ const rendererPinned=typeof input==='object'&&input!==null&&Object.hasOwn(input,'rendererReviewHash');
+ handoffExact(input,'operationId,scopeHash,disclosureHash,expectedApprovalRevision,persistentAccessApproved,budgetApproved'+(rendererPinned?',rendererReviewHash':''),'handoff_owner_approval_required');
+ if(rendererPinned)handoffAssert(handoffHash(input.rendererReviewHash),'handoff_owner_approval_required');
  handoffAssert(view.status==='pending_approval'&&input.operationId===view.operationId&&input.scopeHash===view.scopeHash&&input.disclosureHash===view.scope.disclosureHash&&input.expectedApprovalRevision===view.scope.approvalRevision&&input.persistentAccessApproved===true&&input.budgetApproved===true,'handoff_owner_approval_required');return structuredClone(input);
 }
 export type EtsySteelOwnerVerificationView={version:'etsy.steel-owner-verification-view.1';operationId:string;status:'pending_verification'|'verified'|'stopped'|'expired'|'invalidated'|'failed';accountBindingHash:string|null;observedShopName:string|null;verifiedAt:string|null;expiresAt:string|null;reason:string};
@@ -21,5 +23,17 @@ export function validateEtsySteelOwnerVerificationView(raw:unknown,operationId:s
  handoffAssert(v.version==='etsy.steel-owner-verification-view.1'&&v.operationId===operationId&&handoffUuid(operationId)&&['pending_verification','verified','stopped','expired','invalidated','failed'].includes(v.status)&&['awaiting_verification','verification_in_progress','binding_persistence_pending','verification_verified','verification_paused','verification_failed','owner_stopped','verification_expired','account_revision_changed','authority_inactive'].includes(v.reason),'verification_owner_view_invalid');
  if(v.status==='verified')handoffAssert(handoffHash(v.accountBindingHash)&&typeof v.observedShopName==='string'&&v.observedShopName.trim()===v.observedShopName&&v.observedShopName.length>0&&v.observedShopName.length<=120&&typeof v.verifiedAt==='string'&&typeof v.expiresAt==='string'&&Number.isFinite(Date.parse(v.verifiedAt))&&Date.parse(v.expiresAt)>Date.parse(v.verifiedAt)&&v.reason==='verification_verified','verification_owner_view_invalid');
  else handoffAssert([v.accountBindingHash,v.observedShopName,v.verifiedAt,v.expiresAt].every(x=>x===null),'verification_owner_view_invalid');
+ return structuredClone(v);
+}
+
+type EtsySteelOwnerRendererReviewBase={version:'etsy.steel-owner-renderer-review.1';operationId:string;sourceReadiness:'unqualified'};
+export type EtsySteelOwnerRendererReview=EtsySteelOwnerRendererReviewBase&({status:'legacy';reviewHash:null;policyVersion:null;policyHash:null;landingControlsVersion:null;landingControlsHash:null;purpose:null;expiresAt:null}|{status:'awaiting_approval'|'approved'|'inactive';reviewHash:string;policyVersion:'etsy.insights-renderer-candidate-policy.3';policyHash:string;landingControlsVersion:'etsy.insights-landing-controls.2';landingControlsHash:string;purpose:'etsy_insights_verify_only';expiresAt:string});
+export function validateEtsySteelOwnerRendererReview(raw:unknown,operationId:string):EtsySteelOwnerRendererReview|null{
+ if(raw===null)return null;
+ handoffExact(raw,'version,operationId,status,reviewHash,policyVersion,policyHash,landingControlsVersion,landingControlsHash,purpose,expiresAt,sourceReadiness','renderer_owner_review_invalid');
+ const v=raw as EtsySteelOwnerRendererReview;
+ handoffAssert(v.version==='etsy.steel-owner-renderer-review.1'&&handoffUuid(operationId)&&v.operationId===operationId&&v.sourceReadiness==='unqualified','renderer_owner_review_invalid');
+ if(v.status==='legacy')handoffAssert([v.reviewHash,v.policyVersion,v.policyHash,v.landingControlsVersion,v.landingControlsHash,v.purpose,v.expiresAt].every(x=>x===null),'renderer_owner_review_invalid');
+ else handoffAssert(['awaiting_approval','approved','inactive'].includes(v.status)&&[v.reviewHash,v.policyHash,v.landingControlsHash].every(handoffHash)&&v.policyVersion==='etsy.insights-renderer-candidate-policy.3'&&v.landingControlsVersion==='etsy.insights-landing-controls.2'&&v.purpose==='etsy_insights_verify_only'&&typeof v.expiresAt==='string'&&Number.isFinite(Date.parse(v.expiresAt))&&new Date(v.expiresAt).toISOString()===v.expiresAt,'renderer_owner_review_invalid');
  return structuredClone(v);
 }

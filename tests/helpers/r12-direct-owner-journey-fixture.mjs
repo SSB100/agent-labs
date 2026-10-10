@@ -48,11 +48,12 @@ export function ownerJourneyComposition(db,a){
  const preparation={...core('products/discovery-r12-public-preparation'),validatePublicResearchOwnerTestReceipt(...args){try{return core('products/discovery-r12-public-preparation').validatePublicResearchOwnerTestReceipt(...args);}catch(error){errors.push({name:'receipt_validation',message:error.stack,pinsBytes:Buffer.byteLength(JSON.stringify(args[0]?.preview?.researchPins??null))});throw error;}}};
  const profileId=randomUUID(),sessions=new Map(),transports=[];let activeUser=a.f.ownerId,tail=Promise.resolve();
  const serial=work=>{const next=tail.then(work,work);tail=next.catch(()=>{});return next;};
- const allowed=new Set(['r12_owner_direct_read','r12_owner_direct_server','r12_etsy_steel_owner','r12_owner_etsy_steel_verification_read','r12_etsy_steel_server','r12_etsy_steel_verification_server','r12_direct_browser_ledger','r12_direct_setup_quote_revalidate','r12_direct_owner_renderer_qualification','r12_direct_controller_server']);
+ const allowed=new Set(['r12_owner_direct_read','r12_owner_direct_server','r12_etsy_steel_owner','r12_owner_etsy_steel_verification_read','r12_owner_etsy_steel_renderer_review','r12_etsy_steel_server','r12_etsy_steel_verification_server','r12_direct_browser_ledger','r12_direct_setup_quote_revalidate','r12_direct_owner_renderer_qualification','r12_direct_controller_server']);
  function client(role){return{rpc:async(name,args)=>serial(async()=>{
   assert.ok(allowed.has(name));const owner=activeUser;rpcCalls.push({role,name,operation:args.p_operation,owner});
   await db.query("select set_config('request.jwt.claim.sub',$1,false)",[role==='authenticated'?owner:'']);await db.exec('set role '+role);
   try{
+   if(name==='r12_owner_etsy_steel_renderer_review'&&faults.rendererReadUnavailable)throw Error('Inert renderer review read unavailable');
    const names=Object.keys(args);assert.ok(names.every(x=>/^p_[a-z_]+$/.test(x)));
    const data=(await one(db,`select public.${name}(${names.map((x,i)=>x+' => $'+(i+1)).join(',')}) result`,Object.values(args))).result;
    if(args.p_operation==='transport')transports.push(args.p_payload.request);
@@ -82,7 +83,7 @@ export function ownerJourneyComposition(db,a){
  function browser(){const options={shop:'SyntheticShop'},f=verificationFixture(options);options.beforeNavigate=url=>f.request(url);const go=f.page.goto;f.page.goto=async(...args)=>{await go(...args);return{status:()=>200};};browsers.push(f);return f;}
  const shared={'server-only':{},'node:crypto':require('node:crypto'),'../core/request-deadline':core('core/request-deadline'),'../lib/supabase/runtime':{createRuntimeClient:()=>runtime},'../lib/core-ui/owner-business':loadActualOwnerModule('src/lib/core-ui/owner-business.ts',{}),'../products/discovery-r12-public-preparation':core('products/discovery-r12-public-preparation'),'../products/discovery-r12-public-server-key':core('products/discovery-r12-public-server-key'),'../products/discovery-v2-hash':core('products/discovery-v2-hash')};
  const load=(file,deps)=>{const result=loadActualOwnerModule(file,{...shared,...deps});sourceHashes[file]=result.sourceHash;return result;};
- const owner=load('src/accounts/etsy-steel-handoff-owner-server.ts',{'./etsy-steel-handoff-contracts':core('accounts/etsy-steel-handoff-contracts'),'./etsy-steel-handoff-owner':core('accounts/etsy-steel-handoff-owner')});
+ const owner=load('src/accounts/etsy-steel-handoff-owner-server.ts',{'./etsy-steel-handoff-contracts':core('accounts/etsy-steel-handoff-contracts'),'./etsy-steel-handoff-owner':load('src/accounts/etsy-steel-handoff-owner.ts',{'./etsy-steel-handoff-contracts':core('accounts/etsy-steel-handoff-contracts')})});
  const account=load('src/accounts/etsy-steel-handoff-server.ts',{
   'next/server':{after:work=>cleanup.push(work)},'./etsy-steel-handoff-owner-server':owner,'./etsy-steel-handoff-contracts':core('accounts/etsy-steel-handoff-contracts'),
   './etsy-steel-handoff-rpc':{...handoff,createEtsySteelHandoffRpcDependencies:input=>{const f=browser();return handoff.createEtsySteelHandoffRpcDependencies({...input,config,fetcher,connect:f.input.connect});}},
@@ -90,7 +91,7 @@ export function ownerJourneyComposition(db,a){
   './etsy-steel-verification-runtime':{...verification,verifyApprovedEtsySteelProfile:input=>{const f=browser();return verification.verifyApprovedEtsySteelProfile({...input,config,fetcher,connect:f.input.connect});}},
   '../browser/etsy-steel-accounting':core('browser/etsy-steel-accounting'),'./etsy-steel-handoff-runtime':core('accounts/etsy-steel-handoff-runtime'),
  });
- const hooks=new Map(),faults={hookLookupUnavailable:false};class HookNotFoundError extends Error{static is(error){return error instanceof HookNotFoundError;}}
+ const hooks=new Map(),faults={hookLookupUnavailable:false,rendererReadUnavailable:false};class HookNotFoundError extends Error{static is(error){return error instanceof HookNotFoundError;}}
  const workflow={directResearchRuntimeWorkflow:()=>{throw Error('Hosting is inert');},directResearchResumeToken:id=>'agent-labs:direct-etsy-reconcile:'+id};
  const product=load('src/products/discovery-r12-public-owner-server.ts',{'./discovery-r12-public-repair':core('products/discovery-r12-public-repair'),
   'workflow/api':{start:async(fn,inputs)=>{assert.equal(fn,workflow.directResearchRuntimeWorkflow);const runId='inert-owner-workflow-'+randomUUID();workflowStarts.push({runId,input:structuredClone(inputs[0])});const token=workflow.directResearchResumeToken(inputs[0].scopeId);hooks.set(token,{token,runId,isWebhook:false});return{runId};},getHookByToken:async token=>{if(faults.hookLookupUnavailable)throw Error('Inert hosting read unavailable');if(!hooks.has(token))throw new HookNotFoundError('Inert hook not found');return hooks.get(token);},resumeHook:async(hook,payload)=>{assert.equal(hooks.get(hook.token),hook);resumes.push({token:hook.token,payload});}},'workflow/internal/errors':{HookNotFoundError},

@@ -79,6 +79,27 @@ jobs:
           - file: r12-direct-postgrest-http.test.mjs
             pattern: '.'
             http: true
+          - file: r12-historical-stopped-proof-upgrade-sql.test.mjs
+            pattern: '.'
+          - file: r12-historical-origin-snapshot-upgrade-sql.test.mjs
+            pattern: '.'
+          - file: r12-historical-adaptive-preview-upgrade-sql.test.mjs
+            pattern: '.'
+          - file: r12-historical-stale-preview-upgrade-sql.test.mjs
+            pattern: '.'
+          - file: r12-insights-landing-controls-v2-sql.test.mjs
+            pattern: '.'
+          - file: r12-insights-verification-candidate-v3-sql.test.mjs
+            pattern: 'candidate verification persists'
+          - file: r12-insights-verification-candidate-v3-sql.test.mjs
+            pattern: 'candidate runtime rejects'
+          - file: r12-insights-verification-candidate-v3-sql.test.mjs
+            pattern: 'candidate identity cannot'
+          - file: r12-insights-verification-candidate-v3-sql.test.mjs
+            pattern: 'candidate owner sidecar'
+          - file: r12-direct-repair-postgrest-http.test.mjs
+            pattern: '.'
+            http: true
     services:
       postgres:
         image: public.ecr.aws/docker/library/postgres@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3
