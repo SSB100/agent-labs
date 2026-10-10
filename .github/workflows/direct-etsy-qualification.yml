@@ -81,6 +81,8 @@ jobs:
             http: true
           - file: r12-historical-stopped-proof-upgrade-sql.test.mjs
             pattern: '.'
+          - file: r12-legacy-terminal-origin-upgrade-sql.test.mjs
+            pattern: '.'
           - file: r12-historical-origin-snapshot-upgrade-sql.test.mjs
             pattern: '.'
           - file: r12-historical-adaptive-preview-upgrade-sql.test.mjs

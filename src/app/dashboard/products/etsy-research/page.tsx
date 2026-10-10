@@ -5,7 +5,7 @@ import{ConsoleRetainedWorkspace}from'@/components/console/console-retained-works
 import{requireOwnerUiContext}from'@/lib/core-ui/data';
 import{readDirectResearchCatalog}from'@/products/discovery-r12-public-owner-server';
 import{readDirectEnrollmentCatalog}from'@/products/discovery-r12-direct-enrollment-server';
-import{readSteelConfigReadback}from'@/accounts/etsy-steel-readback-owner-server';
+import{readSteelConfigReadback,readConfiguredR05Fingerprint}from'@/accounts/etsy-steel-readback-owner-server';
 import{validatePublicResearchOwnerTestReceipt}from'@/products/discovery-r12-public-preparation';
 import{publicUuid}from'@/products/discovery-r12-public-utils';
 import{prepareEtsyTest,confirmEtsyTest,prepareEtsyAccess,prepareEtsyCycle,startEtsyCycle,stopEtsyTest,resumeEtsyResearch,prepareEtsyEnrollment,confirmEtsyEnrollment,verifyEtsySteelConfiguration,cancelEtsySteelConfiguration}from'./actions';
@@ -17,6 +17,7 @@ export default async function DirectEtsyResearchPage({searchParams}:{searchParam
  const context=await requireOwnerUiContext();let catalog:Record<string,unknown>|null=null;try{catalog=await readDirectResearchCatalog(context,b,g,e);}catch{}
  let enrollment:Awaited<ReturnType<typeof readDirectEnrollmentCatalog>>|null=null;try{enrollment=await readDirectEnrollmentCatalog(context,b,g,proposalId);}catch{/* Missing qualification is never an eligible grant. */}
  let steelReadback:Awaited<ReturnType<typeof readSteelConfigReadback>>|null=null;try{steelReadback=await readSteelConfigReadback(context,b);}catch{/* A missing reviewed target never authorizes a provider request. */}
+ let serverFingerprint:Awaited<ReturnType<typeof readConfiguredR05Fingerprint>>|null=null;try{serverFingerprint=await readConfiguredR05Fingerprint(context,b);}catch{/* An unavailable fingerprint creates no authority. */}
  const enrollmentReceipt=enrollment?.current??null;
  let receipt:ReturnType<typeof validatePublicResearchOwnerTestReceipt>|null=null;try{if(catalog?.current)receipt=validatePublicResearchOwnerTestReceipt(catalog.current,{businessId:b,goalId:g});}catch{}
  const research=object(catalog?.research)?catalog.research:null,preview=object(research?.preview)?research.preview:null,quote=object(preview?.quote)?preview.quote:null,inference=object(quote?.inference)?quote.inference:null;
@@ -29,6 +30,9 @@ export default async function DirectEtsyResearchPage({searchParams}:{searchParam
  {typeof q.result==='string'&&['steel-readback-unavailable','enrollment-preparation-unavailable','enrollment-confirmation-required','enrollment-confirmation-unavailable','preparation-unavailable','confirmation-required','confirmation-unavailable','access-preparation-unavailable','research-preparation-unavailable','research-confirmation-required','start-unconfirmed','stop-unconfirmed','recovery-unconfirmed'].includes(q.result)&&<p role="alert">The requested change was not confirmed. Check the saved state below before retrying; any pending provider liability remains held.</p>}
  <p>This test can finish a research stage. It does not establish profit or complete the broader Goal.</p>
  <section aria-label="Steel configuration verification"><h2>Steel configuration verification</h2>
+ <details><summary>Server configuration fingerprint</summary>
+ {serverFingerprint?<><p style={{overflowWrap:'anywhere'}}>Configured key SHA-256: {serverFingerprint.keyHash??'No usable configured key'}.</p><p>Checked: {serverFingerprint.checkedAt}.</p><p>This identifies the configured key only. Registration, expiry, revocation and root eligibility require operator verification.</p></>:<p>Server configuration fingerprint is unavailable.</p>}
+ </details>
  <p>This checks metadata for one independently reviewed, existing Steel session using the app’s configured connection. It does not create a browser session, sign in to Etsy, or approve research access.</p>
  <p role="status">{!steelReadback?'The reviewed configuration check is unavailable.':steelReadback.status==='verified'?'The configured Steel project matched the reviewed target. Etsy sign-in, research access and release qualification still require their separate checks.':steelReadback.status==='pending'?'The saved configuration check is pending. Refresh to reconcile its result; starting a duplicate request is not permitted. Cancellation prevents new claims and acceptance of late proof, but an in-flight metadata read may still finish.':steelReadback.status==='ready'?'A fixed configuration target is ready for its read-only check.':steelReadback.status==='review_required'?'An independently reviewed configuration target is required before this check.':`Configuration check: ${steelReadback.status}. A new reviewed target may be required before another request.`}</p>
  {steelReadback?.observedAt&&<p>Recorded at {steelReadback.observedAt}.</p>}

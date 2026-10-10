@@ -13,7 +13,7 @@ export async function runCurrentSteelOwnerBrowserJourney({page,origin,businessId
  });
  const click=async name=>{const before=page.url();await Promise.all([page.waitForURL(url=>url.href!==before,{waitUntil:'domcontentloaded'}),page.getByRole('button',{name,exact:true}).click()]);};
  await page.goto(`${origin}/dashboard/products/etsy-research?business=${businessId}&goal=${goalId}`);
- assert.equal((await diagnostics()).newGrants,0);assert.equal((await diagnostics()).providerCreates,0);assert.equal((await diagnostics()).readbackStatus,'ready');
+ assert.equal((await diagnostics()).newGrants,0);assert.equal((await diagnostics()).providerCreates,0);assert.equal((await diagnostics()).readbackStatus,'ready');assert.match(await page.locator('main').innerText(),/Server configuration fingerprint/);assert.match(await page.locator('main').textContent(),/Configured key SHA-256: [a-f0-9]{64}/);assert.doesNotMatch(await page.locator('main').textContent(),/Server configuration fingerprint is unavailable/);
  await click('Verify configured Steel project');assert.match(await page.locator('main').innerText(),/configured Steel project matched the reviewed target/);
  await page.reload();assert.equal((await diagnostics()).metadataGets,1);assert.equal((await diagnostics()).configurationPermits,0);assert.equal((await diagnostics()).newGrants,0);
  assert.equal(await page.getByRole('button',{name:'Prepare grant extension review',exact:true}).count(),0);
