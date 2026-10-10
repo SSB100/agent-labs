@@ -1,5 +1,5 @@
 import { PUBLIC_RESEARCH_PHASES,validatePublicResearchPolicy,validatePublicResearchHistory,validatePublicResearchCommand,validatePublicResearchSourceProof,type PublicResearchPolicy,type PublicResearchHistory,type PublicResearchPhase,type PublicResearchAcquisitionCommand,type PublicResearchSourceProof,type PublicResearchTerminal } from "./discovery-r12-public-contracts";
-import { validatePublicResearchReviewedResult,type PublicResearchReviewedResult } from "./discovery-r12-public-review";
+import { validatePublicResearchReviewedResult,assertPublicResearchFreshFollowup,type PublicResearchReviewedResult } from "./discovery-r12-public-review";
 import { validatePublicResearchContinuation,type PublicResearchContinuation } from "./discovery-r12-public-window";
 import { exactPublicKeys as exact,publicHash as hash,publicInteger as integer,publicMoney as money,publicResearchFail as fail,publicResearchHash,publicUuid as uuid,publicBoundedJson,verifyPublicSelfHash } from "./discovery-r12-public-utils";
 export type PublicResearchDispatch={phase:PublicResearchPhase;attemptId:string;requestHash:string;executionQuoteHash:string;executionQuoteProofHash:string;receiptHash:string|null};
@@ -45,7 +45,7 @@ function derive(p:PublicResearchPolicy,inherited:PublicResearchHistory,attempts:
       if(r.attemptOrdinal!==a.ordinal||r.criteriaHash!==a.command.criteriaHash||r.questionHash!==a.command.questionHash||r.strategyReceiptHash!==a.dispatches[2].receiptHash||r.reviewReceiptHash!==a.dispatches[3].receiptHash)return fail();
       if(r.outcome!=="NME"){terminal=r.terminal;history.consecutiveNonprogress=0;windowOutcome=null;}
       else{nmeCountInEpoch++;history.consecutiveNonprogress++;windowOutcome=r.quality.passed?"INSUFFICIENT_EVIDENCE":"RESEARCH_FAILED_QUALITY";
-        const command=acquisition(r.proposedCommand);if(nmeCountInEpoch===4){if(command.kind!=="pivot"||seenCriteriaHashes.includes(command.criteriaHash)||command.changedCriterion===null)return fail("r12_public_fourth_nme_requires_pivot");nextAttemptKind="pivot";}
+        const command=acquisition(r.proposedCommand);assertPublicResearchFreshFollowup(command,history.seenQuestionHashes,attempts.slice(0,i+1).map(x=>x.command.query));if(nmeCountInEpoch===4){if(command.kind!=="pivot"||seenCriteriaHashes.includes(command.criteriaHash)||command.changedCriterion===null)return fail("r12_public_fourth_nme_requires_pivot");nextAttemptKind="pivot";}
         else{if(command.kind!=="targeted"||command.criteriaHash!==epochCriteriaHash)return fail("r12_public_targeted_followup_required");nextAttemptKind="targeted";}pendingCommand=command;
       }
     }

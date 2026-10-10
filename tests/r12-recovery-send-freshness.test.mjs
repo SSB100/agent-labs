@@ -58,3 +58,13 @@ test('native fault fixture rejects duplicate fences, cycles and excessive wrappe
  await assert.rejects(resolveRecoverySendImplementation(db(true),fence),/wrapper cycle/);
  await assert.rejects(resolveRecoverySendImplementation(db(false),fence),/wrapper depth/);
 });
+
+
+test('HTTP inputs delay follows the same exact private chain and still calls public RPCs',async()=>{
+ const anchor="if p_operation='inputs' then",wrapper='result:=private.r12_discovery_server_before_funding_proof(p_business_id,p_attempt_id,p_operation,p_payload,p_server_key);';
+ const db={query:async(query,args)=>({rows:[query.includes('has_function_privilege')?{anon:false,authenticated:false,service_role:false}:{definition:args[0].startsWith('public.')?wrapper:anchor+' return original_inputs;',proowner:1,proacl:['owner=X/owner'],proconfig:['search_path='],provolatile:'v',prosecdef:true}]})};
+ const found=await resolveRecoverySendImplementation(db,anchor);assert.equal(found.signature,'private.r12_discovery_server_before_funding_proof(uuid,uuid,text,jsonb,text)');assert.equal(found.chain.length,2);
+ const http=readFileSync(new URL('./r12-recovery-postgrest-http.test.mjs',import.meta.url),'utf8');
+ assert.match(http,/resolveRecoverySendImplementation\(db,anchor\)/);assert.match(http,/rpc\('r12_discovery_server',ordinaryArgs\)/);assert.match(http,/rpc\('r12_recovery_server',runtimeArgs\)/);
+ assert.match(http,/assert.deepEqual\(after,before,/);assert.doesNotMatch(http,/rpc\('private\./);
+});

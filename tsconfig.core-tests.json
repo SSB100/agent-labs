@@ -85,6 +85,7 @@
     "src/products/discovery-r12-goal-preparation-server.ts",
     "src/products/discovery-r12-adaptive-owner-server.ts",
     "src/products/discovery-r12-adaptive-server.ts",
-    "src/products/discovery-r12-owner-observation-server.ts"
+    "src/products/discovery-r12-owner-observation-server.ts",
+    "src/products/discovery-r12-public-owner-server.ts"
   ]
 }

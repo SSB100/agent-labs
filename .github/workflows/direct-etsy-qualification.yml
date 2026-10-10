@@ -1,0 +1,93 @@
+name: Direct Etsy native qualification
+on:
+  push:
+    branches: [codex/r12-steel-insights-wip-20261010]
+  pull_request:
+    paths:
+      - 'src/products/discovery-r12-public-*.ts'
+      - 'src/accounts/etsy-steel-*.ts'
+      - 'src/browser/etsy-*.ts'
+      - 'supabase/migrations/2026101012*.sql'
+      - 'supabase/migrations/20261010115441*.sql'
+      - 'tests/helpers/r12-direct-*'
+      - 'tests/helpers/r12-etsy-steel-*'
+      - 'src/browser/providers/steel.ts'
+      - 'src/workflows/direct-research-*'
+      - 'tests/r12-direct-*'
+      - 'tests/r12-etsy-steel-*'
+      - '.github/workflows/direct-etsy-qualification.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native-direct:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        include:
+          - file: r12-direct-controller-lifecycle-sql.test.mjs
+            pattern: '.'
+          - file: r12-direct-controller-window-sql.test.mjs
+            pattern: '.'
+          - file: r12-direct-controller-control-sql.test.mjs
+            pattern: '.'
+          - file: r12-direct-controller-failure-sql.test.mjs
+            pattern: '.'
+          - file: r12-direct-controller-schema-sql.test.mjs
+            pattern: '.'
+          - file: r12-direct-source-renderer-v2-sql.test.mjs
+            pattern: 'reviewed source renderer'
+          - file: r12-direct-source-renderer-v2-sql.test.mjs
+            pattern: 'source renderer .1 retains'
+          - file: r12-direct-setup-renewal-sql.test.mjs
+            pattern: '.'
+          - file: r12-owner-verification-view-sql.test.mjs
+            pattern: '.'
+          - file: r12-etsy-steel-verification-runtime-sql.test.mjs
+            pattern: '.'
+          - file: r12-direct-runtime-composition-sql.test.mjs
+            pattern: '.'
+          - file: r12-direct-owner-server-context-sql.test.mjs
+            pattern: '.'
+          - file: r12-direct-late-head-fence-sql.test.mjs
+            pattern: '.'
+          - file: r12-direct-postgres-races.test.mjs
+            pattern: '.'
+    services:
+      postgres:
+        image: public.ecr.aws/docker/library/postgres@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3
+        env:
+          POSTGRES_USER: r12_test
+          POSTGRES_DB: r12_test
+          POSTGRES_PASSWORD: r12-isolated-fixture
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U r12_test -d r12_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Install locked compiler and isolated native PostgreSQL client
+        run: |
+          npm ci --no-audit --no-fund
+          npm install --prefix "$RUNNER_TEMP/r12-sql-host" --no-audit --no-fund --ignore-scripts pg@8.16.3
+          npm run pretest
+      - name: Pin actual isolated PostgreSQL container address
+        run: |
+          address="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' '${{ job.services.postgres.id }}')"
+          test -n "$address"
+          echo "R12_CI_POSTGRES_ADDRESS=$address" >> "$GITHUB_ENV"
+      - name: Exercise actual migrated PostgreSQL, without a PGlite fallback
+        env:
+          R12_SQL_TEST_HOST: ${{ runner.temp }}/r12-sql-host
+          R12_REQUIRE_POSTGRES: '1'
+          R12_POSTGRES_URL: postgresql://r12_test:r12-isolated-fixture@127.0.0.1:5432/r12_test
+          QUALIFICATION_FILE: ${{ matrix.file }}
+          QUALIFICATION_PATTERN: ${{ matrix.pattern }}
+        run: node --test --test-concurrency=1 --test-name-pattern="$QUALIFICATION_PATTERN" "tests/$QUALIFICATION_FILE"

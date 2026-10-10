@@ -31,7 +31,12 @@ export async function prepareDirectBrowserLedgerFixture(db,{maximum=2500,legacy=
   if(!admit)return {operationId,requestId,scope,register};
   const reservation=await register(),sessionId=operationId;
   const session=await ledger(operationId,'bind_session',{sessionId,providerProjectId:project,providerAccountHash:hash({account:'inert'})});
-  const receiptBody={version:'synthetic-owner-browser-receipt.1',operationId,scopeHash:hash(scope),outcome:'released'};
+  // A released failed operation has an actual wrapper receipt schema; this
+  // accounting-only fixture claims no owner profile or research evidence.
+  const receiptBody={version:'etsy.steel-owner-handoff-receipt.1',operationId,scopeHash:hash(scope),handoffId:null,
+   status:'failed',reason:'inert_accounting_fixture',releaseState:'verified',liabilityState:'receipt_required',
+   reservationId:reservation.reservationId,reservationHash:reservation.reservationHash,profileBindingId:null,
+   profileBindingRevision:null,accountIdentityVerified:false,insightsAccessVerified:false};
   const receipt={...receiptBody,receiptHash:hash(receiptBody)};await ledger(operationId,'receipt',receipt);
   async function evidence(kind,extra={},recordId=kind+':'+randomUUID()){
    const body={operationId,sessionId,providerProjectId:project,...extra};

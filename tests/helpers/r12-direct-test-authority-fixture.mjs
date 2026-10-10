@@ -4,7 +4,7 @@ import {exerciseOwnerInitialRuntime} from './r12-owner-initial-runtime.mjs';
 import {one,sha} from './r12-owner-initial-sql-fixture.mjs';
 import {deriveDirectServerKey} from '../../.core-tests/products/discovery-r12-public-server-key.js';
 import {discoveryV2Hash as hash} from '../../.core-tests/products/discovery-v2.js';
-export async function prepareDirectTestAuthorityFixture(db,{legacy=null,onPrepared=null,maximum='10000000',configureReview=null}={}){
+export async function prepareDirectTestAuthorityFixture(db,{legacy=null,onPrepared=null,maximum='10000000',configureReview=null,beforePrepare=null}={}){
  return exerciseOwnerInitialRuntime(db,{legacy,fixtureOptions:{maximumScopes:2,maximumAllocation:12000000},onCompleted:async ctx=>{
   await ctx.server.stopDiscoveryR12(ctx.context,ctx.f.businessId,ctx.scope.id,true);
   const f=ctx.f,project=randomUUID(),routeHash=hash({route:randomUUID()}),tariffHash=hash({tariff:'inert-qualified-bound'}),qualificationHash=hash({qualification:randomUUID()});
@@ -32,6 +32,7 @@ export async function prepareDirectTestAuthorityFixture(db,{legacy=null,onPrepar
   const server=(op,payload,key=f.bootstrapKey)=>f.rpc('r12_owner_direct_server',[f.businessId,op,payload,key]);
   const read=(id=null)=>f.rpc('r12_owner_direct_read',[f.businessId,f.goalId,id]);
   const prepare=(changes={})=>server('prepare_test',{input:{...input,...changes},setupQuote:quote,verificationQuote:quote});
+  if(beforePrepare)return beforePrepare({db,f,project,routeHash,qualificationHash,tariffHash,quote,origin,funding,input,server,read,prepare});
   const prepared=await prepare();
   const confirmPayload={testEnvelopeId:prepared.testEnvelopeId,testEnvelopeHash:prepared.testEnvelopeHash,submissionId:randomUUID()};
   const confirm=(payload=confirmPayload)=>server('confirm_test',payload);
