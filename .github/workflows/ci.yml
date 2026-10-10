@@ -30,7 +30,7 @@ concurrency:
 
 jobs:
   quality:
-    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.gate == 'release') || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.gate == 'release') || (github.event_name == 'pull_request' && (github.event.pull_request.draft == false || github.head_ref == 'codex/r12-etsy-owner-baselines-20261010'))
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -187,7 +187,7 @@ jobs:
           retention-days: 14
 
   r04-sql:
-    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.gate == 'release') || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.gate == 'release') || (github.event_name == 'pull_request' && (github.event.pull_request.draft == false || github.head_ref == 'codex/r12-etsy-owner-baselines-20261010'))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
@@ -224,7 +224,7 @@ jobs:
         run: node --test tests/r04-quest-concurrency.test.mjs
 
   r05-sql:
-    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.gate == 'release') || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.gate == 'release') || (github.event_name == 'pull_request' && (github.event.pull_request.draft == false || github.head_ref == 'codex/r12-etsy-owner-baselines-20261010'))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
@@ -261,7 +261,7 @@ jobs:
         run: node --test tests/r05-operating-envelope-concurrency.test.mjs
 
   r06-sql:
-    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.gate == 'release') || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.gate == 'release') || (github.event_name == 'pull_request' && (github.event.pull_request.draft == false || github.head_ref == 'codex/r12-etsy-owner-baselines-20261010'))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
@@ -293,7 +293,7 @@ jobs:
         run: node --test tests/r06-bounded-read-sql.test.mjs
 
   r07-sql:
-    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.gate == 'release') || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.gate == 'release') || (github.event_name == 'pull_request' && (github.event.pull_request.draft == false || github.head_ref == 'codex/r12-etsy-owner-baselines-20261010'))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -333,7 +333,7 @@ jobs:
         run: node --test tests/r07-quest-concurrency.test.mjs
 
   r08-sql:
-    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.gate == 'release') || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.gate == 'release') || (github.event_name == 'pull_request' && (github.event.pull_request.draft == false || github.head_ref == 'codex/r12-etsy-owner-baselines-20261010'))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
@@ -365,7 +365,7 @@ jobs:
         run: node --test tests/r08-workspace-sql.test.mjs
 
   r09-sql:
-    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.gate == 'release') || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.gate == 'release') || (github.event_name == 'pull_request' && (github.event.pull_request.draft == false || github.head_ref == 'codex/r12-etsy-owner-baselines-20261010'))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -400,7 +400,7 @@ jobs:
         run: node --test tests/r09-knowledge-sql.test.mjs
 
   r10-sql:
-    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.gate == 'release') || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.gate == 'release') || (github.event_name == 'pull_request' && (github.event.pull_request.draft == false || github.head_ref == 'codex/r12-etsy-owner-baselines-20261010'))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
@@ -432,7 +432,7 @@ jobs:
         run: node --test tests/r10-viewer-sql.test.mjs
 
   r11-sql:
-    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.gate == 'release') || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.gate == 'release') || (github.event_name == 'pull_request' && (github.event.pull_request.draft == false || github.head_ref == 'codex/r12-etsy-owner-baselines-20261010'))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
@@ -463,7 +463,7 @@ jobs:
         run: node --test tests/r11-connections-sql.test.mjs
 
   r11-research-sql:
-    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.gate == 'release') || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.gate == 'release') || (github.event_name == 'pull_request' && (github.event.pull_request.draft == false || github.head_ref == 'codex/r12-etsy-owner-baselines-20261010'))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -513,9 +513,9 @@ jobs:
           node --test tests/r11-pending-receipt-sql.test.mjs
 
   r12-sql:
-    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.gate == 'release') || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.gate == 'release') || (github.event_name == 'pull_request' && (github.event.pull_request.draft == false || github.head_ref == 'codex/r12-etsy-owner-baselines-20261010'))
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     services:
       postgres:
         image: public.ecr.aws/docker/library/postgres@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3
@@ -554,6 +554,12 @@ jobs:
           R12_SQL_TEST_HOST: ${{ runner.temp }}/r12-sql-host
         run: |
           node --test --test-concurrency=1 tests/r12-owner-initial-sql.test.mjs tests/r12-owner-initial-security.test.mjs tests/r12-owner-initial-runtime-sql.test.mjs tests/r12-owner-catalog-scale.test.mjs tests/r12-owner-episode-sql.test.mjs tests/r12-owner-planner-preflight-sql.test.mjs tests/r12-owner-stopped-before-reservation-sql.test.mjs
+
+      - name: Verify recovered adaptive and Etsy-only evidence admission
+        env:
+          R12_SQL_TEST_HOST: ${{ runner.temp }}/r12-sql-host
+        run: |
+          node --test --test-concurrency=1 tests/r12-adaptive-activation-sql.test.mjs tests/r12-adaptive-sql.test.mjs tests/r12-adaptive-stagnation-sql.test.mjs tests/r12-adaptive-stop-sql.test.mjs tests/r12-adaptive-history.test.mjs tests/r12-owner-observation-sql.test.mjs tests/r12-etsy-*-sql.test.mjs
 
       - name: Verify full-shape R12 dispatch within the unchanged three-second SQL budget
         env:
@@ -642,8 +648,58 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+  r12-adaptive-races:
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.gate == 'release') || (github.event_name == 'pull_request' && (github.event.pull_request.draft == false || github.head_ref == 'codex/r12-etsy-owner-baselines-20261010'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: public.ecr.aws/docker/library/postgres@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3
+        env:
+          POSTGRES_USER: r12_test
+          POSTGRES_DB: r12_test
+          POSTGRES_PASSWORD: r12-isolated-fixture
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U r12_test -d r12_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Install pinned isolated SQL runtime and source compiler
+        run: |
+          npm install --no-audit --no-fund
+          npm install --prefix "$RUNNER_TEMP/r12-races-host" --no-audit --no-fund --ignore-scripts @electric-sql/pglite@0.5.8 pg@8.16.3
+          npm run pretest
+      - name: Verify native adaptive and Etsy-only funding, dispatch and Stop races
+        env:
+          R12_SQL_TEST_HOST: ${{ runner.temp }}/r12-races-host
+          R12_REQUIRE_POSTGRES: "1"
+          R12_POSTGRES_URL: postgresql://r12_test:r12-isolated-fixture@127.0.0.1:5432/r12_test
+        run: |
+          set -o pipefail
+          export R12_CI_POSTGRES_ADDRESS="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' '${{ job.services.postgres.id }}')"
+          node --test tests/r12-legacy-funding-proof-sql.test.mjs 2>&1 | tee /tmp/r12-adaptive-races-ci.log
+          node scripts/reset-r12-ci-database.mjs
+          node --test tests/r12-adaptive-postgres-races.test.mjs 2>&1 | tee -a /tmp/r12-adaptive-races-ci.log
+          node scripts/reset-r12-ci-database.mjs
+          node --test tests/r12-etsy-postgres-races.test.mjs 2>&1 | tee -a /tmp/r12-adaptive-races-ci.log
+      - name: Preserve native adaptive race evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r12-adaptive-races-${{ github.sha }}
+          path: /tmp/r12-adaptive-races-ci.log
+          if-no-files-found: error
+          retention-days: 14
+
   r03-next:
-    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.gate == 'release') || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.gate == 'release') || (github.event_name == 'pull_request' && (github.event.pull_request.draft == false || github.head_ref == 'codex/r12-etsy-owner-baselines-20261010'))
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -759,7 +815,7 @@ jobs:
 
   r12-focused:
     name: R12 focused diagnostics (not release qualification)
-    if: (github.event_name == 'pull_request' && github.event.pull_request.draft == true) || (github.event_name == 'workflow_dispatch' && inputs.gate == 'focused')
+    if: (github.event_name == 'pull_request' && github.event.pull_request.draft == true && github.head_ref != 'codex/r12-etsy-owner-baselines-20261010') || (github.event_name == 'workflow_dispatch' && inputs.gate == 'focused')
     runs-on: ubuntu-latest
     timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && inputs.diagnostic == 'owner-ui' && 10 || 20 }}
     services:
@@ -860,7 +916,7 @@ jobs:
   release-qualification:
     name: Full release qualification
     if: always()
-    needs: [quality, r04-sql, r05-sql, r06-sql, r07-sql, r08-sql, r09-sql, r10-sql, r11-sql, r11-research-sql, r12-sql, r03-next, r12-focused]
+    needs: [quality, r04-sql, r05-sql, r06-sql, r07-sql, r08-sql, r09-sql, r10-sql, r11-sql, r11-research-sql, r12-sql, r12-adaptive-races, r03-next, r12-focused]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -868,9 +924,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
-      # Draft diagnostics deliberately cannot make this release check green.
+      # Ordinary draft diagnostics cannot qualify; the explicit recovery branch runs every full check.
       # Every named full check must succeed on this run's tested commit/tree.
-      - name: Require full mode and all twelve named checks
+      - name: Require full mode and every named release check
         env:
           RELEASE_NEEDS_JSON: ${{ toJSON(needs) }}
         run: node scripts/verify-release-gate.mjs

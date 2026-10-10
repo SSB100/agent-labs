@@ -23,6 +23,19 @@ export type OwnerResearchProfile = {
   validUntil: string;
 };
 
+/** Separately reviewed catalog version for an adaptive run. It does not widen
+ * any existing profile, source review, grant or owner-initial authority. */
+export type LegacyAdaptiveOwnerResearchProfile = Omit<OwnerResearchProfile, "version"> & {
+  version: "r12.owner-research-profile.2";
+};
+/** Etsy is an attribution boundary for authenticated owner captures. This
+ * profile grants no source retrieval, API access, scraping or web search. */
+export type EtsyOwnerResearchProfile = Omit<OwnerResearchProfile, "version" | "sourceReviews"> & {
+  version: "r12.owner-research-profile.3";
+  sourceReviews: Array<{ domain: string; basis: "owner_reported_capture"; reviewHash: string }>;
+};
+export type AdaptiveOwnerResearchProfile = LegacyAdaptiveOwnerResearchProfile | EtsyOwnerResearchProfile;
+
 export type OwnerResearchPublicSelection = { marketSetKey: string; topicKey: string };
 export type OwnerResearchFunding =
   | { kind: "legacy_research_root"; bindingId: string; authorityRootId: string; priorRoundId: string; originalSemanticGoalHash: string }
@@ -77,10 +90,20 @@ function date(value: unknown) {
 /** Structural and freshness checks complement the private SQL catalog. They
  * cannot establish licence, review authenticity or execution authority. */
 export function validateOwnerResearchProfile(value: OwnerResearchProfile, now = Date.now()): OwnerResearchProfile {
+  return validateProfile(value, "r12.owner-research-profile.1", 2_000_000, now);
+}
+
+export function validateAdaptiveOwnerResearchProfile(value: AdaptiveOwnerResearchProfile, now = Date.now()): AdaptiveOwnerResearchProfile {
+  if (!value || !["r12.owner-research-profile.2", "r12.owner-research-profile.3"].includes(value.version)) return fail();
+  return validateProfile(value, value.version, 10_000_000, now);
+}
+
+function validateProfile<T extends OwnerResearchProfile | AdaptiveOwnerResearchProfile>(value: T,
+  version: T["version"], maximumRunMicrousd: number, now: number): T {
   exact(value, "version,id,title,purpose,marketSets,topics,queryTemplate,allowedDomains,excludedDomains,sourceReviews,independentReviewHash,purposeReviewHash,maximumRunMicrousd,validFrom,validUntil");
-  if (containsCredentialLikeValue(value) || !Number.isFinite(now) || value.version !== "r12.owner-research-profile.1" || !uuid(value.id) ||
+  if (containsCredentialLikeValue(value) || !Number.isFinite(now) || value.version !== version || !uuid(value.id) ||
       !text(value.title, 3, 120) || !text(value.purpose, 20, 800) || !hash(value.independentReviewHash) || !hash(value.purposeReviewHash) ||
-      !Number.isSafeInteger(value.maximumRunMicrousd) || value.maximumRunMicrousd < 1 || value.maximumRunMicrousd > 2_000_000 ||
+      !Number.isSafeInteger(value.maximumRunMicrousd) || value.maximumRunMicrousd < 1 || value.maximumRunMicrousd > maximumRunMicrousd ||
       date(value.validFrom) > now || date(value.validUntil) <= now || date(value.validUntil) <= date(value.validFrom)) return fail();
   if (!Array.isArray(value.marketSets) || value.marketSets.length < 1 || value.marketSets.length > 16 ||
       !Array.isArray(value.topics) || value.topics.length < 1 || value.topics.length > 32) return fail();
@@ -104,20 +127,22 @@ export function validateOwnerResearchProfile(value: OwnerResearchProfile, now = 
   if (!text(value.queryTemplate, 20, 800) || !["markets", "topic", "audience"].every(key => value.queryTemplate.includes(`{{${key}}}`)) ||
       /[{}]/.test(value.queryTemplate.replaceAll("{{markets}}", "").replaceAll("{{topic}}", "").replaceAll("{{audience}}", ""))) return fail();
   const domains = canonicalSourceDomains(value.allowedDomains), excluded = canonicalSourceDomains(value.excludedDomains);
-  if (domains.length > 4 || !same(domains, value.allowedDomains) || !same(excluded, value.excludedDomains) ||
+  const ownerCapture = version === "r12.owner-research-profile.3";
+  if (domains.length > (version === "r12.owner-research-profile.2" ? 6 : 4) || !same(domains, value.allowedDomains) || !same(excluded, value.excludedDomains) ||
       !R11_RESTRICTED_SOURCE_DOMAINS.every(domain => excluded.includes(domain)) || [...domains, ...excluded].some(domain => domain.endsWith(".internal") || domain.endsWith(".local")) ||
-      domains.some(domain => excluded.some(blocked => domain === blocked || domain.endsWith(`.${blocked}`) || blocked.endsWith(`.${domain}`)))) return fail();
+      (ownerCapture ? !same(domains, ["etsy.com"]) :
+        domains.some(domain => excluded.some(blocked => domain === blocked || domain.endsWith(`.${blocked}`) || blocked.endsWith(`.${domain}`))))) return fail();
   if (!Array.isArray(value.sourceReviews) || value.sourceReviews.length !== domains.length || new Set(value.sourceReviews.map(review => review.domain)).size !== domains.length) return fail();
   for (const review of value.sourceReviews) {
     exact(review, "domain,basis,reviewHash");
-    if (!domains.includes(review.domain) || review.basis !== "documented_api_factual_snippets" || !hash(review.reviewHash)) return fail();
+    if (!domains.includes(review.domain) || review.basis !== (ownerCapture ? "owner_reported_capture" : "documented_api_factual_snippets") || !hash(review.reviewHash)) return fail();
   }
   // Check every supported rendering before presenting a profile as usable.
   for (const set of value.marketSets) for (const topic of value.topics) renderQuery(value, set, topic);
   return structuredClone(value);
 }
 
-function renderQuery(profile: OwnerResearchProfile, markets: OwnerResearchProfile["marketSets"][number], topic: OwnerResearchProfile["topics"][number]) {
+function renderQuery(profile: OwnerResearchProfile | AdaptiveOwnerResearchProfile, markets: OwnerResearchProfile["marketSets"][number], topic: OwnerResearchProfile["topics"][number]) {
   const query = profile.queryTemplate.replaceAll("{{markets}}", markets.markets.map(market => market.countryCode).join(", "))
     .replaceAll("{{topic}}", topic.queryTopic).replaceAll("{{audience}}", topic.audience);
   if (!text(query, 20, 800) || containsCredentialLikeValue(query) || /[{}]/.test(query)) return fail();
@@ -128,6 +153,15 @@ function renderQuery(profile: OwnerResearchProfile, markets: OwnerResearchProfil
  * absent from this function, so it cannot leak into search by interpolation. */
 export function selectOwnerResearchPublicScope(profile: OwnerResearchProfile, selection: OwnerResearchPublicSelection, now = Date.now()) {
   validateOwnerResearchProfile(profile, now);
+  return selectPublicScope(profile, selection);
+}
+
+export function selectAdaptiveOwnerResearchPublicScope(profile: AdaptiveOwnerResearchProfile, selection: OwnerResearchPublicSelection, now = Date.now()) {
+  validateAdaptiveOwnerResearchProfile(profile, now);
+  return selectPublicScope(profile, selection);
+}
+
+function selectPublicScope(profile: OwnerResearchProfile | AdaptiveOwnerResearchProfile, selection: OwnerResearchPublicSelection) {
   exact(selection, "marketSetKey,topicKey");
   const markets = profile.marketSets.find(item => item.key === selection.marketSetKey), topic = profile.topics.find(item => item.key === selection.topicKey);
   if (!markets || !topic) return fail();

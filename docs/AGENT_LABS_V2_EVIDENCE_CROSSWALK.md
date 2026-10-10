@@ -2,6 +2,20 @@
 
 ## Current continuation
 
+The current 10 October baseline is PR82 at
+`83d9e7f192cb711249c485c60d2a65b2424c24ca`, tree
+`114f90854cd5aa8b9a35d9a1986a096ff302aa6a`, with passing
+[PR qualification](https://github.com/SSB100/agent-labs/actions/runs/37995949035)
+and [post-merge qualification](https://github.com/SSB100/agent-labs/actions/runs/37998034681).
+The ordinary owner journey subsequently saved a real five-call, one-collection
+NEEDS_MORE_EVIDENCE result, then stopped its authority. That result does not
+establish commercial demand or production-purpose creative readiness.
+The owner's new USD 10 total run allowance and ten additional adaptive actions
+are governed by the [adaptive decision policy](decisions/ADR_002_ADAPTIVE_RESEARCH_POLICY.md).
+Its current branch remains unqualified and unactivated; R12's remaining research
+and creative verification stays in the canonical queue. The older release facts
+below remain historical evidence, not instructions to rebuild them.
+
 The 9 October 2026 R12 handoff supersedes the older application checkpoint below:
 PR77 is merged at `4c72d5dba77e962f2b0786e339d2b7c69e2845ce`, qualified tree
 `dc9a13b7b0c5f1a15d3e73cb668bb0a4cf6d997a`, with passing
@@ -196,3 +210,7 @@ Raw Core `events` remain immutable audit records. Proposed owner-facing Events a
 ## Documentation integrity checks
 
 For this rewrite, verify the archive hash against the original baseline blob, all relative source/checkpoint links, the remaining contiguous R03–R19 queue, with R01/R02 implementation and accepted release evidence retained here and the separate main-push repeat honestly labelled in progress, a 29-row Stage0–28 crosswalk and the complete current 21-page route inventory. The original rewrite was documentation-only. Subsequent implementation releases must keep plan status and source evidence aligned; documentation cannot authorize schema, provider, credential or execution changes.
+
+### Explicit Etsy owner-observation `.2` recovery work
+
+The separate [Etsy owner-mode release review](R12_ETSY_OWNER_MODE_REVIEW.md) records source recovery and the three-role implementation boundary. New synthetic tests cover explicit mode/quote separation, actual planner/strategy/review request projection, immutable owner citations and withheld-record disclosure, with SQL/native-race/browser qualification required on the exact release commit. Earlier logs do not qualify this tree. No live source acquisition, provider research cycle, new grant or production activation is claimed.

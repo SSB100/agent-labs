@@ -24,7 +24,9 @@ export function pilotOwnerSqlApi(db,businessId,ownerId){
    if(name==='server-only')return{};if(name.startsWith('node:'))return require(name);
    if(name==='./discovery-r12-server-dependencies')return{discoveryR12ServerDependencies:()=>{throw Error('Owner preparation and Stop must never load provider dependencies');}};
    assert.ok(name.startsWith('.'),name);const target=path.posix.normalize(path.posix.join(path.posix.dirname(file),name)),compiled=path.join(root,'.core-tests',target+'.js');
-   return existsSync(compiled)?require(compiled):source(target);
+   // Core compilation can now include this server module transitively. Keep
+   // its isolated process/dependency boundary regardless of artifact presence.
+   return target==='products/discovery-r12-server'?source(target):existsSync(compiled)?require(compiled):source(target);
   },loaded,loaded.exports,inertProcess);cache.set(file,loaded.exports);return loaded.exports;
  };
  return{context,calls,preparation:source('products/discovery-r12-pilot-preparation-server'),confirmation:source('products/discovery-r12-review-preparation-server'),server:source('products/discovery-r12-server')};

@@ -46,9 +46,9 @@ test('actual workflow selects the same focused/full modes and requires every nam
  assert.ok(workflow.on.pull_request.types.includes('ready_for_review'));
  assert.deepEqual(workflow.on.push.branches,['main']);
  assert.equal(workflow.on.workflow_dispatch.inputs.gate.default,'release');
- const events=[['pull_request',{pull_request:{draft:true}}],['pull_request',{pull_request:{draft:false}}],['push',{ref:'refs/heads/main'}],['workflow_dispatch',{inputs:{gate:'focused'}}],['workflow_dispatch',{inputs:{gate:'focused',diagnostic:'owner-ui'}}],['workflow_dispatch',{inputs:{gate:'release'}}],['workflow_dispatch',{inputs:{gate:'release',diagnostic:'owner-ui'}}]];
+ const events=[['pull_request',{pull_request:{draft:true}}],['pull_request',{pull_request:{draft:false}}],['pull_request',{pull_request:{draft:true,head:{ref:'codex/r12-etsy-owner-baselines-20261010'}}}],['push',{ref:'refs/heads/main'}],['workflow_dispatch',{inputs:{gate:'focused'}}],['workflow_dispatch',{inputs:{gate:'focused',diagnostic:'owner-ui'}}],['workflow_dispatch',{inputs:{gate:'release'}}],['workflow_dispatch',{inputs:{gate:'release',diagnostic:'owner-ui'}}]];
  for(const [eventName,event] of events){
-  const mode=ciGateMode(eventName,event),github={event_name:eventName,event},inputs=event.inputs??{};
+  const mode=ciGateMode(eventName,event),github={event_name:eventName,event,head_ref:event.pull_request?.head?.ref},inputs=event.inputs??{};
   const selected=job=>new Function('github','inputs',`return (${workflow.jobs[job].if});`)(github,inputs);
   for(const name of REQUIRED_RELEASE_JOBS)assert.equal(selected(name),mode==='release',name);
   assert.equal(selected('r12-focused'),mode==='focused');
@@ -98,4 +98,12 @@ test('failed focused CLI evidence keeps the actual tested identity and cannot ex
   assert.equal(decision.commit,execFileSync('git',['-C',directory,'rev-parse','HEAD'],{encoding:'utf8'}).trim());
   assert.equal(decision.tree,execFileSync('git',['-C',directory,'rev-parse','HEAD^{tree}'],{encoding:'utf8'}).trim());
  }finally{rmSync(directory,{recursive:true,force:true});}
+});
+
+test('explicit Etsy recovery draft requires full qualification, including native adaptive races',()=>{
+ assert.equal(ciGateMode('pull_request',{pull_request:{draft:true,head:{ref:'codex/r12-etsy-owner-baselines-20261010'}}}),'release');
+ assert.equal(ciGateMode('pull_request',{pull_request:{draft:true,head:{ref:'unrelated-draft'}}}),'focused');
+ assert.ok(REQUIRED_RELEASE_JOBS.includes('r12-adaptive-races'));
+ const needs=success();needs['r12-adaptive-races']={result:'skipped'};
+ assert.throws(()=>qualifyRelease({mode:'release',needs,...identity}),/r12-adaptive-races/);
 });

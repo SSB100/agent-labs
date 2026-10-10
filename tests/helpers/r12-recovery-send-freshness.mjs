@@ -24,6 +24,34 @@ export function recoverySendFenceParts(originalSql,runtimeSql){
   reapplyTerminal:`do $freshness_catalog$ declare d text;old text;replacement text;begin\n${body}\nend $freshness_catalog$;`};
 }
 
+const PUBLIC_SEND_SIGNATURE='public.r12_discovery_server(uuid,uuid,text,jsonb,text)';
+/** Follow only explicit, unchanged-argument private delegation. The native
+ * fault test still enters through the public RPC; only its actual final fence
+ * implementation is temporarily patched. Unknown chains and cycles fail. */
+export async function resolveRecoverySendImplementation(db,currentFence){
+ const chain=[],seen=new Set();let signature=PUBLIC_SEND_SIGNATURE;
+ for(let depth=0;depth<5;depth++){
+  assert.ok(!seen.has(signature),'Recovery send wrapper cycle');seen.add(signature);
+  const row=(await db.query('select pg_get_functiondef($1::regprocedure) definition,proowner,proacl,proconfig,provolatile,prosecdef from pg_proc where oid=$1::regprocedure',[signature])).rows[0];
+  assert.ok(row,'Recovery send implementation required');chain.push({signature,...row});
+  const count=row.definition.split(currentFence).length-1;
+  if(count===1)return{signature,before:row,chain};
+  assert.equal(count,0,'Exactly one current final-send fence is required');
+  const calls=[...row.definition.matchAll(/private\.(r12_discovery_server_before_[a-z_]+)\(\s*p_business_id\s*,\s*p_attempt_id\s*,\s*p_operation\s*,\s*p_payload\s*,\s*p_server_key\s*\)/g)];
+  assert.equal(calls.length,1,'Exactly one unchanged-argument reviewed private delegation is required');
+  signature=`private.${calls[0][1]}(uuid,uuid,text,jsonb,text)`;
+  const acl=(await db.query("select has_function_privilege('anon',$1,'EXECUTE') anon,has_function_privilege('authenticated',$1,'EXECUTE') authenticated,has_function_privilege('service_role',$1,'EXECUTE') service_role",[signature])).rows[0];
+  assert.deepEqual(acl,{anon:false,authenticated:false,service_role:false},'Private delegated implementation is not an alternate RPC surface');
+ }
+ assert.fail('Recovery send wrapper depth exceeds reviewed bound');
+}
+export function retargetRecoverySendLookup(sql,signature){
+ assert.match(signature,/^(?:public\.r12_discovery_server|private\.r12_discovery_server_before_[a-z_]+)\(uuid,uuid,text,jsonb,text\)$/);
+ const lookup=`'${PUBLIC_SEND_SIGNATURE}'::regprocedure`;
+ assert.equal(sql.split(lookup).length,2,'Exactly one reviewed function lookup may be retargeted');
+ return sql.replace(lookup,()=>`'${signature}'::regprocedure`);
+}
+
 export async function exerciseRecoverySendFreshness({db,metadata,command,payload,controller}){
  assert.equal(process.env.R12_REQUIRE_POSTGRES,'1');
  const target=new URL(process.env.R12_POSTGRES_URL);
@@ -31,11 +59,10 @@ export async function exerciseRecoverySendFreshness({db,metadata,command,payload
  assert.ok(['r12.focused-pilot-unsent-recovery-authorization.1','r12.focused-pilot-terminal-qualification-authorization.1'].includes(metadata.authorization.version));
  assert.equal(metadata.scopeId,metadata.authorization.scopeId);
  const one=async(sql,args=[])=>(await db.query(sql,args)).rows[0];
- const signature='public.r12_discovery_server(uuid,uuid,text,jsonb,text)';
- const before=await one('select pg_get_functiondef($1::regprocedure) definition,proowner,proacl,proconfig,provolatile,prosecdef from pg_proc where oid=$1::regprocedure',[signature]);
  const migration=readFileSync(new URL('../../supabase/migrations/20261007192502_r12_recovery_send_freshness.sql',import.meta.url),'utf8');
  const runtimeMigration=readFileSync(new URL('../../supabase/migrations/20261007232026_r12_recovery_runtime_deadlines.sql',import.meta.url),'utf8');
  const {old,currentFence,anchor,reapplyTerminal}=recoverySendFenceParts(migration,runtimeMigration);
+ const {signature,before}=await resolveRecoverySendImplementation(db,currentFence);
  assert.equal(before.definition.split(currentFence).length,2);
  assert.ok(!(before.proconfig??[]).some(value=>value.startsWith('statement_timeout=')||value.startsWith('lock_timeout=')),'Generic send inherits its unchanged role deadline');
  const scoped=await one("select proconfig from pg_proc where oid='public.r12_recovery_server(uuid,uuid,uuid,text,jsonb,text)'::regprocedure");
@@ -48,8 +75,8 @@ export async function exerciseRecoverySendFreshness({db,metadata,command,payload
   const original=await catalog();
   assert.equal(original.filter((row,index)=>row.definition!==migrated[index].definition).length,1);
   for(const [index,row]of original.entries()){const left={...row},right={...migrated[index]};delete left.definition;delete right.definition;assert.deepEqual(left,right);}
-  await db.exec(migration.replace(/^begin;\s*$/m,'').replace(/^commit;\s*$/m,''));
-  await db.exec(reapplyTerminal);
+  await db.exec(retargetRecoverySendLookup(migration,signature).replace(/^begin;\s*$/m,'').replace(/^commit;\s*$/m,''));
+  await db.exec(retargetRecoverySendLookup(reapplyTerminal,signature));
   assert.deepEqual(await catalog(),migrated,'The guarded migration changes only the intended function body, with all original ACLs/configuration intact');
  }finally{await db.exec('rollback to savepoint recovery_send_catalog');await db.exec('release savepoint recovery_send_catalog');}
  assert.equal(before.definition.split(anchor).length,2);

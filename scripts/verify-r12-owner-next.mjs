@@ -9,6 +9,7 @@ import {createServer} from 'node:net';
 import {startFixtureBoundary} from '../tests/next-fixture/server.mjs';
 import {runOwnerInitialJourney} from '../tests/next-fixture/r12-owner-initial-journey.mjs';
 import {runOwnerInitialHttp} from '../tests/next-fixture/r12-owner-initial-http.mjs';
+import {runEtsyOwnerHttp} from '../tests/next-fixture/r12-etsy-http.mjs';
 import {R12_INERT_ROOT} from '../tests/next-fixture/r12-sql.mjs';
 
 // Production pages/actions/runtime/SQL are unchanged. Only Supabase transport,
@@ -42,7 +43,7 @@ try {
   start(['start','-p',String(port),'-H','127.0.0.1'],'server.log',{VERCEL_ENV:'production',R05_ADMISSION_SERVER_KEY:R12_INERT_ROOT,OPENROUTER_API_KEY:'inert-r12-provider-placeholder'});
   const origin=`http://localhost:${port}`;let ready=false;
   for(let i=0;i<120;i++){try{if((await fetch(origin+'/login',{redirect:'manual'})).status<500){ready=true;break;}}catch{}await new Promise(resolve=>setTimeout(resolve,250));}assert.ok(ready,'Next owner fixture did not start');
-  if(process.argv.includes('--http-only'))await runOwnerInitialHttp({origin,boundary,output,fixture});
+  if(process.argv.includes('--http-only')){await runOwnerInitialHttp({origin,boundary,output,fixture});await runEtsyOwnerHttp({origin,boundary,output,fixture});}
   else await runOwnerInitialJourney({origin,boundary,output});
 } finally {
   const stopped=await Promise.allSettled(processes.map(child=>new Promise((resolve,reject)=>{if(child.exitCode!==null||child.signalCode!==null)return resolve();const timer=setTimeout(()=>{child.kill('SIGKILL');reject(Error('Next did not stop; source retained'));},10000);child.once('exit',()=>{clearTimeout(timer);resolve();});child.kill('SIGTERM');})));
