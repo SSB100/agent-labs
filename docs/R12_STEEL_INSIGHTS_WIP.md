@@ -13,3 +13,7 @@ Still required: final independent integration review, owner/server HTTP and UI w
 ## Reconstructed pure research contracts
 
 A second inert slice preserves the versioned test-window, account binding, conservative browser accounting, quality rubric, source-proof, origin-history and reviewer normalization contracts. Fresh focused compilation, lint and41 tests pass. Independent review restored exact raw reviewer-response hash binding, the existing64 lifetime dispatch ceiling and UUID revision parity before this checkpoint. Origin-history and reviewer lifecycle integration remain pending. These self-consistent records do not themselves establish persisted authority or authentic provider evidence.
+
+## Model and preparation checkpoint
+
+Fresh whole-app TypeScript checking and 68 focused tests pass for the reconstructed owner preparation, bounded cycle and three-model-wire contracts. ES2017-compatible BigInt use and deterministic reviewer-score replay are included. This remains an incomplete WIP, not release qualification. The current cycle's Quest-completion label is a known semantic defect: a concrete research-stage support or refutation does not achieve the broader business Goal. That label must be separated before activation. Per-attempt quote renewal and genuine SQL/HTTP/runtime integration remain pending; expired quotes fail closed.

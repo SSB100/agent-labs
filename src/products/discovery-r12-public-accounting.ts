@@ -23,7 +23,7 @@ export function validatePublicResearchBrowserAccounting(raw: unknown, expected: 
   if (v.version !== "r12.public-browser-accounting.1" || ![v.businessId,v.goalId,v.authorityRootId,v.providerProjectId,v.operationId,v.reservationId].every(uuid) || ![v.envelopeHash,v.operationReceiptHash,v.requestHash,v.reservationHash,v.quoteHash,v.routeHash,v.tariffHash,v.qualificationHash,v.releaseProofHash,v.usageIdentityHash].every(hash) || !["owner_setup","research_source"].includes(v.operationKind) || v.currency !== "USD" || !integer(v.revision, 1, 4096) || (v.revision === 1 ? v.previousRecordHash !== null : !hash(v.previousRecordHash))) return fail();
   const maximum = money(v.maximumMicrounits); time(v.recordedAt);
   if (now !== undefined && (!Number.isFinite(now) || time(v.recordedAt) > now)) return fail();
-  if (v.status === "qualified_bounded_pending") { if (maximum <= 0n || v.actualMicrounits !== null || v.providerBillingRecordHash !== null) return fail(); }
+  if (v.status === "qualified_bounded_pending") { if (maximum <= BigInt(0) || v.actualMicrounits !== null || v.providerBillingRecordHash !== null) return fail(); }
   else if (v.status === "final_actual") { if (!hash(v.providerBillingRecordHash) || money(v.actualMicrounits) > maximum) return fail("r12_public_actual_above_reserved_bound"); }
   else return fail();
   matchExpected(raw, expected); verifyPublicSelfHash(raw, "recordHash"); return structuredClone(v);
@@ -54,7 +54,7 @@ export function publicResearchBrowserExposure(records: readonly unknown[], expec
   function unique(identity: string, operationId: string) { const prior = identities.get(identity); if (prior && prior !== operationId) fail("r12_public_accounting_identity_reused"); identities.set(identity, operationId); }
   for (const operationId of [...new Set([...rows,...problems].map(r => r.operationId))].sort()) {
     const chain = rows.filter(r => r.operationId === operationId).sort((a,b) => a.revision - b.revision), issues = problems.filter(r => r.operationId === operationId);
-    let actual = 0n, held = 0n; const first = chain[0] ?? issues[0];
+    let actual = BigInt(0), held = BigInt(0); const first = chain[0] ?? issues[0];
     if (!first) return fail();
     unique(`reservation:${first.reservationId}`,operationId); unique(`usage:${first.usageIdentityHash}`,operationId);
     for (const x of [...chain,...issues]) {
@@ -79,7 +79,7 @@ export function publicResearchBrowserExposure(records: readonly unknown[], expec
     }
     operations.push({ operationId, latestRecordHash: latest?.recordHash ?? issues.map(x => x.anomalyHash).sort().at(-1)!, status: issues.length ? "unknown_or_unbounded" : latest!.status, knownActualMicrounits: actual.toString(), heldMaximumMicrounits: held.toString(), conservativeExposureMicrounits: (actual+held).toString() });
   }
-  const known = operations.reduce((s,x) => s+money(x.knownActualMicrounits),0n), held = operations.reduce((s,x) => s+money(x.heldMaximumMicrounits),0n);
+  const known = operations.reduce((s,x) => s+money(x.knownActualMicrounits),BigInt(0)), held = operations.reduce((s,x) => s+money(x.heldMaximumMicrounits),BigInt(0));
   const body = { version: "r12.public-browser-exposure.1" as const, ...expected, hasUnknownOrUnbounded: problems.length > 0, anomalyHashes: problems.map(x => x.anomalyHash).sort(), operations, knownActualMicrounits: known.toString(), heldMaximumMicrounits: held.toString(), conservativeExposureMicrounits: (known+held).toString() };
   return { ...body, exposureHash: publicResearchHash(body) };
 }
@@ -89,12 +89,12 @@ export function publicResearchCombinedExposure(input: {
   rootHeadroomMicrounits: string; businessHeadroomMicrounits: string;
 }) {
   const b = input.browser; verifyPublicSelfHash(b as unknown as Record<string,unknown>,"exposureHash");
-  let known = 0n, held = 0n; const seen = new Set<string>();
+  let known = BigInt(0), held = BigInt(0); const seen = new Set<string>();
   for (const op of b.operations) { if (seen.has(op.operationId) || money(op.conservativeExposureMicrounits) !== money(op.knownActualMicrounits)+money(op.heldMaximumMicrounits)) return fail(); seen.add(op.operationId); known += money(op.knownActualMicrounits); held += money(op.heldMaximumMicrounits); }
   if (known !== money(b.knownActualMicrounits) || held !== money(b.heldMaximumMicrounits) || known+held !== money(b.conservativeExposureMicrounits) || b.hasUnknownOrUnbounded !== (b.anomalyHashes.length > 0) || b.operations.some(x => x.status === "unknown_or_unbounded") && !b.hasUnknownOrUnbounded) return fail();
   known += money(input.otherKnownActualMicrounits); held += money(input.otherHeldMaximumMicrounits);
   const next = money(input.nextMaximumMicrounits), run = money(input.runMaximumMicrounits), window = money(input.windowMaximumMicrounits);
-  if (run <= 0n || run > 10000000n || window <= 0n || window > run || typeof input.hasUnknownOrUnbounded !== "boolean") return fail();
+  if (run <= BigInt(0) || run > BigInt(10000000) || window <= BigInt(0) || window > run || typeof input.hasUnknownOrUnbounded !== "boolean") return fail();
   const unknown = b.hasUnknownOrUnbounded || input.hasUnknownOrUnbounded;
   const reason = unknown ? "unknown_or_unbounded_liability" : known+held+next > run || known+held+next > window ? "combined_test_cap_exceeded" : next > money(input.rootHeadroomMicrounits) || next > money(input.businessHeadroomMicrounits) ? "lifetime_headroom_exceeded" : null;
   return { admitted: reason === null, reason, knownActualMicrounits: known.toString(), heldMaximumMicrounits: held.toString(), conservativeExposureMicrounits: (known+held).toString(), nextMaximumMicrounits: next.toString() };

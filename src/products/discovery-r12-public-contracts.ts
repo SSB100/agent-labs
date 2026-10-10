@@ -50,8 +50,8 @@ export function validatePublicResearchPolicy(raw:unknown):PublicResearchPolicy {
   if(!exact(p.browserAccountingPins,"providerProjectId,routeHash,tariffHash,qualificationHash")||!uuid(p.browserAccountingPins.providerProjectId)||![p.browserAccountingPins.routeHash,p.browserAccountingPins.tariffHash,p.browserAccountingPins.qualificationHash].every(hash)||p.sourceAccess.allowedSource==="etsy_authenticated_insights"&&p.sourceAccess.accountBinding.providerProjectId!==p.browserAccountingPins.providerProjectId)return fail();
   if(p.maximumModelDispatches!==3*w.maximumAttemptsInWindow||p.maximumSourceOperations!==w.maximumAttemptsInWindow||p.maximumNmePerEpoch!==4||p.maximumDispatchesPerAttempt!==4||![p.baseChildren,p.baseDispatches,p.baseRepairs,p.basePivots].every(x=>integer(x))||p.cumulativeChildrenCeiling!==p.baseChildren+(w.windowOrdinal===1?4:0)||!integer(p.cumulativeChildrenCeiling,4,32)||!integer(p.cumulativeDispatchesCeiling,p.baseDispatches,Math.min(64,p.baseDispatches+4*w.maximumAttemptsInWindow)))return fail();
   const run=money(p.originalRunMaximumMicrounits),allocation=money(p.maximumNewAllocationMicrounits);money(p.baseKnownMicrounits);money(p.businessLifetimeLimitMicrounits);money(p.rootLifetimeLimitMicrounits);
-  if(run<=0n||run>10000000n||allocation<=0n||allocation>run||!exact(p.phaseMaximumMicrounits,"plan,source,strategy,review"))return fail();
-  for(const phase of PUBLIC_RESEARCH_PHASES)if(money(p.phaseMaximumMicrounits[phase])<(phase==="source"?0n:1n))return fail();
+  if(run<=BigInt(0)||run>BigInt(10000000)||allocation<=BigInt(0)||allocation>run||!exact(p.phaseMaximumMicrounits,"plan,source,strategy,review"))return fail();
+  for(const phase of PUBLIC_RESEARCH_PHASES)if(money(p.phaseMaximumMicrounits[phase])<(phase==="source"?BigInt(0):BigInt(1)))return fail();
   verifyPublicSelfHash(raw,"policyHash");return structuredClone(p);
 }
 export function validatePublicResearchSourceProof(raw:unknown,policy:PublicResearchPolicy):PublicResearchSourceProof {
