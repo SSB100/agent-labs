@@ -60,6 +60,8 @@
     "src/etsy-publication/**/*.ts",
     "src/accounts/**/*.ts",
     "src/browser/watch/**/*.ts",
+    "src/browser/etsy-insights-*.ts",
+    "src/browser/etsy-steel-accounting.ts",
     "src/products/discovery-r12-*.ts"
   ],
   "exclude": [
@@ -69,6 +71,8 @@
     "src/listing/server.ts",
     "src/etsy-publication/server.ts",
     "src/accounts/server.ts",
+    "src/accounts/etsy-steel-handoff-owner-server.ts",
+    "src/accounts/etsy-steel-handoff-server.ts",
     "src/printful/server.ts",
     "src/products/discovery-r12-scope-server.ts",
     "src/products/discovery-r12-owner.ts",

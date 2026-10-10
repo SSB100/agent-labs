@@ -3,17 +3,20 @@ import assert from 'node:assert/strict';
 import {createEtsySteelHandoffPort} from '../.core-tests/accounts/etsy-steel-handoff-port.js';
 import {ETSY_INSIGHTS_DEFAULT_RENDERER_POLICY as POLICY,etsyInsightsRendererPolicyHash} from '../.core-tests/browser/etsy-insights-renderer-policy.js';
 import {etsySteelHash as hash} from '../.core-tests/accounts/etsy-steel-handoff-contracts.js';
+import {ETSY_RENDERER_DOM_REFERENCE_MANIFEST as REFS,ETSY_RENDERER_DOM_REFERENCE_HASH as PROVENANCE} from '../.core-tests/browser/etsy-insights-renderer-evidence.js';
+import {ETSY_OWNER_BOOTSTRAP_POLICY as BOOTSTRAP,etsyOwnerBootstrapPolicyHash} from '../.core-tests/accounts/etsy-steel-owner-bootstrap.js';
 const id=n=>`78000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
 function fixture(options={}){
  const events=[],cleanups=[],calls=[],handlers=new Map(),cdpCalls=[];let connected=true,url=options.initialUrl??'about:blank',released=false;
  const frame={url:()=>url};
- const page={mainFrame:()=>frame,on:(name,fn)=>handlers.set(name,fn),url:()=>url,goto:async value=>{events.push('goto');url=options.redirect??value;},removeAllListeners:async()=>{events.push('page-drain');if(options.hang==='page-drain')await new Promise(()=>{});}};
+ const page={mainFrame:()=>frame,on:(name,fn)=>handlers.set(name,fn),url:()=>url,goto:async value=>{events.push('goto');url=options.redirect??value;return{status:()=>options.documentStatus??200};},removeAllListeners:async()=>{events.push('page-drain');if(options.hang==='page-drain')await new Promise(()=>{});}};
  const context={pages:()=>[page],serviceWorkers:()=>[],on:(name,fn)=>handlers.set(name,fn),routeWebSocket:async()=>{},
   newCDPSession:async()=>({on:(name,fn)=>handlers.set(name,fn),send:async(name,args)=>{cdpCalls.push({name,args});if(name==='Page.getFrameTree')return{frameTree:{frame:{id:'main'}}};if(name==='Target.closeTarget')return{success:!options.closeChildFail};},detach:async()=>{events.push('cdp-detach');if(options.hang==='cdp-detach')await new Promise(()=>{});}}),route:async()=>events.push('route'),unrouteAll:async()=>{events.push('unroute-drain');if(options.drainFail)throw Error('drain');if(options.hang==='unroute-drain')await new Promise(()=>{});},removeAllListeners:async()=>{events.push('context-drain');if(options.hang==='context-drain')await new Promise(()=>{});}};
  const browser={contexts:()=>[context],isConnected:()=>connected,close:async()=>{events.push('disconnect');if(options.hungClose||options.hang==='disconnect')await new Promise(()=>{});if(!options.disconnectFail)connected=false;}};
- const q={version:'etsy.owner-handoff-renderer-qualification.1',operationId:id(1),providerProjectId:id(4),policy:{...POLICY,...options.policy},policyHash:etsyInsightsRendererPolicyHash({...POLICY,...options.policy}),expiresAt:new Date(Date.now()+120000).toISOString(),...options.qualification};
+ const policy=options.bootstrap?{...BOOTSTRAP,...options.policy}:{...POLICY,...options.policy};
+ const q={version:options.bootstrap?'etsy.owner-bootstrap-qualification.1':'etsy.owner-handoff-renderer-qualification.1',operationId:id(1),providerProjectId:id(4),policy,policyHash:options.bootstrap?etsyOwnerBootstrapPolicyHash(policy):etsyInsightsRendererPolicyHash(policy),expiresAt:new Date(Date.now()+120000).toISOString(),...options.qualification};
  const qualification={...q,qualificationHash:hash(q)};
- const port=createEtsySteelHandoffPort({providerProjectId:id(4),rendererQualification:options.noQualification?undefined:qualification,config:{apiKey:'inert-port-key',baseUrl:'https://api.steel.dev'},beforeCreate:options.beforeCreate??(()=>events.push('marker')),
+ const port=createEtsySteelHandoffPort({providerProjectId:id(4),rendererQualification:options.noQualification?undefined:qualification,recordRendererDecision:options.recordRendererDecision,config:{apiKey:'inert-port-key',baseUrl:'https://api.steel.dev'},beforeCreate:options.beforeCreate??(()=>events.push('marker')),
   admitDispatch:async()=>{events.push('admission');if(options.deny)throw Error('denied');},registerCleanup:work=>cleanups.push(work),
   connect:async endpoint=>{events.push('connect');assert.equal(new URL(endpoint).hostname,'connect.steel.dev');return options.connect?options.connect(browser):browser;},
   fetcher:async(address,init)=>{const path=new URL(address).pathname;calls.push({path,method:init.method??'GET'});
@@ -66,4 +69,44 @@ test('handoff reviewed exact static origin is immutable and does not authorize a
  await f.handlers.get('Fetch.requestPaused')(request('https://other.etsystatic.com/file.js'));
  assert.ok(f.cdpCalls.some(c=>c.name==='Fetch.failRequest'));
  await assert.rejects(s.disconnectForOwner(f.signal));await Promise.all(f.cleanups);
+});
+
+test('handoff .2 requires durable decision recorder before paid create',async()=>{
+ const policy={version:'etsy.insights-renderer-policy.2',staticAssets:[{...REFS.images[0]}],optionalTelemetry:[{...REFS.optionalTelemetry[0]}],provenanceHash:PROVENANCE};
+ const f=fixture({policy});await assert.rejects(f.port.createSession(f.request,f.signal));assert.equal(f.calls.length,0);
+});
+test('handoff .2 denies selected telemetry without collecting query values and still requires full disconnect',async()=>{
+ const records=[],policy={version:'etsy.insights-renderer-policy.2',staticAssets:[{...REFS.images[0]}],optionalTelemetry:[{...REFS.optionalTelemetry[0]}],provenanceHash:PROVENANCE};
+ const f=fixture({policy,recordRendererDecision:async r=>records.push(r)}),s=await f.port.createSession(f.request,f.signal),r=REFS.optionalTelemetry[0];
+ await f.handlers.get('Fetch.requestPaused')({requestId:'telemetry',resourceType:'Script',frameId:'main',request:{url:r.origin+r.path+'?private=omit',method:'GET'}});
+ assert.equal(records[0].disposition,'deny_optional_telemetry');assert.equal(records[0].provenanceHash,PROVENANCE);assert.doesNotMatch(JSON.stringify(records),/private=omit/);
+ assert.ok(f.cdpCalls.some(c=>c.name==='Fetch.failRequest'));assert.ok(!f.cdpCalls.some(c=>c.name==='Fetch.continueRequest'));
+ const proof=await s.disconnectForOwner(f.signal);assert.equal(proof.observersDrained,true);assert.equal(f.browser.isConnected(),false);
+});
+
+test('owner bootstrap denies arbitrary HTTP subresources but claims no research or visible account proof',async()=>{
+ const records=[],f=fixture({bootstrap:true,recordRendererDecision:async r=>records.push(r)}),s=await f.port.createSession(f.request,f.signal);
+ const paused=(n,url,method,resourceType)=>f.handlers.get('Fetch.requestPaused')({requestId:String(n),frameId:'main',resourceType,request:{url,method}});
+ await paused(1,'https://www.etsy.com/','GET','Document');
+ await paused(2,'https://unreviewed.example/private/account/path?token=omit#fragment','POST','XHR');
+ await paused(3,'https://i.etsystatic.com/unseen/image.jpg','GET','Image');
+ assert.deepEqual(records.map(r=>r.disposition),['allow_owner_document','deny_owner_subresource','deny_owner_subresource']);
+ assert.deepEqual(records.map(r=>r.sequence),[1,2,3]);assert.equal(records[1].url,'https://unreviewed.example/');
+ assert.doesNotMatch(JSON.stringify(records),/private|token|fragment/);assert.ok(records.every(r=>!('provenanceHash' in r)));
+ assert.equal(f.cdpCalls.filter(c=>c.name==='Fetch.continueRequest').length,1);assert.equal(f.cdpCalls.filter(c=>c.name==='Fetch.failRequest').length,2);
+ const proof=await s.disconnectForOwner(f.signal);assert.equal(proof.cdpDisconnected,true);assert.equal(proof.accountIdentityVerified,undefined);assert.equal(proof.insightsAccessVerified,undefined);
+});
+test('owner bootstrap cannot be selected implicitly or without the decision recorder',async()=>{
+ const f=fixture({bootstrap:true});await assert.rejects(f.port.createSession(f.request,f.signal));assert.equal(f.calls.length,0);
+});
+for(const kind of ['redirect','auth','popup','child','navigation','bad-status'])test(`owner bootstrap ${kind} stays fatal`,async()=>{
+ const f=fixture({bootstrap:true,documentStatus:kind==='bad-status'?403:200,recordRendererDecision:async()=>{}});
+ if(kind==='bad-status'){await assert.rejects(f.port.createSession(f.request,f.signal));await Promise.all(f.cleanups);return;}
+ const s=await f.port.createSession(f.request,f.signal);
+ if(kind==='redirect')await f.handlers.get('Fetch.requestPaused')({requestId:'r',redirectedRequestId:'old',frameId:'main',resourceType:'Document',request:{url:'https://www.etsy.com/',method:'GET'}});
+ if(kind==='auth')f.handlers.get('Fetch.authRequired')({requestId:'a'});
+ if(kind==='popup')f.handlers.get('page')({});
+ if(kind==='child')f.handlers.get('Target.attachedToTarget')({targetInfo:{targetId:'child'}});
+ if(kind==='navigation')await f.handlers.get('Fetch.requestPaused')({requestId:'n',frameId:'main',resourceType:'Document',request:{url:'https://www.etsy.com/your/orders',method:'GET'}});
+ await assert.rejects(s.disconnectForOwner(f.signal));await Promise.all(f.cleanups);assert.ok(f.events.includes('release'));assert.ok(!f.cdpCalls.some(c=>c.name==='Fetch.continueRequest'));
 });

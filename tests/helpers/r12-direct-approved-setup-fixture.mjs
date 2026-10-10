@@ -37,10 +37,11 @@ export async function bindDirectHandoffFixture(db,authority){
  }
  return {x,id,envelope,keys,server,owner,ledger,verifier,prepare};
 }
-export async function runDirectApprovedSetup(db,authority){
+export async function runDirectApprovedSetup(db,authority,{beforeVerification=null,afterCreate=null,afterVerificationCreate=null,runVerification=null}={}){
  await authority.confirm();const x=await bindDirectHandoffFixture(db,authority),a=await x.prepare();
  await a.approve();const reserved=await a.admit('create');
  await a.transport('browser.etsy.owner_handoff.create','POST','https://api.steel.dev/v1/sessions');
+ if(afterCreate)await afterCreate({authority,x,a,reserved});
  const record=await a.publish();await a.admit('owner_view');const returned=await a.admit('owner_return');
  await x.server('consume',{record,owner:a.owner,action:'return',permit:returned});await a.admit('profile_readback');
  await a.transport('browser.etsy.profile.readback','GET','https://api.steel.dev/v1/profiles/'+a.profileId);
@@ -63,8 +64,14 @@ export async function runDirectApprovedSetup(db,authority){
  }
  const setupAccounting=await finishAccounting(a.scope.operationId,receipt);
  await x.server('cleanup_complete',{operationId:a.scope.operationId,releaseEvidenceHash:setupAccounting.release.evidenceHash},'cleanup');
+ if(beforeVerification)await beforeVerification({authority,x,a,record,candidate,receipt,saved,setupAccounting});
+ if(runVerification)return runVerification({authority,x,a,record,candidate,receipt,saved,setupAccounting});
  const verificationInputs=await x.verifier('prepare',{setupOperationId:a.scope.operationId}),vs=verificationInputs.scope;
- await x.verifier('admit',{operationId:vs.operationId});await x.verifier('transport',{operationId:vs.operationId,request:{provider:'steel',operation:'browser.etsy.insights.create',method:'POST',endpoint:'https://api.steel.dev/v1/sessions'}});
+ await x.verifier('admit',{operationId:vs.operationId});
+ const rendererTable=(await one(db,"select to_regclass('private.r12_direct_verification_renderer_reviews') is not null present")).present;
+ const verificationRenderer=rendererTable?await x.verifier('qualify_renderer',{operationId:vs.operationId}):null;
+ await x.verifier('transport',{operationId:vs.operationId,request:{provider:'steel',operation:'browser.etsy.insights.create',method:'POST',endpoint:'https://api.steel.dev/v1/sessions'}});
+ if(afterVerificationCreate)await afterVerificationCreate({authority,x,a,verificationInputs,verificationRenderer});
  const vrBody={version:'etsy.steel-account-verification-receipt.1',operationId:vs.operationId,scopeHash:verificationInputs.scopeHash,status:'verified',releaseState:'verified',liabilityState:'receipt_required'};
  const verificationAccounting=await finishAccounting(vs.operationId,{...vrBody,receiptHash:hash(vrBody)});
  await x.verifier('cleanup_complete',{operationId:vs.operationId,releaseEvidenceHash:verificationAccounting.release.evidenceHash});

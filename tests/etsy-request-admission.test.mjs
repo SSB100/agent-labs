@@ -33,6 +33,26 @@ test('failed admission is redacted and never dispatches the paused request',asyn
  await f.handlers.get('Fetch.requestPaused')({requestId:'denied',frameId:'main',resourceType:'Document',request:{url:'https://www.etsy.com/',method:'GET'}});
  assert.deepEqual(f.reasons,['renderer_request_denied']);assert.ok(!f.calls.some(c=>c.name==='Fetch.continueRequest'));
 });
+test('concurrent renderer events receive serialized durable decisions, with no continuation after a failed decision',async()=>{
+ for(const failFirst of [false,true]){
+  const f=cdpFixture();let finish;const first=new Promise((resolve,reject)=>{finish=()=>failFirst?reject(Error('denied')):resolve();});
+  f.input.admit=async r=>{f.admitted.push(r);if(f.admitted.length===1)await first;};await installEtsyRequestAdmission(f.input);
+  const event=n=>({requestId:String(n),frameId:'main',resourceType:'Image',request:{url:`https://www.etsy.com/${n}.png`,method:'GET'}});
+  const a=f.handlers.get('Fetch.requestPaused')(event(1)),b=f.handlers.get('Fetch.requestPaused')(event(2));await tick();assert.equal(f.admitted.length,1);
+  finish();await Promise.all([a,b]);assert.equal(f.admitted.length,failFirst?1:2);
+  assert.equal(f.calls.filter(c=>c.name==='Fetch.continueRequest').length,failFirst?0:2);
+ }
+});
+test('reviewed optional telemetry is blocked without invalidation; failed blocking is fatal',async()=>{
+ for(const failBlock of [false,true]){
+  const f=cdpFixture(),send=f.cdp.send;f.input.admit=async()=> 'deny_optional_telemetry';
+  f.cdp.send=async(name,args)=>{if(name==='Fetch.failRequest'&&failBlock)throw Error('no acknowledgement');return send(name,args);};
+  const guard=await installEtsyRequestAdmission(f.input);
+  await f.handlers.get('Fetch.requestPaused')({requestId:'telemetry',frameId:'main',resourceType:'Image',request:{url:'https://example.invalid/pixel',method:'GET'}});
+  assert.ok(!f.calls.some(c=>c.name==='Fetch.continueRequest'));
+  assert.equal(f.reasons.length>0,failBlock);assert.equal(await guard.drain(),!failBlock);
+ }
+});
 test('drain tracks child-close acknowledgements added while an earlier snapshot is pending',async()=>{
  const f=cdpFixture(),acks=new Map(),send=f.cdp.send;
  f.cdp.send=(name,args)=>name==='Target.closeTarget'?new Promise(resolve=>acks.set(args.targetId,resolve)):send(name,args);
@@ -83,6 +103,7 @@ test('actual Chromium blocks redirect destinations before any HTTP request',
    res.setHeader('content-type','text/html');
    if(req.url==='/image-page')res.end('<!doctype html><img src="/image">');
    else if(req.url==='/fetch-page')res.end('<!doctype html><script>fetch("/fetch").catch(()=>{});</script>');
+   else if(req.url==='/owner-page')res.end('<!doctype html><p>Owner bootstrap only</p><img src="/owner-image"><script>fetch("/owner-data",{method:"POST"}).catch(()=>{});</script>');
    else res.end('forbidden destination');
   });
   await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
@@ -104,5 +125,18 @@ test('actual Chromium blocks redirect destinations before any HTTP request',
     assert.ok(!admitted.some(r=>new URL(r.url).pathname==='/denied'),'redirect never reaches admission callback');
     guard.seal();await context.close();await guard.drain();
    }
+   // The owner-only disposition still blocks every subresource before dispatch,
+   // but makes no assertion about rendering or research evidence completeness.
+   const context=await browser.newContext({serviceWorkers:'block'}),page=await context.newPage(),cdp=await context.newCDPSession(page);
+   const reasons=[],blocked=[];
+   await context.route('**/*',async route=>{if(route.request().frame()!==page.mainFrame())await route.abort();else await route.continue();});
+   const guard=await installEtsyRequestAdmission({cdp,signal:AbortSignal.timeout(10000),invalidate:r=>reasons.push(r),async admit(r){
+    if(r.navigation){assert.equal(r.url,origin+'/owner-page');assert.equal(r.method,'GET');return;}
+    blocked.push(r);return 'deny_owner_subresource';
+   }});
+   await page.goto(origin+'/owner-page',{waitUntil:'load',timeout:5000});
+   assert.ok(blocked.some(r=>r.resourceType==='image'));assert.ok(blocked.some(r=>r.method==='POST'));
+   assert.deepEqual(reasons,[]);assert.equal(hits.filter(x=>['/owner-image','/owner-data'].includes(x)).length,0);
+   guard.seal();await context.close();await guard.drain();
   }finally{await browser?.close();await new Promise(resolve=>server.close(resolve));}
  });

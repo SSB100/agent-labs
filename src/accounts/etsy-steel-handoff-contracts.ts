@@ -67,7 +67,7 @@ export type EtsySteelHandoffRecord = {
   version: "etsy.steel-owner-handoff-record.1"; id: string;
   scope: EtsySteelHandoffScope; scopeHash: string;
   reservationId: string; reservationHash: string;
-  envelope: string; createdAt: string; expiresAt: string; recordHash: string;
+  envelope: string; disconnectProof: EtsySteelDisconnectProof; createdAt: string; expiresAt: string; recordHash: string;
 };
 export type EtsySteelProfileCandidate = {
   version: "etsy.steel-profile-candidate.1";

@@ -33,3 +33,14 @@ test('cleanup without ownership admission sends nothing',async()=>{const f=fixtu
 test('release ack alone does not claim terminal settlement',async()=>{let n=0;const f=fixture({fetcher:async()=>Response.json(++n===1?{success:true}:{id:id(3),status:'released'})});assert.equal((await f.adapter.releaseOwnerHandoffSession(id(1),id(4))).terminalReadback,false);});
 test('async guard is rejected before create',async()=>{const f=fixture();await assert.rejects(f.adapter.createOwnerHandoffSession(id(1),id(4),30000,async()=>{throw Error('denied');}));assert.equal(f.calls.length,0);});
 test('oversized provider payload fails closed',async()=>{const f=fixture({fetcher:async()=>new Response('x'.repeat(65537))});await assert.rejects(f.adapter.createOwnerHandoffSession(id(1),id(4),30000,f.marker));});
+test('terminal usage retains observed dimensions only and never exposes private response fields',async()=>{
+ const f=fixture({response:{...session(),status:'released',timeout:30000,duration:1234,proxySource:null,creditsUsed:91,cookies:'private',debugUrl:'private'}});
+ const r=await f.adapter.retrieveScopedTerminalUsage(id(1),id(4));
+ assert.deepEqual(r,{version:'etsy.steel-terminal-usage.1',sessionId:id(1),providerProjectId:id(4),providerStatus:'released',providerTimeoutMs:30000,durationMs:1234,proxyBytesUsed:0,proxySource:null,solveCaptcha:false});
+ assert.equal(f.admissions[0].operation,'browser.etsy.session.release_readback');assert.doesNotMatch(JSON.stringify(r),/private|credits|debug|cookie/);
+});
+test('missing terminal usage dimensions remain unknown and identity mismatch fails',async()=>{
+ const f=fixture({response:{id:id(1),projectId:id(4),status:'failed'}}),r=await f.adapter.retrieveScopedTerminalUsage(id(1),id(4));
+ assert.equal(r.durationMs,null);assert.equal(r.providerTimeoutMs,null);assert.equal(r.proxyBytesUsed,null);assert.equal(r.proxySource,'unknown');assert.equal(r.solveCaptcha,null);
+ for(const response of[{id:id(2),projectId:id(4),status:'released'},{id:id(1),projectId:id(3),status:'released'},{id:id(1),projectId:id(4),status:'live'}])await assert.rejects(fixture({response}).adapter.retrieveScopedTerminalUsage(id(1),id(4)));
+});

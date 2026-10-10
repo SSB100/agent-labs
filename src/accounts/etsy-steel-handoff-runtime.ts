@@ -36,8 +36,8 @@ function privateSession(value: unknown, scopeHash: string): PrivateSession {
     handoffUuid(value.sessionId) && handoffUuid(value.profileId) && typeof value.viewerUrl === "string", "handoff_private_record_invalid");
   viewerUrl(value.viewerUrl, value.sessionId); return structuredClone(value) as PrivateSession;
 }
-function validateRecord(value: unknown, owner: EtsySteelOwner, handoffId: string): EtsySteelHandoffRecord {
-  handoffExact(value, "version,id,scope,scopeHash,reservationId,reservationHash,envelope,createdAt,expiresAt,recordHash", "handoff_record_invalid");
+export function validateEtsySteelHandoffRecord(value: unknown, owner: EtsySteelOwner, handoffId: string): EtsySteelHandoffRecord {
+  handoffExact(value, "version,id,scope,scopeHash,reservationId,reservationHash,envelope,disconnectProof,createdAt,expiresAt,recordHash", "handoff_record_invalid");
   const r = value as EtsySteelHandoffRecord, scope = validateEtsySteelHandoffScope(r.scope);
   handoffAssert(r.version === "etsy.steel-owner-handoff-record.1" && handoffUuid(r.id) && r.id === handoffId &&
     scope.ownerId === owner.ownerId && scope.businessId === owner.businessId && r.scopeHash === etsySteelHash(scope) &&
@@ -46,6 +46,9 @@ function validateRecord(value: unknown, owner: EtsySteelOwner, handoffId: string
     handoffInstant(r.createdAt) && handoffInstant(r.expiresAt) && Date.parse(r.expiresAt) > Date.parse(r.createdAt) &&
     Date.parse(r.expiresAt) <= Date.parse(scope.approvalExpiresAt) &&
     Date.parse(r.expiresAt) - Date.parse(r.createdAt) <= scope.maximumSessionMs, "handoff_record_invalid");
+  handoffExact(r.disconnectProof,"version,sessionId,cdpDisconnected,observersDrained,inFlightCommandsSettled,appCaptureStopped,routeHandlersDrained,eventListenersRemoved","handoff_disconnect_unconfirmed");
+  handoffAssert(r.disconnectProof.version==='etsy.steel-owner-disconnect.1'&&r.disconnectProof.sessionId===scope.operationId&&
+    r.disconnectProof.cdpDisconnected===true&&r.disconnectProof.observersDrained===true&&r.disconnectProof.inFlightCommandsSettled===true&&r.disconnectProof.appCaptureStopped===true&&r.disconnectProof.routeHandlersDrained===true&&r.disconnectProof.eventListenersRemoved===true,'handoff_disconnect_unconfirmed');
   const { recordHash, ...body } = r;
   handoffAssert(recordHash === etsySteelHash(body), "handoff_record_changed"); return structuredClone(r);
 }
@@ -166,7 +169,7 @@ export async function beginEtsySteelHandoff(input: EtsySteelHandoffScope, d: Ets
     assertPermitFresh(publish, s);
     const body: Omit<EtsySteelHandoffRecord, "recordHash"> = { version: "etsy.steel-owner-handoff-record.1", id,
       scope, scopeHash: etsySteelHash(scope), reservationId: reservation.reservationId, reservationHash: reservation.reservationHash,
-      envelope: sealAccountSecret(pinned, secretContext(scope), d.vaultKey), createdAt: new Date(createdAt).toISOString(), expiresAt };
+      envelope: sealAccountSecret(pinned, secretContext(scope), d.vaultKey), disconnectProof: proof, createdAt: new Date(createdAt).toISOString(), expiresAt };
     const record = { ...body, recordHash: etsySteelHash(body) };
     const stored = await s.work(() => { assertPermitFresh(publish, s); return d.storeHandoff(immutable(record), immutable(publish)); });
     handoffExact(stored, "recordHash,cleanupRegistered", "handoff_storage_unconfirmed");
@@ -197,7 +200,7 @@ async function load(owner: EtsySteelOwner, id: string, d: EtsySteelHandoffDepend
   handoffAssert(handoffUuid(owner.ownerId) && handoffUuid(owner.businessId) && handoffUuid(id), "handoff_owner_required");
   let loaded: unknown;
   try { loaded = await awaitRequestDeadline(d.loadHandoff(immutable(owner), id),requestDeadline(5_000)); } catch { throw new EtsySteelHandoffError("handoff_record_unavailable"); }
-  const record = validateRecord(loaded, owner, id);
+  const record = validateEtsySteelHandoffRecord(loaded, owner, id);
   const session = privateSession(unsealAccountSecret(record.envelope, secretContext(record.scope), d.vaultKey), record.scopeHash);
   return { record, session };
 }

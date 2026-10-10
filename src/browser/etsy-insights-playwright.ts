@@ -1,6 +1,6 @@
 import { installEtsyRequestAdmission, releaseEtsyTransportAndDispose, type EtsyRequestAdmission } from './etsy-request-admission';
 import { randomUUID } from 'node:crypto';
-import { admitEtsyInsightsRendererRequest, validateEtsyInsightsRendererPolicy, etsyInsightsRendererPolicyHash, type EtsyInsightsRendererPolicy } from './etsy-insights-renderer-policy';
+import { classifyEtsyInsightsRendererRequest, validateEtsyInsightsRendererPolicy, etsyInsightsRendererPolicyHash, type EtsyInsightsRendererPolicy } from './etsy-insights-renderer-policy';
 import { chromium, type Browser, type BrowserContext, type CDPSession, type Locator, type Page } from 'playwright-core';
 import { SteelBrowserAdapter, type SteelConfig } from './providers/steel';
 import type { TransportAdmission } from '../core/transport-admission';
@@ -32,11 +32,11 @@ type Rect = { x: number; y: number; width: number; height: number };
 type View = { url: string; kind: 'landing'|'results'; shop: string; query: string|null;
   window: string|null; searches: string|null; results: string|null; conversion: string|null;
   trend: string|null; clip: Rect|null };
-export type EtsyInsightsRendererRequest = {
-  version: 'r12.etsy-insights-renderer-request.1'; operationId: string; sourceAttemptId: string;
+type EtsyInsightsRendererRequestBase = { operationId: string; sourceAttemptId: string;
   requestHash: string; qualificationHash: string; sequence: number; url: string; method: string;
   resourceType: string; navigation: boolean;
 };
+export type EtsyInsightsRendererRequest=EtsyInsightsRendererRequestBase&({version:'r12.etsy-insights-renderer-request.1'}|{version:'r12.etsy-insights-renderer-request.2';disposition:'allow'|'deny_optional_telemetry';policyHash:string;provenanceHash:string});
 export type EtsyInsightsPlaywrightPortInput = {
   providerProjectId: string; admitDispatch: TransportAdmission;
   /** Trusted immutable ledger lookup, not browser/model/caller account JSON.
@@ -174,10 +174,12 @@ export function createEtsyInsightsPlaywrightPort(input: EtsyInsightsPlaywrightPo
         invalidate(reason){invalid=true;invalidReason=reason;},
         async admit(r){
           active();if(++requests>qualification.maximumRequests)return insightsFail('renderer_request_limit');
-          admitEtsyInsightsRendererRequest(rendererPolicy,r,scope.query);
-          const request:EtsyInsightsRendererRequest={version:'r12.etsy-insights-renderer-request.1',operationId:scope.operationId,sourceAttemptId:scope.sourceAttemptId,
-            requestHash,qualificationHash:qualification.qualificationHash,sequence:requests,...r};
+          const disposition=classifyEtsyInsightsRendererRequest(rendererPolicy,r,scope.query);
+          const metadata=disposition==='deny_optional_telemetry'?{...r,url:new URL(r.url).origin+new URL(r.url).pathname}:r;
+          const base={operationId:scope.operationId,sourceAttemptId:scope.sourceAttemptId,requestHash,qualificationHash:qualification.qualificationHash,sequence:requests,...metadata};
+          const request:EtsyInsightsRendererRequest=rendererPolicy.version==='etsy.insights-renderer-policy.2'?{...base,version:'r12.etsy-insights-renderer-request.2',disposition,policyHash:qualification.policyHash,provenanceHash:rendererPolicy.provenanceHash}:{...base,version:'r12.etsy-insights-renderer-request.1'};
           await awaitRequestDeadline(input.admitRenderer(Object.freeze(request),bounded),bounded);active();
+          if(disposition==='deny_optional_telemetry')return disposition;
         },
       });
       const identity=Object.freeze({sessionId:resolved.sessionId,contextId:randomUUID(),pageId:randomUUID(),providerProjectId:scope.providerProjectId,
@@ -254,7 +256,7 @@ export type EtsyInsightsVerificationPortInput={
   admitStage(input:Readonly<{operation:'create'|'open'|'observe'|'accept';operationId:string;scopeHash:string;requestId:string;workflowRunId:string}>):Promise<void>;
   beforeCreate(input:Readonly<EtsyInsightsVerificationInputs>):void;
   qualifyRenderer(scope:Readonly<EtsyInsightsVerificationScope>):Promise<{version:'r12.etsy-insights-renderer-qualification.1';requestHash:string;qualificationHash:string;expiresAt:string;maximumRequests:number;policy:EtsyInsightsRendererPolicy;policyHash:string}>;
-  admitRenderer(input:Readonly<{version:'etsy.insights-verification-renderer-request.1';operationId:string;requestId:string;scopeHash:string;qualificationHash:string;sequence:number;url:string;method:string;resourceType:string;navigation:boolean}>,signal:AbortSignal):Promise<void>;
+  admitRenderer(input:Readonly<{operationId:string;requestId:string;scopeHash:string;qualificationHash:string;sequence:number;url:string;method:string;resourceType:string;navigation:boolean}&({version:'etsy.insights-verification-renderer-request.1'}|{version:'etsy.insights-verification-renderer-request.2';disposition:'allow'|'deny_optional_telemetry';policyHash:string;provenanceHash:string})>,signal:AbortSignal):Promise<void>;
   registerCleanup(work:Promise<void>):void;config?:SteelConfig;fetcher?:typeof fetch;connect?:typeof chromium.connectOverCDP;now?:()=>number;
 };
 function verifyScope(raw:EtsyInsightsVerificationInputs,now:number):EtsyInsightsVerificationInputs{
@@ -320,9 +322,12 @@ export function createEtsyInsightsVerificationPort(input:EtsyInsightsVerificatio
       networkGuard=await installEtsyRequestAdmission({cdp,signal:bounded,
         invalidate(reason){invalid=true;invalidReason=reason;},
         async admit(r){active();if(++requests>qualification!.maximumRequests)return insightsFail('renderer_request_limit');
-          admitEtsyInsightsRendererRequest(qualification!.policy,r,null);
-          await awaitRequestDeadline(input.admitRenderer(Object.freeze({version:'etsy.insights-verification-renderer-request.1',operationId:scope.operationId,requestId:authority.requestId,scopeHash:authority.scopeHash,
-            qualificationHash:qualification!.qualificationHash,sequence:requests,...r}),bounded),bounded);active();
+          const policy=qualification!.policy,disposition=classifyEtsyInsightsRendererRequest(policy,r,null);
+          const metadata=disposition==='deny_optional_telemetry'?{...r,url:new URL(r.url).origin+new URL(r.url).pathname}:r;
+          const base={operationId:scope.operationId,requestId:authority.requestId,scopeHash:authority.scopeHash,qualificationHash:qualification!.qualificationHash,sequence:requests,...metadata};
+          const request=policy.version==='etsy.insights-renderer-policy.2'?{...base,version:'etsy.insights-verification-renderer-request.2' as const,disposition,policyHash:etsyInsightsRendererPolicyHash(policy),provenanceHash:policy.provenanceHash}:{...base,version:'etsy.insights-verification-renderer-request.1' as const};
+          await awaitRequestDeadline(input.admitRenderer(Object.freeze(request),bounded),bounded);active();
+          if(disposition==='deny_optional_telemetry')return disposition;
         },
       });
       await admit('open');await awaitRequestDeadline(page.goto(LANDING,{waitUntil:'domcontentloaded',timeout:20000}),bounded);active();
