@@ -503,6 +503,7 @@ export async function runOwnerInitialJourney({origin,boundary,output}) {
       assert.equal(latest.actions[0].outcome,'NEEDS_MORE_EVIDENCE');
       const denied=boundary.log.filter(item=>item.rpc==='r12_adaptive_controller_server'&&item.operation==='admit_next');
       assert.ok(denied.length>0,'Actual controller attempted the missing-source guard');
+      await pause.scrollIntoViewIfNeeded();
       await capture('15-etsy-three-role-missing-source-pause');
       for(let attempt=0;attempt<2;attempt++){
         const run=page.getByRole('button',{name:'Run or resume approved adaptive research',exact:true});
@@ -570,6 +571,7 @@ export async function runOwnerInitialJourney({origin,boundary,output}) {
       await page.getByRole('heading',{name:'Saved adaptive setup history',exact:true}).waitFor();
       assert.equal(current().adaptiveCalls.length,before,'Reload and Back after receipt settlement cannot resend a paid call');
       assert.equal((await adaptiveCatalog(goalId,adaptiveReceipt.setupId)).activation?.pendingReceiptReadback,false);
+      await page.getByRole('heading',{name:'Saved adaptive setup history',exact:true}).scrollIntoViewIfNeeded();
       await capture('17-adaptive-stopped-receipt-history');
     });
     technicalScenario='ordinary-owner-legacy';

@@ -25,3 +25,36 @@ test('the final-send fixture reapplies only the exact explicit terminal fence pa
  assert.throws(()=>recoverySendFenceParts(sql,runtimeSql+runtimeSql),/Exactly one runtime send patch/);
  assert.throws(()=>recoverySendFenceParts(sql,runtimeSql.replaceAll('r12.focused-pilot-terminal-qualification-authorization.1','unrecognized-authorization')),/assert|false/i);
 });
+
+import {resolveRecoverySendImplementation,retargetRecoverySendLookup} from './helpers/r12-recovery-send-freshness.mjs';
+test('native fault fixture follows only exact private delegation and retains the real final fence',async()=>{
+ const fence=recoverySendFenceParts(sql,runtimeSql).currentFence;
+ const publicSignature='public.r12_discovery_server(uuid,uuid,text,jsonb,text)',privateSignature='private.r12_discovery_server_before_funding_proof(uuid,uuid,text,jsonb,text)';
+ const wrapper='result:=private.r12_discovery_server_before_funding_proof(p_business_id,p_attempt_id,p_operation,p_payload,p_server_key);',original=`create function exact() returns void as $$ ${fence} $$ language plpgsql`;
+ const db={query:async(query,args)=>({rows:[query.includes('has_function_privilege')?{anon:false,authenticated:false,service_role:false}:{definition:args[0]===publicSignature?wrapper:original,proowner:1,proacl:['owner=X/owner'],proconfig:['search_path='],provolatile:'v',prosecdef:true}]})};
+ const found=await resolveRecoverySendImplementation(db,fence);assert.equal(found.signature,privateSignature);assert.equal(found.chain.length,2);assert.equal(found.before.definition,original);
+ const migrated=retargetRecoverySendLookup(sql,found.signature);assert.equal(migrated.replace(privateSignature,publicSignature),sql);
+ assert.throws(()=>retargetRecoverySendLookup(sql,'private.unrelated(uuid,uuid,text,jsonb,text)'));
+ for(const definition of [wrapper.replace('p_payload','tampered_payload'),wrapper+wrapper,wrapper.replace('r12_discovery_server_before_funding_proof','other_function')]){
+  await assert.rejects(resolveRecoverySendImplementation({query:async()=>({rows:[{definition}]})},fence),/Exactly one unchanged-argument/);
+ }
+ await assert.rejects(resolveRecoverySendImplementation({query:async(query,args)=>({rows:[query.includes('has_function_privilege')?{anon:true,authenticated:false,service_role:false}:{definition:args[0]===publicSignature?wrapper:original}]})},fence),/alternate RPC/);
+});
+test('original unwrapped native fence stays supported without a wrapper shortcut',async()=>{
+ const fence=recoverySendFenceParts(sql,runtimeSql).currentFence;
+ const found=await resolveRecoverySendImplementation({query:async()=>({rows:[{definition:fence,proconfig:['search_path=']}]})},fence);
+ assert.equal(found.signature,'public.r12_discovery_server(uuid,uuid,text,jsonb,text)');assert.equal(found.chain.length,1);
+ assert.throws(()=>retargetRecoverySendLookup(sql+sql,found.signature),/Exactly one reviewed function lookup/);
+});
+
+test('native fault fixture rejects duplicate fences, cycles and excessive wrapper depth',async()=>{
+ const fence=recoverySendFenceParts(sql,runtimeSql).currentFence;
+ await assert.rejects(resolveRecoverySendImplementation({query:async()=>({rows:[{definition:fence+fence}]})},fence),/Exactly one current final-send fence/);
+ const db=cycle=>({query:async(query,args)=>{
+  if(query.includes('has_function_privilege'))return{rows:[{anon:false,authenticated:false,service_role:false}]};
+  const match=args[0].match(/before_([a-z]+)\(/),name=cycle?'a':match?String.fromCharCode(match[1].charCodeAt(0)+1):'a';
+  return{rows:[{definition:`result:=private.r12_discovery_server_before_${name}(p_business_id,p_attempt_id,p_operation,p_payload,p_server_key);`}]};
+ }});
+ await assert.rejects(resolveRecoverySendImplementation(db(true),fence),/wrapper cycle/);
+ await assert.rejects(resolveRecoverySendImplementation(db(false),fence),/wrapper depth/);
+});
