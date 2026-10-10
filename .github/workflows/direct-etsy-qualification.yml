@@ -1,28 +1,8 @@
 name: Direct Etsy native qualification
 on:
-  push:
-    branches: [codex/r12-steel-insights-wip-20261010]
-  pull_request:
-    paths:
-      - 'src/products/discovery-r12-public-*.ts'
-      - 'src/accounts/etsy-steel-*.ts'
-      - 'src/browser/etsy-*.ts'
-      - 'supabase/migrations/2026101012*.sql'
-      - 'supabase/migrations/20261010115441*.sql'
-      - 'tests/helpers/r12-direct-*'
-      - 'tests/helpers/r12-etsy-steel-*'
-      - 'src/browser/providers/steel.ts'
-      - 'src/workflows/direct-research-*'
-      - 'src/app/dashboard/products/etsy-research/**'
-      - 'src/app/dashboard/accounts/etsy-research/**'
-      - 'tests/next-fixture/r12-direct-owner-journey.mjs'
-      - 'scripts/verify-r12-direct-owner-next.mjs'
-      - 'tests/r12-direct-*'
-      - 'tests/r12-etsy-steel-*'
-      - 'tests/r12-owner-verification-view-*'
-      - 'tests/helpers/r12-postgrest-http.mjs'
-      - '.github/workflows/direct-etsy-qualification.yml'
+  workflow_call:
   workflow_dispatch:
+
 permissions:
   contents: read
 jobs:
@@ -89,6 +69,12 @@ jobs:
           - file: r12-direct-controller-repair-head-fence-sql.test.mjs
             pattern: '.'
           - file: r12-direct-controller-repair-postgres-races.test.mjs
+            pattern: '.'
+          - file: r12-direct-grant-total-compatibility-sql.test.mjs
+            pattern: '.'
+          - file: r12-direct-legacy-compatibility-sql.test.mjs
+            pattern: '.'
+          - file: r12-direct-saved-etsy-upgrade-sql.test.mjs
             pattern: '.'
           - file: r12-direct-postgrest-http.test.mjs
             pattern: '.'

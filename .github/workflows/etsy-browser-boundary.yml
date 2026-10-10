@@ -1,19 +1,7 @@
 name: Etsy browser boundary qualification
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-    paths:
-      - 'src/browser/etsy-*.ts'
-      - 'src/accounts/etsy-steel-*.ts'
-      - 'src/browser/providers/steel.ts'
-      - 'src/products/discovery-r12-public-source.ts'
-      - 'src/products/discovery-r12-public-window.ts'
-      - 'tests/etsy-*'
-      - 'tests/helpers/etsy-insights-playwright-fixture.mjs'
-      - '.github/workflows/etsy-browser-boundary.yml'
-  push:
-    branches: [codex/r12-steel-insights-wip-20261010]
+  workflow_call:
   workflow_dispatch:
 
 permissions:

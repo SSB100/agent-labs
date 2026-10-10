@@ -10,6 +10,7 @@ import {directControllerFixture} from './helpers/r12-direct-controller-fixture.m
 import {directRuntimeComposition,INERT_DIRECT_RUNTIME_ROOT} from './helpers/r12-direct-runtime-composition-fixture.mjs';
 import {prepareDirectHttpHistory,directHttpModelOutput,directHttpSchedulePayload} from './helpers/r12-direct-http-fixture.mjs';
 import {one} from './helpers/r12-owner-initial-sql-fixture.mjs';
+import {discoveryV2Hash as hash} from '../.core-tests/products/discovery-v2-hash.js';
 import {validateR12HttpDatabase,configureR12HttpRoles,startR12Postgrest,r12HttpRpc} from './helpers/r12-postgrest-http.mjs';
 const http=process.env.R12_REQUIRE_POSTGREST==='1',inertOnly=process.env.R12_DIRECT_HTTP_FIXTURE_ONLY==='1';
 assert.ok(!(http&&inertOnly),'HTTP and inert SQL qualification are explicitly distinct');
@@ -24,7 +25,7 @@ async function qualify(useHttp){
  let server,restoreRoles,locker;
  process.env.R05_ADMISSION_SERVER_KEY=INERT_DIRECT_RUNTIME_ROOT;process.env.VERCEL_ENV='production';
  try{
-  for(const file of ['20261010120610_r12_direct_source_renderer_v2.sql','20261010120620_r12_direct_owner_server_context.sql','20261010120630_r12_direct_late_receipt_head_fence.sql','20261010120640_r12_direct_owner_access_navigation.sql'])await db.exec(readFileSync('supabase/migrations/'+file,'utf8'));
+  for(const file of ['20261010120610_r12_direct_source_renderer_v2.sql','20261010120620_r12_direct_owner_server_context.sql','20261010120630_r12_direct_late_receipt_head_fence.sql','20261010120640_r12_direct_owner_access_navigation.sql','20261010120650_r12_direct_owner_test_exposure.sql','20261010120700_r12_direct_phase_repair.sql','20261010120750_r12_direct_legacy_compatibility.sql','20261010120755_r12_direct_grant_total_compatibility.sql'])await db.exec(readFileSync('supabase/migrations/'+file,'utf8'));
   const f=await directControllerFixture(db);f.authority.db=db;
   const state=await prepareDirectHttpHistory(f);report.priorRealCycles=state.windowAttemptsStarted;
   const before=await one(db,'select children_created,dispatches from private.r07_heads where goal_id=$1',[f.authority.f.goalId]);
@@ -55,6 +56,20 @@ async function qualify(useHttp){
    try{const blocked=await rpc('r12_direct_controller_server',{...args,p_operation:'schedule',p_payload:directHttpSchedulePayload(state)});assert.equal(blocked.ok,false);assert.equal(blocked.data.code,'57014');assert.ok(blocked.elapsedMs>=2800&&blocked.elapsedMs<5000);}finally{await locker.query('rollback');}
    assert.deepEqual(await fingerprint(),initial);report.guards.push('three_second_business_lock_timeout_no_partial_schedule');
   }
+  // This authenticated read is intentionally separate from the runtime's
+  // observe_quote operation. Exercise its real full-shape boundary as well.
+  const quoteReadBefore=await fingerprint();
+  const quoteContext=useHttp?await checked('r12_direct_controller_server',{p_business_id:f.authority.f.businessId,p_scope_id:f.prepared.scopeId,p_operation:'quote_context',p_payload:{},p_server_key:f.keys.controller}):await f.rpc('quote_context');
+  assert.deepEqual(quoteContext.approvedQuote,f.quote);
+  assert.equal(quoteContext.maximumAttemptsInWindow,10);assert.equal(quoteContext.originalRunMaximumMicrounits,'10000000');
+  assert.equal(quoteContext.browserQuote.providerProjectId,f.authority.project);assert.equal(quoteContext.browserQuote.routeHash,f.authority.routeHash);
+  assert.equal(quoteContext.browserQuote.maximumMicrounits,f.quote.browser.maximumMicrounits);
+  const {proofHash,...routeProof}=quoteContext.browserRevalidation;assert.equal(proofHash,hash(routeProof));
+  assert.equal(routeProof.testEnvelopeId,f.authority.prepared.testEnvelopeId);assert.equal(routeProof.testEnvelopeHash,f.authority.prepared.testEnvelopeHash);
+  assert.equal(routeProof.approvedBrowserQuoteHash,f.quote.browser.browserQuoteHash);assert.equal(routeProof.executionBrowserQuoteHash,quoteContext.browserQuote.browserQuoteHash);
+  assert.equal(routeProof.browserEvidenceKind,'still_valid_private_route_revalidation');assert.equal(routeProof.browserProviderFetched,false);
+  assert.deepEqual(await fingerprint(),quoteReadBefore,'Read-only quote context cannot reserve or mark work');
+  report.guards.push('actual_quote_context_preserves_approved_bounds_and_private_route_provenance');
   const challenged=new Set();
   const transport=useHttp?async(name,args)=>{
    if(name==='r12_direct_controller_server'&&['dispatch','source_admit'].includes(args.p_operation)&&!challenged.has(args.p_operation)){

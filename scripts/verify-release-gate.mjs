@@ -3,7 +3,7 @@ import {readFileSync,mkdirSync,writeFileSync,appendFileSync} from 'node:fs';
 import {execFileSync} from 'node:child_process';
 import {pathToFileURL} from 'node:url';
 
-export const REQUIRED_RELEASE_JOBS=Object.freeze(['quality','r04-sql','r05-sql','r06-sql','r07-sql','r08-sql','r09-sql','r10-sql','r11-sql','r11-research-sql','r12-sql','r12-adaptive-races','r03-next']);
+export const REQUIRED_RELEASE_JOBS=Object.freeze(['quality','r04-sql','r05-sql','r06-sql','r07-sql','r08-sql','r09-sql','r10-sql','r11-sql','r11-research-sql','r12-sql','r12-adaptive-races','r03-next','r12-direct','r12-etsy-browser']);
 export function ciGateMode(eventName,event){
  if(eventName==='pull_request'){
   assert.equal(typeof event.pull_request?.draft,'boolean','A pull request must declare draft status');
@@ -13,7 +13,7 @@ export function ciGateMode(eventName,event){
   const mode=event.inputs?.gate;
   assert.ok(['focused','release'].includes(mode),'Unknown requested gate');return mode;
  }
- assert.ok(eventName==='push'&&event.ref==='refs/heads/main','Unsupported qualification event');
+ assert.ok(eventName==='push'&&['refs/heads/main','refs/heads/codex/r12-steel-insights-wip-20261010'].includes(event.ref),'Unsupported qualification event');
  return 'release';
 }
 export function qualifyRelease({mode,needs,commit,tree}){

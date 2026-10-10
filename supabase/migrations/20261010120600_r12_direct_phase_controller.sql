@@ -69,7 +69,7 @@ alter table private.r07_attempts add constraint r07_attempts_attempt_check check
  (direct_cycle_ordinal between 1 and 32 and adaptive_action_ordinal is null and adaptive_action_hash is null and attempt=direct_cycle_ordinal));
 alter table private.r07_plans drop constraint r07_plans_version_check;
 alter table private.r07_plans add constraint r07_plans_version_check check(version between 1 and 4 or
- (version between 5 and 9 and content->>'format' in ('r12.discovery-episode.1','r12.discovery-adaptive.1')) or
+ (version between 5 and 9 and content->>'format' in ('r12.discovery-episode.1','r12.discovery-adaptive.1','r12.discovery-adaptive.2')) or
  (version between 2 and 10 and content->>'format'='r12.discovery-direct.1'));
 create unique index r12_direct_phase_ordinal on private.r07_attempts(plan_id,direct_cycle_ordinal,step_key) where direct_cycle_ordinal is not null;
 do $$ declare n text;begin foreach n in array array['r12_direct_source_qualifications','r12_direct_source_qualification_revocations','r12_direct_research_setups','r12_direct_research_activations','r12_direct_research_cycles','r12_direct_phase_attempts','r12_direct_phase_wires','r12_direct_phase_receipts','r12_direct_cycle_closures','r12_direct_source_pngs','r12_direct_source_admissions','r12_direct_review_qualifications'] loop
