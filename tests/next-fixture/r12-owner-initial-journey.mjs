@@ -540,7 +540,12 @@ export async function runOwnerInitialJourney({origin,boundary,output}) {
       assert.equal(current().adaptiveCalls.length,before,'Receipt-only recovery never resends a provider call');
       await page.reload();assert.equal(await page.getByRole('button',{name:'Run or resume approved adaptive research',exact:true}).count(),0);
       assert.equal(await page.getByRole('button',{name:'Check saved receipts',exact:true}).count(),0);
-      const exact=page.url();await page.getByRole('link',{name:'Choose another Quest',exact:true}).click();await page.goBack();await page.waitForURL(exact);await page.reload();
+      const exact=page.url();await page.getByRole('link',{name:'Choose another Quest',exact:true}).click();
+      // Next navigation must commit before Back can restore the stopped setup.
+      await page.waitForURL(origin+'/dashboard/quests/research?business='+current().businessId);
+      await page.getByRole('heading',{name:'Choose your saved objective',exact:true}).waitFor();
+      await page.goBack();await page.waitForURL(exact);await page.reload();
+      await page.getByRole('heading',{name:'Saved adaptive setup history',exact:true}).waitFor();
       assert.equal(current().adaptiveCalls.length,before,'Reload and Back after receipt settlement cannot resend a paid call');
       assert.equal((await adaptiveCatalog(goalId,adaptiveReceipt.setupId)).activation?.pendingReceiptReadback,false);
       await capture('17-adaptive-stopped-receipt-history');

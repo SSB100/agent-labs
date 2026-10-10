@@ -214,6 +214,7 @@ export async function exerciseAdaptivePostgresRaces(env=process.env,{prepareFixt
    record(label+'-reserve-before-stop-no-send',reserveStop);
 
    const markedRun=await fixture(legacy),markedStart=await startAdaptivePlanner(db,markedRun);
+   const markedClaimsBefore=(await one(db,`select count(*)::int n from private.r12_discovery_transport_claims t join private.r05_requests r on r.id=t.request_id where r.business_id=$1`,[markedRun.f.businessId])).n;
    const marked=await bindAdaptivePlanner(db,markedRun,markedStart);
    const markerStop=await orderedRace({observer:db,holder,waiter,
     first:client=>adaptiveCommand(client,markedRun,markedStart,'dispatch',
@@ -226,10 +227,12 @@ export async function exerciseAdaptivePostgresRaces(env=process.env,{prepareFixt
     [markedRun.f.businessId,marked.attemptId,'send',{wireHash:marked.wireHash},markedStart.controller]),
     /r12_.*(?:current|gate|revoked|stopped)/);
    assert.equal((await one(db,`select count(*)::int n from private.r12_discovery_transport_claims t
-    join private.r05_requests r on r.id=t.request_id where r.business_id=$1`,[markedRun.f.businessId])).n,0);
+    join private.r05_requests r on r.id=t.request_id where r.business_id=$1 and r.id=$2`,[markedRun.f.businessId,marked.requestId])).n,0);
+   assert.equal((await one(db,`select count(*)::int n from private.r12_discovery_transport_claims t join private.r05_requests r on r.id=t.request_id where r.business_id=$1`,[markedRun.f.businessId])).n,markedClaimsBefore);
    record(label+'-marker-before-stop-denies-new-send',markerStop);
 
    const sentRun=await fixture(legacy),sentStart=await startAdaptivePlanner(db,sentRun);
+   const sentClaimsBefore=(await one(db,`select count(*)::int n from private.r12_discovery_transport_claims t join private.r05_requests r on r.id=t.request_id where r.business_id=$1`,[sentRun.f.businessId])).n;
    const sent=await bindAdaptivePlanner(db,sentRun,sentStart,{marker:true});
    const sendStop=await orderedRace({observer:db,holder,waiter,
     first:client=>adaptiveEffect(client,sentRun,sentStart,'send',{wireHash:sent.wireHash}),
@@ -241,7 +244,8 @@ export async function exerciseAdaptivePostgresRaces(env=process.env,{prepareFixt
     [sentRun.f.businessId,sent.attemptId,'load',{},sentStart.controller]);
    assert.equal(savedReceipt.binding.requestId,sent.requestId,'Stop preserves marked paid receipt readback');
    assert.equal((await one(db,`select count(*)::int n from private.r12_discovery_transport_claims t
-    join private.r05_requests r on r.id=t.request_id where r.business_id=$1`,[sentRun.f.businessId])).n,1);
+    join private.r05_requests r on r.id=t.request_id where r.business_id=$1 and r.id=$2`,[sentRun.f.businessId,sent.requestId])).n,1);
+   assert.equal((await one(db,`select count(*)::int n from private.r12_discovery_transport_claims t join private.r05_requests r on r.id=t.request_id where r.business_id=$1`,[sentRun.f.businessId])).n,sentClaimsBefore+1);
    record(label+'-claimed-send-before-stop-preserves-receipt',sendStop);
   }
   assert.equal(externalHttpAttempts,0);
