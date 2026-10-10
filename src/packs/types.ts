@@ -2,7 +2,7 @@ import type { JsonObject, JsonValue, QualificationStatus } from "../core/contrac
 import type { WorkerPackManifest } from "../workers/types";
 
 export type PackDependency = { packKey: string; version: string };
-export type PackCapability = { key: string; adapter: "structured.mapping" | "web.research" | "image.generate" | "printful.foundation" | "etsy.drafts"; description: string };
+export type PackCapability = { key: string; adapter: "structured.mapping" | "web.research" | "image.generate" | "printful.foundation" | "etsy.drafts" | "browser.etsy.insights.read_only"; description: string };
 export type PackKnowledge = {
   key: string; version: string; name: string; source: string;
   verifiedAt: string; freshnessDays: number; content: JsonObject;
@@ -15,7 +15,9 @@ export type PackWorker = {
   manifest: WorkerPackManifest;
   execution: { kind: "structured.mapping"; fields: Record<string, FieldMapping> }
     | { kind: "model_router"; routeKey: "standard.default" | "reviewer.independent" }
-    | { kind: "web.research"; routeKey: "standard.default" };
+    | { kind: "web.research"; routeKey: "standard.default" }
+    | { kind: "browser.etsy.insights.read_only"; authority: "r12.direct-controller" }
+    | { kind: "r12.direct-model"; authority: "r12.direct-controller"; phase: "plan" | "strategy" | "review" };
 };
 export type PackStage = {
   key: string; workerKey: string; workerVersion: string; objective: string;

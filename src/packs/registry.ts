@@ -44,7 +44,10 @@ export function validatePackManifest(value: unknown): asserts value is PackManif
   }
   const manifest = value as unknown as PackManifest;
   check(manifest[manifest.kind === "capability" ? "capabilities" : manifest.kind === "worker" ? "workers" : manifest.kind === "workflow" ? "workflows" : "knowledge"].length > 0, "A pack must add definitions.");
-  for (const c of manifest.capabilities) { check(object(c),"Invalid capability."); exact(c,["key","adapter","description"]); check(key(c.key) && ["structured.mapping","web.research","image.generate","printful.foundation","etsy.drafts"].includes(c.adapter) && text(c.description), "Untrusted capability adapter."); }
+  for (const c of manifest.capabilities) { check(object(c),"Invalid capability."); exact(c,["key","adapter","description"]); check(key(c.key) && ["structured.mapping","web.research","image.generate","printful.foundation","etsy.drafts","browser.etsy.insights.read_only"].includes(c.adapter) && text(c.description), "Untrusted capability adapter."); }
+  for (const c of manifest.capabilities) if (c.adapter === "browser.etsy.insights.read_only") {
+    check(c.key === "browser.etsy.insights.read_only" && manifest.packKey === "capability.browser-etsy-insights" && manifest.version === "1.0.0", "Insights capability identity mismatch.");
+  }
   for (const k of manifest.knowledge) {
     check(object(k),"Invalid knowledge."); exact(k,["key","version","name","source","verifiedAt","freshnessDays","content"]);
     check(key(k.key) && VERSION.test(k.version) && text(k.name) && text(k.source) && Number.isFinite(Date.parse(k.verifiedAt)) && Number.isInteger(k.freshnessDays) && k.freshnessDays > 0 && object(k.content), "Knowledge needs provenance and freshness.");
@@ -63,6 +66,27 @@ export function validatePackManifest(value: unknown): asserts value is PackManif
         else { exact(m,["source","value"]); check(m.source === "literal", "Untrusted mapping source."); }
       }
       check(w.manifest.modelRequirements.executionMode === "structured.mapping", "Execution mode mismatch.");
+    } else if (w.execution.kind === "r12.direct-model") {
+      exact(w.execution,["kind","authority","phase"]);
+      exact(w.manifest.modelRequirements,["executionMode","qualificationScope","maximumAttempts","primaryOnly","modelKey","providerModelId","canonicalModelId","endpoint"]);
+      const phase = w.execution.phase, model = w.manifest.modelRequirements;
+      check(["plan","strategy","review"].includes(phase) && w.execution.authority === "r12.direct-controller" &&
+        manifest.packKey === `worker.etsy-insights-${phase}` && manifest.version === "1.0.0" && w.manifest.worker.workerKey === `product.discovery-direct.${phase}` &&
+        model.executionMode === "r12.direct-model" && model.qualificationScope === "r12_direct_controller_only" && model.maximumAttempts === 1 && model.primaryOnly === true && w.manifest.capabilityPolicy.allowed.length === 0 &&
+        model.modelKey === (phase === "review" ? "claude.sonnet.high-power" : "luna.standard") &&
+        model.providerModelId === (phase === "review" ? "anthropic/claude-sonnet-4.6" : "openai/gpt-5.6-luna") &&
+        model.canonicalModelId === (phase === "review" ? "anthropic/claude-4.6-sonnet-20260217" : "openai/gpt-5.6-luna-20260709") &&
+        model.endpoint === (phase === "review" ? "amazon-bedrock/us" : "azure/us"), "Direct model needs exact reviewed controller and model pins.");
+    } else if (w.execution.kind === "browser.etsy.insights.read_only") {
+      // A declarative binding to the separately admitted R12 source runtime.
+      // It does not make the generic executor capable of browser dispatch.
+      exact(w.execution,["kind","authority"]);
+      exact(w.manifest.modelRequirements,["executionMode","qualificationScope","maximumAttempts"]);
+      check(w.execution.authority === "r12.direct-controller" && manifest.packKey === "worker.etsy-insights-source" && manifest.version === "1.0.0" &&
+        w.manifest.worker.workerKey === "product.discovery-v2.etsy-insights" && w.manifest.worker.role === "etsy_insights_read_only" &&
+        w.manifest.modelRequirements.executionMode === w.execution.kind && w.manifest.modelRequirements.qualificationScope === "r12_direct_controller_only" &&
+        w.manifest.modelRequirements.maximumAttempts === 1 && w.manifest.capabilityPolicy.allowed.length === 1 &&
+        w.manifest.capabilityPolicy.allowed[0] === "browser.etsy.insights.read_only", "Insights executor needs exact guarded controller authority.");
     } else {
       exact(w.execution,["kind","routeKey"]);
       const trustedRoute = w.execution.kind === "model_router"

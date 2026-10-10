@@ -60,7 +60,10 @@
     "src/etsy-publication/**/*.ts",
     "src/accounts/**/*.ts",
     "src/browser/watch/**/*.ts",
-    "src/products/discovery-r12-*.ts"
+    "src/browser/etsy-insights-*.ts",
+    "src/browser/etsy-steel-accounting.ts",
+    "src/products/discovery-r12-*.ts",
+    "src/browser/etsy-steel-config-readback.ts"
   ],
   "exclude": [
     "src/research/qualification-server.ts",
@@ -69,6 +72,8 @@
     "src/listing/server.ts",
     "src/etsy-publication/server.ts",
     "src/accounts/server.ts",
+    "src/accounts/etsy-steel-handoff-owner-server.ts",
+    "src/accounts/etsy-steel-handoff-server.ts",
     "src/printful/server.ts",
     "src/products/discovery-r12-scope-server.ts",
     "src/products/discovery-r12-owner.ts",
@@ -81,6 +86,9 @@
     "src/products/discovery-r12-goal-preparation-server.ts",
     "src/products/discovery-r12-adaptive-owner-server.ts",
     "src/products/discovery-r12-adaptive-server.ts",
-    "src/products/discovery-r12-owner-observation-server.ts"
+    "src/products/discovery-r12-owner-observation-server.ts",
+    "src/products/discovery-r12-public-owner-server.ts",
+    "src/products/discovery-r12-direct-enrollment-server.ts",
+    "src/accounts/etsy-steel-readback-owner-server.ts"
   ]
 }

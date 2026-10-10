@@ -1,0 +1,26 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {randomUUID} from 'node:crypto';
+import {directControllerDatabase} from './helpers/r12-direct-controller-database.mjs';
+import {directControllerFixture} from './helpers/r12-direct-controller-fixture.mjs';
+import {directModelDispatch} from './helpers/r12-direct-controller-model-fixture.mjs';
+import {r12PhaseOutputFixture} from './helpers/r12-phase-output-fixture.mjs';
+import {one} from './helpers/r12-owner-initial-sql-fixture.mjs';
+import {validatePublicResearchState} from '../.core-tests/products/discovery-r12-public-cycle.js';
+import {qualifyGenerationRouteProof} from '../.core-tests/research/generation-route.js';
+function receipt(f,a,d,output,cost=1){const route=f.quote.inference.luna,id='gen-inert-failed-'+randomUUID();return {candidate:{version:'r12.discovery-response.1',scopeId:f.prepared.scopeId,attemptId:a.attemptId,requestId:a.requestId,phase:a.phase,requestHash:d.wire.requestHash,providerRequestId:id,providerModelId:route.modelId,receivedAt:new Date().toISOString(),reportedMicrousd:cost,output},proof:qualifyGenerationRouteProof({data:{id,provider_name:route.providerName,model:route.modelId}},{generationId:id,providerName:route.providerName,acceptedResponseModelIds:route.acceptedResponseModelIds,requestedEndpoint:route.endpoint})};}
+test('paid schema failure consumes an attempt, unknown proof blocks retry, Stop preserves durable receipt recovery',{skip:!process.env.R12_SQL_TEST_HOST&&!process.env.R12_REQUIRE_POSTGRES&&!process.env.R12_POSTGRES_URL,timeout:180000},async()=>{
+ const db=await directControllerDatabase();try{const f=await directControllerFixture(db);f.authority.db=db;
+ await assert.rejects(f.rpc('read',{},'source'),/scoped_server_required/);await assert.rejects(f.rpc('read',{},'admission'),/scoped_server_required/);
+ const a=await f.schedule('plan'),d=await directModelDispatch(f,a),r=receipt(f,a,d,{});
+ await f.rpc('candidate',{attemptId:a.attemptId,candidate:r.candidate});assert.equal((await f.read()).testExposure.hasUnknownOrUnbounded,true);
+ await assert.rejects(f.schedule('plan'),/unfinished|unresolved_liability/);await assert.rejects(f.rpc('model_receipt',{attemptId:a.attemptId,candidate:r.candidate,proof:{...r.proof,providerName:'Wrong provider'}}),/proof_invalid/);
+ assert.equal((await one(db,'select count(*)::int n from private.r05_settlements where request_id=$1',[a.requestId])).n,0);
+ const failed=await f.rpc('model_receipt',{attemptId:a.attemptId,...r});assert.equal(failed.accepted,false);assert.equal(failed.diagnostic,'r12_direct_response_schema');validatePublicResearchState(failed.state,f.policy);assert.equal(failed.state.windowAttemptsStarted,1);assert.equal(failed.state.nextAttemptKind,'technical_retry');assert.equal(failed.state.questComplete,false);
+ assert.equal((await one(db,'select count(*)::int n from private.r07_responses where attempt_id=$1',[a.attemptId])).n,0);assert.equal((await one(db,'select actual_microunits::text cost from private.r05_settlements where request_id=$1',[a.requestId])).cost,'1');
+ await assert.rejects(f.rpc('candidate',{attemptId:a.attemptId,candidate:{...r.candidate,reportedMicrousd:0}}),/candidate_conflict/);
+ const sizeAttempt=await f.schedule('plan'),sizeDispatch=await directModelDispatch(f,sizeAttempt),large=receipt(f,sizeAttempt,sizeDispatch,{rawEvidence:'bounded evidence '.repeat(1100)});await f.rpc('candidate',{attemptId:sizeAttempt.attemptId,candidate:large.candidate});const sizeFailure=await f.rpc('model_receipt',{attemptId:sizeAttempt.attemptId,...large});assert.equal(sizeFailure.accepted,false);assert.equal(sizeFailure.diagnostic,'r12_direct_response_size');assert.equal(sizeFailure.state.windowAttemptsStarted,2);assert.equal((await one(db,'select count(*)::int n from private.r07_responses where attempt_id=$1',[sizeAttempt.attemptId])).n,0);
+ const retry=await f.schedule('plan');assert.equal(retry.ordinal,3);assert.equal(retry.state.attempts.at(-1).kind,'technical_retry');const dispatched=await directModelDispatch(f,retry),output=r12PhaseOutputFixture(f.profile.audience).plan;output.queryFocus=[];const late=receipt(f,retry,dispatched,output);await f.rpc('candidate',{attemptId:retry.attemptId,candidate:late.candidate});
+ await f.authority.server('stop_test',{testEnvelopeId:f.authority.prepared.testEnvelopeId,testEnvelopeHash:f.authority.prepared.testEnvelopeHash,submissionId:randomUUID()},'');
+ assert.deepEqual((await f.rpc('attempt',{attemptId:retry.attemptId})).candidate,late.candidate);const recovered=await f.rpc('model_receipt',{attemptId:retry.attemptId,...late});assert.equal(recovered.accepted,true);assert.equal((await one(db,'select state from private.r07_heads where goal_id=$1',[f.authority.f.goalId])).state,'stopped');assert.equal((await f.read()).testExposure.knownActualMicrounits,'3');assert.equal((await f.read()).testExposure.boundedPendingMicrounits,'2000');
+ await assert.rejects(f.schedule('source'),/stopped|revoked|inactive|current_test_required/);const replay=await f.rpc('model_receipt',{attemptId:retry.attemptId,...late});assert.equal(replay.replayed,true);assert.equal((await one(db,'select count(*)::int n from private.r05_settlements s join private.r12_direct_phase_attempts a on a.request_id=s.request_id')).n,3);
+ }finally{await db.close();}
+});

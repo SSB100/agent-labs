@@ -20,6 +20,7 @@ on:
   push:
     branches:
       - main
+      - codex/r12-steel-insights-wip-20261010
 
 permissions:
   contents: read
@@ -553,7 +554,8 @@ jobs:
         env:
           R12_SQL_TEST_HOST: ${{ runner.temp }}/r12-sql-host
         run: |
-          node --test --test-concurrency=1 tests/r12-owner-initial-sql.test.mjs tests/r12-owner-initial-security.test.mjs tests/r12-owner-initial-runtime-sql.test.mjs tests/r12-owner-catalog-scale.test.mjs tests/r12-owner-episode-sql.test.mjs tests/r12-owner-planner-preflight-sql.test.mjs tests/r12-owner-stopped-before-reservation-sql.test.mjs
+          set -o pipefail
+          node --test --test-concurrency=1 tests/r12-owner-initial-sql.test.mjs tests/r12-owner-initial-security.test.mjs tests/r12-owner-initial-runtime-sql.test.mjs tests/r12-owner-catalog-scale.test.mjs tests/r12-owner-episode-sql.test.mjs tests/r12-owner-planner-preflight-sql.test.mjs tests/r12-owner-stopped-before-reservation-sql.test.mjs 2>&1 | tee /tmp/r12-owner-lifecycle-ci.log
 
       - name: Verify recovered adaptive and Etsy-only evidence admission
         env:
@@ -641,6 +643,7 @@ jobs:
           name: r12-recovery-http-${{ github.sha }}
           path: |
             /tmp/r12-scope-tests.log
+            /tmp/r12-owner-lifecycle-ci.log
             /tmp/r12-http-ci-report.json
             /tmp/r12-http-ci-terminal-cold.json
             /tmp/r12-races-ci-report.json
@@ -913,10 +916,18 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+  r12-direct:
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.gate == 'release') || (github.event_name == 'pull_request' && (github.event.pull_request.draft == false || github.head_ref == 'codex/r12-etsy-owner-baselines-20261010'))
+    uses: ./.github/workflows/direct-etsy-qualification.yml
+
+  r12-etsy-browser:
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.gate == 'release') || (github.event_name == 'pull_request' && (github.event.pull_request.draft == false || github.head_ref == 'codex/r12-etsy-owner-baselines-20261010'))
+    uses: ./.github/workflows/etsy-browser-boundary.yml
+
   release-qualification:
     name: Full release qualification
     if: always()
-    needs: [quality, r04-sql, r05-sql, r06-sql, r07-sql, r08-sql, r09-sql, r10-sql, r11-sql, r11-research-sql, r12-sql, r12-adaptive-races, r03-next, r12-focused]
+    needs: [quality, r04-sql, r05-sql, r06-sql, r07-sql, r08-sql, r09-sql, r10-sql, r11-sql, r11-research-sql, r12-sql, r12-adaptive-races, r03-next, r12-direct, r12-etsy-browser, r12-focused]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

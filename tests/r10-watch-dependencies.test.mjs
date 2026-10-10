@@ -24,7 +24,7 @@ function loadSource(file, mocks = {}, globals = {}) {
   }).outputText;
   const compiledModule = { exports: {} };
   runInNewContext(`(function(require,module,exports){${compiled}\n})`, {
-    URL, Response, Buffer, Date, AbortController, setTimeout, clearTimeout, ...globals,
+    URL, Response, Buffer, Date, AbortController, AbortSignal, setTimeout, clearTimeout, ...globals,
   })(name => {
     if (Object.hasOwn(mocks, name)) return mocks[name];
     assert.equal(name, 'node:crypto', `Unexpected production seam import: ${name}`);
@@ -56,6 +56,10 @@ function fixture(options = {}) {
   const admission = loadSource('src/core/transport-admission.ts');
   const provider = loadSource('src/browser/providers/steel.ts', {
     '../types': types, '../../core/transport-admission': admission,
+    '../../core/request-deadline': loadSource('src/core/request-deadline.ts', {}, globals),
+    '../etsy-steel-create-binding': loadSource('src/browser/etsy-steel-create-binding.ts', {
+      '../products/discovery-v2-hash': loadSource('src/products/discovery-v2-hash.ts'),
+    }, globals),
   }, globals);
   const originalConfig = provider.getSteelConfig;
   const factory = loadSource('src/browser/watch-dependencies.ts', {

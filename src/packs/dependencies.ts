@@ -29,6 +29,7 @@ export function validateResolvedDefinitions(releases: readonly PackRelease[]) {
     if (new Set(entries).size !== entries.length) throw new Error("Ambiguous definitions in dependency closure.");
   }
   for (const w of workers) {
+    if (w.execution.kind === "browser.etsy.insights.read_only" && !capabilities.some(c=>c.key === "browser.etsy.insights.read_only" && c.adapter === "browser.etsy.insights.read_only")) throw new Error("Guarded Insights adapter missing from dependency closure.");
     if (w.execution.kind === "web.research" && !capabilities.some(c=>c.key === "web.research" && c.adapter === "web.research")) throw new Error("Web Research adapter missing from dependency closure.");
     if (w.manifest.knowledgeRequirements.some(k=>!knowledge.some(d=>d.key === k)) || w.manifest.capabilityPolicy.allowed.some(k=>!capabilities.some(d=>d.key === k))) throw new Error("Worker requirements missing from dependency closure.");
   }

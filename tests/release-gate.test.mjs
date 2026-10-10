@@ -44,14 +44,25 @@ test('actual workflow selects the same focused/full modes and requires every nam
  const {load}=createRequire(import.meta.url)('js-yaml');
  const workflow=load(readFileSync(new URL('../.github/workflows/ci.yml',import.meta.url),'utf8'));
  assert.ok(workflow.on.pull_request.types.includes('ready_for_review'));
- assert.deepEqual(workflow.on.push.branches,['main']);
+ assert.deepEqual(workflow.on.push.branches,['main','codex/r12-steel-insights-wip-20261010']);
  assert.equal(workflow.on.workflow_dispatch.inputs.gate.default,'release');
- const events=[['pull_request',{pull_request:{draft:true}}],['pull_request',{pull_request:{draft:false}}],['pull_request',{pull_request:{draft:true,head:{ref:'codex/r12-etsy-owner-baselines-20261010'}}}],['push',{ref:'refs/heads/main'}],['workflow_dispatch',{inputs:{gate:'focused'}}],['workflow_dispatch',{inputs:{gate:'focused',diagnostic:'owner-ui'}}],['workflow_dispatch',{inputs:{gate:'release'}}],['workflow_dispatch',{inputs:{gate:'release',diagnostic:'owner-ui'}}]];
+ const events=[['pull_request',{pull_request:{draft:true}}],['pull_request',{pull_request:{draft:false}}],['pull_request',{pull_request:{draft:true,head:{ref:'codex/r12-etsy-owner-baselines-20261010'}}}],['push',{ref:'refs/heads/main'}],['push',{ref:'refs/heads/codex/r12-steel-insights-wip-20261010'}],['workflow_dispatch',{inputs:{gate:'focused'}}],['workflow_dispatch',{inputs:{gate:'focused',diagnostic:'owner-ui'}}],['workflow_dispatch',{inputs:{gate:'release'}}],['workflow_dispatch',{inputs:{gate:'release',diagnostic:'owner-ui'}}]];
  for(const [eventName,event] of events){
   const mode=ciGateMode(eventName,event),github={event_name:eventName,event,head_ref:event.pull_request?.head?.ref},inputs=event.inputs??{};
   const selected=job=>new Function('github','inputs',`return (${workflow.jobs[job].if});`)(github,inputs);
   for(const name of REQUIRED_RELEASE_JOBS)assert.equal(selected(name),mode==='release',name);
   assert.equal(selected('r12-focused'),mode==='focused');
+ }
+ for(const [job,file] of [['r12-direct','direct-etsy-qualification'],['r12-etsy-browser','etsy-browser-boundary']]){
+  assert.equal(workflow.jobs[job].uses,`./.github/workflows/${file}.yml`);
+  const called=load(readFileSync(new URL(`../.github/workflows/${file}.yml`,import.meta.url),'utf8'));
+  assert.ok(Object.hasOwn(called.on,'workflow_call'));
+  assert.ok(Object.hasOwn(called.on,'workflow_dispatch'));
+  assert.equal(called.on.push,undefined,'The parent runs exact-head qualification once');
+  assert.equal(called.on.pull_request,undefined,'No duplicate partial path-filtered qualification');
+  assert.equal(called.permissions.contents,'read');
+  assert.ok(Object.keys(called.jobs).length>0);
+  for(const nested of Object.values(called.jobs))assert.notEqual(nested['continue-on-error'],true);
  }
  assert.equal(workflow.jobs['release-qualification'].if,'always()');
  assert.deepEqual(new Set(workflow.jobs['release-qualification'].needs),new Set([...REQUIRED_RELEASE_JOBS,'r12-focused']));
@@ -106,4 +117,19 @@ test('explicit Etsy recovery draft requires full qualification, including native
  assert.ok(REQUIRED_RELEASE_JOBS.includes('r12-adaptive-races'));
  const needs=success();needs['r12-adaptive-races']={result:'skipped'};
  assert.throws(()=>qualifyRelease({mode:'release',needs,...identity}),/r12-adaptive-races/);
+});
+
+test('current Steel owner path requires native metadata, races, full journey and real Next browser qualification',()=>{
+ const {load}=createRequire(import.meta.url)('js-yaml');
+ const workflow=load(readFileSync(new URL('../.github/workflows/direct-etsy-qualification.yml',import.meta.url),'utf8'));
+ const native=workflow.jobs['native-direct'];
+ for(const file of ['r12-steel-readback-sql.test.mjs','r12-steel-readback-postgres-races.test.mjs','r12-steel-current-owner-journey-sql.test.mjs'])assert.equal(native.strategy.matrix.include.filter(x=>x.file===file&&x.pattern==='.').length,1,file);
+ const browser=workflow.jobs['owner-next'];
+ assert.deepEqual(browser.strategy.matrix.include.map(x=>x.journey),['legacy','enrollment','current']);
+ const current=browser.strategy.matrix.include.find(x=>x.journey==='current');
+ assert.equal(current.script,'verify-r12-steel-current-owner-next.mjs');
+ assert.equal(current.artifact,'r12-steel-current-owner-next');
+ const run=browser.steps.find(x=>x.run?.includes('matrix.script'));
+ assert.equal(run.env.R12_REQUIRE_POSTGRES,'1');assert.equal(run.run.includes('--compile-only'),false);
+ assert.ok(browser.steps.some(x=>x.if==='always()'&&x.with?.path==='test-results/${{ matrix.artifact }}/'&&x.with?.['if-no-files-found']==='error'));
 });

@@ -1,0 +1,24 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {loadPublic,uid,h,lineage,accounting,anomaly,self} from './r12-public-fixtures.mjs';
+const a=await loadPublic('accounting');
+const exposure=(r,x=[])=>a.publicResearchBrowserExposure(r,lineage,x);
+const final=(prior,cost='1100')=>accounting({revision:prior.revision+1,previousRecordHash:prior.recordHash,status:'final_actual',actualMicrounits:cost,providerBillingRecordHash:h(`billing-${cost}`)});
+test('pending is the full reserved maximum, never actual or free',()=>{const p=exposure([accounting()]);assert.equal(p.knownActualMicrounits,'0');assert.equal(p.heldMaximumMicrounits,'2500');assert.equal(p.conservativeExposureMicrounits,'2500');});
+test('exact duplicates and out of order delivery do not double count',()=>{const p=accounting(),f=final(p);assert.deepEqual(exposure([f,p,p,f]),exposure([p,f]));assert.equal(exposure([f,p]).conservativeExposureMicrounits,'1100');});
+test('late lower final receipt cannot refund qualified actual',()=>{const p=accounting(),f=final(p),lower=final(f,'600');assert.equal(exposure([p,lower,f]).knownActualMicrounits,'1100');assert.equal(exposure([p,lower,f]).heldMaximumMicrounits,'0');});
+test('missing initial revision and replacement same ordinal fail',()=>{const p=accounting(),f=final(p);assert.throws(()=>exposure([f]));assert.throws(()=>exposure([p,accounting({recordedAt:'2026-10-10T12:00:01.000Z'})]));});
+test('final cannot reopen as pending',()=>{const p=accounting(),f=final(p);assert.throws(()=>exposure([p,f,accounting({revision:3,previousRecordHash:f.recordHash})]));});
+test('immutable accounting identity cannot change between revisions',()=>{const p=accounting(),f=final(p);assert.throws(()=>exposure([p,self({...f,recordHash:undefined,usageIdentityHash:h('changed')},'recordHash')]));});
+test('reservation or usage reuse across operations fails',()=>{assert.throws(()=>exposure([accounting(),accounting({operationId:uid(50),requestHash:h('other')})]));});
+test('above-bound final is rejected but retained anomaly blocks and holds',()=>{assert.throws(()=>a.validatePublicResearchBrowserAccounting(accounting({status:'final_actual',actualMicrounits:'3000',providerBillingRecordHash:h('bill')})));const p=exposure([accounting()],[anomaly()]);assert.equal(p.hasUnknownOrUnbounded,true);assert.equal(p.knownActualMicrounits,'0');assert.equal(p.heldMaximumMicrounits,'3000');});
+test('anomaly after final retains known actual with conservative remaining hold',()=>{const p=accounting(),f=final(p);const x=exposure([p,f],[anomaly()]);assert.equal(x.knownActualMicrounits,'1100');assert.equal(x.heldMaximumMicrounits,'1900');assert.equal(x.conservativeExposureMicrounits,'3000');});
+test('anomaly-only operations remain unknown with nonzero exposure',()=>{assert.equal(exposure([],[anomaly()]).heldMaximumMicrounits,'3000');});
+test('anomaly cannot be relabeled into another envelope',()=>{assert.throws(()=>exposure([accounting()],[anomaly({envelopeHash:h('new')})]));});
+test('cross-envelope records cannot reset cost',()=>{assert.throws(()=>exposure([accounting({envelopeHash:h('new')})]));});
+test('setup and research costs share the same combined envelope',()=>{const setup=accounting({operationKind:'owner_setup',operationId:uid(50),reservationId:uid(51),usageIdentityHash:h('setup'),requestHash:h('setup-request')});assert.equal(exposure([accounting(),setup]).heldMaximumMicrounits,'5000');});
+function combined(browser,overrides={}){return a.publicResearchCombinedExposure({browser,otherKnownActualMicrounits:'9990000',otherHeldMaximumMicrounits:'0',hasUnknownOrUnbounded:false,nextMaximumMicrounits:'7000',runMaximumMicrounits:'10000000',windowMaximumMicrounits:'10000000',rootHeadroomMicrounits:'10000',businessHeadroomMicrounits:'10000',...overrides});}
+test('next attempt fits only with all actual and held maxima included',()=>{assert.equal(combined(exposure([accounting()])).admitted,true);assert.equal(combined(exposure([accounting()]),{nextMaximumMicrounits:'8000'}).reason,'combined_test_cap_exceeded');});
+test('bounded pending permits progression; unknown liability blocks',()=>{assert.equal(combined(exposure([accounting()])).admitted,true);assert.equal(combined(exposure([accounting()],[anomaly()])).reason,'unknown_or_unbounded_liability');});
+test('current root and Business headrooms apply independently',()=>{assert.equal(combined(exposure([]),{rootHeadroomMicrounits:'1'}).reason,'lifetime_headroom_exceeded');assert.equal(combined(exposure([]),{businessHeadroomMicrounits:'1'}).reason,'lifetime_headroom_exceeded');});
+test('recomputed projection tampering cannot erase totals',()=>{const x=exposure([accounting()]);const{exposureHash,...body}=x;void exposureHash;assert.throws(()=>combined(self({...body,heldMaximumMicrounits:'0',conservativeExposureMicrounits:'0'},'exposureHash')));});
