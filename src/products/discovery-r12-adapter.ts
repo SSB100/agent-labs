@@ -1,3 +1,4 @@
+import type { AdaptiveFundingProof } from './discovery-r12-adaptive-funding-proof';
 import { createHash } from "node:crypto";
 import type { QuestAdapter, QuestAdapterContext, QuestEffectResponse, QuestPreparedCall, QuestSettlement } from "../core/quest-controller";
 import { OpenRouterAdapter, type OpenRouterConfig } from "../models/openrouter";
@@ -49,6 +50,7 @@ export function createDiscoveryR12QuestAdapter(options: {
   request(context: QuestAdapterContext): Promise<Request>;
   quote(): Promise<DiscoveryR12ExecutionQuote | AdaptiveResearchQuote>;
   adaptivePreview?: AdaptiveResearchPreview;
+  adaptiveFundingProof?: AdaptiveFundingProof|null;
   project(qualified: ReturnType<typeof qualifyDiscoveryR12Candidate>, context: QuestAdapterContext, request: Request): Promise<Omit<QuestEffectResponse, "settlement">>;
   /** Inert transport/config overrides are also used by the actual SQL fixture. */
   config?: OpenRouterConfig; fetcher?: typeof fetch; now?: () => number;
@@ -63,7 +65,7 @@ export function createDiscoveryR12QuestAdapter(options: {
     if (scope.version === "r12.discovery-owner-adaptive.1" || scope.version === "r12.discovery-owner-adaptive.2") {
       if(etsy && !["plan","strategy","review"].includes(phase))return fail("context");
       if (!options.adaptivePreview) return fail("adaptive_preview");
-      validateAdaptiveExecutionScope(scope,options.adaptivePreview,Date.parse(scope.createdAt));
+      validateAdaptiveExecutionScope(scope,options.adaptivePreview,Date.parse(scope.createdAt),options.adaptiveFundingProof??null);
       validateAdaptiveResearchPlan(ctx.plan,options.adaptivePreview,{id:scope.id,hash:scopeHash},Date.parse(scope.createdAt));
       if (!/^[a-f0-9]{64}$/.test(ctx.attempt.adaptiveActionHash ?? "") || !Number.isSafeInteger(ctx.attempt.adaptiveActionOrdinal)) return fail("adaptive_action");
     }

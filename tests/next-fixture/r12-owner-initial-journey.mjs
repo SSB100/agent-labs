@@ -91,6 +91,14 @@ export async function runOwnerInitialJourney({origin,boundary,output}) {
   const choose=async(grantId)=>{const rows=(await catalog(goalId)).profiles.filter(row=>row.profile.id===current().profileId&&(!grantId||row.grantId===grantId));assert.equal(rows.length,1,'Exact reviewed profile and grant must be present once in the saved catalog');const profile=page.getByLabel('Reviewed research profile',{exact:true}),expected=`${current().profileId}:${rows[0].grantId}`;const options=await profile.locator('option').evaluateAll(nodes=>nodes.map(node=>node.value));assert.ok(options.includes(expected),`Reviewed UI omitted selected catalog grant: ${JSON.stringify({expected,options})}`);await profile.selectOption(expected);await page.getByLabel('Public market set',{exact:true}).selectOption('gb');await page.getByLabel('Public topic and adult audience',{exact:true}).selectOption('astronomy');await page.getByLabel('Proposed Business lifetime limit (USD)',{exact:true}).fill('6.000000');};
   const capture=async(name)=>{const geometry=await page.evaluate(()=>({width:document.documentElement.clientWidth,height:document.documentElement.clientHeight,documentWidth:document.documentElement.scrollWidth,documentHeight:document.documentElement.scrollHeight}));assert.ok(geometry.documentWidth<=geometry.width+1,`${name}: horizontal overflow ${JSON.stringify(geometry)}`);if(geometry.width>=1280)assert.ok(geometry.documentHeight<=geometry.height+1,`${name}: desktop document escaped its viewport ${JSON.stringify(geometry)}`);await page.screenshot({path:path.join(output,`${name}.png`),fullPage:true});};
   const waitUntil=async(condition,description,timeoutMs=90000)=>{const until=Date.now()+timeoutMs;while(Date.now()<until){if(await condition())return;await new Promise(resolve=>setTimeout(resolve,250));}throw Error(`Timed out waiting for ${description}`);};
+  // A local receipt can render before Next commits its URL replacement. Match
+  // both the exact destination and its visible UI before relying on history.
+  const setupUrl=(setupId,adaptive=false)=>`${origin}/dashboard/quests/research?business=${current().businessId}&quest=${goalId}&${adaptive?'adaptiveSetup':'setup'}=${setupId}`;
+  const scopeUrl=scopeId=>`${origin}/dashboard?view=research&type=r12&business=${current().businessId}&selected=${scopeId}&quest=${goalId}`;
+  const waitForChooser=async()=>{
+    await page.waitForURL(`${origin}/dashboard/quests/research?business=${current().businessId}`);
+    await page.getByRole('heading',{name:'Choose your saved objective',exact:true}).waitFor();
+  };
   let goalId,receipt,adaptiveReceipt,ownerCapture,startReceiptBranch;
   try {
     await control('native');
@@ -119,14 +127,16 @@ export async function runOwnerInitialJourney({origin,boundary,output}) {
     });
     await check('actual R04 creation and ready preference lead to Research this Quest without substituting objective',async()=>{
       await page.getByRole('link',{name:'Create or edit a Quest',exact:true}).click();
+      await page.waitForURL(`${origin}/dashboard/quests?business=${current().businessId}`);
       await page.getByRole('textbox',{name:'Quest title',exact:true}).fill('Technical owner-created astronomy research');
       await page.getByRole('textbox',{name:'Your Quest in plain language',exact:true}).fill('Target 1 units; budget USD 2; deadline: 2027-12-31T23:59:00Z; geography: United Kingdom; scope: original POD T-shirt research; stop if costs rise. Synthetic technical objective; no demand claim.');
       await page.getByRole('checkbox',{name:/I reviewed the extracted facts and unresolved items/}).check();
       await page.getByRole('button',{name:'Save Quest draft',exact:true}).click();
-      await page.waitForURL(url=>url.pathname==='/dashboard/quests'&&!!url.searchParams.get('quest'));
+      await page.waitForURL(url=>url.origin===origin&&url.pathname==='/dashboard/quests'&&url.searchParams.get('business')===current().businessId&&!!url.searchParams.get('quest'));
       goalId=new URL(page.url()).searchParams.get('quest');assert.ok(goalId);
       await page.getByText('Record lifecycle preference',{exact:true}).click();await page.getByRole('button',{name:'ready',exact:true}).click();
       await page.getByRole('link',{name:'Research this Quest',exact:true}).click();
+      await page.waitForURL(`${origin}/dashboard/quests/research?business=${current().businessId}&quest=${goalId}`);
       await page.getByRole('heading',{name:'Technical owner-created astronomy research',exact:true}).waitFor();
       assert.equal(new URL(page.url()).searchParams.get('quest'),goalId);assert.deepEqual(current().calls,[]);
       assert.equal(await page.getByLabel('Reviewed research profile',{exact:true}).inputValue(),'');
@@ -138,6 +148,7 @@ export async function runOwnerInitialJourney({origin,boundary,output}) {
       try {await page.getByRole('button',{name:'Prepare exact research packet',exact:true}).click();await page.getByText(/The response was interrupted\./).waitFor();}finally{await page.unroute('**/dashboard/quests/research?**',intercept);}
       assert.ok(interrupted);let saved=await catalog(goalId);assert.equal(saved.setups.length,1);receipt=saved.setups[0];assert.equal(receipt.confirmed,false);assert.equal(receipt.activated,false);assert.deepEqual(current().calls,[]);
       await page.reload();await page.getByRole('link',{name:`Setup ${receipt.setupId}`,exact:true}).click();
+      await page.waitForURL(setupUrl(receipt.setupId));
       await page.getByRole('heading',{name:'Review this exact research packet',exact:true}).waitFor();
       assert.equal(new URL(page.url()).searchParams.get('setup'),receipt.setupId);
       assert.equal(await page.getByRole('button',{name:'Confirm this exact research policy',exact:true}).isDisabled(),true);
@@ -147,6 +158,7 @@ export async function runOwnerInitialJourney({origin,boundary,output}) {
       await capture('02-native-exact-packet');
       await page.setViewportSize({width:320,height:800});await capture('03-native-packet-320');await page.setViewportSize({width:1280,height:900});
       await page.getByRole('checkbox',{name:/I reviewed this exact packet/}).check();await page.reload();
+      await page.getByRole('heading',{name:'Review this exact research packet',exact:true}).waitFor();
       assert.equal(await page.getByRole('checkbox',{name:/I reviewed this exact packet/}).isChecked(),false,'Consent must not survive reload');
       saved=await catalog(goalId);assert.equal(saved.setups.length,1);
     });
@@ -165,9 +177,9 @@ export async function runOwnerInitialJourney({origin,boundary,output}) {
       await consent().check();await page.getByLabel('Public topic and adult audience',{exact:true}).selectOption('gardening');assert.equal(await page.getByRole('heading',{name:'Review this exact research packet',exact:true}).count(),0);
       await page.reload();await consent().waitFor();assert.equal(await consent().isChecked(),false);assert.equal(await page.getByLabel('Public topic and adult audience',{exact:true}).inputValue(),'astronomy');
       await consent().check();const chooseAnother=page.getByRole('link',{name:'Choose another Quest',exact:true});await chooseAnother.scrollIntoViewIfNeeded();await chooseAnother.focus();await page.keyboard.press('Enter');
-      await page.waitForURL(url=>url.pathname==='/dashboard/quests/research'&&!url.searchParams.has('quest'));await page.getByRole('heading',{name:'Choose your saved objective',exact:true}).waitFor();
+      await waitForChooser();
       await page.goBack();await page.waitForURL(exact);await consent().waitFor();assert.equal(await consent().isChecked(),false,'Back cannot restore unsent permission');
-      await page.goForward();await page.waitForURL(url=>!url.searchParams.has('quest'));await page.goBack();await page.waitForURL(exact);await consent().waitFor();assert.equal(await consent().isChecked(),false,'Forward/Back cannot restore unsent permission');
+      await page.goForward();await waitForChooser();await page.goBack();await page.waitForURL(exact);await consent().waitFor();assert.equal(await consent().isChecked(),false,'Forward/Back cannot restore unsent permission');
       await consent().check();await page.reload();await consent().waitFor();assert.equal(await consent().isChecked(),false);assert.equal((await catalog(goalId)).setups.length,1);assert.deepEqual(current().calls,[]);await capture('owner-history-consent-reset');
     });
     await check('new owner packet supports real 200 percent browser zoom and keyboard consent without dispatch',async captureFailure=>{
@@ -189,8 +201,9 @@ export async function runOwnerInitialJourney({origin,boundary,output}) {
       await page.getByRole('button',{name:'Confirm this exact research policy',exact:true}).dblclick();
       await page.getByRole('link',{name:'Open research workspace for Continue / Stop',exact:true}).waitFor();
       const saved=(await catalog(goalId,receipt.setupId)).setups[0];assert.equal(saved.confirmed,true);assert.equal(saved.activated,true);assert.deepEqual(current().calls,[]);receipt=saved;
-      await page.reload();assert.equal(await page.getByRole('checkbox',{name:/I reviewed this exact packet/}).count(),0);
-      await page.getByRole('link',{name:'Open research workspace for Continue / Stop',exact:true}).click();
+      await page.reload();const workspace=page.getByRole('link',{name:'Open research workspace for Continue / Stop',exact:true});await workspace.waitFor();
+      assert.equal(await page.getByRole('checkbox',{name:/I reviewed this exact packet/}).count(),0);
+      const workspaceUrl=scopeUrl(receipt.scopeId);assert.equal(new URL(await workspace.getAttribute('href'),origin).href,workspaceUrl);await workspace.click();await page.waitForURL(workspaceUrl);
       await page.getByRole('button',{name:'Continue approved research',exact:true}).waitFor();
       assert.equal(new URL(page.url()).searchParams.get('selected'),receipt.scopeId);assert.equal(new URL(page.url()).searchParams.get('quest'),goalId);
       await capture('04-confirmed-existing-workspace');
@@ -237,6 +250,8 @@ export async function runOwnerInitialJourney({origin,boundary,output}) {
       await page.getByRole('heading',{name:'Review this exact research packet',exact:true}).waitFor();
       episodeOne=(await catalog(goalId)).setups.find(setup=>setup.preview.version==='r12.owner-research-episode-preview.1');
       assert.ok(episodeOne);assert.equal(episodeOne.preview.episodeNumber,1);
+      await page.waitForURL(setupUrl(episodeOne.setupId));
+      await page.getByRole('heading',{name:'Review this exact research packet',exact:true}).waitFor();
       assert.equal(episodeOne.preview.predecessorClosure.predecessorScopeId,initialScopeId);
       assert.equal(episodeOne.preview.predecessorClosureHash,before.goal.continuation.predecessorClosureHash);
       assert.deepEqual(episodeOne.preview.grantRootRevision,current().grantRootRevision);
@@ -255,7 +270,7 @@ export async function runOwnerInitialJourney({origin,boundary,output}) {
       await consent().scrollIntoViewIfNeeded();await consent().focus();await page.keyboard.press('Space');assert.equal(await consent().isChecked(),true);
       await page.keyboard.press('Space');assert.equal(await consent().isChecked(),false);
       const exact=page.url();await page.reload();await consent().waitFor();assert.equal(await consent().isChecked(),false);
-      await page.getByRole('link',{name:'Choose another Quest',exact:true}).click();await page.waitForURL(url=>!url.searchParams.has('quest'));
+      await page.getByRole('link',{name:'Choose another Quest',exact:true}).click();await waitForChooser();
       await page.goBack();await page.waitForURL(exact);await consent().waitFor();assert.equal(await consent().isChecked(),false);
       await page.setViewportSize({width:1280,height:720});
       const zoom=await actualZoomBrowser();let zoomPage;
@@ -280,7 +295,7 @@ export async function runOwnerInitialJourney({origin,boundary,output}) {
       await page.getByRole('button',{name:'Stop this research setup',exact:true}).click();
       await page.getByText('Saved setup status: stopped.',{exact:true}).waitFor();
       assert.equal(current().calls.length,0);
-      await page.reload();assert.equal((await catalog(goalId,episodeOne.setupId)).setups[0].stopped,true);
+      await page.reload();await page.getByText('Saved setup status: stopped.',{exact:true}).waitFor();assert.equal((await catalog(goalId,episodeOne.setupId)).setups[0].stopped,true);
       await capture('10-episode-one-stopped-before-call');
     });
     await check('second finite continuation episode runs the real five-phase engine once with one collection',async()=>{
@@ -291,9 +306,12 @@ export async function runOwnerInitialJourney({origin,boundary,output}) {
       await page.getByRole('heading',{name:'Review this exact research packet',exact:true}).waitFor();
       const second=(await catalog(goalId)).setups.find(setup=>setup.preview.version==='r12.owner-research-episode-preview.1'&&setup.preview.episodeNumber===2);
       assert.ok(second);assert.equal(second.preview.predecessorClosure.predecessorScopeId,episodeOne.scopeId);
+      await page.waitForURL(setupUrl(second.setupId));
+      await page.getByRole('heading',{name:'Review this exact research packet',exact:true}).waitFor();
       await page.getByRole('checkbox',{name:/I reviewed this exact packet/}).check();
       await page.getByRole('button',{name:'Confirm this exact research policy',exact:true}).click();
-      await page.getByRole('link',{name:'Open research workspace for Continue / Stop',exact:true}).click();
+      const workspace=page.getByRole('link',{name:'Open research workspace for Continue / Stop',exact:true});await workspace.waitFor();
+      const workspaceUrl=scopeUrl(second.scopeId);assert.equal(new URL(await workspace.getAttribute('href'),origin).href,workspaceUrl);await workspace.click();await page.waitForURL(workspaceUrl);
       await page.getByRole('button',{name:'Continue approved research',exact:true}).click();
       await page.getByRole('heading',{name:'Needs more evidence',exact:true}).waitFor({timeout:90000});
       assert.deepEqual(current().calls,['plan','search1','select1','strategy','review']);
@@ -408,6 +426,8 @@ export async function runOwnerInitialJourney({origin,boundary,output}) {
       assert.equal(adaptiveReceipt.confirmed,false);assert.equal(adaptiveReceipt.activated,false);assert.equal(adaptiveReceipt.actions.length,0);
       assert.equal(adaptiveReceipt.preview.maximumRunMicrounits,'10000000');
       assert.equal(adaptiveReceipt.preview.predecessor.predecessorScopeId,current().scopeId);
+      await page.waitForURL(setupUrl(adaptiveReceipt.setupId,true));
+      await page.getByRole('heading',{name:'Review this exact adaptive research packet',exact:true}).waitFor();
       assert.equal(new URL(page.url()).searchParams.get('adaptiveSetup'),adaptiveReceipt.setupId);
       assert.equal(adaptiveReceipt.quote.version,'r12.adaptive-quote.2');
       assert.deepEqual(Object.keys(adaptiveReceipt.quote.ceilings).sort(),['plan','review','strategy']);
@@ -426,9 +446,10 @@ export async function runOwnerInitialJourney({origin,boundary,output}) {
       await consent().scrollIntoViewIfNeeded();await consent().focus();await page.keyboard.press('Space');assert.equal(await consent().isChecked(),true);
       await page.keyboard.press('Space');assert.equal(await consent().isChecked(),false);
       await page.reload();await consent().waitFor();assert.equal(await consent().isChecked(),false);
-      await page.getByRole('link',{name:'Choose another Quest',exact:true}).click();
-      await page.goto(exact);await consent().waitFor();await page.goBack();await page.goForward();await page.waitForURL(exact);
-      await consent().waitFor();assert.equal(await consent().isChecked(),false);
+      await page.getByRole('link',{name:'Choose another Quest',exact:true}).click();await waitForChooser();
+      await page.goBack();await page.waitForURL(exact);await consent().waitFor();assert.equal(await consent().isChecked(),false);
+      await page.goForward();await waitForChooser();
+      await page.goBack();await page.waitForURL(exact);await consent().waitFor();assert.equal(await consent().isChecked(),false);
       await page.setViewportSize({width:1280,height:720});
       const zoom=await actualZoomBrowser();let zoomPage;
       try{
@@ -538,13 +559,14 @@ export async function runOwnerInitialJourney({origin,boundary,output}) {
       const checkReceipts=page.getByRole('button',{name:'Check saved receipts',exact:true});await checkReceipts.waitFor();await checkReceipts.dblclick();
       await waitUntil(async()=>{const catalog=await adaptiveCatalog(goalId,adaptiveReceipt.setupId);return catalog.activation?.pendingReceiptReadback===false;},'saved receipt-only settlement',180000);
       assert.equal(current().adaptiveCalls.length,before,'Receipt-only recovery never resends a provider call');
-      await page.reload();assert.equal(await page.getByRole('button',{name:'Run or resume approved adaptive research',exact:true}).count(),0);
+      await page.reload();await page.getByText(/Saved setup: stopped/).waitFor();
+      await page.getByRole('heading',{name:'Saved adaptive setup history',exact:true}).waitFor();
+      assert.equal(await page.getByRole('button',{name:'Run or resume approved adaptive research',exact:true}).count(),0);
       assert.equal(await page.getByRole('button',{name:'Check saved receipts',exact:true}).count(),0);
       const exact=page.url();await page.getByRole('link',{name:'Choose another Quest',exact:true}).click();
       // Next navigation must commit before Back can restore the stopped setup.
-      await page.waitForURL(origin+'/dashboard/quests/research?business='+current().businessId);
-      await page.getByRole('heading',{name:'Choose your saved objective',exact:true}).waitFor();
-      await page.goBack();await page.waitForURL(exact);await page.reload();
+      await waitForChooser();
+      await page.goBack();await page.waitForURL(exact);await page.getByRole('heading',{name:'Saved adaptive setup history',exact:true}).waitFor();await page.reload();
       await page.getByRole('heading',{name:'Saved adaptive setup history',exact:true}).waitFor();
       assert.equal(current().adaptiveCalls.length,before,'Reload and Back after receipt settlement cannot resend a paid call');
       assert.equal((await adaptiveCatalog(goalId,adaptiveReceipt.setupId)).activation?.pendingReceiptReadback,false);
@@ -557,12 +579,14 @@ export async function runOwnerInitialJourney({origin,boundary,output}) {
       assert.equal(await page.getByLabel('Proposed original cumulative research limit (USD)',{exact:true}).inputValue(),'2.000000');
       await page.getByLabel('Proposed original cumulative research limit (USD)',{exact:true}).fill('2.500000');
       await page.getByRole('button',{name:'Prepare exact research packet',exact:true}).click();await page.getByRole('heading',{name:'Review this exact research packet',exact:true}).waitFor();
-      assert.match(await text(),/USD 1\.900000/);assert.match(await text(),/USD 2\.000000/);assert.match(await text(),/USD 2\.500000/);assert.match(await text(),/Every prior cost remains/);await capture('06-legacy-cumulative-extension');
       receipt=(await catalog(goalId)).setups[0];assert.equal(receipt.preview.funding.committedMicrounits,'1900000');
+      await page.waitForURL(setupUrl(receipt.setupId));
+      await page.getByRole('heading',{name:'Review this exact research packet',exact:true}).waitFor();
+      assert.match(await text(),/USD 1\.900000/);assert.match(await text(),/USD 2\.000000/);assert.match(await text(),/USD 2\.500000/);assert.match(await text(),/Every prior cost remains/);await capture('06-legacy-cumulative-extension');
       await page.getByRole('checkbox',{name:/I reviewed this exact packet/}).check();await page.getByRole('button',{name:'Confirm this exact research policy',exact:true}).click();await page.getByRole('link',{name:'Open research workspace for Continue / Stop',exact:true}).waitFor();
       const saved=await catalog(goalId,receipt.setupId);assert.equal(saved.setups[0].activated,true);assert.equal(saved.funding.maximumMicrounits,'2000000','Exact saved packet preserves its before-confirm snapshot');const effective=await catalog(goalId);assert.equal(effective.funding.maximumMicrounits,'2500000');assert.equal(effective.funding.committedMicrounits,'1900000');assert.deepEqual(current().calls,[]);
       await page.getByRole('button',{name:'Stop this research setup',exact:true}).click();await page.getByText('Saved setup status: stopped.',{exact:true}).waitFor();assert.deepEqual(current().calls,[]);
-      await page.reload();assert.equal(await page.getByRole('button',{name:'Stop this research setup',exact:true}).count(),0);await capture('07-stopped-before-provider');
+      await page.reload();await page.getByText('Saved setup status: stopped.',{exact:true}).waitFor();assert.equal(await page.getByRole('button',{name:'Stop this research setup',exact:true}).count(),0);await capture('07-stopped-before-provider');
     });
     assert.deepEqual(external,[]);assert.deepEqual(errors,[]);await report();
   } finally {await context.close();await browser.close();await report();}

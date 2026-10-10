@@ -1,3 +1,4 @@
+import {repinFundingProof} from './helpers/r12-funding-proof-fixture.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { fixture as legacyFixture } from './helpers/r12-adaptive-inputs-fixture.mjs';
@@ -45,7 +46,7 @@ function fixture() {
     capacity: { extraActionsUsed: 0, childrenUsed: p.predecessor.baseChildren, dispatchesUsed: p.predecessor.baseDispatches,
       createdPhaseSlots: [], runCommittedMicrousd: 0, rootHeadroomMicrousd: 10000000, businessHeadroomMicrousd: 10000000,
       hasUnknownLiability: false, authorityActive: true, expired: false }, phaseCeilings: quote.ceilings, repairableFailure: null };
-  return { p, scope, profile, quote, plan, action, pins, context };
+  return { p, scope, profile, quote, plan, action, pins, context, fundingProof:repinFundingProof(f.raw.fundingProof,scope) };
 }
 function preparation(f) {
   const input = { businessId: f.p.businessId, goalId: f.p.goalId, goalRevision: f.p.predecessor.goalRevision,
@@ -174,11 +175,11 @@ test('Etsy preparation selects .2 from reviewed .3 profile and rejects missing c
 
 test('activated Etsy scope and intent bind explicit mode, selected captures, zero collections and Etsy-only source attribution', () => {
   const f = fixture();
-  assert.deepEqual(validateAdaptiveExecutionScope(f.scope, f.p, now), f.scope);
+  assert.deepEqual(validateAdaptiveExecutionScope(f.scope, f.p, now,f.fundingProof), f.scope);
   assert.equal(bindValidatedAdaptiveResearchIntent(f.scope.intent, f.pins, now).scopeVersion, 'r12.discovery-owner-adaptive.2');
   for (const mutate of [s => s.version = 'r12.discovery-owner-adaptive.1', s => s.ownerObservationRef = null,
     s => s.intent.limits.maximumNewCollections = 1, s => s.allowedDomains = ['research.example'], s => s.profile.version = 'r12.owner-research-profile.2']) {
-    const s = structuredClone(f.scope); mutate(s); assert.throws(() => validateAdaptiveExecutionScope(s, f.p, now));
+    const s = structuredClone(f.scope); mutate(s); assert.throws(() => validateAdaptiveExecutionScope(s, f.p, now,f.fundingProof));
   }
   for (const mutate of [f => f.pins.ownerObservationRef = null, f => f.scope.intent.limits.maximumNewCollections = 1,
     f => f.scope.intent.comparisonUniverse.sourceDomains = ['research.example'], f => f.pins.activeEvidenceArtifactIds = [id(999)],

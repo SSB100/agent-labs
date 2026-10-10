@@ -1,3 +1,4 @@
+import { validateAdaptiveFundingProof, type AdaptiveFundingProof } from './discovery-r12-adaptive-funding-proof';
 import { containsCredentialLikeValue } from "../core/quest-intake";
 import { discoveryV2Hash, type DiscoveryIntentV2 } from "./discovery-v2";
 import { selectAdaptiveOwnerResearchPublicScope, type AdaptiveOwnerResearchProfile, type OwnerResearchFunding, type OwnerResearchPublicSelection } from "./discovery-r12-goal-scope";
@@ -28,7 +29,7 @@ const fail = (): never => { throw new Error("r12_adaptive_execution_scope_unveri
 const id = (v: unknown) => typeof v === "string" && /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(v);
 const hash = (v: unknown) => typeof v === "string" && /^[a-f0-9]{64}$/.test(v);
 const same = (a: unknown,b: unknown) => discoveryV2Hash(a) === discoveryV2Hash(b);
-export function validateAdaptiveExecutionScope(scope: DiscoveryAdaptiveOwnerScope,preview: AdaptiveResearchPreview,now=Date.now()) {
+export function validateAdaptiveExecutionScope(scope: DiscoveryAdaptiveOwnerScope,preview: AdaptiveResearchPreview,now=Date.now(),fundingProof:AdaptiveFundingProof|null=null) {
   const p = validateAdaptiveResearchPreview(preview,now),c=p.predecessor;
   const ownerCapture = p.version === "r12.adaptive-research-preview.2";
   if (!scope || containsCredentialLikeValue(scope) || Object.keys(scope).sort().join(",") !==
@@ -42,13 +43,10 @@ export function validateAdaptiveExecutionScope(scope: DiscoveryAdaptiveOwnerScop
       scope.quoteHash !== p.quoteHash || scope.maximumActions !== p.maximumActions || scope.maximumPaidCalls !== p.maximumPaidCalls || scope.maximumRunMicrounits !== p.maximumRunMicrounits ||
       scope.expiresAt !== p.expiresAt || scope.independentReviewHash !== scope.profile.independentReviewHash || !Number.isFinite(Date.parse(scope.createdAt)) || Date.parse(scope.createdAt) > now) return fail();
   const selected=selectAdaptiveOwnerResearchPublicScope(scope.profile,scope.selection,now);
-  const approvedRevision=p.funding.revision + (p.funding.currentLimitMicrounits === p.funding.proposedLimitMicrounits ? 0 : 1);
+  validateAdaptiveFundingProof(scope,p,fundingProof);
   if (!same(scope.allowedDomains,selected.allowedDomains) || !same(scope.excludedDomains,selected.excludedDomains) || scope.approvedQuery !== selected.approvedQuery ||
       scope.funding.authorityRootId !== c.authorityRootId || scope.funding.priorRoundId !== c.priorRoundId || scope.funding.originalSemanticGoalHash !== c.originalSemanticGoalHash ||
       !id(scope.funding.bindingId) || scope.funding.kind !== (c.priorRoundId === null ? "r05_business" : "legacy_research_root") ||
-      p.funding.bindingHash !== discoveryV2Hash({bindingId:scope.funding.bindingId,revision:p.funding.revision,maximumMicrounits:p.funding.currentLimitMicrounits}) ||
-      scope.fundingApproval.revision !== approvedRevision || scope.fundingApproval.maximumMicrounits !== p.funding.proposedLimitMicrounits ||
-      scope.fundingApproval.hash !== discoveryV2Hash({bindingId:scope.funding.bindingId,revision:approvedRevision,maximumMicrounits:scope.fundingApproval.maximumMicrounits}) ||
       !scope.intent || scope.intent.businessId !== p.businessId || !id(scope.intent.id) || scope.intent.limits.maximumMicrousd !== Number(p.maximumRunMicrounits) ||
       ownerCapture && scope.intent.limits.maximumNewCollections !== 0 ||
       scope.intent.expiresAt !== p.expiresAt || !same(scope.intent.comparisonUniverse.markets,selected.markets) ||

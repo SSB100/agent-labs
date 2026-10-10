@@ -1,3 +1,4 @@
+import {repinFundingProof} from './r12-funding-proof-fixture.mjs';
 import {fixture} from './r12-adaptive-inputs-fixture.mjs';
 import {id,now} from './r12-adaptive-fixture.mjs';
 import {discoveryV2Hash as hash} from '../../.core-tests/products/discovery-v2.js';
@@ -29,5 +30,5 @@ export function etsyObserved(){
   Object.assign(f.raw.intentPins,{scopeVersion:scope.version,scopeHash:hash(scope),actionHash:f.raw.actionHash});
   f.ctx.planHash=hash(plan);f.raw.planHash=f.ctx.planHash;f.ctx.attempt.adaptiveActionHash=f.raw.actionHash;
   f.raw.ownerObservationContext.scopeHash=hash(scope);f.raw.version='r12.discovery-adaptive-inputs.2';f.quote=quote;f.outputs.plan.queryFocus=[];
-  return f;
+  f.raw.fundingProof=repinFundingProof(f.raw.fundingProof,f.raw.scope);return f;
 }

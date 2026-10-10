@@ -1,3 +1,4 @@
+import {repinFundingProof} from './helpers/r12-funding-proof-fixture.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {fixture,phase,complete,archive} from './helpers/r12-adaptive-inputs-fixture.mjs';
@@ -22,7 +23,7 @@ function observed(){
   f.raw.action.scopeHash=hash(f.raw.scope);f.raw.actionHash=hash(f.raw.action);
   Object.assign(f.raw.intentPins,{ownerObservationRef:selection,scopeHash:hash(f.raw.scope),actionHash:f.raw.actionHash});f.ctx.attempt.adaptiveActionHash=f.raw.actionHash;
   f.raw.ownerObservationContext={version:'r12.owner-observation-context.1',intentId:f.raw.intent.id,businessId:f.raw.businessId,ownerId:bundle.ownerId,scopeId:f.raw.scope.id,scopeHash:hash(f.raw.scope),approvalHash:f.raw.scope.approvalHash,...selection,bundles:[bundle]};
-  return f;
+  f.raw.fundingProof=repinFundingProof(f.raw.fundingProof,f.raw.scope);return f;
 }
 function packet(f){return{version:'r12.owner-adaptive-planner-preflight-input.1',setupId:f.raw.scope.setupId,setupHash:f.raw.scope.setupHash,scopeId:f.raw.scope.id,cutoff:f.raw.intent.expiresAt,intent:f.raw.intent,intentPins:f.raw.intentPins,knowledgeSnapshot:f.raw.knowledgeSnapshot,quoteHash:f.quote.quoteHash,inputHash:'f'.repeat(64),ownerObservationContext:f.raw.ownerObservationContext};}
 test('initial planner preflight and actual phase serialize identical selected observations and baseline',async()=>{

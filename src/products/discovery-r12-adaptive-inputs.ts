@@ -1,3 +1,4 @@
+import type { AdaptiveFundingProof } from './discovery-r12-adaptive-funding-proof';
 import { discoveryDeterministicId, normalizeDiscoveryPlanV2 } from './discovery-v2-plan';
 import { projectAdaptivePhaseOutput } from './discovery-r12-adaptive-runtime';
 import { normalizeAdaptiveReviewerResponse, adaptiveEvidenceIdentity } from './discovery-r12-adaptive-review-contract';
@@ -28,6 +29,7 @@ export type AdaptiveEvidenceArchive = { persisted:PersistedResearchEvidenceV2; s
 export type AdaptivePhaseInputEnvelope = {
   version:'r12.discovery-adaptive-inputs.1'|'r12.discovery-adaptive-inputs.2'; businessId:string; planId:string; planHash:string; attemptId:string;
   inputMode:'dispatch'|'receipt'; validationAt:string;
+  fundingProof?:AdaptiveFundingProof|null;
   scope:DiscoveryAdaptiveOwnerScope; preview:AdaptiveResearchPreview; action:AdaptiveResearchAction; actionHash:string;
   intent:DiscoveryIntentV2; intentPins:AdaptiveIntentPins; knowledgeSnapshot:DiscoveryKnowledgeContextV2['snapshot'];
   dependencies:AdaptiveInputDependency[]; archive:AdaptiveEvidenceArchive[];
@@ -69,11 +71,11 @@ function archived(a:AdaptiveEvidenceArchive){
 export function readAdaptivePhaseInputs(ctx:QuestAdapterContext,raw:unknown):AdaptivePhaseContext & {validationAt:number; inputMode:"dispatch"|"receipt"}{
   if(!raw||typeof raw!=="object"||Array.isArray(raw))fail();
   const s=structuredClone(raw) as AdaptivePhaseInputEnvelope,at=Date.parse(s.validationAt);
-  if(Object.keys(s).sort().join(",")!=="action,actionHash,archive,attemptId,businessId,dependencies,inputMode,intent,intentPins,knowledgeSnapshot,ownerObservationContext,planHash,planId,preview,priorFindings,scope,validationAt,version")fail();
+  if(Object.keys(s).filter(k=>k!=="fundingProof").sort().join(",")!=="action,actionHash,archive,attemptId,businessId,dependencies,inputMode,intent,intentPins,knowledgeSnapshot,ownerObservationContext,planHash,planId,preview,priorFindings,scope,validationAt,version")fail();
   const etsy=s.scope?.version==='r12.discovery-owner-adaptive.2';
   if(s.version!==(etsy?'r12.discovery-adaptive-inputs.2':'r12.discovery-adaptive-inputs.1')||s.businessId!==ctx.plan.businessId||s.planId!==ctx.planId||s.planHash!==ctx.planHash||s.attemptId!==ctx.attempt.id||
     !Number.isFinite(at)||at>Date.now()||!['dispatch','receipt'].includes(s.inputMode)||s.inputMode==='dispatch'&&!['scheduled','reserved'].includes(ctx.attempt.status))fail();
-  validateAdaptiveExecutionScope(s.scope,s.preview,at);validateAdaptiveResearchPlan(ctx.plan,s.preview,{id:s.scope.id,hash:hash(s.scope)},at);
+  validateAdaptiveExecutionScope(s.scope,s.preview,at,s.fundingProof??null);validateAdaptiveResearchPlan(ctx.plan,s.preview,{id:s.scope.id,hash:hash(s.scope)},at);
   if(s.actionHash!==hash(s.action)||s.action.scopeId!==s.scope.id||s.action.scopeHash!==hash(s.scope)||s.intentPins.scopeId!==s.scope.id||s.intentPins.scopeHash!==hash(s.scope)||s.intentPins.actionHash!==s.actionHash||s.intentPins.actionOrdinal!==s.action.ordinal||
     ctx.attempt.adaptiveActionHash!==s.actionHash||ctx.attempt.adaptiveActionOrdinal!==s.action.ordinal||s.intentPins.approvedQuery!==(s.action.ordinal===0?s.scope.approvedQuery:`${s.scope.approvedQuery}\nInvestigate: ${s.action.question}`)||
     !same(s.intentPins.ownerObservationRef,s.scope.ownerObservationRef)||s.intent.businessId!==s.businessId||s.intent.expiresAt!==s.scope.expiresAt||!same(s.intent.comparisonUniverse.sourceDomains,s.scope.allowedDomains)||

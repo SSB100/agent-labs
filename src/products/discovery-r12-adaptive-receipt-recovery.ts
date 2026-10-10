@@ -1,3 +1,4 @@
+import type { AdaptiveFundingProof } from './discovery-r12-adaptive-funding-proof';
 import {createHash} from 'node:crypto';
 import type {QuestAdapterContext,QuestAdaptiveActionProjection} from '../core/quest-controller';
 import {discoveryV2Hash as hash} from './discovery-v2';
@@ -17,9 +18,9 @@ const fail=():never=>{throw new Error('r12_adaptive_receipt_resume_unverified');
  * plan body is independently validated against the approved scope above.
  * No dispatch, claim, settlement, action admission or authority is created. */
 export async function validateAdaptiveReceiptResume(input:{context:QuestAdapterContext;expectedPlanId:string;expectedPlanHash:string;leaseExpiresAt?:string;scope:DiscoveryAdaptiveOwnerScope;
-  preview:AdaptiveResearchPreview;approvedQuote:AdaptiveResearchQuote;action:QuestAdaptiveActionProjection;saved:unknown;now?:number}){
+  fundingProof?:AdaptiveFundingProof|null; preview:AdaptiveResearchPreview;approvedQuote:AdaptiveResearchQuote;action:QuestAdaptiveActionProjection;saved:unknown;now?:number}){
  const {context:c,scope,preview,action,approvedQuote}=input,now=input.now??Date.now(),s=input.saved as Record<string,unknown>;
- validateAdaptiveExecutionScope(scope,preview,Date.parse(scope.createdAt));validateAdaptiveResearchPlan(c.plan,preview,{id:scope.id,hash:hash(scope)},Date.parse(scope.createdAt));
+ validateAdaptiveExecutionScope(scope,preview,Date.parse(scope.createdAt),input.fundingProof??null);validateAdaptiveResearchPlan(c.plan,preview,{id:scope.id,hash:hash(scope)},Date.parse(scope.createdAt));
  if(!Number.isFinite(now)||!object(s)||s.diagnostic||!object(s.binding)||!object(s.receipt)||!s.candidate||
    !['dispatched','responded','uncertain'].includes(c.attempt.status)||action.actionHash!==c.attempt.adaptiveActionHash||action.ordinal!==c.attempt.adaptiveActionOrdinal||
    !action.attemptIds.includes(c.attempt.id)||!action.phaseKeys.includes(c.step.key)||

@@ -69,7 +69,7 @@ export async function startAdaptivePlanner(db,c){
  const policy=await one(db,'select payload from private.r05_policies where id=$1',[c.prepared.policyId]);
  const dataClasses=policy.payload.operations.find(p=>p.operationKey===operation).dataClasses;
  const denied=async()=>{throw Error('No effects or HTTP while preparing adaptive race descriptor');};
- const adapter=createDiscoveryR12QuestAdapter({scope:raw.scope,adaptivePreview:raw.preview,phase:'plan',
+ const adapter=createDiscoveryR12QuestAdapter({scope:raw.scope,adaptivePreview:raw.preview,adaptiveFundingProof:raw.fundingProof,phase:'plan',
   identity:{qualificationHash:context.step.qualificationHash,workflowDefinitionId:context.step.workflowDefinitionId,
    workerDefinitionId:context.step.workerDefinitionId,mode:'qualification'},dataClasses,
   store:{operation:denied,settle:denied,dispatchedAt:denied},request:async()=>request,quote:async()=>c.quote,

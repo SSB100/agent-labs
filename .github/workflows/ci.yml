@@ -684,7 +684,9 @@ jobs:
         run: |
           set -o pipefail
           export R12_CI_POSTGRES_ADDRESS="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' '${{ job.services.postgres.id }}')"
-          node --test tests/r12-adaptive-postgres-races.test.mjs 2>&1 | tee /tmp/r12-adaptive-races-ci.log
+          node --test tests/r12-legacy-funding-proof-sql.test.mjs 2>&1 | tee /tmp/r12-adaptive-races-ci.log
+          node scripts/reset-r12-ci-database.mjs
+          node --test tests/r12-adaptive-postgres-races.test.mjs 2>&1 | tee -a /tmp/r12-adaptive-races-ci.log
           node scripts/reset-r12-ci-database.mjs
           node --test tests/r12-etsy-postgres-races.test.mjs 2>&1 | tee -a /tmp/r12-adaptive-races-ci.log
       - name: Preserve native adaptive race evidence

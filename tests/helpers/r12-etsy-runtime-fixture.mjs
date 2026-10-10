@@ -22,7 +22,7 @@ export async function runEtsyAction(db,x,started,{nextKind='followup',onFirstPos
  const template=outputs.strategy.marketComparisons[0];outputs.strategy.marketComparisons=scope.intent.comparisonUniverse.markets.map(m=>({...structuredClone(template),...m,evidence:[],feeScenarios:[{...template.feeScenarios[0],sellerBankCountry:m.countryCode}]}));
  const adapters={},phases=[];let posts=0,gets=0;
  for(const step of plan.steps){const phase=step.key;
-  adapters[step.adapter]=createDiscoveryR12QuestAdapter({scope,adaptivePreview:x.prepared.preview,phase,
+  adapters[step.adapter]=createDiscoveryR12QuestAdapter({scope,adaptivePreview:x.prepared.preview,adaptiveFundingProof:started.raw.fundingProof,phase,
    identity:{qualificationHash:step.qualificationHash,workflowDefinitionId:step.workflowDefinitionId,workerDefinitionId:step.workerDefinitionId,mode:'qualification'},
    dataClasses:['business_context','public_evidence'],store:effects,quote:async()=>x.quote,
    config:{apiKey:'inert-etsy-no-network',baseUrl:'https://openrouter.ai/api/v1',appUrl:'https://agent-labs.example.invalid',appName:'Inert Etsy owner capture'},

@@ -1,4 +1,5 @@
 import "server-only";
+import type { AdaptiveFundingProof } from "./discovery-r12-adaptive-funding-proof";
 import { createHash, createHmac } from "node:crypto";
 import type { OwnerUiContext } from "../lib/core-ui/data";
 import { verifyOwnerBusiness } from "../lib/core-ui/owner-business";
@@ -53,7 +54,8 @@ export async function continueAdaptiveOwnerResearch(context: OwnerUiContext,busi
   const approvedQuote=a.quote as AdaptiveResearchQuote;
   if (approvedQuote.quoteHash !== scope.quoteHash) return fail();
   stage="scope_validation";
-  validateAdaptiveExecutionScope(scope,preview,Date.parse(scope.createdAt));
+  const fundingProof=(a.fundingProof??null) as AdaptiveFundingProof|null;
+  validateAdaptiveExecutionScope(scope,preview,Date.parse(scope.createdAt),fundingProof);
   stage="plan_validation";
   const scopeHash=discoveryV2Hash(scope),plan=validateAdaptiveResearchPlan(compileQuestPlan(a.plan),preview,{id:scopeId,hash:scopeHash},Date.parse(scope.createdAt));
   stage="dependencies";
@@ -110,7 +112,7 @@ export async function continueAdaptiveOwnerResearch(context: OwnerUiContext,busi
     if (!DISCOVERY_R12_PHASES.includes(step.key as DiscoveryR12Phase)) return fail();
     const pin=a.operations.find(v=>object(v) && v.operationKey === step.operationKey);
     if (!object(pin) || !Array.isArray(pin.dataClasses) || pin.dataClasses.some(v=>typeof v !== "string")) return fail();
-    adapters[step.adapter]=dependencies.createAdapter({scope,phase:step.key as DiscoveryR12Phase,adaptivePreview:preview,
+    adapters[step.adapter]=dependencies.createAdapter({scope,phase:step.key as DiscoveryR12Phase,adaptivePreview:preview,adaptiveFundingProof:fundingProof,
       identity:{qualificationHash:step.qualificationHash,workflowDefinitionId:step.workflowDefinitionId,workerDefinitionId:step.workerDefinitionId,mode:"qualification"},
       dataClasses:pin.dataClasses as string[],store:effects,fetcher:deadlineFetch(signal),quote:freshQuote,
       request:async ctx=>{
@@ -163,7 +165,7 @@ export async function continueAdaptiveOwnerResearch(context: OwnerUiContext,busi
           const attempt=pending[0],step=plan.steps.find(s=>s.key === attempt.stepKey);
           if (!step) throw error;
           const eligible=await validateAdaptiveReceiptResume({context:{planId:current.planId,planHash:current.planHash,plan,step,attempt,knowledge:current.knowledge},
-            expectedPlanId:saved.planId,expectedPlanHash:saved.planHash,leaseExpiresAt:current.head.leaseExpiresAt,scope,preview,approvedQuote,action,saved:await operation(attempt.id,"load",{})});
+            expectedPlanId:saved.planId,expectedPlanHash:saved.planHash,leaseExpiresAt:current.head.leaseExpiresAt,scope,preview,fundingProof,approvedQuote,action,saved:await operation(attempt.id,"load",{})});
           return progressResult({status:"waiting",reason:"receipt_pending",...(eligible.wakeAt?{wakeAt:eligible.wakeAt}:{})},eligible.receiptProgressHash);
         } catch { throw error; }
       }
