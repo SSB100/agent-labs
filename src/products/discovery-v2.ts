@@ -1,5 +1,7 @@
 import { validateGenerationRouteProof, type GenerationRouteProof } from "../research/generation-route";
-import { createHash } from "node:crypto";
+import { discoveryV2Hash } from "./discovery-v2-hash";
+export { discoveryV2Hash } from "./discovery-v2-hash";
+import { validateOwnerObservationEvidenceContext, resolveOwnerObservationEvidence, type OwnerObservationEvidenceContext, type OwnerObservationDossierRef } from "./discovery-r12-owner-observation";
 import type { JsonObject } from "../core/contracts";
 import { DIMENSIONS, type Dimension } from "./types";
 import { validateProductEvidence } from "./discovery";
@@ -9,6 +11,7 @@ import { validateDiscoveryKnowledgeV2, type DiscoveryKnowledgeContextV2 } from "
 import { discoveryAddendumObservation, validateDiscoveryEvidenceAddendum, type DiscoveryAddendumRef, type DiscoveryEvidenceAddendum } from "./discovery-r12-evidence-addendum";
 import type { ValidatedFocusedPilot } from "./discovery-r12-focused-pilot-contract";
 import { assertValidatedOwnerResearchIntent, type ValidatedOwnerResearchIntent } from "./discovery-r12-goal-intent";
+import { assertValidatedAdaptiveResearchIntent, type ValidatedAdaptiveResearchIntent } from "./discovery-r12-adaptive-intent";
 
 /** Parallel contract. No v1 score, historical assessment, or authority is rewritten. */
 export const DISCOVERY_V2 = "pod-discovery-2.0" as const;
@@ -44,13 +47,14 @@ export type DiscoveryDossierV2 = {
   version: typeof DISCOVERY_V2; intentId: string; businessId: string;
   packRefs: DossierPackRefV2[]; shortlist: CandidateIdentityV2[]; comparisonRationale: string;
   addendumRef?: DiscoveryAddendumRef;
+  ownerObservationRef?: OwnerObservationDossierRef;
 };
 /** Loaded from persisted records, never accepted from a worker as its own attestation. */
 export type PersistedResearchEvidenceV2 = {
   artifactId: string; businessId: string; workflowRunId: string; queryId: string; collectedForIntentId: string | null;
   question: string; sourceDomains: string[]; evidencePack: EvidencePack;
   lineage: { status: "completed"; executionMode: "web.research" | "r12.discovery"; provider: "openrouter.exa"; sourceArtifactId: string; providerRequestId: string; workerRequestId: string;
-    qualifiedSource?: { version: "r12.discovery-source.1"; scopeId: string; scopeHash: string; searchCandidateHash: string; selectorCandidateHash: string;
+    qualifiedSource?: { version: "r12.discovery-source.1" | "r12.discovery-adaptive-source.1"; scopeId: string; scopeHash: string; actionIntentId?: string; actionHash?: string; searchCandidateHash: string; selectorCandidateHash: string;
       searchRoute: NonNullable<WorkerExecutionV2["qualifiedRoute"]>; selectorRoute: NonNullable<WorkerExecutionV2["qualifiedRoute"]> } };
 };
 export type WorkerExecutionV2 = { modelId: string; providerRequestId: string; primaryOnly: true; qualifiedRoute?: Omit<GenerationRouteProof, "providerResponses"> & { providerResponses: Array<GenerationRouteProof["providerResponses"][number]> } };
@@ -73,6 +77,10 @@ export type DiscoveryValidationContextV2 = {
   focusedPilot?: ValidatedFocusedPilot;
   /** Exact owner-initial scope loaded and validated by the trusted server. */
   ownerInitial?: ValidatedOwnerResearchIntent;
+  ownerAdaptive?: ValidatedAdaptiveResearchIntent;
+  /** Explicit future source-mode pins, reconstructed from approved immutable
+   * server records. No existing runtime populates this from owner/model JSON. */
+  ownerObservations?: OwnerObservationEvidenceContext;
 };
 export type EvidenceFactV2 = { reference: EvidenceRefV2; relevance: string };
 export type UncertaintyV2 = { question: string; blockingForTest: boolean; reason: string };
@@ -140,16 +148,7 @@ function noCommerce(v: { publicationAllowed: unknown; commerceAllowed: unknown }
 function integer(v: unknown, min: number, max: number, label: string) {
   if (!Number.isSafeInteger(v) || (v as number) < min || (v as number) > max) fail(`Invalid ${label}.`);
 }
-export function discoveryV2Hash(value: unknown): string {
-  const canonical = (v: unknown): string => {
-    if (Array.isArray(v)) return `[${v.map(canonical).join(",")}]`;
-    if (record(v)) return `{${Object.keys(v).sort().map(k => `${JSON.stringify(k)}:${canonical(v[k])}`).join(",")}}`;
-    if (v === undefined || (typeof v === "number" && !Number.isFinite(v))) fail("Non-JSON discovery snapshot.");
-    return JSON.stringify(v);
-  };
-  return createHash("sha256").update(canonical(value)).digest("hex");
-}
-export function validateDiscoveryIntentV2(intent: DiscoveryIntentV2, now = Date.now(), focusedPilot?: ValidatedFocusedPilot, ownerInitial?: ValidatedOwnerResearchIntent): void {
+export function validateDiscoveryIntentV2(intent: DiscoveryIntentV2, now = Date.now(), focusedPilot?: ValidatedFocusedPilot, ownerInitial?: ValidatedOwnerResearchIntent, ownerAdaptive?: ValidatedAdaptiveResearchIntent): void {
   shape(intent, "version,id,businessId,objective,comparisonUniverse,limits,expiresAt", "discovery intent");
   if (intent.version !== DISCOVERY_V2) fail("Unknown discovery version.");
   id(intent.id, "intent identity"); id(intent.businessId, "Business identity"); prose(intent.objective, "discovery objective");
@@ -157,9 +156,11 @@ export function validateDiscoveryIntentV2(intent: DiscoveryIntentV2, now = Date.
   const u = intent.comparisonUniverse;
   if (u.productType !== "original_pod_tshirt") fail("Discovery product scope changed.");
   if (ownerInitial && focusedPilot) fail("Owner-initial and focused-pilot contexts conflict.");
+  if (ownerAdaptive && (ownerInitial || focusedPilot)) fail("Adaptive context cannot impersonate another research mode.");
+  if (ownerAdaptive) assertValidatedAdaptiveResearchIntent(intent, ownerAdaptive);
   if (ownerInitial) assertValidatedOwnerResearchIntent(intent, ownerInitial);
   if (focusedPilot && (focusedPilot.profileHash !== discoveryV2Hash(focusedPilot.profile) || discoveryV2Hash(intent) !== discoveryV2Hash(focusedPilot.profile.intent))) fail("Focused intent does not match trusted profile.");
-  list(u.markets, focusedPilot || ownerInitial ? 1 : 2, focusedPilot ? 1 : 4, "geographic comparison markets");
+  list(u.markets, focusedPilot || ownerInitial || ownerAdaptive ? 1 : 2, focusedPilot ? 1 : 4, "geographic comparison markets");
   for (const market of u.markets) {
     shape(market, "countryCode,currency", "geographic market");
     if (!/^[A-Z]{2}$/.test(market.countryCode) || !/^[A-Z]{3}$/.test(market.currency)) fail("Country code and scenario currency required.");
@@ -170,7 +171,7 @@ export function validateDiscoveryIntentV2(intent: DiscoveryIntentV2, now = Date.
   validateResearchRequest({ query: u.selectionQuestion, allowedDomains: u.sourceDomains });
   shape(intent.limits, "maximumAlternatives,maximumNewCollections,maximumMicrousd,maximumGenerations", "discovery limits");
   if (intent.limits.maximumAlternatives !== 3 || ![0, 1, 2].includes(intent.limits.maximumNewCollections) || ![1, 2].includes(intent.limits.maximumGenerations)) fail("Finite discovery bounds required.");
-  integer(intent.limits.maximumMicrousd, 1, 2_000_000, "approved discovery research envelope");
+  integer(intent.limits.maximumMicrousd, 1, ownerAdaptive ? 10_000_000 : 2_000_000, "approved discovery research envelope");
   if (!Number.isFinite(Date.parse(intent.expiresAt)) || Date.parse(intent.expiresAt) <= now) fail("Discovery intent expired.");
 }
 /** Match PostgreSQL jsonb::text storage gates: one space after each colon/comma.
@@ -200,12 +201,15 @@ function candidateIdentity(candidate: CandidateIdentityV2) {
 }
 export function validateDiscoveryDossierV2(intent: DiscoveryIntentV2, dossier: DiscoveryDossierV2, context: DiscoveryValidationContextV2, now = Date.now()): void {
   if (context.ownerInitial && (context.focusedPilot || context.evidenceAddendum || context.previousDecision)) fail("Owner-initial context cannot reuse a continuation or focused-pilot mode.");
-  validateDiscoveryIntentV2(intent, now, context.focusedPilot, context.ownerInitial);
+  if (context.ownerAdaptive && (context.ownerInitial || context.focusedPilot || context.evidenceAddendum || context.previousDecision)) fail("Adaptive history needs its own immutable context.");
+  validateDiscoveryIntentV2(intent, now, context.focusedPilot, context.ownerInitial, context.ownerAdaptive);
+  if (context.ownerAdaptive && context.committedMicrousd !== context.ownerAdaptive.finance.runCommittedMicrousd) fail("Adaptive run cost snapshot changed.");
   integer(context.committedMicrousd, 0, intent.limits.maximumMicrousd, "root committed cost");
   validateDiscoveryKnowledgeV2(context.knowledge, now);
-  shape(dossier, "version,intentId,businessId,packRefs,shortlist,comparisonRationale" + (dossier.addendumRef ? ",addendumRef" : ""), "discovery dossier");
+  shape(dossier, "version,intentId,businessId,packRefs,shortlist,comparisonRationale" + (dossier.addendumRef ? ",addendumRef" : "") + (dossier.ownerObservationRef ? ",ownerObservationRef" : ""), "discovery dossier");
   if (dossier.version !== DISCOVERY_V2 || dossier.intentId !== intent.id || dossier.businessId !== intent.businessId) fail("Dossier intent/Business mismatch.");
   snapshotBytes(dossier, DISCOVERY_V2_SNAPSHOT_BYTES.dossier, "Dossier");
+  if (dossier.ownerObservationRef || context.ownerObservations) ownerObservations(dossier, context, now);
   if (dossier.addendumRef || context.evidenceAddendum) {
     shape(dossier.addendumRef, "artifactId,sha256", "reviewed addendum reference");
     const addendum = context.evidenceAddendum;
@@ -223,9 +227,12 @@ export function validateDiscoveryDossierV2(intent: DiscoveryIntentV2, dossier: D
         discoveryV2Hash(context.evidenceAddendum ?? null) !== discoveryV2Hash(profile.observations) ||
         discoveryV2Hash(dossier.addendumRef ?? null) !== discoveryV2Hash({ artifactId: profile.observations.id, sha256: discoveryV2Hash(profile.observations) })) fail("Focused dossier does not match trusted profile.");
   }
-  list(dossier.packRefs, context.focusedPilot ? 0 : 1, context.focusedPilot ? 0 : context.ownerInitial ? 1 : 6, "immutable dossier packs");
+  const ownerEtsy=context.ownerAdaptive?.scopeVersion === "r12.discovery-owner-adaptive.2";
+  if(ownerEtsy && (!context.ownerObservations || context.packs.size!==0)) fail("Etsy owner mode requires only its approved owner observation evidence.");
+  list(dossier.packRefs, context.focusedPilot || ownerEtsy ? 0 : 1, context.focusedPilot || ownerEtsy ? 0 : context.ownerInitial ? 1 : 6, "immutable dossier packs");
   if (new Set(dossier.packRefs.map(p => p.artifactId)).size !== dossier.packRefs.length || new Set(dossier.packRefs.map(p => p.query.id)).size !== dossier.packRefs.length) fail("Duplicate pack or query lineage.");
-  if (dossier.packRefs.filter(p => p.origin === "new").length > intent.limits.maximumNewCollections || dossier.packRefs.filter(p => p.origin === "prior").length > 4) fail("Dossier collection budget exceeded.");
+  if (dossier.packRefs.filter(p => p.origin === "new").length > intent.limits.maximumNewCollections || dossier.packRefs.filter(p => p.origin === "prior").length > (context.ownerAdaptive ? 6 : 4)) fail("Dossier collection budget exceeded.");
+  if (context.ownerAdaptive && !sameSet(dossier.packRefs.map(p => p.artifactId), context.ownerAdaptive.activeEvidenceArtifactIds)) fail("Adaptive active subset changed after manifest binding.");
   for (const ref of dossier.packRefs) {
     shape(ref, "artifactId,sha256,origin,query", "pack reference"); id(ref.artifactId, "artifact reference");
     if (!sha.test(ref.sha256) || !["new", "prior"].includes(ref.origin)) fail("Invalid immutable pack reference.");
@@ -238,14 +245,24 @@ export function validateDiscoveryDossierV2(intent: DiscoveryIntentV2, dossier: D
     if (!persisted || persisted.artifactId !== ref.artifactId || persisted.businessId !== intent.businessId || persisted.queryId !== ref.query.id ||
       persisted.question !== ref.query.question || !sameSet(persisted.sourceDomains, ref.query.sourceDomains) || discoveryV2Hash(persisted.evidencePack) !== ref.sha256) fail("Pack does not match persisted query/Business/hash lineage.");
     if ((ref.origin === "new") !== (persisted.collectedForIntentId === intent.id)) fail("Collection origin cannot be relabeled to evade the two-query bound.");
+    if (context.ownerAdaptive) {
+      const entry = context.ownerAdaptive.evidenceManifest.find(e => e.artifactId === ref.artifactId);
+      if (!entry || entry.packHash !== ref.sha256 || entry.queryId !== ref.query.id || entry.collectedForIntentId !== persisted.collectedForIntentId ||
+          !persisted.lineage.qualifiedSource || entry.scopeId !== persisted.lineage.qualifiedSource.scopeId || entry.scopeHash !== persisted.lineage.qualifiedSource.scopeHash ||
+          entry.actionHash !== (persisted.lineage.qualifiedSource.actionHash ?? null) ||
+          ref.origin === "new" && (ref.query.question !== context.ownerAdaptive.approvedQuery || entry.scopeId !== context.ownerAdaptive.scopeId || entry.scopeHash !== context.ownerAdaptive.scopeHash || entry.actionHash !== context.ownerAdaptive.actionHash)) fail("Adaptive evidence manifest lineage mismatch.");
+    }
     id(persisted.workflowRunId, "persisted workflow"); id(persisted.lineage.sourceArtifactId, "persisted source artifact");
     const lineage = persisted.lineage;
     if (lineage.status !== "completed" || !["web.research", "r12.discovery"].includes(lineage.executionMode) || lineage.provider !== "openrouter.exa" ||
       [lineage.providerRequestId, lineage.workerRequestId].some(x => typeof x !== "string" || x.length < 3 || x.length > 240 || /(mock|fixture|simulation)/i.test(x))) fail("Real completed research source and worker lineage required.");
     if (lineage.executionMode === "r12.discovery") {
       const qualified = lineage.qualifiedSource;
-      shape(qualified, "version,scopeId,scopeHash,searchCandidateHash,selectorCandidateHash,searchRoute,selectorRoute", "qualified source lineage");
-      if (qualified.version !== "r12.discovery-source.1" || qualified.scopeId !== persisted.collectedForIntentId || !uuid.test(qualified.scopeId) ||
+      const adaptiveSource = qualified?.version === "r12.discovery-adaptive-source.1";
+      shape(qualified, "version,scopeId,scopeHash,searchCandidateHash,selectorCandidateHash,searchRoute,selectorRoute" + (adaptiveSource ? ",actionIntentId,actionHash" : ""), "qualified source lineage");
+      if (adaptiveSource ? !context.ownerAdaptive || qualified.actionIntentId !== persisted.collectedForIntentId || !uuid.test(qualified.actionIntentId ?? "") || !sha.test(qualified.actionHash ?? "") :
+        qualified.version !== "r12.discovery-source.1" || qualified.scopeId !== persisted.collectedForIntentId) fail("Qualified source action lineage required.");
+      if (!uuid.test(qualified.scopeId) ||
           ![qualified.scopeHash, qualified.searchCandidateHash, qualified.selectorCandidateHash].every(value => sha.test(value))) fail("Qualified source scope/hash lineage required.");
       if (context.ownerInitial && (qualified.scopeId !== context.ownerInitial.scopeId || qualified.scopeHash !== context.ownerInitial.scopeHash)) fail("Owner-initial source differs from the validated scope.");
       for (const [proof, generationId] of [[qualified.searchRoute, lineage.providerRequestId], [qualified.selectorRoute, lineage.workerRequestId]] as const)
@@ -262,14 +279,33 @@ export function validateDiscoveryDossierV2(intent: DiscoveryIntentV2, dossier: D
   }
 }
 function refKey(ref: EvidenceRefV2) { return `${ref.artifactId}:${ref.evidenceId}:${ref.sourceContentHash}:${ref.start}:${ref.end}`; }
+function ownerObservations(dossier: DiscoveryDossierV2, context: DiscoveryValidationContextV2, now = Date.now()) {
+  const c = context.ownerObservations;
+  if (!c || !dossier.ownerObservationRef || context.ownerInitial || context.focusedPilot || context.evidenceAddendum || dossier.addendumRef || context.previousDecision)
+    return fail("Owner observations require their own exact approved context; another mode cannot supply them.");
+  if (context.ownerAdaptive && (c.scopeId !== context.ownerAdaptive.scopeId || c.scopeHash !== context.ownerAdaptive.scopeHash || c.intentId !== context.ownerAdaptive.intent.id))
+    fail("Observation context differs from adaptive intent scope.");
+  return validateOwnerObservationEvidenceContext(c, { intentId: dossier.intentId, businessId: dossier.businessId, reference: dossier.ownerObservationRef,
+    occupiedArtifactIds: [...context.packs.keys(), ...dossier.packRefs.map(p => p.artifactId)],
+    occupiedSourceIds: [...context.packs.values()].flatMap(p => p.evidencePack.sources.map(s => s.id)), now });
+}
 function evidence(ref: EvidenceRefV2, dossier: DiscoveryDossierV2, context: DiscoveryValidationContextV2) {
   shape(ref, "artifactId,evidenceId,sourceId,sourceContentHash,start,end", "evidence reference");
+  if (dossier.ownerObservationRef || context.ownerObservations) {
+    const selected = ownerObservations(dossier, context), record = selected.get(ref.artifactId);
+    if (record) {
+      const resolved = resolveOwnerObservationEvidence(record.bundle, ref), o = record.observation;
+      return { entry: { id: ref.evidenceId, sourceId: o.sourceId, quote: resolved.quote },
+        source: { id: o.sourceId, url: o.source.url, contentHash: o.contentHash, excerpt: o.content, retrievedAt: o.source.capturedAt, retrievalExpiresAt: null },
+        quote: resolved.quote, observation: undefined, ownerObservation: resolved.sourceContext };
+    }
+  }
   if (dossier.addendumRef?.artifactId === ref.artifactId) {
     const addendum = context.evidenceAddendum;
     if (!addendum || discoveryV2Hash(addendum) !== dossier.addendumRef.sha256) fail("Reviewed addendum changed after binding.");
     const observation = discoveryAddendumObservation(addendum, ref), quote = Array.from(observation.context).slice(ref.start, ref.end).join("");
     return { entry: { id: observation.id, sourceId: observation.sourceId, quote },
-      source: { id: observation.sourceId, url: observation.url, contentHash: observation.contentHash, excerpt: observation.context, retrievedAt: observation.retrievedAt, retrievalExpiresAt: observation.expiresAt }, quote, observation };
+      source: { id: observation.sourceId, url: observation.url, contentHash: observation.contentHash, excerpt: observation.context, retrievedAt: observation.retrievedAt, retrievalExpiresAt: observation.expiresAt }, quote, observation, ownerObservation: undefined };
   }
   if (!dossier.packRefs.some(p => p.artifactId === ref.artifactId)) fail("Evidence artifact is outside this dossier.");
   const pack = context.packs.get(ref.artifactId)?.evidencePack;
@@ -283,12 +319,13 @@ function evidence(ref: EvidenceRefV2, dossier: DiscoveryDossierV2, context: Disc
   integer(ref.end, ref.start + 1, Math.min(characters.length, ref.start + 320), "evidence span end");
   const quote = characters.slice(ref.start, ref.end).join("");
   if (!quote.trim()) fail("Empty evidence span.");
-  return { entry, source, quote, observation: undefined };
+  return { entry, source, quote, observation: undefined, ownerObservation: undefined };
 }
 /** Materialize quotations instead of making models echo source text, IDs or hashes as facts. */
 export function resolveDiscoveryEvidenceV2(ref: EvidenceRefV2, dossier: DiscoveryDossierV2, context: DiscoveryValidationContextV2) {
   const found = evidence(ref, dossier, context);
   return { reference: { ...ref }, quote: found.quote, url: found.source.url, retrievedAt: found.source.retrievedAt, expiresAt: found.source.retrievalExpiresAt,
+    ...(found.ownerObservation ? { sourceContext: found.ownerObservation } : {}),
     ...(found.observation ? { sourceContext: { access: found.observation.access, kind: found.observation.kind, context: found.observation.context, geographyRole: found.observation.geographyRole, countries: found.observation.countries, dimensions: found.observation.dimensions, limitations: found.observation.limitations } } : {}) };
 }
 function references(refs: EvidenceRefV2[], dossier: DiscoveryDossierV2, context: DiscoveryValidationContextV2, min = 0) {
@@ -298,7 +335,9 @@ function references(refs: EvidenceRefV2[], dossier: DiscoveryDossierV2, context:
 }
 function geographicReferences(refs: EvidenceRefV2[], market: string, seller: string | null, dossier: DiscoveryDossierV2, context: DiscoveryValidationContextV2) {
   for (const ref of refs) {
-    const observation = evidence(ref, dossier, context).observation;
+    const found = evidence(ref, dossier, context), observation = found.observation;
+    const ownerGeography = found.ownerObservation?.context.geography;
+    if (ownerGeography?.kind === "reported" && !ownerGeography.countries.includes(market)) fail("Owner observation reports a different buyer geography.");
     if (observation?.geographyRole === "buyer_market" && !observation.countries.includes(market)) fail("Observed market evidence belongs to a different country.");
     if (seller && observation?.geographyRole === "seller_jurisdiction" && !observation.countries.includes(seller)) fail("Seller fee evidence belongs to a different jurisdiction.");
   }

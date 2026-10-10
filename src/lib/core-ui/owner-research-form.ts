@@ -15,6 +15,7 @@ export function ownerResearchUsdValue(value: string | number | bigint): string {
 
 export const ownerResearchUsd = (value: string | number | bigint) => `USD ${ownerResearchUsdValue(value)}`;
 export const ownerResearchSetupHref = (businessId: string, goalId: string, setupId?: string) => `/dashboard/quests/research?business=${encodeURIComponent(businessId)}&quest=${encodeURIComponent(goalId)}${setupId ? `&setup=${encodeURIComponent(setupId)}` : ""}`;
+export const ownerAdaptiveSetupHref = (businessId: string, goalId: string, setupId?: string) => `/dashboard/quests/research?business=${encodeURIComponent(businessId)}&quest=${encodeURIComponent(goalId)}${setupId ? `&adaptiveSetup=${encodeURIComponent(setupId)}` : ""}`;
 export const ownerResearchScopeHref = (businessId: string, goalId: string, scopeId: string) => `/dashboard?view=research&type=r12&business=${encodeURIComponent(businessId)}&selected=${encodeURIComponent(scopeId)}&quest=${encodeURIComponent(goalId)}`;
 export const ownerResearchWorkspaceHref = (receipt: OwnerResearchSetupReceipt) => ownerResearchScopeHref(receipt.businessId, receipt.goalId, receipt.scopeId);
 

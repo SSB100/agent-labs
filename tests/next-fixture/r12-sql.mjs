@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {createOwnerInitialNextFixture} from './r12-owner-initial.mjs';
 import {ownerInitialPhaseOutputs} from '../helpers/r12-owner-initial-runtime.mjs';
+import {r12PhaseOutputFixture} from '../helpers/r12-phase-output-fixture.mjs';
 import {r12NextSnapshotFiles} from '../helpers/r12-next-capture-plan.mjs';
 import {createRequire} from 'node:module';
 import path from 'node:path';
@@ -17,7 +18,8 @@ import {runOperatorRecipe as runRecoveryRecipe} from '../../scripts/r12-focused-
 import {runOperatorRecipe as runSuccessorRecipe} from '../../scripts/r12-focused-pilot-successor-bootstrap.mjs';
 import {runOperatorRecipe as runTerminalRecipe} from '../../scripts/r12-terminal-technical-qualification-bootstrap.mjs';
 import {runOperatorRecipe as runPilotRecipe} from '../../scripts/r12-focused-pilot-bootstrap.mjs';
-import {r12QuoteFixture} from '../helpers/r12-provider-fixture.mjs';
+import {r12CatalogFixture,r12QuoteFixture} from '../helpers/r12-provider-fixture.mjs';
+import {qualifyAdaptiveResearchQuote,qualifyEtsyOwnerResearchQuote} from '../../.core-tests/products/discovery-r12-adaptive-quote.js';
 import {seedR12Creative,controlR12Creative,launchR12Creative} from './r12-creative.mjs';
 export const R12_INERT_ROOT='inert-r12-owner-root-configuration-0123456789';
 const tables=['businesses','goals','workflow_runs','workflow_definitions','workflow_stage_runs','worker_definitions','worker_runs','task_contracts','artifacts','installed_packs','product_experiments','product_candidates','product_decisions','creative_approvals','creative_runs','creative_assets','creative_reviews','creative_cost_reservations','creative_cost_settlements','creative_phase_outputs','events','owner_interventions'];
@@ -116,15 +118,24 @@ async function operatorRecipe(r,kind,input){
  return runOperatorRecipe(client,kind,input);
 }
 export async function closeR12Fixture(state){const r=state.r12;if(!r)return;r.closing=true;await exclusive(r,()=>r.db.close());if(state.r12===r)delete state.r12;}
-const ownedNames=['r12_owner_research_read','r12_owner_research_preflight','r12_owner_research_server','r04_quest_transition','r04_research_link_preview','r12_discovery_owner_read','r12_discovery_result_read','r04_quest_read','r07_quest_read','r05_admission_read','r05_policy_owner','r12_review_owner_read','r12_review_owner_confirm','adopt_r12_focused_test','approve_creative_candidate','begin_creative_run','fail_creative_launch','r06_read'];
+const ownedNames=['r12_owner_observation_server','r12_owner_research_read','r12_owner_research_preflight','r12_owner_research_server','r12_owner_adaptive_read','r12_owner_adaptive_preflight','r12_owner_adaptive_server','r04_quest_transition','r04_research_link_preview','r12_discovery_owner_read','r12_discovery_result_read','r04_quest_read','r07_quest_read','r05_admission_read','r05_policy_owner','r12_review_owner_read','r12_review_owner_confirm','adopt_r12_focused_test','approve_creative_candidate','begin_creative_run','fail_creative_launch','r06_read'];
 export async function r12OwnerRpc(state,name,args,mode='normal'){
  const r=state.r12;if(!r||!ownedNames.includes(name))return null;
  if(name==='r06_read'&&!['product_candidates','production_candidates','product_experiments','product_decisions'].includes(args.p_dataset))return null;
  if(mode==='unavailable')return{data:null,error:{message:'Inert owner metadata unavailable'}};
  const signatures={r12_owner_research_read:['p_business_id','p_goal_id','p_setup_id'],r12_owner_research_preflight:['p_business_id','p_setup_id','p_setup_hash','p_quote'],r12_owner_research_server:['p_business_id','p_operation','p_payload','p_server_key'],r12_review_owner_read:['p_business_id','p_scope_id'],r12_review_owner_confirm:['p_business_id','p_scope_id','p_proposal_hash'],r04_quest_transition:['p_business_id','p_operation','p_payload','p_submission_id'],r04_research_link_preview:['p_business_id','p_experiment_id'],r12_discovery_owner_read:['p_business_id','p_scope_id','p_activation'],r12_discovery_result_read:['p_business_id','p_scope_id'],r04_quest_read:['p_business_id','p_goal_id','p_limit','p_offset'],r07_quest_read:['p_business_id','p_goal_id','p_plan_id','p_limit','p_offset'],r05_admission_read:['p_business_id','p_policy_id','p_limit','p_offset'],r05_policy_owner:['p_business_id','p_operation','p_payload','p_submission_id']};
- Object.assign(signatures,{adopt_r12_focused_test:['p_scope_id','p_result','p_owner_intent'],approve_creative_candidate:['p_candidate_id','p_approval','p_quote'],begin_creative_run:['p_approval_id','p_launch_nonce','p_runtime_capability'],fail_creative_launch:['p_creative_run_id','p_launch_nonce'],r06_read:['p_business_id','p_dataset','p_query']});
- const result=await sqlRpc(r,name,signatures[name].map(k=>args[k]??null),'authenticated',['r12_owner_research_server','r04_quest_transition','r05_policy_owner','r12_review_owner_confirm','adopt_r12_focused_test','approve_creative_candidate','begin_creative_run','fail_creative_launch'].includes(name)?()=>mirrorR12(state):undefined);
+ Object.assign(signatures,{r12_owner_observation_server:['p_business_id','p_operation','p_payload','p_server_key'],r12_owner_adaptive_read:['p_business_id','p_goal_id','p_setup_id'],r12_owner_adaptive_preflight:['p_business_id','p_setup_id','p_setup_hash','p_quote'],r12_owner_adaptive_server:['p_business_id','p_operation','p_payload','p_server_key'],adopt_r12_focused_test:['p_scope_id','p_result','p_owner_intent'],approve_creative_candidate:['p_candidate_id','p_approval','p_quote'],begin_creative_run:['p_approval_id','p_launch_nonce','p_runtime_capability'],fail_creative_launch:['p_creative_run_id','p_launch_nonce'],r06_read:['p_business_id','p_dataset','p_query']});
+ const result=await sqlRpc(r,name,signatures[name].map(k=>args[k]??null),'authenticated',['r12_owner_research_server','r12_owner_adaptive_server','r04_quest_transition','r05_policy_owner','r12_review_owner_confirm','adopt_r12_focused_test','approve_creative_candidate','begin_creative_run','fail_creative_launch'].includes(name)?()=>mirrorR12(state):undefined);
+ if(name==='r12_owner_adaptive_server')console.log('ADAPTIVE_OWNER_RPC_RESULT:',JSON.stringify({operation:args.p_operation,error:result.error?.message??null,keys:result.data&&typeof result.data==='object'?Object.keys(result.data):[],version:result.data?.version??null}));
+ if(name==='r12_owner_adaptive_preflight')console.log('ADAPTIVE_PREFLIGHT_RPC_RESULT:',JSON.stringify({error:result.error?.message??null,keys:result.data&&typeof result.data==='object'?Object.keys(result.data):[],version:result.data?.version??null}));
+ if(name==='r12_discovery_owner_read'&&r.adaptiveScopeId===args.p_scope_id)console.log('ADAPTIVE_OWNER_WORKSPACE_READ:',JSON.stringify({error:result.error?.message??null,keys:result.data&&typeof result.data==='object'?Object.keys(result.data):[],activationKeys:result.data?.activation&&typeof result.data.activation==='object'?Object.keys(result.data.activation):[],state:result.data?.state??null}));
  if(name==='r12_owner_research_server'&&result.data){const receipt=result.data;r.scopeId=receipt.scopeId;r.goalId=receipt.goalId;r.ownerSetup=receipt;if(receipt.activated&&r.ownerOutputsScope!==receipt.scopeId){const scope=await exclusive(r,async()=>(await r.db.query('select amendment from private.r12_discovery_scopes where id=$1',[receipt.scopeId])).rows[0].amendment);r.callsByScope??={};if(r.ownerOutputsScope)r.callsByScope[r.ownerOutputsScope]=[...r.calls];r.calls=[];r.receipts=[];r.generations={};r.outputs=ownerInitialPhaseOutputs(scope);r.ownerOutputsScope=receipt.scopeId;}}
+ if(name==='r12_owner_adaptive_server'&&result.data?.activated&&r.adaptiveScopeId!==result.data.scopeId){
+  r.adaptiveScopeId=result.data.scopeId;
+  r.adaptiveReceiptPlanHash=result.data.planHash;
+  r.adaptiveScope=await exclusive(r,async()=>(await r.db.query('select amendment from private.r12_discovery_scopes where id=$1',[r.adaptiveScopeId])).rows[0].amendment);
+  r.adaptiveCalls=[];r.adaptiveReceipts=[];r.adaptiveGenerations={};
+ }
  return result;
 }
 async function exclusive(r,fn){
@@ -146,6 +157,7 @@ export const R12_RUNTIME_RPC_ARGUMENTS=Object.freeze({
  r12_recovery_dispatch:Object.freeze(['p_business_id','p_goal_id','p_scope_id','p_payload','p_submission_id','p_server_key','p_lease_token','p_epoch','p_admission_key']),
  r12_recovery_server:Object.freeze(['p_business_id','p_scope_id','p_attempt_id','p_operation','p_payload','p_server_key']),
  r12_discovery_server:Object.freeze(['p_business_id','p_attempt_id','p_operation','p_payload','p_server_key']),
+ r12_adaptive_controller_server:Object.freeze(['p_business_id','p_scope_id','p_operation','p_payload','p_server_key']),
  creative_runtime_transition:Object.freeze(['p_creative_run_id','p_business_id','p_runtime_capability','p_operation','p_payload']),
 });
 export async function r12RuntimeRpc(state,name,args){
@@ -156,12 +168,78 @@ export async function r12RuntimeRpc(state,name,args){
  if(r.simulateDispatchTimeout&&(name==='r12_recovery_dispatch'||(name==='r07_controller'&&args.p_operation==='dispatch')))return exclusive(r,async()=>{
   await r.db.exec('begin');try{await r.db.exec('set role anon');const marked=(await r.db.query(`select public.${name}(${keys.map((_,i)=>`$${i+1}`).join(',')}) result`,keys.map(k=>args[k]??null))).rows[0].result;assert.equal(marked.shouldDispatch,true);await assert.rejects(r.db.exec("do $$ begin raise exception 'Inert Next dispatch deadline before commit' using errcode='57014'; end $$"),error=>error.code==='57014');return{data:null,error:{code:'57014',message:'Inert Next dispatch deadline before commit'}};}finally{await r.db.exec('rollback');await mirrorR12(state);}
  });
- return sqlRpc(r,name,keys.map(k=>args[k]??null),'anon',()=>mirrorR12(state));
+ const result=await sqlRpc(r,name,keys.map(k=>args[k]??null),'anon',()=>mirrorR12(state));
+ if(r.adaptiveScopeId)console.log('ADAPTIVE_RUNTIME_RPC_STAGE:',JSON.stringify({rpc:name,operation:args.p_operation??null,ok:!result.error}));
+ if(result.error&&r.adaptiveScopeId)console.log('ADAPTIVE_RUNTIME_RPC_REJECTED:',JSON.stringify({rpc:name,operation:args.p_operation??null,error:String(result.error.message).slice(0,240)}));
+ if(name==='r07_controller'&&args.p_operation==='read'&&r.adaptiveScopeId)console.log('ADAPTIVE_CONTROLLER_READ_SHAPE:',JSON.stringify({error:result.error?.message??null,keys:result.data&&typeof result.data==='object'?Object.keys(result.data):[],knowledgeKeys:result.data?.knowledge&&typeof result.data.knowledge==='object'?Object.keys(result.data.knowledge):[],planHashMatches:result.data?.planHash===r.adaptiveReceiptPlanHash,attempts:Array.isArray(result.data?.attempts)?result.data.attempts.map(item=>({stepKey:item.stepKey,status:item.status,actionHashPresent:typeof item.adaptiveActionHash==='string',actionOrdinal:item.adaptiveActionOrdinal??null,requestIdPresent:!!item.requestId})):null}));
+ if(name==='r12_adaptive_controller_server'&&args.p_operation==='action_context')r.adaptiveActionContext=result.data??null;
+ return result;
 }
 export async function r12CreativeLaunch(state,input){return exclusive(state.r12,async()=>{const result=await launchR12Creative(state.r12,input);await mirrorR12(state);return result;});}
 export function r12Quote(state){state.r12.quoteReads++;return r12QuoteFixture(Date.now(),state.r12.scenario.startsWith('evidence-'),(state.r12.scenario.startsWith('pilot-')||state.r12.scenario.startsWith('focused-successor-')));}
+export function r12AdaptiveQuote(state,version='r12.adaptive-quote.1'){state.r12.quoteReads++;const now=Date.now();assert.ok(['r12.adaptive-quote.1','r12.adaptive-quote.2'].includes(version));return version==='r12.adaptive-quote.2'?qualifyEtsyOwnerResearchQuote(r12CatalogFixture(now),now):qualifyAdaptiveResearchQuote(r12CatalogFixture(now),now);}
+function adaptiveProviderOutput(r,phase,body){
+ const ordinal=r.adaptiveActionContext.ordinal;
+ const etsy=r.adaptiveScope.version==='r12.discovery-owner-adaptive.2';
+ const audience=r.adaptiveScope.intent.comparisonUniverse.audiences[0];
+ const outputs=r12PhaseOutputFixture(audience);
+ const excerpts=ordinal===0?[
+  'An inert dated GB adult apparel survey describes comfort and durability as purchase considerations, without measuring demand for original astronomy T-shirts.',
+  'An inert GB design-interest report describes interest in star and night-sky motifs, without sales, willingness-to-pay or conversion measurements.',
+ ]:[
+  'An inert follow-up GB adult survey separates astronomy motif recognition from stated apparel purchase intent; its sample is too narrow for a population demand estimate.',
+  'An inert follow-up source reports mixed stated interest in original sky-themed shirts and no observed purchases, leaving willingness-to-pay unresolved.',
+ ];
+ const reviewedDomain=r.adaptiveScope.allowedDomains[0];
+ assert.ok(typeof reviewedDomain==='string'&&reviewedDomain.length>0,'The inert source must use an enrolled public domain');
+ outputs.search1.annotations=excerpts.map((content,index)=>({type:'url_citation',url_citation:{url:`https://${reviewedDomain}/gb-adult-apparel-${ordinal}-${index+1}`,title:'Explicitly synthetic public-source fixture',content}}));
+ outputs.select1.selections=excerpts.map((content,index)=>({sourceKey:`S${index+1}`,quote:content.slice(0,120)}));
+ outputs.strategy.marketComparisons=outputs.strategy.marketComparisons.filter(item=>r.adaptiveScope.intent.comparisonUniverse.markets.some(market=>market.countryCode===item.countryCode));
+ outputs.plan.comparisonRationale='Compare only the reviewed GB adult audience and preserve uncertainty about actual original astronomy shirt demand.';
+ outputs.plan.queryFocus=etsy?[]:['Dated GB adult apparel considerations and original astronomy motif interest'];
+ if(etsy){
+  outputs.plan.comparisonRationale='Compare the selected owner-reported Etsy captures and retain their negative signals, ordinal conversion wording and unknown buyer geography.';
+  for(const market of outputs.strategy.marketComparisons){market.assessment='The owner-reported Etsy captures preserve Very low conversion wording but establish neither a numeric conversion rate nor GB buyer demand.';market.evidence=[];}
+  outputs.strategy.recommendation.rationale='Comparable owner-reported captures remain insufficient to establish candidate sales, geographic demand or an informative exposure denominator.';
+ }
+ outputs.plan.proposals=['star-chart linework','lunar phase geometry','night-sky contours'].map(concept=>({concept:`Original ${concept}`,audience,hypothesis:'Test whether an original astronomy design communicates a clear adult apparel concept.',differentiationHypothesis:'Use original restrained linework without copied marketplace or branded artwork.'}));
+ if(phase==='strategy')return{assessment:outputs.strategy,measurement:null};
+ if(phase==='review'){
+  const context=JSON.parse(body.messages[1].content).reviewContext;
+  assert.match(context.proposalHash,/^[a-f0-9]{64}$/);
+  const followup=etsy?{kind:'followup',publicQuestion:'What owner-captured Etsy observations establish comparable exposure for the two original astronomy candidates and negative reference in one reporting window?',hypothesis:'Very low ordinal conversion may reflect insufficient exposure rather than a supported difference between the original astronomy candidates.',expectedInformationGain:'A genuine owner capture with an eligible exposure denominator could distinguish weak response from no exposure without inventing sales.',counterevidenceQuestion:'Does the negative reference show equally weak or missing exposure under the same reporting window and product category?',gap:'evidence',reason:'The saved owner captures do not establish a comparable exposure denominator; pause for genuine new owner evidence and renewed review.'}:ordinal===0?{kind:'followup',publicQuestion:'What dated GB adult evidence distinguishes interest in original astronomy-inspired T-shirt motifs from stated purchase intent?',hypothesis:'Interest in an original astronomy motif may not translate into purchase intent among GB adults.',expectedInformationGain:'A bounded survey distinction could narrow the unresolved candidate-specific demand question without claiming actual sales.',counterevidenceQuestion:'What dated GB adult evidence shows weak or contradictory stated purchase intent despite motif interest?',gap:'evidence',reason:'The imported findings remain unable to distinguish astronomy motif interest from candidate-specific GB purchase intent.'}:null;
+  return{version:'r12.adaptive-review.1',proposalHash:context.proposalHash,outcome:'NEEDS_MORE_EVIDENCE',
+   ratings:Object.fromEntries(['evidence','learningValue','testDesign','feasibility'].map(key=>[key,{score:0,rationale:'The bounded synthetic public context does not establish a candidate-specific measurable apparel proposal.',evidenceRefs:[]}])),
+   proposalConcerns:[],executionPrerequisites:['Any later physical sample or sales test needs separate owner approval and its own lawful creative rights.'],additionalQuestions:[],
+   sufficiencyRationale:etsy?'The owner-reported Etsy captures retain the Very low wording and missing buyer geography; no numeric conversion, item sales, country demand or profit can be established. A genuine new owner capture is required before another evidence action.':ordinal===0?'The saved broad context lacks GB adult purchase-intent evidence for the original astronomy design, so a scoped opposing public question can test this exact gap.':'The follow-up public context still lacks representative purchase behaviour or willingness-to-pay; close this research window and preserve the negative uncertainty.',
+   recommendedNextAction:followup,progress:null};
+ }
+ return outputs[phase];
+}
+function r12AdaptiveProvider(state,input,control,effects){
+ const r=state.r12,action=r.adaptiveActionContext,phase=input.phase;
+ assert.ok(action&&Number.isSafeInteger(action.ordinal)&&/^[a-f0-9]{64}$/.test(action.actionHash),'An admitted adaptive action is required for inert transport');
+ assert.ok((r.adaptiveScope.version==='r12.discovery-owner-adaptive.2'?['plan','strategy','review']:['plan','search1','select1','strategy','review']).includes(phase));
+ const key=`${action.actionHash}:${phase}`,model=phase==='review'?'anthropic/claude-haiku-4.5':'openai/gpt-5.6-luna',id=`gen-r12-adaptive-${action.ordinal}-${phase}`;
+ if(input.method==='POST'){
+  assert.equal(input.url,'https://openrouter.ai/api/v1/chat/completions');assert.ok(!r.adaptiveGenerations[key],'An adaptive paid phase cannot regenerate');
+  assert.equal(input.body.model,model);assert.deepEqual(input.body.provider.only,[phase==='review'?'amazon-bedrock/us':'azure/us']);
+  if(r.adaptiveScope.version==='r12.discovery-owner-adaptive.2'){assert.equal(input.body.tools,undefined);assert.equal(input.body.plugins,undefined);assert.equal(phase==='search1'||phase==='select1',false);}
+  if(phase==='search1')assert.deepEqual(input.body.tools[0].parameters.allowed_domains,r.adaptiveScope.allowedDomains);
+  r.adaptiveCalls.push({ordinal:action.ordinal,actionHash:action.actionHash,phase});r.adaptiveGenerations[key]=id;
+  effects.push({kind:'inert-r12-adaptive-provider',ordinal:action.ordinal,phase});
+  const output=adaptiveProviderOutput(r,phase,input.body),message=phase==='search1'?{content:'Synthetic bounded public source context.',annotations:output.annotations}:{content:JSON.stringify(output)};
+  return{status:200,body:{id,model,choices:[{finish_reason:'stop',message}],usage:{prompt_tokens:100,completion_tokens:50,total_tokens:150,cost:.00001,...(phase==='search1'?{server_tool_use_details:{web_search_requests:1}}:{})}}};
+ }
+ assert.equal(input.method,'GET');assert.equal(input.url,`https://openrouter.ai/api/v1/generation?id=${r.adaptiveGenerations[key]}`);
+ const pending=control.r12DelayAdaptiveReceipt===true&&action.ordinal===(r.adaptiveScope.version==='r12.discovery-owner-adaptive.2'?0:1)&&phase==='review';
+ r.adaptiveReceipts.push({ordinal:action.ordinal,phase,pending});
+ if(pending)return{status:404,body:{error:{message:'Synthetic saved generation receipt not yet indexed'}}};
+ return{status:200,body:{data:{id,provider_name:phase==='review'?'Amazon Bedrock':'Azure',model}}};
+}
 export function r12Provider(state,input,control,effects){
  const r=state.r12;assert.ok(r);const phase=input.phase;assert.ok(['plan','search1','select1','strategy','review'].includes(phase));
+ if(r.adaptiveScopeId)return r12AdaptiveProvider(state,input,control,effects);
  const model=phase==='review'?'anthropic/claude-4.5-haiku-20251001':'openai/gpt-5.6-luna-20260709',id=`gen-r12-next-${r.scopeId}-${phase}`;
  if(input.method==='POST'){
   assert.equal(input.url,'https://openrouter.ai/api/v1/chat/completions');assert.ok(!r.calls.includes(phase),'Paid phase cannot regenerate');r.calls.push(phase);r.generations[phase]=id;effects.push({kind:'inert-r12-provider',phase});

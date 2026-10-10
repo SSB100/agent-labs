@@ -3,11 +3,11 @@ import {readFileSync,mkdirSync,writeFileSync,appendFileSync} from 'node:fs';
 import {execFileSync} from 'node:child_process';
 import {pathToFileURL} from 'node:url';
 
-export const REQUIRED_RELEASE_JOBS=Object.freeze(['quality','r04-sql','r05-sql','r06-sql','r07-sql','r08-sql','r09-sql','r10-sql','r11-sql','r11-research-sql','r12-sql','r03-next']);
+export const REQUIRED_RELEASE_JOBS=Object.freeze(['quality','r04-sql','r05-sql','r06-sql','r07-sql','r08-sql','r09-sql','r10-sql','r11-sql','r11-research-sql','r12-sql','r12-adaptive-races','r03-next']);
 export function ciGateMode(eventName,event){
  if(eventName==='pull_request'){
   assert.equal(typeof event.pull_request?.draft,'boolean','A pull request must declare draft status');
-  return event.pull_request.draft?'focused':'release';
+  return event.pull_request.draft && event.pull_request.head?.ref!=='codex/r12-etsy-owner-baselines-20261010'?'focused':'release';
  }
  if(eventName==='workflow_dispatch'){
   const mode=event.inputs?.gate;

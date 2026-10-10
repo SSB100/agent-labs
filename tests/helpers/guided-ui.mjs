@@ -41,6 +41,9 @@ export function loadSource(file, dependencies = {}) {
     if (["@/components/console/history-pager", "./history-pager"].includes(name)) return { HistoryPager: ({page, label}) => page ? React.createElement("p", null, `${label}: ${page.total ?? 'unavailable'} total · page ${page.page}`) : null };
     if (name === "@/components/quests/owner-research-entry") return loadSource("src/components/quests/owner-research-entry.tsx", { "./owner-research.css": {} });
     if (name === "./discovery-r12-goal-intent" && file === "src/products/discovery-v2.ts") return { assertValidatedOwnerResearchIntent: () => { throw new Error("The legacy product fixture does not authorize owner-initial intent"); } };
+    if (name === "./discovery-v2-hash" && file === "src/products/discovery-v2.ts") return loadSource("src/products/discovery-v2-hash.ts");
+    if (name === "./discovery-r12-owner-observation" && file === "src/products/discovery-v2.ts") return { validateOwnerObservationEvidenceContext:noAction, resolveOwnerObservationEvidence:noAction };
+    if (name === "./discovery-r12-adaptive-intent" && file === "src/products/discovery-v2.ts") return { assertValidatedAdaptiveResearchIntent: noAction };
     if (name === "react/jsx-runtime") return require(name);
     if (name === "react") return React;
     if (name === "react-dom") return require(name);

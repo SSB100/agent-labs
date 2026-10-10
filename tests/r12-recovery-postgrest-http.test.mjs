@@ -7,6 +7,7 @@ import {writeFileSync} from 'node:fs';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {validateR12HttpDatabase,configureR12HttpRoles,startR12Postgrest,r12HttpRpc,prepareCommittedR12Recovery,R12_RPC_ARGUMENTS} from './helpers/r12-postgrest-http.mjs';
+import {resolveRecoverySendImplementation} from './helpers/r12-recovery-send-freshness.mjs';
 import {acceptedR12ResponseBoundaryFixture,r12ShapeMetrics} from './helpers/r12-response-boundary-fixture.mjs';
 const binary=process.env.R12_POSTGREST_BINARY,enabled=process.env.R12_REQUIRE_POSTGREST==='1',sequenceOnly=process.env.R12_HTTP_SEQUENCE_ONLY==='1';
 if(sequenceOnly)assert.ok(enabled,'Sequence mode requires the explicit native HTTP flag');
@@ -46,14 +47,23 @@ test('Recovery uses hoisted 8s RPC, 3s locks and unchanged 3s send through real 
   assert.deepEqual(runtimeCatalog.ordinary,['search_path=""']);assert.ok(runtimeCatalog.scoped.includes('statement_timeout=8s'));assert.ok(runtimeCatalog.scoped.includes('lock_timeout=3s'));assert.deepEqual([runtimeCatalog.anon,runtimeCatalog.authenticated,runtimeCatalog.service_role],[true,false,false]);
   const runtimeArgs={p_business_id:ctx.metadata.businessId,p_scope_id:ctx.scopeId,p_attempt_id:ctx.payload.attemptId,p_operation:'inputs',p_payload:{},p_server_key:ctx.controller};
   for(const change of [{p_server_key:'bad'},{p_scope_id:randomUUID()},{p_attempt_id:randomUUID()},{p_operation:'stage'},{p_payload:{extra:true}}]){const denied=await rpc('r12_recovery_server',{...runtimeArgs,...change});assert.equal(denied.ok,false);assert.equal(denied.data.code,'42501');}
-  const ordinaryDefinition=(await one('select pg_get_functiondef($1::regprocedure) definition',[ordinarySignature])).definition,anchor="if p_operation='inputs' then";
+  // Inject into the actual unchanged-argument implementation, never a thin
+  // wrapper. HTTP still enters the original public RPC with its role deadline.
+  const anchor="if p_operation='inputs' then";
+  const implementation=await resolveRecoverySendImplementation(db,anchor),ordinaryDefinition=implementation.before.definition;
   assert.equal(ordinaryDefinition.split(anchor).length,2);
   await db.exec(ordinaryDefinition.replace(anchor,anchor+' perform pg_sleep(4);'));
   try{
    const ordinaryArgs={...runtimeArgs};delete ordinaryArgs.p_scope_id;
    const timedOut=await rpc('r12_discovery_server',ordinaryArgs);assert.equal(timedOut.ok,false);assert.equal(timedOut.data.code,'57014');
    const scoped=await rpc('r12_recovery_server',runtimeArgs);assert.equal(scoped.ok,true);assert.ok(scoped.elapsedMs>=3900&&scoped.elapsedMs<8000);
-  }finally{await db.exec(ordinaryDefinition);}
+  }finally{
+   await db.exec(ordinaryDefinition);
+   for(const {signature,...before} of implementation.chain){
+    const after=await one('select pg_get_functiondef($1::regprocedure) definition,proowner,proacl,proconfig,provolatile,prosecdef from pg_proc where oid=$1::regprocedure',[signature]);
+    assert.deepEqual(after,before,'HTTP delay restores every implementation/wrapper body and ACL/configuration');
+   }
+  }
   assert.deepEqual(await fingerprint(),baseline);report.guards.push('scoped_runtime_exact_operations_scope_and_keys','actual_inputs_rpc_hoisted_8s_generic_3s_preserved');
   // A private function SET is intentionally insufficient under an outer 3s RPC.
   await db.exec(`create function private.r12_http_inner(seconds double precision) returns boolean language plpgsql set statement_timeout='8s' as $$begin perform pg_sleep(seconds);return true;end$$;
