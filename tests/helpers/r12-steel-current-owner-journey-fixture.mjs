@@ -1,9 +1,10 @@
-/** Current 21400 -> 21300 -> owner-enrolled research journey. No grant is seeded.
+/** Current expired-R11 one-shot -> 21300 -> owner-enrolled research journey. No grant is seeded.
  * Private fixture publishers are operator-only steps outside the owner surface.
  * Actual source functions, SQL, owner forms, model/source driver and admissions
  * execute unchanged. Only provider IO, browser objects and hosting are inert. */
 import assert from 'node:assert/strict';
-import {readbackSource,readbackTarget,publishReadback,READBACK_MIGRATION} from './r12-steel-readback-sql-fixture.mjs';
+import {readbackSource,readbackTarget,publishReadback,READBACK_MIGRATIONS} from './r12-steel-readback-sql-fixture.mjs';
+import {originalReadbackR11,readbackAuthorization,publishReadbackAuthorization} from './r12-steel-readback-authorization-fixture.mjs';
 import {steelConfigDatabase,INERT_STEEL_CONFIG,INERT_STEEL_DEPLOYMENT,inertSteelConfiguration} from './r12-steel-config-sql-fixture.mjs';
 import {steelConfigResearchRuntimeComposition} from './r12-steel-config-source-fixture.mjs';
 import {createRequire} from 'node:module';
@@ -26,9 +27,9 @@ export {ENROLLMENT_ROOT,ownerRenderedForm};
 export async function currentOwnerJourneyDatabase(){
  const db=await steelConfigDatabase();
  try{
-  await db.exec(readFileSync('supabase/migrations/'+READBACK_MIGRATION,'utf8'));
+  for(const file of READBACK_MIGRATIONS)await db.exec(readFileSync('supabase/migrations/'+file,'utf8'));
   // The existing deployment root is independently present before any target.
-  await db.query("insert into private.r05_server_keys(key_hash,expires_at) values($1,clock_timestamp()+interval '1 day')",[createHash('sha256').update(ENROLLMENT_ROOT).digest('hex')]);
+  await db.query("insert into private.r05_server_keys(key_hash,expires_at) values($1,clock_timestamp()-interval '1 hour')",[createHash('sha256').update(ENROLLMENT_ROOT).digest('hex')]);
   return db;
  }catch(error){await db.close();throw error;}
 }
@@ -38,9 +39,13 @@ export async function currentOwnerJourneyAuthority(db){
   const externalEvidence=inertEnrollmentExternalEvidence();
   const target=readbackTarget({businessId:a.f.businessId,ownerId:a.f.ownerId,providerProjectId:a.project},{configuration:configuration.configuration,configurationHash:configuration.configurationHash,deploymentEvidenceHash:externalEvidence.release.deploymentReceiptHash,routeReviewHash:a.routeHash,tariffEvidenceHash:a.registry.browserRoute.content.priceEvidenceHash});
   await publishReadback(db,target);
+  const provenance=await originalReadbackR11(db,{key:ENROLLMENT_ROOT,context:a.f});
+  const metadata={...provenance,providerProjectId:a.project,target};
+  const authorization=await readbackAuthorization(db,metadata);
+  await publishReadbackAuthorization(db,authorization);
   assert.equal((await one(db,'select count(*)::int n from private.r12_direct_browser_routes where route_hash=$1',[a.routeHash])).n,0);
   assert.equal((await one(db,'select count(*)::int n from private.r12_owner_bootstrap_grants where id=$1',[a.grantId])).n,0);
-  return{...a,target,configuration,externalEvidence,operatorPublications:[]};
+  return{...a,target,configuration,externalEvidence,metadataAuthorization:authorization,metadataProvenance:provenance.original,operatorPublications:[]};
  }});
 }
 /** This trusted fixture operator has no owner RPC/HTTP route. It must use the

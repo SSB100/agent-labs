@@ -10,8 +10,10 @@ import {r04SqlBootstrap} from './r04-sql-bootstrap.mjs';
 import {sessionBootstrap} from './r10-sql-fixture.mjs';
 import {validateOwnerInitialRaceEnvironment} from './r12-owner-initial-postgres-races.mjs';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'../..'),require=createRequire(import.meta.url);
-export const READBACK_CUTOFF='20261010121400';
-export const READBACK_MIGRATION='20261010121400_r12_steel_existing_session_readback.sql';
+export const HISTORICAL_READBACK_MIGRATION='20261010121400_r12_steel_existing_session_readback.sql';
+export const READBACK_CUTOFF='20261010230616';
+export const READBACK_MIGRATION='20261010230616_r12_steel_readback_authorization.sql';
+export const READBACK_MIGRATIONS=[HISTORICAL_READBACK_MIGRATION,READBACK_MIGRATION];
 export const INERT_READBACK_ROOT='inert-readback-existing-root-no-live-access-0123456789';
 export const INERT_READBACK_KEY='inert-provider-key-never-transmitted-to-provider';
 export const INERT_READBACK_DEPLOYMENT={environment:'production',deploymentId:'dpl_inert_metadata_21400',releaseCommitSha:'1'.repeat(40)};
@@ -33,8 +35,10 @@ export const hash=readbackSource().load('src/products/discovery-v2-hash.ts').dis
 export async function bootstrapReadback(db){
  await db.exec(r04SqlBootstrap+sessionBootstrap);
  const files=readbackMigrations(readdirSync(root+'/supabase/migrations'));
- assert.ok(files.includes(READBACK_MIGRATION),'Final named 21400 migration is required; drafts cannot qualify');
- for(const file of files){try{await db.exec(readFileSync(root+'/supabase/migrations/'+file,'utf8'));}catch(e){e.message=file+': '+e.message+' '+JSON.stringify({where:e.where,position:e.position});throw e;}}
+ assert.ok(READBACK_MIGRATIONS.every(f=>files.includes(f)),'Both historical and final named readback migrations are required; drafts cannot qualify');
+ assert.equal(files.at(-1),READBACK_MIGRATION);
+ const snapshot=()=>db.query("select n.nspname schema,p.proname,pg_get_function_identity_arguments(p.oid) args,pg_get_functiondef(p.oid) definition,p.proacl::text acl from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname in ('public','private') and p.prokind='f' and (p.proname like 'r05_%' or p.proname like 'r11_%' or p.proname like 'r12_%') and p.proname not in ('r12_steel_config_readback_server','r12_steel_readback_status') order by 1,2,3").then(x=>x.rows);
+ for(const file of files){try{const before=file===READBACK_MIGRATION?await snapshot():null;await db.exec(readFileSync(root+'/supabase/migrations/'+file,'utf8'));if(before){const after=await snapshot(),existing=after.filter(f=>before.some(b=>b.schema===f.schema&&b.proname===f.proname&&b.args===f.args));assert.deepEqual(existing,before,'One-shot migration must preserve all existing paid/helper definitions and ACLs');db.readbackMigrationEvidence={migration:file,unchangedFunctions:before.length};}}catch(e){e.message=file+': '+e.message+' '+JSON.stringify({where:e.where,position:e.position});throw e;}}
  // Represents the pre-existing deployed R05 root; no metadata-specific key is enrolled.
  await db.query("insert into private.r05_server_keys(key_hash,expires_at) values($1,clock_timestamp()+interval '1 day')",[sha(INERT_READBACK_ROOT)]);
 }

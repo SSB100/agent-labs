@@ -40,7 +40,7 @@ test('21400 metadata precursor enforces private targets, existing-root claims, e
     await db.exec('set role '+role);try{await assert.rejects(db.query('select private.r12_steel_publish_readback_target($1)',[target]),/permission denied/);await assert.rejects(db.query('select * from private.r12_steel_readback_targets'),/permission denied/);}finally{await db.exec('reset role');}
    }
    await assert.rejects(db.query('update private.r12_steel_readback_targets set expires_at=expires_at where target_hash=$1',[target.targetHash]),/trusted_immutable/);
-   const tables=(await db.query("select c.relname,c.relrowsecurity from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='private' and c.relname like 'r12_steel_readback_%' and c.relkind='r'")).rows;assert.equal(tables.length,4);assert.ok(tables.every(x=>x.relrowsecurity));
+   const tables=(await db.query("select c.relname,c.relrowsecurity from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='private' and c.relname like 'r12_steel_readback_%' and c.relkind='r'")).rows;assert.equal(tables.length,5);assert.ok(tables.every(x=>x.relrowsecurity));
    assert.deepEqual((await db.query("select p.proname from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='private' and (p.proname like 'r12_steel_readback_%' or p.proname='r12_steel_publish_readback_target') and (has_function_privilege('anon',p.oid,'execute') or has_function_privilege('authenticated',p.oid,'execute') or has_function_privilege('service_role',p.oid,'execute'))")).rows,[]);
   });
   await t.test('owner JWT alone, foreign owner/Business and wrong target/key cannot obtain a fetch claim',async()=>{
