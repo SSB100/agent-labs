@@ -36,6 +36,7 @@ test('four closed plans lead to paid-call admission, known-charge failure and bo
   assert.equal((await one(db,'select count(*)::int n from private.r05_requests where business_id=$1',[x.f.businessId])).n,20);
   const started=await startAdaptivePlanner(db,x),confirmed=started.activated;
   assert.equal(confirmed.activated,true);
+  assert.equal((await x.f.rpc('r12_owner_adaptive_read',[x.f.businessId,x.f.goalId,x.prepared.setupId])).activation.pauseReason,null);
   assert.equal((await one(db,'select count(*)::int n from private.r12_adaptive_activations')).n,1);
   assert.equal((await one(db,'select count(*)::int n from private.r07_children where plan_id=$1',[confirmed.planId])).n,5);
   assert.equal((await one(db,'select count(*)::int n from private.r12_adaptive_actions where scope_id=$1',[x.prepared.scopeId])).n,1);

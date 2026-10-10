@@ -395,3 +395,26 @@ test('stopped adaptive setup offers only SQL-proven existing receipt readback',a
   button(tree,'Check saved receipts').props.onClick();await until(()=>calls.length===1);
   assert.deepEqual(calls[0],[id(1),id(61)]);assert.match(renderToStaticMarkup(render()),/no new research call was sent/i);
 });
+
+test('authenticated missing-source pause survives fresh render without inferring it from NME',()=>{
+  const {now,catalog}=adaptiveFixture();
+  const receipt={businessId:id(1),goalId:id(2),setupId:id(60),scopeId:id(61),profileId:id(3),grantId:id(4),selection:{marketSetKey:'gb',topicKey:'nature'},
+    preview:{version:'r12.adaptive-research-preview.2',maximumActions:10,expiresAt:new Date(now+3600_000).toISOString()},quote:{validUntil:new Date(now+3600_000).toISOString()},
+    confirmed:true,activated:true,stopped:false,actions:[{action:{ordinal:0,kind:'initial',question:'Synthetic unknown demand'},state:'completed',outcome:'NEEDS_MORE_EVIDENCE',committedMicrounits:'30',unresolvedQuestions:[]}]};
+  const view=load('src/components/quests/owner-adaptive-research-workspace.tsx',{
+    'next/navigation':{useRouter:()=>({})},'@/app/dashboard/quests/research/actions':{},
+    '@/lib/core-ui/owner-research-form':money,'./owner-adaptive-research-packet':{OwnerAdaptiveResearchPacket:()=>React.createElement('div',null,'Saved packet')},
+  });
+  const render=(saved=receipt,c=catalog)=>renderToStaticMarkup(React.createElement(view.OwnerAdaptiveResearchWorkspace,{ownerId:id(90),catalog:c,selectedReceipt:saved,observedAt:now}));
+  assert.doesNotMatch(render(),/Saved research pause/,'Completed NME alone is not a source-operation pause');
+  catalog.activation={setupId:receipt.setupId,scopeId:receipt.scopeId,stopped:false,pendingReceiptReadback:false,pendingReceiptCount:0,pauseReason:'owner_source_operation_required'};
+  for(let freshMount=0;freshMount<2;freshMount++){
+    const html=render();assert.match(html,/role="status" aria-label="Saved research pause"/);assert.match(html,/selected Etsy captures cannot answer the next evidence question/);
+    assert.match(html,/current immutable packet cannot acquire new evidence or another source automatically/);
+  }
+  for(const change of [{pauseReason:null},{pauseReason:'different_reason'},{scopeId:id(62)},{setupId:id(63)},{stopped:true}]){
+    assert.doesNotMatch(render(receipt,{...catalog,activation:{...catalog.activation,...change}}),/Saved research pause/);
+  }
+  assert.doesNotMatch(render({...receipt,stopped:true}),/Saved research pause/);
+  assert.doesNotMatch(render({...receipt,preview:{...receipt.preview,version:'r12.adaptive-research-preview.1'}}),/Saved research pause/);
+});

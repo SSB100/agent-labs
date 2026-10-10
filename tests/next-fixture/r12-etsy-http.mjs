@@ -74,24 +74,32 @@ export async function runEtsyOwnerHttp({origin,boundary,output,fixture}) {
   const html=researchHtmlText(await read(`${route()}&adaptiveSetup=${receipt.setupId}`));assert.match(html,/three actual inference roles/);assert.match(html,/No Exa or Etsy API request/);
   const confirmed=await action('confirmAdaptiveOwnerResearchAction',[exactAction(receipt)]);assert.equal(confirmed.ok,true,confirmed.message);receipt=confirmed.receipt;
   assert.equal(receipt.activated,true);assert.deepEqual(current().adaptiveCalls,[]);assert.equal(current().adaptiveScope.version,'r12.discovery-owner-adaptive.2');
+  assert.equal((await catalog(receipt.setupId)).activation.pauseReason,null,'An admitted initial action has no saved source pause');
   startReceiptBranch=await snapshotConfirmedEtsyBranch(boundary.state());
  });
  await check('Etsy HTTP runs planner strategist reviewer and repeated Run pauses before any missing-source action',async()=>{
   const result=await advance(receipt);assert.equal(result.status,'waiting');assert.equal(result.reason,'owner_source_operation_required');
   assert.deepEqual(current().adaptiveCalls.map(row=>row.phase),['plan','strategy','review']);
-  const latest=(await catalog(receipt.setupId)).setups[0];assert.equal(latest.actions.length,1);assert.equal(latest.actions[0].outcome,'NEEDS_MORE_EVIDENCE');
+  const paused=await catalog(receipt.setupId),latest=paused.setups[0];assert.equal(latest.actions.length,1);assert.equal(latest.actions[0].outcome,'NEEDS_MORE_EVIDENCE');
+  assert.equal(paused.activation.pauseReason,'owner_source_operation_required');
+  for(let reload=0;reload<2;reload++){
+   const html=await read(`${route()}&adaptiveSetup=${receipt.setupId}`);
+   assert.match(html,/aria-label="Saved research pause"/);assert.match(researchHtmlText(html),/selected Etsy captures cannot answer the next evidence question/);
+   assert.equal(current().adaptiveCalls.length,3,'Rendering the durable pause cannot create a provider call');
+  }
   for(let attempt=0;attempt<2;attempt++){const repeated=await advance(receipt);assert.equal(repeated.reason,'owner_source_operation_required');assert.equal(current().adaptiveCalls.length,3);}
   const admissions=(await current().db.query('select action_phase from private.r12_adaptive_call_admissions where scope_id=$1 order by action_phase',[receipt.scopeId])).rows;assert.deepEqual(admissions.map(row=>row.action_phase),['plan','review','strategy']);
   const stopped=await action('stopAdaptiveOwnerResearchAction',[exactAction(receipt)]);assert.equal(stopped.ok,true,stopped.message);assert.equal(stopped.receipt.stopped,true);assert.equal(current().adaptiveCalls.length,3);
+  assert.equal((await catalog(receipt.setupId)).activation.pauseReason,null,'Stop suppresses source-pause availability');
  });
  await check('independent Etsy HTTP receipt branch stops and settles repeated receipt checks with zero resends',async()=>{
   technicalScenario='independent-etsy-http-receipt-stop';await startReceiptBranch(process.env.R12_SQL_TEST_HOST);await control({r12DelayAdaptiveReceipt:true});
   const pending=await advance(receipt,'pending');assert.equal(pending.reason,'receipt_pending');assert.deepEqual(current().adaptiveCalls.map(row=>row.phase),['plan','strategy','review']);
   const stopped=await action('stopAdaptiveOwnerResearchAction',[exactAction(receipt)]);assert.equal(stopped.ok,true,stopped.message);assert.equal(stopped.receipt.stopped,true);
-  assert.equal((await catalog(receipt.setupId)).activation.pendingReceiptReadback,true);await control({r12DelayAdaptiveReceipt:false});
+  const pendingCatalog=await catalog(receipt.setupId);assert.equal(pendingCatalog.activation.pendingReceiptReadback,true);assert.equal(pendingCatalog.activation.pauseReason,null);await control({r12DelayAdaptiveReceipt:false});
   const recovered=await advance(receipt,'receipt');assert.equal(recovered.status,'stopped');assert.equal(recovered.reason,'saved_receipt_readback_recorded');
   assert.equal((await catalog(receipt.setupId)).activation.pendingReceiptReadback,false);
-  for(let attempt=0;attempt<2;attempt++){await action('checkAdaptiveOwnerReceiptsAction',[receipt.businessId,receipt.scopeId]);assert.equal(current().adaptiveCalls.length,3);}
+  for(let attempt=0;attempt<2;attempt++){const checked=await action('checkAdaptiveOwnerReceiptsAction',[receipt.businessId,receipt.scopeId]);assert.equal(checked.ok,true,checked.message);assert.equal(checked.result.reason,'saved_receipt_readback_recorded');assert.equal(current().adaptiveCalls.length,3);}
   assert.ok(current().adaptiveReceipts.every(row=>['plan','strategy','review'].includes(row.phase)));assert.equal((await catalog(receipt.setupId)).setups[0].stopped,true);
  });
  assert.deepEqual(boundary.denied,[]);await report();

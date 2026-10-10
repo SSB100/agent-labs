@@ -474,18 +474,26 @@ export async function runOwnerInitialJourney({origin,boundary,output}) {
       await waitUntil(async()=>{if(await page.getByText('The saved adaptive run could not be advanced or verified. Reload its exact setup and review current authority, costs and findings before resuming.').count())throw Error('Etsy Run stopped before its three inert phases; inspect ADAPTIVE_RUNTIME_RPC_REJECTED');return (await adaptiveCatalog(goalId,adaptiveReceipt.setupId)).setups[0]?.actions[0]?.outcome==='NEEDS_MORE_EVIDENCE';},'independently saved Etsy NME result');
       const expected=[[0,'plan'],[0,'strategy'],[0,'review']];
       assert.deepEqual(current().adaptiveCalls.map(item=>[item.ordinal,item.phase]),expected);
-      await page.getByText('The saved run is paused by a guard. Review the current research record before resuming.',{exact:true}).waitFor();
-      const latest=(await adaptiveCatalog(goalId,adaptiveReceipt.setupId)).setups[0];assert.equal(latest.actions.length,1);
+      const pause=page.getByRole('status',{name:'Saved research pause',exact:true});await pause.waitFor();
+      assert.match(await pause.innerText(),/selected Etsy captures cannot answer the next evidence question/);
+      const pausedCatalog=await adaptiveCatalog(goalId,adaptiveReceipt.setupId);
+      assert.equal(pausedCatalog.activation.pauseReason,'owner_source_operation_required');
+      const latest=pausedCatalog.setups[0];assert.equal(latest.actions.length,1);
       assert.equal(latest.actions[0].outcome,'NEEDS_MORE_EVIDENCE');
       const denied=boundary.log.filter(item=>item.rpc==='r12_adaptive_controller_server'&&item.operation==='admit_next');
       assert.ok(denied.length>0,'Actual controller attempted the missing-source guard');
       await capture('15-etsy-three-role-missing-source-pause');
       for(let attempt=0;attempt<2;attempt++){
-        await page.getByRole('button',{name:'Run or resume approved adaptive research',exact:true}).click();
-        await page.getByText('The saved run is paused by a guard. Review the current research record before resuming.',{exact:true}).waitFor();
+        const run=page.getByRole('button',{name:'Run or resume approved adaptive research',exact:true});
+        const before=boundary.log.filter(item=>item.rpc==='r12_adaptive_controller_server'&&item.operation==='admit_next').length;
+        await run.click();
+        await waitUntil(async()=>boundary.log.filter(item=>item.rpc==='r12_adaptive_controller_server'&&item.operation==='admit_next').length>before&&!await run.isDisabled(),'repeated missing-source guard readback');
+        await pause.waitFor();
         assert.deepEqual(current().adaptiveCalls.map(item=>[item.ordinal,item.phase]),expected,'Repeated Run cannot manufacture new channel observations');
       }
-      await page.reload();assert.deepEqual(current().adaptiveCalls.map(item=>[item.ordinal,item.phase]),expected);
+      await page.reload();await pause.waitFor();
+      assert.equal((await adaptiveCatalog(goalId,adaptiveReceipt.setupId)).activation.pauseReason,'owner_source_operation_required');
+      assert.deepEqual(current().adaptiveCalls.map(item=>[item.ordinal,item.phase]),expected);
       await page.getByRole('button',{name:'Stop this adaptive setup',exact:true}).click();await page.getByText(/Saved setup: stopped/).waitFor();
       assert.deepEqual(current().adaptiveCalls.map(item=>[item.ordinal,item.phase]),expected);
       await capture('15a-etsy-missing-source-stopped');

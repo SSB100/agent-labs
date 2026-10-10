@@ -91,6 +91,7 @@ test('Etsy-only mode keeps five-phase history but creates exactly three real chi
   assert.equal((await one(db,'select children_created from private.r07_heads where goal_id=$1',[x.f.goalId])).children_created,23);
   const controller=etsyActionController(db,x,started),admitted=await controller.adaptive('admit_next');
   assert.equal(admitted.admitted,true);assert.equal(admitted.ordinal,1);
+  assert.equal((await x.f.rpc('r12_owner_adaptive_read',[x.f.businessId,x.f.goalId,x.prepared.setupId])).activation.pauseReason,null);
   const current=await controller.readAdaptiveAction();assert.deepEqual(current.phaseKeys,['strategy','review']);
   assert.deepEqual(current.reused.map(p=>p.stepKey),['plan']);
   // Rollback only the synthetic branch. Every phase still uses the real APIs.
@@ -98,6 +99,16 @@ test('Etsy-only mode keeps five-phase history but creates exactly three real chi
   const reasoning=await runEtsyAction(db,x,started,{nextKind:'followup'});
   assert.deepEqual(reasoning.phases,['strategy','review']);assert.equal(reasoning.posts,2);assert.equal(reasoning.gets,2);
   assert.deepEqual(await controller.adaptive('admit_next'),{admitted:false,reason:'owner_source_operation_required'});
+  const pausedCatalog=await x.f.rpc('r12_owner_adaptive_read',[x.f.businessId,x.f.goalId,x.prepared.setupId]);
+  assert.equal(pausedCatalog.activation.pauseReason,'owner_source_operation_required');
+  assert.equal((await x.f.rpc('r12_owner_adaptive_read',[x.f.businessId,x.f.goalId,x.prepared.setupId])).activation.pauseReason,'owner_source_operation_required');
+  // Denial precedence at the final approved extra-action boundary. This inert
+  // transaction only lowers authority; it is rolled back before any admission.
+  await db.exec('savepoint final_action_boundary; alter table private.r12_adaptive_activations disable trigger user');
+  await db.query('update private.r12_adaptive_activations set maximum_extra_actions=1 where scope_id=$1',[x.prepared.scopeId]);
+  assert.equal((await x.f.rpc('r12_owner_adaptive_read',[x.f.businessId,x.f.goalId,x.prepared.setupId])).activation.pauseReason,null);
+  assert.deepEqual(await controller.adaptive('admit_next'),{admitted:false,reason:'action_limit'});
+  await db.exec('rollback to savepoint final_action_boundary');
   assert.equal((await one(db,'select count(*)::int n from private.r12_adaptive_actions where scope_id=$1',[x.prepared.scopeId])).n,2);
   assert.equal((await one(db,'select count(*)::int n from private.r12_adaptive_call_admissions where scope_id=$1',[x.prepared.scopeId])).n,5);
   assert.equal((await one(db,'select children_created from private.r07_heads where goal_id=$1',[x.f.goalId])).children_created,23);
@@ -105,11 +116,12 @@ test('Etsy-only mode keeps five-phase history but creates exactly three real chi
   const stop=()=>x.f.rpc('r12_owner_adaptive_server',[x.f.businessId,'stop',{businessId:x.f.businessId,setupId:x.prepared.setupId,setupHash:x.prepared.setupHash,submissionId:randomUUID()},'']);
   await db.exec('begin');
   await stop();
+  assert.equal((await x.f.rpc('r12_owner_adaptive_read',[x.f.businessId,x.f.goalId,x.prepared.setupId])).activation.pauseReason,null);
   assert.equal((await controller.adaptive('admit_next')).reason,'owner_stopped');
   assert.equal((await one(db,'select count(*)::int n from private.r12_adaptive_call_admissions where scope_id=$1',[x.prepared.scopeId])).n,3);
   assert.equal(Number((await one(db,'select private.r12_adaptive_outstanding_hold($1) hold',[x.f.businessId])).hold),0);
   await db.exec('rollback');
-  const late=await runEtsyAction(db,x,started,{onFirstPost:stop,stopAfterResponse:true});
+  const late=await runEtsyAction(db,x,started,{onFirstPost:async()=>{await stop();const pending=await x.f.rpc('r12_owner_adaptive_read',[x.f.businessId,x.f.goalId,x.prepared.setupId]);assert.equal(pending.activation.pauseReason,null);assert.equal(pending.activation.pendingReceiptReadback,true);},stopAfterResponse:true});
   assert.deepEqual(late.phases,['strategy']);assert.equal(late.posts,1);assert.equal(late.gets,1);
   assert.equal((await controller.adaptive('admit_next')).reason,'owner_stopped');
   assert.equal((await one(db,'select count(*)::int n from private.r05_exposure($1) where unknown',[x.f.businessId])).n,0);

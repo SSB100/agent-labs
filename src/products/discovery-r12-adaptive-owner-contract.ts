@@ -48,7 +48,8 @@ export type AdaptiveOwnerCatalog = {
   profiles: Array<{ profile: AdaptiveOwnerResearchProfile; profileHash: string }>;
   grants: AdaptivePreparationSnapshot["grant"][];
   setups: AdaptiveOwnerReceipt[];
-  activation: { setupId: string; scopeId: string; stopped: boolean; pendingReceiptReadback: boolean; pendingReceiptCount: number } | null;
+  activation: { setupId: string; scopeId: string; stopped: boolean; pendingReceiptReadback: boolean; pendingReceiptCount: number;
+    pauseReason: "owner_source_operation_required" | null } | null;
   actions: AdaptiveOwnerActionRecord[];
 };
 export type AdaptiveOwnerSetupAction = { businessId: string; setupId: string; setupHash: string; submissionId: string };

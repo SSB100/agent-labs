@@ -24,6 +24,11 @@ import {discoveryV2Hash} from '../../.core-tests/products/discovery-v2.js';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
 export const validateAdaptiveRaceEnvironment=validateOwnerInitialRaceEnvironment;
+/** Counter tampering fails the reconstructed lifetime ledger, before approval. */
+export function assertAdaptiveCounterTamperRejected(error){
+ assert.ok(error,'Counter changes must invalidate exact predecessor closure');
+ assert.equal(error.message,'r12_episode_lifetime_bound');
+}
 /** Genuine schedule and exact adapter descriptor, no reservation or transport. */
 export async function startAdaptivePlanner(db,c){
  const activated=await c.confirm(),scopeId=c.prepared.scopeId;
@@ -131,8 +136,7 @@ export async function exerciseAdaptivePostgresRaces(env=process.env,{prepareFixt
     await client.query('select id from public.businesses where id=$1 for update',[c.f.businessId]);
     await client.query('update private.r07_heads set dispatches=dispatches+1 where goal_id=$1',[c.f.goalId]);return true;
    },second:client=>owner(client,c,'confirm',c.confirmPayload)});
-   assert.ok(tamper.second.error,'Counter changes must invalidate exact predecessor closure');
-   assert.match(tamper.second.error.message,/r12_.*(?:counter|predecessor|lineage)/);
+   assertAdaptiveCounterTamperRejected(tamper.second.error);
    assert.equal((await count(c)).activations,0);record(label+'-stale-counter-cannot-confirm',tamper);
    await db.query('update private.r07_heads set dispatches=dispatches-1 where goal_id=$1',[c.f.goalId]);
    await assert.rejects(c.prepare({predecessorPlanHash:'f'.repeat(64)}),/predecessor|lineage|changed/);

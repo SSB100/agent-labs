@@ -16,6 +16,7 @@ type Props = { businessId?:string; ownerId: string; catalog: AdaptiveOwnerCatalo
 const positive = (value: string) => /^(0|[1-9][0-9]{0,15})$/.test(value) ? BigInt(value) : BigInt(0);
 const max = (a: bigint, b: bigint) => a > b ? a : b;
 const min = (a: bigint, b: bigint) => a < b ? a : b;
+const OWNER_SOURCE_PAUSE_MESSAGE = "The selected Etsy captures cannot answer the next evidence question. Save the missing genuine observation, then review the scope and permissions before further research. The current immutable packet cannot acquire new evidence or another source automatically.";
 const waitFor = (milliseconds: number, signal: AbortSignal) => new Promise<boolean>(resolve => {
   if (signal.aborted) return resolve(false);
   const timer=window.setTimeout(()=>{signal.removeEventListener("abort",cancel);resolve(true);},milliseconds);
@@ -74,6 +75,11 @@ export function OwnerAdaptiveResearchWorkspace({ businessId:requestedBusinessId,
   const quoteExpired = !!receipt && Date.parse(receipt.quote.validUntil) <= now;
   const packetExpired = !!receipt && Date.parse(receipt.preview.expiresAt) <= now;
   const canConfirm = !!receipt && !receipt.confirmed && !receipt.activated && !receipt.stopped && !quoteExpired && !packetExpired && consentHash === receipt.setupHash && (!receipt.ownerObservationRef || disclosureHash===receipt.ownerObservationRef.manifestHash);
+  // This notice survives a route refresh because it comes from authenticated
+  // saved review readback, never from NME alone or client-side inference.
+  const ownerSourcePaused = !!receipt?.activated && !receipt.stopped && receipt.preview.version === "r12.adaptive-research-preview.2" &&
+    catalog.activation?.setupId === receipt.setupId && catalog.activation.scopeId === receipt.scopeId &&
+    !catalog.activation.stopped && catalog.activation.pauseReason === "owner_source_operation_required";
 
 
   async function requestId(operation: string, input: unknown, superseded?: string) {
@@ -149,7 +155,7 @@ export function OwnerAdaptiveResearchWorkspace({ businessId:requestedBusinessId,
         if (result.status==="blocked") {setMessage("Further adaptive work is blocked. Review saved findings, costs and authority before deciding what to do next.");return;}
         if (result.status!=="waiting") {setMessage("Progress is saved. Reload the exact action record before resuming this run.");return;}
         if (result.status==="waiting" && !["continue_saved_progress","receipt_pending"].includes(result.reason)) {
-          setMessage(result.reason==="owner_source_operation_required"?"The selected Etsy captures cannot answer the next evidence question. Save the missing genuine observation, then review the scope and permissions before further research. The current immutable packet cannot acquire new evidence or another source automatically.":"The saved run is paused by a guard. Review the current research record before resuming.");return;
+          setMessage(result.reason==="owner_source_operation_required"?OWNER_SOURCE_PAUSE_MESSAGE:"The saved run is paused by a guard. Review the current research record before resuming.");return;
         }
         const wake=typeof result.wakeAt==="string"?Date.parse(result.wakeAt):NaN;
         if (result.reason==="receipt_pending" && !Number.isFinite(wake)) {setMessage("A provider receipt is still pending. Reload the saved record before resuming; no new call was assumed.");return;}
@@ -199,7 +205,8 @@ export function OwnerAdaptiveResearchWorkspace({ businessId:requestedBusinessId,
     <h2 id="owner-adaptive-title">Adaptive research from saved evidence</h2>
     <p>This is an Etsy-only reviewed run on the original Quest. It carries the negative and unresolved history forward, with a US$10 total run ceiling and at most ten combined extra decisions. Each decision is separately admitted within the approved run and may need several paid calls.</p>
     {intake}
-    {message ? <p role="status" tabIndex={-1} ref={messageRef} className="ownerResearchNotice">{message}</p> : null}
+    {ownerSourcePaused ? <p role="status" aria-label="Saved research pause" className="ownerResearchNotice">{OWNER_SOURCE_PAUSE_MESSAGE}</p> : null}
+    {message && !(ownerSourcePaused && message===OWNER_SOURCE_PAUSE_MESSAGE) ? <p role="status" tabIndex={-1} ref={messageRef} className="ownerResearchNotice">{message}</p> : null}
     {busy ? <p role="status">{busy==="prepare"?"Preparing a fresh quote and exact packet…":busy==="confirm"?"Checking this exact confirmation…":"Closing this setup’s remaining authority…"} Keep this page open.</p> : null}
     {running ? <p role="status">The saved adaptive run is active in this browser session. Stop remains available while work is in flight.</p> : null}
     {checkingReceipts ? <p role="status">Only existing paid receipts are being checked. This stopped setup cannot start another research action.</p> : null}

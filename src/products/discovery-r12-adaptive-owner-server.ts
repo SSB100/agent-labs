@@ -98,8 +98,12 @@ export async function readAdaptiveOwnerResearch(context: OwnerUiContext,business
       const active=c.activation;
       if (!object(active) || ![active.setupId,active.scopeId].every(id) || typeof active.stopped !== "boolean" ||
           typeof active.pendingReceiptReadback !== "boolean" || !integer(active.pendingReceiptCount) || active.pendingReceiptCount > 5 ||
+          !(active.pauseReason === null || active.pauseReason === "owner_source_operation_required") ||
           active.pendingReceiptReadback !== (active.pendingReceiptCount > 0) || active.pendingReceiptReadback && !active.stopped ||
           !c.setups.some(r=>r.setupId === active.setupId && r.scopeId === active.scopeId && r.activated && r.stopped === active.stopped)) return fail();
+      if (active.pauseReason !== null && (active.stopped || active.pendingReceiptReadback ||
+          !c.setups.some(r=>r.setupId === active.setupId && r.scopeId === active.scopeId &&
+            r.preview.version === "r12.adaptive-research-preview.2" && r.actions.at(-1)?.state === "completed"))) return fail();
     }
     for (const r of c.setups) {
       const profile = c.profiles.find(p=>p.profile.id === r.profileId && p.profileHash === r.preview.profileHash);
