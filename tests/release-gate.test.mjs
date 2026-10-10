@@ -118,3 +118,18 @@ test('explicit Etsy recovery draft requires full qualification, including native
  const needs=success();needs['r12-adaptive-races']={result:'skipped'};
  assert.throws(()=>qualifyRelease({mode:'release',needs,...identity}),/r12-adaptive-races/);
 });
+
+test('current Steel owner path requires native metadata, races, full journey and real Next browser qualification',()=>{
+ const {load}=createRequire(import.meta.url)('js-yaml');
+ const workflow=load(readFileSync(new URL('../.github/workflows/direct-etsy-qualification.yml',import.meta.url),'utf8'));
+ const native=workflow.jobs['native-direct'];
+ for(const file of ['r12-steel-readback-sql.test.mjs','r12-steel-readback-postgres-races.test.mjs','r12-steel-current-owner-journey-sql.test.mjs'])assert.equal(native.strategy.matrix.include.filter(x=>x.file===file&&x.pattern==='.').length,1,file);
+ const browser=workflow.jobs['owner-next'];
+ assert.deepEqual(browser.strategy.matrix.include.map(x=>x.journey),['legacy','enrollment','current']);
+ const current=browser.strategy.matrix.include.find(x=>x.journey==='current');
+ assert.equal(current.script,'verify-r12-steel-current-owner-next.mjs');
+ assert.equal(current.artifact,'r12-steel-current-owner-next');
+ const run=browser.steps.find(x=>x.run?.includes('matrix.script'));
+ assert.equal(run.env.R12_REQUIRE_POSTGRES,'1');assert.equal(run.run.includes('--compile-only'),false);
+ assert.ok(browser.steps.some(x=>x.if==='always()'&&x.with?.path==='test-results/${{ matrix.artifact }}/'&&x.with?.['if-no-files-found']==='error'));
+});

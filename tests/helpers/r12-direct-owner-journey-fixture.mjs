@@ -5,6 +5,7 @@
  * The new configuration admission is an explicitly synthetic pre-21300 leaf.
  * This does not qualify Next action serialization, Chromium, or hosted workflows. */
 import assert from 'node:assert/strict';
+import {readbackSource} from './r12-steel-readback-sql-fixture.mjs';
 import {inertSteelCreateConfigurationPermit} from './etsy-steel-create-config-fixture.mjs';
 import {createRequire} from 'node:module';
 import {readFileSync,writeFileSync} from 'node:fs';
@@ -47,13 +48,13 @@ export async function ownerJourneyAuthority(db){
  }});
 }
 export function ownerJourneyComposition(db,a){
- const rpcCalls=[],errors=[],cleanup=[],providerCalls=[],browsers=[],workflowStarts=[],resumes=[],sourceHashes={},boundarySubstitutions=[];
+ const historicalReadbackCalls=[],historicalReadbackErrors=[],rpcCalls=[],errors=[],cleanup=[],providerCalls=[],browsers=[],workflowStarts=[],resumes=[],sourceHashes={},boundarySubstitutions=[];
  const preparation={...core('products/discovery-r12-public-preparation'),validatePublicResearchOwnerTestReceipt(...args){try{return core('products/discovery-r12-public-preparation').validatePublicResearchOwnerTestReceipt(...args);}catch(error){errors.push({name:'receipt_validation',message:error.stack,pinsBytes:Buffer.byteLength(JSON.stringify(args[0]?.preview?.researchPins??null))});throw error;}}};
  const profileId=randomUUID(),sessions=new Map(),transports=[];let activeUser=a.f.ownerId,tail=Promise.resolve();
  const serial=work=>{const next=tail.then(work,work);tail=next.catch(()=>{});return next;};
- const allowed=new Set(['r12_steel_create_config_admit','r12_owner_direct_enrollment_read','r12_owner_direct_read','r12_owner_direct_server','r12_etsy_steel_owner','r12_owner_etsy_steel_verification_read','r12_owner_etsy_steel_renderer_review','r12_etsy_steel_server','r12_etsy_steel_verification_server','r12_direct_browser_ledger','r12_direct_setup_quote_revalidate','r12_direct_owner_renderer_qualification','r12_direct_controller_server']);
+ const allowed=new Set(['r12_owner_steel_config_readback','r12_steel_config_readback_server','r12_steel_create_config_admit','r12_owner_direct_enrollment_read','r12_owner_direct_read','r12_owner_direct_server','r12_etsy_steel_owner','r12_owner_etsy_steel_verification_read','r12_owner_etsy_steel_renderer_review','r12_etsy_steel_server','r12_etsy_steel_verification_server','r12_direct_browser_ledger','r12_direct_setup_quote_revalidate','r12_direct_owner_renderer_qualification','r12_direct_controller_server']);
  function client(role){return{rpc:async(name,args)=>serial(async()=>{
-  assert.ok(allowed.has(name));const owner=activeUser;rpcCalls.push({role,name,operation:args.p_operation,owner});
+  assert.ok(allowed.has(name));const owner=activeUser;(name==='r12_owner_steel_config_readback'||name==='r12_steel_config_readback_server'?historicalReadbackCalls:rpcCalls).push({role,name,operation:args.p_operation,owner});
   // This owner journey ends before 21300. The only new boundary substitution
   // echoes a correctly scoped inert configuration permit; it is forbidden if
   // real configuration authority exists in the database.
@@ -81,7 +82,7 @@ export function ownerJourneyComposition(db,a){
    const data=(await one(db,`select public.${name}(${names.map((x,i)=>x+' => $'+(i+1)).join(',')}) result`,Object.values(args))).result;
    if(args.p_operation==='transport')transports.push(args.p_payload.request);
    return{data,error:null};
-  }catch(error){errors.push({role,name,operation:args.p_operation,message:error.message});return{data:null,error};}
+  }catch(error){const historical=name==='r12_owner_steel_config_readback'&&error.code==='42883';(historical?historicalReadbackErrors:errors).push({role,name,operation:args.p_operation,message:error.message});return{data:null,error};}
   finally{await db.exec('reset role');}
  }),auth:{getClaims:async()=>({data:{claims:{sub:activeUser}},error:null})},from(table){assert.equal(table,'businesses');const filters={};const chain={select(){return chain;},eq(k,v){filters[k]=v;return chain;},async maybeSingle(){return serial(async()=>({data:await one(db,'select id,name,created_at,updated_at from public.businesses where id=$1 and owner_user_id=$2',[filters.id,filters.owner_user_id])??null,error:null}));}};return chain;}};}
  const authenticated=client('authenticated'),runtime=client('anon');
@@ -127,7 +128,10 @@ export function ownerJourneyComposition(db,a){
  });
  class Redirect extends Error{constructor(url){super('Inert Next redirect');this.url=url;}}
  const ui={'@/lib/core-ui/data':{requireOwnerUiContext:async()=>context()},'next/navigation':{redirect:url=>{throw new Redirect(url);},notFound:()=>{throw Error('not_found');}},'next/cache':{revalidatePath:()=>{}}};
- const productActions=load('src/app/dashboard/products/etsy-research/actions.ts',{...ui,'@/products/discovery-r12-public-owner-server':product,'@/products/discovery-r12-direct-enrollment-server':enrollment,'@/products/discovery-r12-public-contracts':core('products/discovery-r12-public-contracts')});
+ // Current page imports use the real metadata module. Historical SQL has no
+ // 21400 authority, so its actual read fails closed and the page says unavailable.
+ const readback=readbackSource().load('src/accounts/etsy-steel-readback-owner-server.ts');
+ const productActions=load('src/app/dashboard/products/etsy-research/actions.ts',{...ui,'@/products/discovery-r12-public-owner-server':product,'@/products/discovery-r12-direct-enrollment-server':enrollment,'@/accounts/etsy-steel-readback-owner-server':readback,'@/products/discovery-r12-public-contracts':core('products/discovery-r12-public-contracts')});
  const accountActions=load('src/app/dashboard/accounts/etsy-research/actions.ts',{...ui,'@/accounts/etsy-steel-handoff-owner-server':owner,'@/accounts/etsy-steel-handoff-server':account});
  // Display-only input seam: actions and authority always use the real product module.
  const uiState={nextAction:null};const pageProduct={...product,readDirectResearchCatalog:async(...args)=>{const c=await product.readDirectResearchCatalog(...args);return uiState.nextAction===null?c:{...c,researchState:{...c.researchState,nextAction:uiState.nextAction}};}};
@@ -136,12 +140,12 @@ export function ownerJourneyComposition(db,a){
  const wrap=(fn)=>(type,props,key)=>{if(type==='form'&&typeof props?.action==='function'){assert.ok(fnNames.has(props.action));props={...props,method:'POST',action:'/__inert_owner_action/'+fnNames.get(props.action)};}return fn(type,props,key);};
  const renderDeps={...ui,'react/jsx-runtime':{...jsx,jsx:wrap(jsx.jsx),jsxs:wrap(jsx.jsxs)},'next/link':{__esModule:true,default:props=>React.createElement('a',{...props,prefetch:undefined},props.children)},'@/components/stage7/app-shell':{AppShell:p=>React.createElement('main',null,p.children),PageHeader:p=>React.createElement('header',null,React.createElement('h1',null,p.title),p.description,p.actions)},'@/components/console/console-retained-workspace':{ConsoleRetainedWorkspace:p=>React.createElement(React.Fragment,null,p.header,...p.panels.map(x=>React.createElement('div',{key:x.id},x.content)))} };
  const pages={
-  '/dashboard/products/etsy-research':load('src/app/dashboard/products/etsy-research/page.tsx',{...renderDeps,'@/products/discovery-r12-public-owner-server':pageProduct,'@/products/discovery-r12-direct-enrollment-server':enrollment,'@/products/discovery-r12-public-preparation':core('products/discovery-r12-public-preparation'),'@/products/discovery-r12-public-utils':core('products/discovery-r12-public-utils'),'./actions':productActions}).default,
+  '/dashboard/products/etsy-research':load('src/app/dashboard/products/etsy-research/page.tsx',{...renderDeps,'@/products/discovery-r12-public-owner-server':pageProduct,'@/products/discovery-r12-direct-enrollment-server':enrollment,'@/accounts/etsy-steel-readback-owner-server':readback,'@/products/discovery-r12-public-preparation':core('products/discovery-r12-public-preparation'),'@/products/discovery-r12-public-utils':core('products/discovery-r12-public-utils'),'./actions':productActions}).default,
   '/dashboard/accounts/etsy-research':load('src/app/dashboard/accounts/etsy-research/page.tsx',{...renderDeps,'@/accounts/etsy-steel-handoff-owner-server':owner,'@/accounts/etsy-steel-handoff-contracts':core('accounts/etsy-steel-handoff-contracts'),'./actions':accountActions,'../accounts.css':{}}).default,
   '/dashboard/accounts/etsy-research/sign-in':load('src/app/dashboard/accounts/etsy-research/sign-in/page.tsx',{...renderDeps,'@/accounts/etsy-steel-handoff-server':account,'@/accounts/etsy-steel-handoff-contracts':core('accounts/etsy-steel-handoff-contracts'),'../actions':accountActions}).default,
  };
  async function handle(request){const url=new URL(request.url);try{if(request.method==='GET'){assert.ok(pages[url.pathname]);const element=await pages[url.pathname]({searchParams:Promise.resolve(Object.fromEntries(url.searchParams))});return new Response(renderToStaticMarkup(element),{headers:{'Content-Type':'text/html'}});}assert.equal(request.method,'POST');const action=actionMap.get(url.pathname.split('/').at(-1));assert.ok(action);await action(await request.formData());throw Error('Action returned without redirect');}catch(error){if(error instanceof Redirect)return new Response(null,{status:303,headers:{Location:error.url}});throw error;}finally{await Promise.all(cleanup.splice(0));}}
- return{a,boundarySubstitutions,owner,account,product,enrollment,uiState,context,runtime,handle,sourceHashes,rpcCalls,errors,providerCalls,browsers,workflowStarts,resumes,hooks,faults,profileId,sessions,setUser:id=>{activeUser=id;},async invoke(group,name,args){const target={product,account,owner,enrollment}[group];assert.ok(target&&typeof target[name]==='function'&&name!=='sourceHash');try{return await target[name](context(),...args);}finally{await Promise.all(cleanup.splice(0));}},get:async path=>handle(new Request('http://inert.local'+path)),async post(action,data){return handle(new Request('http://inert.local/__inert_owner_action/'+action,{method:'POST',body:new URLSearchParams(data)}));}};
+ return{a,historicalReadbackCalls,historicalReadbackErrors,boundarySubstitutions,owner,account,product,enrollment,uiState,context,runtime,handle,sourceHashes,rpcCalls,errors,providerCalls,browsers,workflowStarts,resumes,hooks,faults,profileId,sessions,setUser:id=>{activeUser=id;},async invoke(group,name,args){const target={product,account,owner,enrollment,readback}[group];assert.ok(target&&typeof target[name]==='function'&&name!=='sourceHash');try{return await target[name](context(),...args);}finally{await Promise.all(cleanup.splice(0));}},get:async path=>handle(new Request('http://inert.local'+path)),async post(action,data){return handle(new Request('http://inert.local/__inert_owner_action/'+action,{method:'POST',body:new URLSearchParams(data)}));}};
 }
 export function ownerRenderedForm(html,button){
  const decode=s=>s.replaceAll('&amp;','&').replaceAll('&quot;','"').replaceAll('&#x27;',"'").replaceAll('&lt;','<').replaceAll('&gt;','>');

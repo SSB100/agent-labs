@@ -124,6 +124,12 @@ jobs:
             pattern: '.'
           - file: r12-direct-enrollment-owner-journey-sql.test.mjs
             pattern: '.'
+          - file: r12-steel-current-owner-journey-sql.test.mjs
+            pattern: '.'
+          - file: r12-steel-readback-sql.test.mjs
+            pattern: '.'
+          - file: r12-steel-readback-postgres-races.test.mjs
+            pattern: '.'
           - file: r12-steel-config-admission-sql.test.mjs
             pattern: '.'
           - file: r12-steel-config-postgres-races.test.mjs
@@ -187,7 +193,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        journey: [legacy, enrollment]
+        include:
+          - journey: legacy
+            script: verify-r12-direct-owner-next.mjs
+            artifact: r12-direct-owner-next
+          - journey: enrollment
+            script: verify-r12-direct-enrollment-owner-next.mjs
+            artifact: r12-direct-enrollment-owner-next
+          - journey: current
+            script: verify-r12-steel-current-owner-next.mjs
+            artifact: r12-steel-current-owner-next
     runs-on: ubuntu-latest
     timeout-minutes: 25
     services:
@@ -226,12 +241,12 @@ jobs:
           R12_SQL_TEST_HOST: ${{ runner.temp }}/r12-sql-host
           R12_REQUIRE_POSTGRES: '1'
           R12_POSTGRES_URL: postgresql://r12_test:r12-isolated-fixture@127.0.0.1:5432/r12_test
-        run: node "scripts/${{ matrix.journey == 'enrollment' && 'verify-r12-direct-enrollment-owner-next.mjs' || 'verify-r12-direct-owner-next.mjs' }}"
+        run: node "scripts/${{ matrix.script }}"
       - name: Preserve browser, app and explicit substitution evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: direct-etsy-owner-next-${{ matrix.journey }}-${{ github.sha }}
-          path: test-results/${{ matrix.journey == 'enrollment' && 'r12-direct-enrollment-owner-next' || 'r12-direct-owner-next' }}/
+          path: test-results/${{ matrix.artifact }}/
           if-no-files-found: error
           retention-days: 14

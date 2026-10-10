@@ -20,7 +20,7 @@ test('actual enrollment server accepts omitted proposal after JSON boundary and 
  await assert.rejects(server.readDirectEnrollmentCatalog(context,...old));assert.equal(calls.length,0);
  assert.equal((await server.readDirectEnrollmentCatalog(context,...fixed)).reason,'reviewed_package_required');assert.equal(calls.length,1);assert.equal(calls[0].args.p_proposal_id,null);
 });
-test('both generated Next facades use the qualified argument boundary and enrollment preserves failure artifacts',()=>{
- for(const file of ['scripts/verify-r12-direct-owner-next.mjs','scripts/verify-r12-direct-enrollment-owner-next.mjs']){const source=readFileSync(file,'utf8');assert.ok(source.includes('args:boundaryArguments(args)'));assert.equal(source.includes('args:args.slice(1)'),false);}
- const source=readFileSync('scripts/verify-r12-direct-enrollment-owner-next.mjs','utf8');for(const artifact of ['failure.json','failure.html','failure.png'])assert.ok(source.includes(artifact));assert.ok(source.indexOf("'failure.json'")<source.indexOf('await browser?.close()'));
+test('all generated Next facades use the qualified argument boundary and enrollment preserves failure artifacts',()=>{
+ for(const file of ['scripts/verify-r12-direct-owner-next.mjs','scripts/verify-r12-direct-enrollment-owner-next.mjs','scripts/verify-r12-steel-current-owner-next.mjs']){const source=readFileSync(file,'utf8');assert.ok(source.includes('args:boundaryArguments(args)'));assert.equal(source.includes('args:args.slice(1)'),false);}
+ for(const file of ['scripts/verify-r12-direct-enrollment-owner-next.mjs','scripts/verify-r12-steel-current-owner-next.mjs']){const source=readFileSync(file,'utf8');for(const artifact of ['failure.json','failure.html','failure.png'])assert.ok(source.includes(artifact));assert.ok(source.indexOf("'failure.json'")<source.indexOf('await browser?.close()'));}
 });

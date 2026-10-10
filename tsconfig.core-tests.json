@@ -88,6 +88,7 @@
     "src/products/discovery-r12-adaptive-server.ts",
     "src/products/discovery-r12-owner-observation-server.ts",
     "src/products/discovery-r12-public-owner-server.ts",
-    "src/products/discovery-r12-direct-enrollment-server.ts"
+    "src/products/discovery-r12-direct-enrollment-server.ts",
+    "src/accounts/etsy-steel-readback-owner-server.ts"
   ]
 }

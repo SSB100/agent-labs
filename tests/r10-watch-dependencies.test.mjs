@@ -57,6 +57,9 @@ function fixture(options = {}) {
   const provider = loadSource('src/browser/providers/steel.ts', {
     '../types': types, '../../core/transport-admission': admission,
     '../../core/request-deadline': loadSource('src/core/request-deadline.ts', {}, globals),
+    '../etsy-steel-create-binding': loadSource('src/browser/etsy-steel-create-binding.ts', {
+      '../products/discovery-v2-hash': loadSource('src/products/discovery-v2-hash.ts'),
+    }, globals),
   }, globals);
   const originalConfig = provider.getSteelConfig;
   const factory = loadSource('src/browser/watch-dependencies.ts', {
