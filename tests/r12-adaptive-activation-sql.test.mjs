@@ -9,7 +9,7 @@ import {randomUUID} from 'node:crypto';
 import {r04SqlBootstrap} from './helpers/r04-sql-bootstrap.mjs';
 import {sessionBootstrap} from './helpers/r10-sql-fixture.mjs';
 import {prepareFourPlanAdaptiveFixture} from './helpers/r12-adaptive-activation-fixture.mjs';
-import {startAdaptivePlanner,bindAdaptivePlanner} from './helpers/r12-adaptive-postgres-races.mjs';
+import {startAdaptivePlanner,bindAdaptivePlanner,assertAdaptiveDeferredGuardBoundary} from './helpers/r12-adaptive-postgres-races.mjs';
 import {one,ownerInitialRuntimeRpc,sha} from './helpers/r12-owner-initial-sql-fixture.mjs';
 import {discoveryV2Hash} from '../.core-tests/products/discovery-v2.js';
 import {observeR12ReviewResponse} from '../.core-tests/products/discovery-r12-observation.js';
@@ -28,6 +28,7 @@ test('four closed plans lead to paid-call admission, known-charge failure and bo
   await db.exec(r04SqlBootstrap+sessionBootstrap);
   for(const file of readdirSync(path.join(root,'supabase/migrations')).filter(x=>x.endsWith('.sql')).sort())
    await db.exec(readFileSync(path.join(root,'supabase/migrations',file),'utf8'));
+  await assertAdaptiveDeferredGuardBoundary(db);
   const x=await prepareFourPlanAdaptiveFixture(db);
   assert.equal(x.prepared.preview.version,'r12.adaptive-research-preview.1');
   assert.equal(x.prepared.activated,false);

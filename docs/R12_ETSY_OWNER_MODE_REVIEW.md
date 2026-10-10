@@ -54,10 +54,23 @@ Final local unit aggregate: 3,757 tests, 3,637 passed, zero failed, 120 explicit
 
 ### First remote CI checkpoint
 
-Draft PR #83 published commit `282e9070512b9ebff3e62ea5c33854481a80b989`, tree `771aaea6fbf8ad4a8eecdaac5a77b2b566ba339e`. The CI merge commit was verified to have that same tree. The quality job passed 3,874 tests with zero failures and 59 environment skips, including lint, typecheck and build. All existing SQL release jobs passed; the complete R12 native PostgreSQL job also passed recovered adaptive/Etsy admission, unchanged three-second dispatch, real PostgREST recovery, cold terminal artifacts and original funding/Stop lock races.
+Draft PR #83 published commit `282e9070512b9ebff3e62ea5c33854481a80b989`, tree `771aaea6fbf8ad4a8eecdaac5a77b2b566ba339e`. The CI merge commit was verified to have that same tree. The quality job passed 3,874 tests with zero failures and 59 environment skips, including lint, typecheck and build. All existing SQL release jobs passed. The mixed-engine R12 SQL job passed adaptive/Etsy admission on PGlite and its separate native PostgreSQL stages for unchanged three-second dispatch, real PostgREST recovery, cold terminal artifacts and original funding/Stop lock races. The dedicated adaptive/Etsy native race job is the required native proof for the new lane.
 
 Two remaining CI failures were diagnosed rather than waived. The adaptive counter-tamper race correctly returned `r12_episode_lifetime_bound`; its assertion expected an obsolete diagnostic family. The actual owner browser completed twenty stages and exactly three Etsy inference sends, but its pause assertion exposed a catalog-refresh remount clearing the transient missing-source message. A small read-only catalog projection now derives a durable pause from the exact completed independent-review followup recommendation, with no open attempts or revocation. It does not infer a pause from NME alone. Legacy, active/open, stopped and receipt-pending states project no source pause. The UI binds the notice to its exact saved setup and scope.
 
 The follow-up tree must rerun the required native adaptive race and real browser gates, along with the complete release suite. First-run successes do not qualify a different commit, and no merge, deployment or paid activation follows from this checkpoint.
 
 The durable-pause follow-up passed the actual local production Next HTTP fixture, 11/11 stages, including repeated fresh-page readback, three-role execution, Stop, the existing receipt cooldown and repeated settlement with no resend. Focused UI/read regressions passed 28/28. PGlite projection tests passed for `.1` null, exact `.2` followup pause, open action, action-limit precedence, explicit Stop and pending receipt states. This local evidence does not replace the pending corrected real-browser/native-race CI run.
+
+
+### Deferred-validator native finding
+
+The second exact-commit native race run passed the earlier diagnostic assertion and then exposed a real authenticated autocommit failure: the deferred activation constraint called its private validator after the owner RPC's definer frame returned. The additive `20261010094100` migration gives only that fixed row-trigger function definer execution, retains its existing owner and deferred behavior, fixes an empty search path, and preserves all caller EXECUTE/table revocations. An exact source-body and owner precondition rejects migration drift. It does not grant callers access to private validators or create authority.
+
+The local PGlite activation and metadata/privilege regression passed, including known-charge failure and bounded repair. The native harness now asserts the definer/search-path/ownership/ACL boundary and exercises ordinary authenticated autocommit confirmation. Native success remains pending; PGlite's result is not a substitute.
+
+### Second browser checkpoint
+
+On commit `e293906b15cdbbb995089ef58fb88ab348823dda`, real-browser stage 21 passed the durable owner-source pause and repeated Run without a fourth send. Stage 22 then failed its Stop focus-visible assertion after mouse-triggered Run and programmatic focus. Preserved browser evidence showed the enabled Stop control, disabled Run control, no overflow and no browser errors; the old artifact did not record activeElement. The corrected fixture uses actual keyboard traversal to Stop before asserting enabled state, active element, visible outline and Enter activation. The corrected exact-commit browser run remains required.
+
+The corrected five-file local tree passed lint/typecheck and focused activation/privilege and owner UI checks. A broad local aggregate encountered unrelated console test-process `SIGKILL` failures; a bounded-concurrency attempt reproduced process termination and was stopped rather than counted as passing. Preserved local diagnostics and isolated reruns do not replace required complete CI on the published fix commit.

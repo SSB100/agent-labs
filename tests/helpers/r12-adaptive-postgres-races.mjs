@@ -29,6 +29,21 @@ export function assertAdaptiveCounterTamperRejected(error){
  assert.ok(error,'Counter changes must invalidate exact predecessor closure');
  assert.equal(error.message,'r12_episode_lifetime_bound');
 }
+/** Deferred validator retains owner execution without exposing private APIs. */
+export async function assertAdaptiveDeferredGuardBoundary(db){
+ const row=await one(db,`select p.prosecdef definer,p.proconfig config,p.proowner=c.relowner owner_matches,
+ t.tgdeferrable deferred,t.tginitdeferred initially_deferred,
+ has_function_privilege('authenticated',p.oid,'execute') auth_guard,
+ has_function_privilege('anon',p.oid,'execute') anon_guard,
+ has_function_privilege('service_role',p.oid,'execute') service_guard,
+ has_function_privilege('authenticated','private.r12_adaptive_activation_check(private.r12_adaptive_activations)','execute') auth_check,
+ has_table_privilege('authenticated',c.oid,'insert') auth_insert
+ from pg_proc p join pg_trigger t on t.tgfoid=p.oid join pg_class c on c.oid=t.tgrelid
+ where p.oid='private.r12_adaptive_activation_guard()'::regprocedure and t.tgname='adaptive_activation_guard'`);
+ assert.deepEqual({...row,config:undefined},{definer:true,config:undefined,owner_matches:true,deferred:true,initially_deferred:true,
+  auth_guard:false,anon_guard:false,service_guard:false,auth_check:false,auth_insert:false});
+ assert.deepEqual(row.config,['search_path=""']);
+}
 /** Genuine schedule and exact adapter descriptor, no reservation or transport. */
 export async function startAdaptivePlanner(db,c){
  const activated=await c.confirm(),scopeId=c.prepared.scopeId;
@@ -129,6 +144,7 @@ export async function exerciseAdaptivePostgresRaces(env=process.env,{prepareFixt
   await db.exec(r04SqlBootstrap+sessionBootstrap);
   for(const file of readdirSync(path.join(root,'supabase/migrations')).filter(x=>x.endsWith('.sql')).sort())
    await db.exec(readFileSync(path.join(root,'supabase/migrations',file),'utf8'));
+  await assertAdaptiveDeferredGuardBoundary(db);
   for(const legacy of [null,{committedMicrounits:1100,pending:false}]){
    const label=legacy?'legacy':'native',c=await fixture(legacy),old=await readClosedResearchHistory(db,c.f.goalId);
    const alternative=await c.prepare();

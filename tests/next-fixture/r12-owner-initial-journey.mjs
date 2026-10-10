@@ -510,14 +510,23 @@ export async function runOwnerInitialJourney({origin,boundary,output}) {
       assert.deepEqual(current().adaptiveCalls.map(item=>[item.ordinal,item.phase]),[[0,'plan'],[0,'strategy'],[0,'review']]);
       const latest=(await adaptiveCatalog(goalId,adaptiveReceipt.setupId)).setups[0];assert.equal(latest.actions.length,1);
       await capture('16-independent-etsy-receipt-inflight');
-      const stop=page.getByRole('button',{name:'Stop this adaptive setup',exact:true});await stop.focus();
-      assert.ok(await stop.evaluate(node=>document.activeElement===node&&node.matches(':focus-visible')),'Stop is keyboard reachable during the in-flight receipt');
+      const stop=page.getByRole('button',{name:'Stop this adaptive setup',exact:true});
+      assert.equal(await stop.isDisabled(),false,'Stop stays enabled during the in-flight receipt');
+      // Pointer-clicking Run does not establish keyboard focus-visible modality.
+      // Traverse from the next real control instead of programmatic Stop focus.
+      await page.getByRole('link',{name:'Stable saved adaptive setup link',exact:true}).focus();
+      await page.keyboard.press('Shift+Tab');
+      const focus=await stop.evaluate(node=>{const rect=node.getBoundingClientRect();return {active:document.activeElement===node,visible:node.matches(':focus-visible'),outline:parseFloat(getComputedStyle(node).outlineWidth),left:rect.left,right:rect.right,top:rect.top,bottom:rect.bottom,width:rect.width,height:rect.height,viewportWidth:innerWidth,viewportHeight:innerHeight};});
+      assert.ok(focus.active&&focus.visible&&focus.outline>=2&&focus.width>0&&focus.height>0&&focus.left>=0&&focus.right<=focus.viewportWidth&&focus.top>=0&&focus.bottom<=focus.viewportHeight,`Stop is keyboard reachable during the in-flight receipt: ${JSON.stringify(focus)}`);
       await page.setViewportSize({width:320,height:800});await stop.scrollIntoViewIfNeeded();await capture('16a-independent-etsy-action-history-mobile');
       await page.setViewportSize({width:1280,height:720});
     });
     await check('Stop during saved receipt wait blocks new sends and allows receipt-only recovery',async()=>{
       const before=current().adaptiveCalls.length;
-      await page.getByRole('button',{name:'Stop this adaptive setup',exact:true}).click();
+      const stop=page.getByRole('button',{name:'Stop this adaptive setup',exact:true});
+      assert.equal(await stop.isDisabled(),false);
+      assert.ok(await stop.evaluate(node=>document.activeElement===node&&node.matches(':focus-visible')&&parseFloat(getComputedStyle(node).outlineWidth)>=2),'Keyboard Stop focus remains visible after responsive captures');
+      await page.keyboard.press('Enter');
       await page.getByText(/Saved setup: stopped/).waitFor();
       assert.equal(current().adaptiveCalls.length,before,'Stop cannot start a fresh adaptive provider call');
       boundary.releaseAdaptiveResponses();
