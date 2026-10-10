@@ -25,7 +25,7 @@ export type QuestStep = {
   maximumRepairs: number;
 };
 export type QuestPlan = {
-  format: "r07.1" | "r12.discovery.1" | "r12.discovery-review.1" | "r12.discovery-evidence.1" | "r12.discovery-pilot.1" | "r12.discovery-episode.1";
+  format: "r07.1" | "r12.discovery.1" | "r12.discovery-review.1" | "r12.discovery-evidence.1" | "r12.discovery-pilot.1" | "r12.discovery-episode.1" | "r12.discovery-adaptive.1" | "r12.discovery-adaptive.2";
   /** Exact approved discovery execution scope. It grants no dispatch. */
   discoveryScopeId?: string;
   discoveryScopeHash?: string;
@@ -84,20 +84,22 @@ export function compileQuestPlan(input: unknown): QuestPlan {
   const evidenceContinuation = p.format === "r12.discovery-evidence.1";
   const focusedPilot = p.format === "r12.discovery-pilot.1";
   const ownerEpisode = p.format === "r12.discovery-episode.1";
-  const discovery = p.format === "r12.discovery.1" || reviewContinuation || evidenceContinuation || focusedPilot || ownerEpisode;
+  const adaptiveOwnerCapture = p.format === "r12.discovery-adaptive.2";
+  const adaptiveDiscovery = p.format === "r12.discovery-adaptive.1" || adaptiveOwnerCapture;
+  const discovery = p.format === "r12.discovery.1" || reviewContinuation || evidenceContinuation || focusedPilot || ownerEpisode || adaptiveDiscovery;
   keys(p, ["format", "businessId", "goalId", "goalRevision", "goalHash", "businessRevision", "businessHash", "policyId", "policyHash", "authorityRootId", "plannerWorkerDefinitionId", "currency", "maximumMicrounits", "deadline", "expiresAt", "maximumRepairs", "maximumPivots", "maximumChildren", "maximumDispatches", "requiredChecks", "finishCondition", "stopConditions", "steps", ...(discovery ? ["discoveryScopeId", "discoveryScopeHash"] : [])]);
   for (const key of ["businessId", "goalId", "policyId", "authorityRootId", "plannerWorkerDefinitionId"]) if (!uuid(p[key])) fail("invalid_identity");
   for (const key of ["goalHash", "businessHash", "policyHash"]) if (!hash(p[key])) fail("invalid_pin");
   if ((!discovery && p.format !== "r07.1") || p.currency !== "USD" || p.authorityRootId !== p.businessId || !integer(p.goalRevision, 1, 999999999) || !integer(p.businessRevision, 1, 999999999)) fail("invalid_lineage");
-  if (!integer(p.maximumRepairs, 0, 8) || !integer(p.maximumPivots, 0, 3) || !integer(p.maximumChildren, 2, 32) || !integer(p.maximumDispatches, 2, 64)) fail("invalid_bounds");
+  if (!integer(p.maximumRepairs, 0, adaptiveDiscovery ? 18 : 8) || !integer(p.maximumPivots, 0, adaptiveDiscovery ? 13 : 3) || !integer(p.maximumChildren, 2, 32) || !integer(p.maximumDispatches, 2, 64)) fail("invalid_bounds");
   const budget = questMoney(p.maximumMicrounits), expiry = date(p.expiresAt);
   if (budget <= BigInt(0) || expiry > date(p.deadline)) fail("invalid_bounds");
   if (p.finishCondition !== "all_required_outputs_verified" || JSON.stringify(p.stopConditions) !== JSON.stringify(["no_permitted_work", "deadline", "repair_exhausted", "owner_stopped"])) fail("invalid_stop_conditions");
   if (!Array.isArray(p.steps) || p.steps.length < (reviewContinuation ? 1 : 2) || p.steps.length > 16 || p.steps.length > Number(p.maximumChildren) || p.steps.length > Number(p.maximumDispatches)) fail("invalid_steps");
   const steps = p.steps as Record<string, unknown>[];
-  const discoveryKeys = ["plan", "search1", "select1", "strategy", "review"];
-  if (discovery && (!uuid(p.discoveryScopeId) || !hash(p.discoveryScopeHash) || steps.length !== (reviewContinuation ? 1 : evidenceContinuation || focusedPilot ? 2 : 5) || (ownerEpisode ? !integer(p.maximumChildren, 5, 32) : p.maximumChildren !== (reviewContinuation ? Number(p.maximumDispatches) + 1 : evidenceContinuation ? 9 : focusedPilot ? 2 : 5)) || (ownerEpisode ? !integer(p.maximumDispatches, 5, 64) : reviewContinuation ? !integer(p.maximumDispatches, 5, 7) : p.maximumDispatches !== (evidenceContinuation ? 8 : focusedPilot ? 2 : 5)) ||
-      p.maximumRepairs !== 0 || p.maximumPivots !== 0 || JSON.stringify(p.requiredChecks) !== JSON.stringify(["review"]))) fail("discovery_topology_invalid");
+  const discoveryKeys = adaptiveOwnerCapture ? ["plan", "strategy", "review"] : ["plan", "search1", "select1", "strategy", "review"];
+  if (discovery && (!uuid(p.discoveryScopeId) || !hash(p.discoveryScopeHash) || steps.length !== (reviewContinuation ? 1 : evidenceContinuation || focusedPilot ? 2 : adaptiveOwnerCapture ? 3 : 5) || (ownerEpisode || adaptiveDiscovery ? !integer(p.maximumChildren, adaptiveOwnerCapture ? 3 : 5, 32) : p.maximumChildren !== (reviewContinuation ? Number(p.maximumDispatches) + 1 : evidenceContinuation ? 9 : focusedPilot ? 2 : 5)) || (ownerEpisode || adaptiveDiscovery ? !integer(p.maximumDispatches, adaptiveOwnerCapture ? 3 : 5, 64) : reviewContinuation ? !integer(p.maximumDispatches, 5, 7) : p.maximumDispatches !== (evidenceContinuation ? 8 : focusedPilot ? 2 : 5)) ||
+      !adaptiveDiscovery && (p.maximumRepairs !== 0 || p.maximumPivots !== 0) || JSON.stringify(p.requiredChecks) !== JSON.stringify(["review"]))) fail("discovery_topology_invalid");
   const seen = new Map<string, QuestStep>();
   let total = BigInt(0);
   for (const raw of steps) {
@@ -132,7 +134,10 @@ export function compileQuestPlan(input: unknown): QuestPlan {
     } else if (s.kind === "measure") fail("measurement_required");
     seen.set(s.key as string, raw as unknown as QuestStep);
   }
-  if (total > budget) fail("plan_budget_exceeded");
-  if (!Array.isArray(p.requiredChecks) || p.requiredChecks.length === 0 || new Set(p.requiredChecks).size !== p.requiredChecks.length || !p.requiredChecks.includes(steps[reviewContinuation ? 0 : evidenceContinuation || focusedPilot ? 1 : discovery ? 4 : 1].key) || p.requiredChecks.some(k => typeof k !== "string" || !["challenge", "review"].includes(seen.get(k)?.kind ?? ""))) fail("required_checks_invalid");
+  // Adaptive steps are reusable phase capability ceilings sharing one aggregate
+  // policy. Their overlapping maxima are not separate funding allocations.
+  // Exact run/counter ceilings must additionally match the activated scope.
+  if (adaptiveDiscovery ? steps.some(step => questMoney(step.maximumMicrounits) > budget) : total > budget) fail("plan_budget_exceeded");
+  if (!Array.isArray(p.requiredChecks) || p.requiredChecks.length === 0 || new Set(p.requiredChecks).size !== p.requiredChecks.length || !p.requiredChecks.includes(steps[reviewContinuation ? 0 : evidenceContinuation || focusedPilot ? 1 : adaptiveOwnerCapture ? 2 : discovery ? 4 : 1].key) || p.requiredChecks.some(k => typeof k !== "string" || !["challenge", "review"].includes(seen.get(k)?.kind ?? ""))) fail("required_checks_invalid");
   return structuredClone(input) as QuestPlan;
 }

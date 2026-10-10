@@ -1,4 +1,4 @@
-import {loadR12NextFixture,controlR12,closeR12Fixture,r12OwnerRpc,r12RuntimeRpc,r12Quote,r12Provider,r12CreativeLaunch,R12_RUNTIME_RPC_ARGUMENTS} from './r12-sql.mjs';
+import {loadR12NextFixture,controlR12,closeR12Fixture,r12OwnerRpc,r12RuntimeRpc,r12Quote,r12AdaptiveQuote,r12Provider,r12CreativeLaunch,R12_RUNTIME_RPC_ARGUMENTS} from './r12-sql.mjs';
 import {r12CreativeCatalog} from './r12-creative.mjs';
 import {seedResearchFixture,installResearchContinuationFixture,researchCatalogFixture,researchGenerationFixture,researchProviderFixture,researchOwnerFixture,researchRuntimeFixture} from './r11-research.mjs';
 import sharp from 'sharp';
@@ -14,24 +14,28 @@ import { filterFixtureOr } from './query-predicates.mjs';
 export async function startFixtureBoundary() {
   const viewerJpeg=await sharp(Buffer.from(R10_FIXTURE_SVG)).jpeg({quality:65}).toBuffer();
   let state = fixtureData(), control = { delayId: null, delayMs: 0, failTable: null, actionMode: 'success' };
-  const log = [], effects = [], denied = [], heldKnowledgeActions = [], heldResearchLoads = [];
+  const log = [], effects = [], denied = [], heldKnowledgeActions = [], heldResearchLoads = [], heldAdaptiveResponses = [];
   const releaseKnowledgeActions=()=>{control.holdKnowledgeActions=false;for(const release of heldKnowledgeActions.splice(0))release();};
   const releaseResearchLoads=()=>{control.r11HoldLoads=false;for(const release of heldResearchLoads.splice(0))release();};
+  const releaseAdaptiveResponses=()=>{control.r12HoldAdaptiveResponse=false;for(const release of heldAdaptiveResponses.splice(0))release();};
   const valueAt = (row,path) => path.replace(/->>?/g,'.').split('.').reduce((v,k) => v?.[k],row);
   const server = createServer(async(req,res) => {
     try {
     let body='';for await(const chunk of req)body+=chunk;
     const input=body?JSON.parse(body):{};
     const send = data => { res.setHeader('content-type','application/json');res.end(JSON.stringify(data)); };
-    if(req.url==='/control'){let r12Result=null;if(input.r12Scenario)await loadR12NextFixture(state,input.r12Scenario,input.r12Directory,process.env.R12_SQL_TEST_HOST);if(input.r12Due||input.r12Pause||input.r12BootstrapStage||input.r12BootstrapActivate||input.r12ReviewActivate||input.r12PilotStage||input.r12PilotActivate||input.r12CreativeInstall||input.r12CreativeStage||input.r12CreativeActivate||input.r12FocusedSuccessorStage||input.r12FocusedSuccessorActivate||input.r12FocusedSuccessorClose||input.r12FocusedSuccessorUnsent)r12Result=await controlR12(state,input);if(input.r11Research===true&&!state.r11Research)state.r11Research=seedResearchFixture(state,input);if(input.resetResearch===true)state.r11Research=seedResearchFixture(state,input);if(input.r11InstallContinuation===true)installResearchContinuationFixture(state,input);if(input.knowledge===true&&!state.knowledge)state.knowledge=knowledgeSeed(state);if(input.resetKnowledge===true)state.knowledge=knowledgeSeed(state);if(input.workspace===true&&!state.workspace)state.workspace=workspaceSeed(state,id,time);if(typeof input.history==='boolean'&&input.history!==state.history.enabled)state=fixtureData({history:input.history});if(input.viewer===true&&!state.viewer)state.viewer=seedViewerFixture(state);if(input.resetViewer===true)state.viewer=seedViewerFixture(state);if(input.viewerExpiresInMs&&state.viewer)state.viewer.expiresAt=new Date(Date.now()+input.viewerExpiresInMs).toISOString();control={...control,...input};if(input.holdKnowledgeActions===false)releaseKnowledgeActions();if(input.r11HoldLoads===false)releaseResearchLoads();return send({ok:true,...(r12Result?{r12:r12Result}:{})});}
+    if(req.url==='/control'){let r12Result=null;if(input.r12Scenario)await loadR12NextFixture(state,input.r12Scenario,input.r12Directory,process.env.R12_SQL_TEST_HOST);if(input.r12Due||input.r12Pause||input.r12BootstrapStage||input.r12BootstrapActivate||input.r12ReviewActivate||input.r12PilotStage||input.r12PilotActivate||input.r12CreativeInstall||input.r12CreativeStage||input.r12CreativeActivate||input.r12FocusedSuccessorStage||input.r12FocusedSuccessorActivate||input.r12FocusedSuccessorClose||input.r12FocusedSuccessorUnsent)r12Result=await controlR12(state,input);if(input.r11Research===true&&!state.r11Research)state.r11Research=seedResearchFixture(state,input);if(input.resetResearch===true)state.r11Research=seedResearchFixture(state,input);if(input.r11InstallContinuation===true)installResearchContinuationFixture(state,input);if(input.knowledge===true&&!state.knowledge)state.knowledge=knowledgeSeed(state);if(input.resetKnowledge===true)state.knowledge=knowledgeSeed(state);if(input.workspace===true&&!state.workspace)state.workspace=workspaceSeed(state,id,time);if(typeof input.history==='boolean'&&input.history!==state.history.enabled)state=fixtureData({history:input.history});if(input.viewer===true&&!state.viewer)state.viewer=seedViewerFixture(state);if(input.resetViewer===true)state.viewer=seedViewerFixture(state);if(input.viewerExpiresInMs&&state.viewer)state.viewer.expiresAt=new Date(Date.now()+input.viewerExpiresInMs).toISOString();control={...control,...input};if(input.holdKnowledgeActions===false)releaseKnowledgeActions();if(input.r11HoldLoads===false)releaseResearchLoads();if(input.r12ReleaseAdaptiveResponses===true)releaseAdaptiveResponses();return send({ok:true,...(r12Result?{r12:r12Result}:{})});}
     if(req.url==='/snapshot')return send({log,effects,denied,control});
     if(req.url==='/reset'){if(state.r12)await closeR12Fixture(state);state=fixtureData();log.length=effects.length=denied.length=0;control={delayId:null,delayMs:0,failTable:null,actionMode:'success'};return send({ok:true});}
     if(req.url==='/claims')return send(input.session==='off'?{data:null,error:null}:{data:{claims:{sub:state.owner,session_id:id(910003),email:'inert-owner@example.invalid'}},error:null});
     if(req.url==='/user')return send(input.session==='off'?{data:{user:null},error:null}:{data:{user:{id:state.owner,email:'inert-owner@example.invalid'}},error:null});
     if(req.url==='/r10/authority'){if(input.scope?.ownerId!==state.owner||input.scope?.authSessionId!==id(910003))return send({error:'Inert identity rejected'});try{return send({data:viewerAuthorityFixture(state,input,effects,control)});}catch{return send({error:'Inert authority rejected'});}}
     if(req.url==='/r10/capture'){log.push({kind:'inert-viewer-frame'});res.setHeader('content-type','image/jpeg');return res.end(control.viewerCorruptFrame?Buffer.from([255,216,255,217]):viewerJpeg);}
-    if(req.url==='/r12/quote'){log.push({kind:'inert-r12-catalog'});return send(r12Quote(state));}
-    if(req.url==='/r12/provider'){log.push({kind:'inert-r12-provider-transport',method:input.method,phase:input.phase});return send(r12Provider(state,input,control,effects));}
+    if(req.url==='/r12/quote'){log.push({kind:'inert-r12-catalog',adaptive:input.adaptive===true});return send(input.adaptive===true?r12AdaptiveQuote(state,input.version):r12Quote(state));}
+    if(req.url==='/r12/provider'){log.push({kind:'inert-r12-provider-transport',method:input.method,phase:input.phase});const response=r12Provider(state,input,control,effects);
+      if(control.r12HoldAdaptiveResponse&&input.method==='GET'&&input.phase==='review'&&state.r12?.adaptiveActionContext?.ordinal===(state.r12?.adaptiveScope?.version==='r12.discovery-owner-adaptive.2'?0:1))
+        await new Promise(resolve=>heldAdaptiveResponses.push(resolve));
+      return send(response);}
     if(req.url==='/r12/creative/catalog'){log.push({kind:'inert-r12-creative-catalog',url:input.url});return send(r12CreativeCatalog(state,input));}
     if(req.url==='/r12/creative/launch'){const result=await r12CreativeLaunch(state,input);effects.push({kind:'inert-r12-creative-launch',creativeRunId:input.input.creativeRunId});return send(result);}
     const runtimeRpcName=req.url.startsWith('/rest/v1/rpc/')?req.url.slice('/rest/v1/rpc/'.length):null;
@@ -187,5 +191,7 @@ export async function startFixtureBoundary() {
   });
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
   const origin=`http://127.0.0.1:${server.address().port}`;
-  return {origin,state:()=>state,log,effects,denied,releaseKnowledgeActions,heldResearchLoads:()=>heldResearchLoads.length,releaseResearchLoads,close:async()=>{releaseKnowledgeActions();releaseResearchLoads();if(state.r12)await closeR12Fixture(state);return new Promise(resolve=>server.close(resolve));}};
+  return {origin,state:()=>state,log,effects,denied,releaseKnowledgeActions,heldResearchLoads:()=>heldResearchLoads.length,releaseResearchLoads,
+    heldAdaptiveResponses:()=>heldAdaptiveResponses.length,releaseAdaptiveResponses,
+    close:async()=>{releaseKnowledgeActions();releaseResearchLoads();releaseAdaptiveResponses();if(state.r12)await closeR12Fixture(state);return new Promise(resolve=>server.close(resolve));}};
 }

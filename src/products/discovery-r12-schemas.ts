@@ -47,3 +47,10 @@ const OWNER_INITIAL_STRATEGY_SCHEMA = structuredClone(STATIC_SCHEMAS.strategy);
 export function discoveryR12OwnerInitialStaticSchema(phase: "plan" | "select1" | "strategy" | "review"): JsonObject {
   return phase === "strategy" ? structuredClone(OWNER_INITIAL_STRATEGY_SCHEMA) : discoveryR12StaticSchema(phase);
 }
+
+/** Static schema for the separately versioned owner-evidence lane. No search
+ * task or paid selection is represented by the empty queryFocus field. */
+export function discoveryR12EtsyOwnerStaticSchema(phase: "plan"): JsonObject {
+  const schema=discoveryR12OwnerInitialStaticSchema(phase);
+  return {...schema,properties:{...(schema.properties as JsonObject),queryFocus:{type:"array",items:{type:"string"},minItems:0,maxItems:0}}};
+}

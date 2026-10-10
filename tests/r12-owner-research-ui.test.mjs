@@ -20,6 +20,8 @@ function load(file,dependencies={},globals={}) {
     if(Object.hasOwn(dependencies,name))return dependencies[name];
     if(['react','react/jsx-runtime'].includes(name))return require(name);
     if(name==='next/link')return Link;
+    if(name==='./owner-observation-intake')return {OwnerObservationIntakeForm:()=>null};
+    if(name==='./owner-observation-disclosure')return {OwnerObservationDisclosure:()=>null};
     if(name.endsWith('.css'))return{};
     throw Error(`Unexpected dependency: ${name}`);
   },fixtureModule,fixtureModule.exports,...Object.values(globals));return fixtureModule.exports;
@@ -113,7 +115,7 @@ test('owner select labels have exact text independent of options and unique expl
 
 test('failed browser stages retain bounded DOM, exact label text, actual accessible names and screenshot outcomes',async()=>{
   const files=new Map(),screenshots=[];
-  const {captureOwnerJourneyFailure}=load('tests/next-fixture/r12-owner-initial-journey.mjs',{'node:assert/strict':assert,'node:path':path,'node:fs/promises':{writeFile:async(file,text)=>files.set(file,JSON.parse(text))},'playwright-core':{},sharp,'./r12-sql.mjs':{},'./r12-owner-initial.mjs':{extendOwnerInitialNextAllowance:()=>{throw Error('Diagnostics must not mutate the SQL fixture');}},'./browser-zoom.mjs':{}});
+  const {captureOwnerJourneyFailure}=load('tests/next-fixture/r12-owner-initial-journey.mjs',{'node:assert/strict':assert,'node:path':path,'node:fs/promises':{writeFile:async(file,text)=>files.set(file,JSON.parse(text))},'playwright-core':{},sharp,'./r12-sql.mjs':{},'./r12-owner-initial.mjs':{extendOwnerInitialNextAllowance:()=>{throw Error('Diagnostics must not mutate the SQL fixture');}},'./browser-zoom.mjs':{},'./r12-etsy-intake-journey.mjs':{saveEtsyCaptureThroughOwnerUi:()=>{throw Error('Diagnostics must not save captures');}},'./r12-etsy-branch.mjs':{snapshotConfirmedEtsyBranch:()=>{throw Error('Diagnostics must not mutate the SQL fixture');}}});
   const control={tagName:'SELECT',id:'owner-profile',getAttribute:()=>null,labels:[{textContent:'Reviewed research profile Choose a profile Synthetic profile'}],matches:()=>false};
   const overflowing={...control,clientWidth:290,scrollWidth:579,getBoundingClientRect:()=>({left:15,right:594,width:579,height:44})};
   const page={url:()=>`http://localhost/owner?${'x'.repeat(3000)}`,locator:()=>({evaluate:async evaluate=>evaluate({ownerDocument:{documentElement:{clientWidth:320,clientHeight:800,scrollWidth:579,scrollHeight:5722}},innerText:'x'.repeat(20000),querySelectorAll:selector=>Array(100).fill(selector==='*'?overflowing:control)}),ariaSnapshot:async()=>`- combobox "Reviewed research profile":\n${'x'.repeat(20000)}`}),screenshot:async options=>{screenshots.push(options);}};
@@ -134,7 +136,7 @@ test('owner zoom evidence rejects blank native captures and offscreen or obscure
   const element={getBoundingClientRect:()=>rect},blank=await sharp({create:{width:1280,height:720,channels:3,background:{r:17,g:24,b:32}}}).png().toBuffer();
   const panel=await sharp({create:{width:600,height:100,channels:3,background:'#ffffff'}}).png().toBuffer();
   let pixels=await sharp(blank).composite([{input:panel,left:40,top:560}]).png().toBuffer();
-  const {captureOwnerZoomViewport}=load('tests/next-fixture/r12-owner-initial-journey.mjs',{'node:assert/strict':assert,'node:path':path,'node:fs/promises':{writeFile:async(file,data)=>files.set(file,data)},'playwright-core':{},sharp,'./r12-sql.mjs':{},'./r12-owner-initial.mjs':{extendOwnerInitialNextAllowance:()=>{throw Error('Diagnostics must not mutate the SQL fixture');}},'./browser-zoom.mjs':{}},{innerWidth:640,innerHeight:360,document:{elementFromPoint:(x,y)=>{assert.equal(x,rect.left+rect.width/2);assert.equal(y,rect.top+rect.height/2);return hit?element:null;}},requestAnimationFrame:callback=>{calls.push('paint');callback();}});
+  const {captureOwnerZoomViewport}=load('tests/next-fixture/r12-owner-initial-journey.mjs',{'node:assert/strict':assert,'node:path':path,'node:fs/promises':{writeFile:async(file,data)=>files.set(file,data)},'playwright-core':{},sharp,'./r12-sql.mjs':{},'./r12-owner-initial.mjs':{extendOwnerInitialNextAllowance:()=>{throw Error('Diagnostics must not mutate the SQL fixture');}},'./browser-zoom.mjs':{},'./r12-etsy-intake-journey.mjs':{saveEtsyCaptureThroughOwnerUi:()=>{throw Error('Diagnostics must not save captures');}},'./r12-etsy-branch.mjs':{snapshotConfirmedEtsyBranch:()=>{throw Error('Diagnostics must not mutate the SQL fixture');}}},{innerWidth:640,innerHeight:360,document:{elementFromPoint:(x,y)=>{assert.equal(x,rect.left+rect.width/2);assert.equal(y,rect.top+rect.height/2);return hit?element:null;}},requestAnimationFrame:callback=>{calls.push('paint');callback();}});
   const cdp={send:async(method,options)=>{calls.push([method,options]);return{data:pixels.toString('base64')};},detach:async()=>calls.push('detach')};
   const page={bringToFront:async()=>calls.push('foreground'),evaluate:async evaluate=>evaluate(),viewportSize:()=>({width:1280,height:720}),context:()=>({newCDPSession:async()=>cdp})};
   const target={scrollIntoViewIfNeeded:async()=>calls.push('scroll'),evaluate:async evaluate=>evaluate(element)};
@@ -206,15 +208,17 @@ test('opaque retry identities survive reload and only known expired preparations
 });
 
 test('action wrappers require the authenticated owner and never invoke a dispatch boundary',async()=>{
-  const f=fixture(),calls=[],context={userId:id(90)},api=load('src/app/dashboard/quests/research/actions.ts',{'@/lib/core-ui/data':{requireOwnerUiContext:async()=>{calls.push('auth');return context;}},'@/products/discovery-r12-goal-preparation-contract':{OwnerResearchBudgetError:class extends Error{}},'@/lib/core-ui/owner-research-form':money,'@/products/discovery-r12-goal-preparation-server':Object.fromEntries(['prepareOwnerResearch','confirmOwnerResearch','stopOwnerResearch'].map(name=>[name,async(ctx,input)=>{assert.equal(ctx,context);calls.push([name,input]);return f.receipt;}]))});
+  const f=fixture(),calls=[],context={userId:id(90)},api=load('src/app/dashboard/quests/research/actions.ts',{'@/lib/core-ui/data':{requireOwnerUiContext:async()=>{calls.push('auth');return context;}},'@/products/discovery-r12-goal-preparation-contract':{OwnerResearchBudgetError:class extends Error{}},'@/lib/core-ui/owner-research-form':money,'@/products/discovery-r12-goal-preparation-server':Object.fromEntries(['prepareOwnerResearch','confirmOwnerResearch','stopOwnerResearch'].map(name=>[name,async(ctx,input)=>{assert.equal(ctx,context);calls.push([name,input]);return f.receipt;}])), '@/products/discovery-r12-adaptive-owner-server':Object.fromEntries(['prepareAdaptiveOwnerResearch','confirmAdaptiveOwnerResearch','stopAdaptiveOwnerResearch'].map(name=>[name,async(ctx,input)=>{assert.equal(ctx,context);calls.push([name,input]);return f.receipt;}])), '@/products/discovery-r12-adaptive-server':{continueAdaptiveOwnerResearch:async(ctx,business,scope)=>{assert.equal(ctx,context);calls.push(['continueAdaptiveOwnerResearch',business,scope]);return {status:'waiting',reason:'receipt_pending',wakeAt:new Date(Date.now()+1000).toISOString()};}}});
   for(const name of ['prepareOwnerResearchAction','confirmOwnerResearchAction','stopOwnerResearchAction'])assert.equal((await api[name]({businessId:id(1)})).ok,true);
-  assert.equal(calls.filter(value=>value==='auth').length,3);
-  assert.doesNotMatch(readFileSync('src/app/dashboard/quests/research/actions.ts','utf8'),/startGeographicDiscovery|continueDiscovery|dispatch|activateOwnerResearch/);
+  for(const name of ['prepareAdaptiveOwnerResearchAction','confirmAdaptiveOwnerResearchAction','stopAdaptiveOwnerResearchAction'])assert.equal((await api[name]({businessId:id(1)})).ok,true);
+  assert.equal((await api.continueAdaptiveOwnerResearchAction(id(1),id(61))).result.reason,'receipt_pending');
+  assert.equal(calls.filter(value=>value==='auth').length,7);
+  assert.doesNotMatch(readFileSync('src/app/dashboard/quests/research/actions.ts','utf8'),/startGeographicDiscovery|continueDiscovery|activateOwnerResearch|\bdispatch[A-Z]\w*\s*\(/);
 });
 
 test('insufficient-cap errors disclose the current quote and exact minimum totals without reporting a saved proposal',async()=>{
   class BudgetError extends Error {quoteMaximumMicrousd=406736;minimumBusinessLimitMicrounits='5206736';minimumResearchLimitMicrounits='2306736';}
-  const api=load('src/app/dashboard/quests/research/actions.ts',{'@/lib/core-ui/data':{requireOwnerUiContext:async()=>({})},'@/products/discovery-r12-goal-preparation-contract':{OwnerResearchBudgetError:BudgetError},'@/lib/core-ui/owner-research-form':money,'@/products/discovery-r12-goal-preparation-server':{prepareOwnerResearch:async()=>{throw new BudgetError();}}});
+  const api=load('src/app/dashboard/quests/research/actions.ts',{'@/lib/core-ui/data':{requireOwnerUiContext:async()=>({})},'@/products/discovery-r12-goal-preparation-contract':{OwnerResearchBudgetError:BudgetError},'@/lib/core-ui/owner-research-form':money,'@/products/discovery-r12-goal-preparation-server':{prepareOwnerResearch:async()=>{throw new BudgetError();}},'@/products/discovery-r12-adaptive-owner-server':{},'@/products/discovery-r12-adaptive-server':{}});
   const result=await api.prepareOwnerResearchAction({});assert.equal(result.ok,false);
   for(const amount of ['USD 0.406736','USD 5.206736','USD 2.306736'])assert.ok(result.message.includes(amount));
   assert.match(result.message,/No proposal or authority was created/);
@@ -231,11 +235,14 @@ test('exact selection route ignores R04 current/last fallback and never guesses 
   const f=fixture(),reads=[],context={userId:id(90),businesses:[{id:id(1),name:'Synthetic Business'}],supabase:{from(){const q={select:()=>q,eq:()=>q,maybeSingle:async()=>({data:{id:id(1),name:'Synthetic Business'},error:null})};return q;},rpc:async(name,args)=>{reads.push(args);return{data:{businessId:id(1),selected:{id:id(99),title:'Must not select automatically'},quests:[{id:id(2),title:'Explicit selectable Quest',revision:4,preference:'ready'}],total:21,offset:0,limit:20},error:null};}}};
   const Workspace=props=>React.createElement('div',{'data-exact-goal':props.catalog.goal.id});
   const Reference=props=>React.createElement('div',{'data-bootstrap-business':props.businessId});
-  const route=load('src/app/dashboard/quests/research/page.tsx',{'next/navigation':{notFound(){throw Error('not found');}},'@/components/console/console-shell':{ConsoleShell:({children})=>React.createElement('main',null,children)},'@/components/quests/owner-research-entry':entry,'@/components/quests/owner-research-workspace':{OwnerResearchWorkspace:Workspace},'@/components/quests/owner-research-bootstrap-reference':{OwnerResearchBootstrapReference:Reference},'@/lib/core-ui/data':{requireOwnerUiContext:async()=>context},'@/lib/core-ui/console-data':{loadConsoleObservationTime:async()=>f.now},'@/lib/core-ui/owner-research-form':money,'@/core/quest-contract':{R04_RPC:{read:'r04_quest_read'}},'@/products/discovery-r12-goal-preparation-server':{readOwnerResearchCatalog:async(_context,business,goal,setup)=>{reads.push({business,goal,setup});return goal===id(998)?{available:false,catalog:null}:{available:true,catalog:f.catalog};}}}).default;
+  const route=load('src/app/dashboard/quests/research/page.tsx',{'next/navigation':{notFound(){throw Error('not found');}},'@/components/console/console-shell':{ConsoleShell:({children})=>React.createElement('main',null,children)},'@/components/quests/owner-research-entry':entry,'@/components/quests/owner-research-workspace':{OwnerResearchWorkspace:Workspace},'@/components/quests/owner-adaptive-research-workspace':{OwnerAdaptiveResearchWorkspace:({selectedReceipt,catalog})=>React.createElement('div',{'data-adaptive-setup':selectedReceipt?.setupId??'', 'data-adaptive-goal':catalog?.goalId??''})},'@/components/quests/owner-research-bootstrap-reference':{OwnerResearchBootstrapReference:Reference},'@/lib/core-ui/data':{requireOwnerUiContext:async()=>context},'@/lib/core-ui/console-data':{loadConsoleObservationTime:async()=>f.now},'@/lib/core-ui/owner-research-form':money,'@/core/quest-contract':{R04_RPC:{read:'r04_quest_read'}},'@/products/discovery-r12-goal-preparation-server':{readOwnerResearchCatalog:async(_context,business,goal,setup)=>{reads.push({business,goal,setup});return goal===id(998)?{available:false,catalog:null}:{available:true,catalog:f.catalog};}},'@/products/discovery-r12-adaptive-owner-server':{readAdaptiveOwnerResearch:async(_context,business,goal,setup)=>{reads.push({adaptive:true,business,goal,setup});return {available:true,catalog:{businessId:business,goalId:goal,setups:setup?[{businessId:business,goalId:goal,setupId:id(60)}]:[]}};}}}).default;
   let html=renderToStaticMarkup(await route({searchParams:Promise.resolve({business:id(1)})}));assert.match(html,/Explicit selectable Quest/);assert.match(html,new RegExp(`data-bootstrap-business="${id(1)}"`));assert.doesNotMatch(html,/Must not select automatically|data-exact-goal/);assert.match(html,/Next Quests/);
   html=renderToStaticMarkup(await route({searchParams:Promise.resolve({business:id(1),quest:id(2),setup:id(10)})}));assert.match(html,new RegExp(`data-exact-goal="${id(2)}"`));
   html=renderToStaticMarkup(await route({searchParams:Promise.resolve({business:id(1),quest:id(2),setup:id(999)})}));assert.match(html,/No substitute was selected/);assert.match(html,/data-bootstrap-business/);assert.doesNotMatch(html,/data-exact-goal/);
   html=renderToStaticMarkup(await route({searchParams:Promise.resolve({business:id(1),quest:id(998)})}));assert.match(html,/No substitute was selected/);assert.match(html,/data-bootstrap-business/);assert.doesNotMatch(html,/data-exact-goal/);
+  html=renderToStaticMarkup(await route({searchParams:Promise.resolve({business:id(1),quest:id(2),adaptiveSetup:id(60)})}));assert.match(html,new RegExp(`data-adaptive-setup="${id(60)}"`));assert.ok(reads.some(read=>read.adaptive&&read.setup===id(60)));
+  html=renderToStaticMarkup(await route({searchParams:Promise.resolve({business:id(1),quest:id(2),adaptiveSetup:id(61)})}));assert.match(html,/This exact adaptive setup could not be verified/);assert.doesNotMatch(html,/data-adaptive-setup/);
+  await assert.rejects(route({searchParams:Promise.resolve({business:id(1),quest:id(2),setup:id(10),adaptiveSetup:id(60)})}),/not found/);
   await assert.rejects(route({searchParams:Promise.resolve({quest:id(2)})}),/not found/);await assert.rejects(route({searchParams:Promise.resolve({business:[id(1),id(2)]})}),/not found/);
 });
 
@@ -277,4 +284,114 @@ test('episode packet discloses predecessor, prior costs, new whole run and Exa i
   f.receipt.preview.grantRootRevision={rootId:id(42),revision:1,hash:'4'.repeat(64),maximumScopes:2,maximumAllocationMicrounits:'813472',expiresAt:'2026-10-10T09:00:00Z'};
   const extended=renderToStaticMarkup(React.createElement(packet.OwnerResearchPacket,{receipt:f.receipt}));
   for(const value of ['Approval revision 1','2 research scopes','USD 0.813472','Earlier consumed allocations remain counted','does not add to your Business','changed approval requires a fresh packet',id(42),'4'.repeat(64)])assert.ok(extended.includes(value),value);
+});
+
+function adaptiveFixture(){
+  const now=Date.now(),later=new Date(now+4*3600_000).toISOString();
+  const predecessor={goalRevision:4,goalHash:'a'.repeat(64),predecessorPlanId:id(40),predecessorPlanHash:'b'.repeat(64),predecessorScopeId:id(41),predecessorScopeHash:'c'.repeat(64)};
+  const profile={version:'r12.owner-research-profile.3',id:id(3),title:'Reviewed public scope',purpose:'Bounded factual research',maximumRunMicrousd:9_000_000,validUntil:later,marketSets:[{key:'gb',label:'GB adult context'}],topics:[{key:'nature',label:'Nature',audience:'GB adults'}]};
+  const grant={id:id(4),profileId:id(3),businessId:id(1),goalId:id(2),goalRevision:4,goalHash:predecessor.goalHash,allowsPaidFollowups:true,maximumActions:10,maximumRunMicrounits:'10000000',remainingAllocationMicrounits:'3000000',remainingScopes:1,expiresAt:later};
+  const catalog={businessId:id(1),goalId:id(2),eligible:true,reason:null,predecessorClosure:predecessor,predecessorClosureHash:'d'.repeat(64),imports:[{},{},{},{},{}],business:{currentLimitMicrounits:'5000000',committedMicrounits:'4000000',hasUnknown:false},funding:{authorityRootId:id(8),currentLimitMicrounits:'3500000',committedMicrounits:'2000000',pendingMicrounits:'0',hasUnknown:false},deadline:later,profiles:[{profile,profileHash:'e'.repeat(64)}],grants:[grant],setups:[],activation:null,actions:[]};
+  return {now,catalog};
+}
+const adaptivePacket=load('src/components/quests/owner-adaptive-research-packet.tsx',{'@/lib/core-ui/owner-research-form':money});
+test('adaptive owner panel requires verified catalog and discloses exact cumulative limits without admitting an action',()=>{
+  const adaptive=load('src/components/quests/owner-adaptive-research-workspace.tsx',{
+    'next/navigation':{useRouter:()=>({})},'@/app/dashboard/quests/research/actions':{},
+    '@/lib/core-ui/owner-research-form':money,'./owner-adaptive-research-packet':adaptivePacket,
+  });
+  const {now,catalog}=adaptiveFixture(),props={ownerId:id(90),observedAt:now,selectedReceipt:null,catalog:null};
+  let html=renderToStaticMarkup(React.createElement(adaptive.OwnerAdaptiveResearchWorkspace,props));
+  assert.match(html,/exact adaptive catalog is unavailable/);assert.doesNotMatch(html,/Prepare adaptive research packet/);
+  html=renderToStaticMarkup(React.createElement(adaptive.OwnerAdaptiveResearchWorkspace,{...props,catalog}));
+  assert.match(html,/Choose an exact profile and grant/);assert.match(html,/Prepare adaptive research packet/);
+  assert.match(html,/US\$10 total run ceiling/);
+  assert.doesNotMatch(html,/Confirm this exact adaptive policy|Admit action|Dispatch/);
+  assert.match(money.ownerAdaptiveSetupHref(id(1),id(2),id(60)),/adaptiveSetup=/);
+});
+
+test('adaptive preparation sends exact selectors and minimum cumulative caps; consent binds the returned setup hash',async()=>{
+  const {now,catalog}=adaptiveFixture(),calls=[],navigation=[],states=[],refs=[],storage=new Map();let stateIndex=0,refIndex=0,sequence=70;
+  const hooks={...React,useId:()=>':adaptive-test:',useState(initial){const index=stateIndex++;if(!(index in states))states[index]=initial;return[states[index],value=>states[index]=typeof value==='function'?value(states[index]):value];},useRef(initial){const index=refIndex++;return refs[index]??={current:initial};},useEffect(){}};
+  const actions={prepareAdaptiveOwnerResearchAction:async input=>{calls.push(input);return {ok:true,receipt:{businessId:input.businessId,goalId:input.goalId,setupId:id(60),setupHash:'f'.repeat(64),scopeId:id(61),profileId:input.profileId,grantId:input.grantId,submissionId:input.submissionId,ownerObservationRef:input.ownerObservationRef,preview:{predecessorHash:catalog.predecessorClosureHash,maximumRunMicrounits:input.maximumRunMicrounits,maximumActions:input.maximumActions,expiresAt:new Date(now+3600_000).toISOString()},quote:{validUntil:new Date(now+3600_000).toISOString()},selection:{marketSetKey:input.marketSetKey,topicKey:input.topicKey},confirmed:false,activated:false,stopped:false,actions:[]}};}};
+  const view=load('src/components/quests/owner-adaptive-research-workspace.tsx',{
+    react:hooks,'next/navigation':{useRouter:()=>({replace:href=>navigation.push(href),refresh(){}})},'@/app/dashboard/quests/research/actions':actions,
+    '@/lib/core-ui/owner-research-form':money,'./owner-adaptive-research-packet':{OwnerAdaptiveResearchPacket:()=>React.createElement('div',null,'Exact saved packet')},
+  },{window:{sessionStorage:{getItem:key=>storage.get(key)??null,setItem:(key,value)=>storage.set(key,value)},setInterval:()=>1,clearInterval(){},addEventListener(){},removeEventListener(){}},crypto:{subtle:webcrypto.subtle,randomUUID:()=>id(++sequence)},TextEncoder});
+  const props={ownerId:id(90),catalog,selectedReceipt:null,observedAt:now};
+  function render(){stateIndex=0;refIndex=0;return view.OwnerAdaptiveResearchWorkspace(props);}
+  let tree=render(),selects=elements(tree,e=>e.type==='select');assert.equal(selects.length,4);assert.equal(button(tree,'Prepare adaptive research packet').props.disabled,true);
+  selects[0].props.onChange({target:{value:`${id(3)}:${id(4)}`}});
+  tree=render();selects=elements(tree,e=>e.type==='select');selects[1].props.onChange({target:{value:'gb'}});
+  tree=render();selects=elements(tree,e=>e.type==='select');selects[2].props.onChange({target:{value:'nature'}});
+  tree=render();const captureSelection={manifestHash:'9'.repeat(64),manifest:[{bundleId:id(92),bundleHash:'8'.repeat(64),selectedObservationIds:[id(93)]}]};
+  elements(tree,e=>typeof e.props?.onSelect==='function')[0].props.onSelect(captureSelection);
+  tree=render();assert.equal(button(tree,'Prepare adaptive research packet').props.disabled,false);
+  elements(tree,e=>e.type==='form')[0].props.onSubmit({preventDefault(){}});await until(()=>navigation.length===1);
+  const input=calls[0];assert.equal(input.maximumRunMicrounits,'3000000');assert.equal(input.businessLifetimeLimitMicrounits,'7000000');assert.equal(input.researchLifetimeLimitMicrounits,'5000000');
+  assert.deepEqual([input.predecessorPlanId,input.predecessorScopeId,input.profileHash,input.marketSetKey,input.topicKey],[id(40),id(41),'e'.repeat(64),'gb','nature']);
+  assert.equal(Object.keys(input).length,18);assert.match(navigation[0],/adaptiveSetup=/);
+  tree=render();assert.equal(button(tree,'Confirm this exact adaptive policy').props.disabled,true,'Receipt alone cannot imply consent');
+  elements(tree,e=>typeof e.props?.onVerified==='function')[0].props.onVerified(captureSelection.manifestHash);
+  tree=render();elements(tree,e=>e.type==='input'&&e.props.type==='checkbox')[0].props.onChange({target:{checked:true}});
+  assert.equal(button(render(),'Confirm this exact adaptive policy').props.disabled,false);
+  states[states.findIndex(value=>value===now)]=now+3600_001;
+  assert.equal(button(render(),'Confirm this exact adaptive policy').props.disabled,true,'Expired quote cannot be confirmed even with prior consent');
+});
+
+test('adaptive Stop remains usable during a Run request and cancels any subsequent automatic wake',async()=>{
+  const {now,catalog}=adaptiveFixture(),pendingRun=deferred(),calls=[],states=[],refs=[];let stateIndex=0,refIndex=0;
+  const receipt={businessId:id(1),goalId:id(2),setupId:id(60),setupHash:'f'.repeat(64),scopeId:id(61),profileId:id(3),grantId:id(4),selection:{marketSetKey:'gb',topicKey:'nature'},preview:{maximumActions:10,expiresAt:new Date(now+3600_000).toISOString()},quote:{validUntil:new Date(now+3600_000).toISOString()},confirmed:true,activated:true,stopped:false,actions:[]};
+  const hooks={...React,useId:()=>':adaptive-stop:',useState(initial){const index=stateIndex++;if(!(index in states))states[index]=initial;return[states[index],value=>states[index]=typeof value==='function'?value(states[index]):value];},useRef(initial){const index=refIndex++;return refs[index]??={current:initial};},useEffect(){}};
+  const actions={continueAdaptiveOwnerResearchAction:async(businessId,scopeId)=>{calls.push(['run',businessId,scopeId]);return pendingRun.promise;},stopAdaptiveOwnerResearchAction:async input=>{calls.push(['stop',input]);return {ok:true,receipt:{...receipt,stopped:true}};}};
+  const view=load('src/components/quests/owner-adaptive-research-workspace.tsx',{
+    react:hooks,'next/navigation':{useRouter:()=>({refresh(){},replace(){}})},'@/app/dashboard/quests/research/actions':actions,
+    '@/lib/core-ui/owner-research-form':money,'./owner-adaptive-research-packet':{OwnerAdaptiveResearchPacket:()=>React.createElement('div',null,'Saved packet')},
+  },{window:{setInterval:()=>1,clearInterval(){},setTimeout:()=>1,clearTimeout(){},addEventListener(){},removeEventListener(){}},crypto:{subtle:webcrypto.subtle,randomUUID:()=>id(80)},TextEncoder});
+  function render(){stateIndex=0;refIndex=0;return view.OwnerAdaptiveResearchWorkspace({ownerId:id(90),catalog,selectedReceipt:receipt,observedAt:now});}
+  button(render(),'Run or resume approved adaptive research').props.onClick();await until(()=>calls.length===1);
+  assert.equal(button(render(),'Stop this adaptive setup').props.disabled,false,'Stop must remain available during the in-flight Run request');
+  button(render(),'Stop this adaptive setup').props.onClick();await until(()=>calls.length===2&&states.some(value=>value?.setupId===receipt.setupId&&value?.stopped===true));
+  pendingRun.resolve({ok:true,result:{status:'waiting',reason:'continue_saved_progress'}});await tick();
+  assert.equal(calls.filter(call=>call[0]==='run').length,1,'Late Run result cannot start another call after Stop');
+  assert.equal(button(render(),'Run or resume approved adaptive research'),undefined);
+});
+
+test('adaptive Run waits for saved receipt eligibility and pauses after three unchanged durable states',async()=>{
+  const {now,catalog}=adaptiveFixture(),timers=[],calls=[],states=[],refs=[];let stateIndex=0,refIndex=0;
+  const receipt={businessId:id(1),goalId:id(2),setupId:id(60),setupHash:'f'.repeat(64),scopeId:id(61),profileId:id(3),grantId:id(4),selection:{marketSetKey:'gb',topicKey:'nature'},preview:{maximumActions:10,expiresAt:new Date(now+3600_000).toISOString()},quote:{validUntil:new Date(now+3600_000).toISOString()},confirmed:true,activated:true,stopped:false,actions:[]};
+  const wakeAt=new Date(Date.now()+60_000).toISOString();
+  const responses=[{status:'waiting',reason:'receipt_pending',wakeAt,progressToken:'saved-1'},
+    ...Array.from({length:4},()=>({status:'waiting',reason:'continue_saved_progress',progressToken:'saved-1'}))];
+  const hooks={...React,useId:()=>':adaptive-wake:',useState(initial){const index=stateIndex++;if(!(index in states))states[index]=initial;return[states[index],value=>states[index]=typeof value==='function'?value(states[index]):value];},useRef(initial){const index=refIndex++;return refs[index]??={current:initial};},useEffect(){}};
+  const actions={continueAdaptiveOwnerResearchAction:async()=>{calls.push('wake');return {ok:true,result:responses.shift()};}};
+  const view=load('src/components/quests/owner-adaptive-research-workspace.tsx',{
+    react:hooks,'next/navigation':{useRouter:()=>({refresh(){},replace(){}})},'@/app/dashboard/quests/research/actions':actions,
+    '@/lib/core-ui/owner-research-form':money,'./owner-adaptive-research-packet':{OwnerAdaptiveResearchPacket:()=>React.createElement('div',null,'Saved packet')},
+  },{window:{setInterval:()=>1,clearInterval(){},setTimeout:(fn,delay)=>{timers.push({fn,delay});return timers.length;},clearTimeout(){},addEventListener(){},removeEventListener(){}},crypto:{subtle:webcrypto.subtle,randomUUID:()=>id(80)},TextEncoder});
+  function render(){stateIndex=0;refIndex=0;return view.OwnerAdaptiveResearchWorkspace({ownerId:id(90),catalog,selectedReceipt:receipt,observedAt:now});}
+  button(render(),'Run or resume approved adaptive research').props.onClick();await until(()=>calls.length===1&&timers.length===1);
+  assert.ok(timers[0].delay>50_000,'A pending receipt is never polled before its saved wake time');
+  assert.equal(calls.length,1,'No follow-up request occurs while a receipt is pending');
+  for(let n=2;n<=4;n++){timers.shift().fn();await until(()=>calls.length===n&&timers.length===1);assert.equal(timers[0].delay,750);}
+  timers.shift().fn();await until(()=>calls.length===5);
+  assert.equal(timers.length,0,'Three repeated durable progress tokens stop browser auto-wakes');
+  assert.match(renderToStaticMarkup(render()),/has not advanced across three checks/);
+});
+
+test('stopped adaptive setup offers only SQL-proven existing receipt readback',async()=>{
+  const {now,catalog}=adaptiveFixture(),calls=[],states=[],refs=[];let stateIndex=0,refIndex=0;
+  const receipt={businessId:id(1),goalId:id(2),setupId:id(60),setupHash:'f'.repeat(64),scopeId:id(61),profileId:id(3),grantId:id(4),selection:{marketSetKey:'gb',topicKey:'nature'},preview:{maximumActions:10,expiresAt:new Date(now+3600_000).toISOString()},quote:{validUntil:new Date(now+3600_000).toISOString()},confirmed:true,activated:true,stopped:true,actions:[]};
+  const hooks={...React,useId:()=>':adaptive-readback:',useState(initial){const index=stateIndex++;if(!(index in states))states[index]=initial;return[states[index],value=>states[index]=typeof value==='function'?value(states[index]):value];},useRef(initial){const index=refIndex++;return refs[index]??={current:initial};},useEffect(){}};
+  const actions={checkAdaptiveOwnerReceiptsAction:async(businessId,scopeId)=>{calls.push([businessId,scopeId]);return {ok:true,result:{status:'stopped',reason:'saved_receipt_readback_recorded'}};}};
+  const view=load('src/components/quests/owner-adaptive-research-workspace.tsx',{
+    react:hooks,'next/navigation':{useRouter:()=>({refresh(){},replace(){}})},'@/app/dashboard/quests/research/actions':actions,
+    '@/lib/core-ui/owner-research-form':money,'./owner-adaptive-research-packet':{OwnerAdaptiveResearchPacket:()=>React.createElement('div',null,'Saved packet')},
+  },{window:{setInterval:()=>1,clearInterval(){},setTimeout:()=>1,clearTimeout(){},addEventListener(){},removeEventListener(){}},crypto:{subtle:webcrypto.subtle,randomUUID:()=>id(80)},TextEncoder});
+  function render(){stateIndex=0;refIndex=0;return view.OwnerAdaptiveResearchWorkspace({ownerId:id(90),catalog,selectedReceipt:receipt,observedAt:now});}
+  assert.equal(button(render(),'Check saved receipts'),undefined,'No UI readback without trusted pending marker');
+  catalog.activation={setupId:receipt.setupId,scopeId:receipt.scopeId,stopped:true,pendingReceiptReadback:true,pendingReceiptCount:1};
+  const tree=render();assert.equal(button(tree,'Run or resume approved adaptive research'),undefined);
+  button(tree,'Check saved receipts').props.onClick();await until(()=>calls.length===1);
+  assert.deepEqual(calls[0],[id(1),id(61)]);assert.match(renderToStaticMarkup(render()),/no new research call was sent/i);
 });

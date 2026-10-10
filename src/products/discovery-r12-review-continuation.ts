@@ -5,6 +5,7 @@ import type { DiscoveryOwnerInitialScope } from "./discovery-r12-goal-scope";
 import type { DiscoveryOwnerEpisodeScope } from "./discovery-r12-owner-episode";
 import type { DiscoveryFocusedPilot } from "./discovery-r12-focused-pilot-scope";
 import type { DiscoveryEvidenceContinuation } from "./discovery-r12-evidence-continuation";
+import type { DiscoveryAdaptiveOwnerScope } from "./discovery-r12-adaptive-execution-scope";
 
 export const DISCOVERY_R12_REUSED_PHASES = ["plan", "search1", "select1", "strategy"] as const;
 type DiscoveryReviewContinuationBase = {
@@ -22,7 +23,7 @@ export type DiscoveryReviewContinuation = DiscoveryReviewContinuationBase & (
 );
 export const DISCOVERY_R12_REVIEW_HISTORY_LIMIT = 2;
 export const isDiscoveryReviewContinuation = (scope: DiscoveryR12ExecutionScope): scope is DiscoveryReviewContinuation => scope.version === "r12.discovery-review-continuation.1" || scope.version === "r12.discovery-review-continuation.2";
-export type DiscoveryR12ExecutionScope = DiscoverySourceScopeAmendment | DiscoveryReviewContinuation | DiscoveryEvidenceContinuation | DiscoveryFocusedPilot | DiscoveryOwnerInitialScope | DiscoveryOwnerEpisodeScope;
+export type DiscoveryR12ExecutionScope = DiscoverySourceScopeAmendment | DiscoveryReviewContinuation | DiscoveryEvidenceContinuation | DiscoveryFocusedPilot | DiscoveryOwnerInitialScope | DiscoveryOwnerEpisodeScope | DiscoveryAdaptiveOwnerScope;
 const uuid = (v: unknown): v is string => typeof v === "string" && /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(v);
 const hash = (v: unknown): v is string => typeof v === "string" && /^[a-f0-9]{64}$/.test(v);
 const fail = (): never => { throw Error("r12_saved_review_continuation_unverified"); };

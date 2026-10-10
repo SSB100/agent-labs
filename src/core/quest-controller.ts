@@ -11,6 +11,7 @@ export type QuestAttempt = {
   reason: string; inputHash: string; dependencyPins: QuestDependency[]; repairEvidenceHash: string;
   resultEvidenceHash?: string | null;
   wireHash: string | null; requestId: string | null; responseHash: string | null;
+  adaptiveActionHash?: string; adaptiveActionOrdinal?: number;
 };
 export type QuestSnapshot = {
   businessId: string; goalId: string; planId: string; version: number; planHash: string; plan: QuestPlan;
@@ -50,11 +51,20 @@ export type QuestStore = {
   /** Trusted runtime opt-in only for an explicitly authorized recovery scope.
    * A matching pilot may renew its existing lease once after preparation. */
   recoveryDispatchLeaseScopeId?: string;
+  /** Server reconstruction of one durably admitted research action. This read
+   * creates no permission; SQL checks the same ledger on every command. */
+  readAdaptiveAction?(): Promise<QuestAdaptiveActionProjection | null>;
+};
+export type QuestAdaptiveActionProjection = {
+  actionHash: string; ordinal: number; phaseKeys: string[];
+  attemptIds: string[]; reused: QuestDependency[];
 };
 export type QuestTickResult = {
   status: "progress" | "waiting" | "blocked" | "stopped" | "completed";
   reason: string;
   wakeAt?: string;
+  /** Optional opaque durable-work state; lease claims are excluded. */
+  progressToken?: string;
 };
 const digest = (s: string) => createHash("sha256").update(s).digest("hex");
 const none: Readonly<Record<string, QuestAdapter>> = Object.freeze({});
@@ -101,16 +111,38 @@ export async function driveQuestOnce(store: QuestStore, options: {
   const initial = await store.read();
   if (!initial) return { status: "blocked", reason: "plan_required" };
   const plan = compileQuestPlan(initial.plan);
+  // A static phase evaluation cannot project the latest adaptive action.
+  // Trusted adaptive integration must validate the action ledger first.
+  const adaptiveFormat = plan.format === "r12.discovery-adaptive.1" || plan.format === "r12.discovery-adaptive.2";
+  if (adaptiveFormat && !store.readAdaptiveAction) return { status: "blocked", reason: "adaptive_action_runtime_required" };
   const claim = await store.command("claim", { seconds: 60 });
   const epoch = Number(claim.epoch);
   if (!Number.isSafeInteger(epoch) || epoch < 1) throw new Error("r07_invalid_lease_response");
   const snapshot = await store.read();
   if (!snapshot || snapshot.planId !== initial.planId || snapshot.planHash !== initial.planHash) return { status: "waiting", reason: "plan_changed_reload" };
+  const adaptive = adaptiveFormat ? await store.readAdaptiveAction!() : null;
+  if (adaptiveFormat && !adaptive) return { status: "waiting", reason: "adaptive_reviewed_action_required" };
+  if (adaptive && (!/^[a-f0-9]{64}$/.test(adaptive.actionHash) || !Number.isSafeInteger(adaptive.ordinal) || adaptive.ordinal < 0 || adaptive.ordinal > 10 ||
+      !Array.isArray(adaptive.phaseKeys) || !adaptive.phaseKeys.length || new Set(adaptive.phaseKeys).size !== adaptive.phaseKeys.length ||
+      adaptive.phaseKeys.some(key=>!plan.steps.some(s=>s.key === key)) ||
+      plan.format === "r12.discovery-adaptive.2" &&
+        ![JSON.stringify(["plan", "strategy", "review"]), JSON.stringify(["strategy", "review"])].includes(JSON.stringify(adaptive.phaseKeys)) ||
+      !Array.isArray(adaptive.attemptIds) || new Set(adaptive.attemptIds).size !== adaptive.attemptIds.length ||
+      adaptive.attemptIds.some(id=>!snapshot.attempts.some(a=>a.id === id && adaptive.phaseKeys.includes(a.stepKey) && a.adaptiveActionHash === adaptive.actionHash && a.adaptiveActionOrdinal === adaptive.ordinal)) ||
+      !Array.isArray(adaptive.reused) || new Set(adaptive.reused.map(p=>p.stepKey)).size !== adaptive.reused.length ||
+      plan.format === "r12.discovery-adaptive.2" && JSON.stringify(adaptive.reused.map(p=>p.stepKey)) !==
+        JSON.stringify(adaptive.phaseKeys.length === 3 ? [] : ["plan"]) ||
+      adaptive.reused.some(pin=>adaptive.phaseKeys.includes(pin.stepKey) || !snapshot.attempts.some(a=>a.id === pin.attemptId && a.stepKey === pin.stepKey && a.status === "completed" && a.responseHash === pin.resultHash)))) {
+    throw new Error("r07_adaptive_action_projection_unverified");
+  }
+  // Previous action successes remain historical evidence, never a substitute
+  // for the current action's separately admitted paid phase attempts.
+  const attempts = adaptive ? snapshot.attempts.filter(a=>adaptive.attemptIds.includes(a.id)) : snapshot.attempts;
   const knowledge = readQuestKnowledge(snapshot.knowledge ?? { format: "r09.1", businessId: snapshot.businessId, planId: snapshot.planId, pins: [] }, snapshot.businessId, snapshot.planId);
   const registry = options.adapters ?? PRODUCTION_QUEST_ADAPTERS;
   const apply = (operation: string, payload: Record<string, unknown>) => store.command(operation, payload, epoch);
   // Project received evidence before considering any new dispatch, including after pause.
-  const responded = snapshot.attempts.find(a => a.status === "responded");
+  const responded = attempts.find(a => a.status === "responded");
   if (responded) {
     let result = await apply("finish", { attemptId: responded.id });
     if (result.reason === "unresolved_liability" && options.reconcile) {
@@ -128,7 +160,7 @@ export async function driveQuestOnce(store: QuestStore, options: {
     }
     return result.reason === "unresolved_liability" ? { status: "blocked", reason: "unresolved_liability" } : { status: "progress", reason: "response_projected" };
   }
-  const pending = snapshot.attempts.find(a => ["scheduled", "reserved", "dispatched", "uncertain"].includes(a.status));
+  const pending = attempts.find(a => ["scheduled", "reserved", "dispatched", "uncertain"].includes(a.status));
   if (pending) {
     const step = plan.steps.find(s => s.key === pending.stepKey);
     if (!step) throw new Error("r07_saved_step_unavailable");
@@ -187,16 +219,21 @@ export async function driveQuestOnce(store: QuestStore, options: {
     await apply("response", { attemptId: pending.id, planHash: snapshot.planHash, inputHash: pending.inputHash, ...response });
     return { status: "progress", reason: "response_persisted" };
   }
-  if (snapshot.head.state === "completed") return { status: "completed", reason: snapshot.head.reason };
-  const succeeded = new Set([...snapshot.reused.map(s => s.stepKey), ...snapshot.attempts.filter(a => a.status === "completed").map(a => a.stepKey)]);
+  if (!adaptive && snapshot.head.state === "completed") return { status: "completed", reason: snapshot.head.reason };
+  const succeeded = new Set([...(adaptive ? adaptive.reused : snapshot.reused).map(s => s.stepKey), ...attempts.filter(a => a.status === "completed").map(a => a.stepKey)]);
   const repair = options.repair;
-  const next = plan.steps.find(step => !succeeded.has(step.key) && step.dependsOn.every(key => succeeded.has(key)) &&
-    (!snapshot.attempts.some(a => a.stepKey === step.key) || (repair?.stepKey === step.key && snapshot.attempts.filter(a => a.stepKey === step.key).every(a => ["rejected", "failed"].includes(a.status)))));
+  const next = plan.steps.find(step => (!adaptive || adaptive.phaseKeys.includes(step.key)) && !succeeded.has(step.key) && step.dependsOn.every(key => succeeded.has(key)) &&
+    (!attempts.some(a => a.stepKey === step.key) || (!adaptive && repair?.stepKey === step.key && attempts.filter(a => a.stepKey === step.key).every(a => ["rejected", "failed"].includes(a.status)))));
   if (next) {
     if (!adapterFor(registry, next)) return { status: "blocked", reason: "adapter_implementation_unavailable" };
-    const scheduled = await apply("schedule", { stepKey: next.key, attemptId: randomUUID(), reason: repair?.stepKey === next.key ? repair.reason : next.reason, evidenceHash: repair?.stepKey === next.key ? repair.evidenceHash : snapshot.planHash });
+    const scheduled = await apply("schedule", { stepKey: next.key, attemptId: randomUUID(), reason: repair?.stepKey === next.key ? repair.reason : next.reason, evidenceHash: repair?.stepKey === next.key ? repair.evidenceHash : snapshot.planHash,
+      ...(adaptive ? {actionHash:adaptive.actionHash,actionOrdinal:adaptive.ordinal} : {}) });
     if (scheduled.status === "scheduled") return { status: "progress", reason: "scheduled" };
     return scheduled.reason === "measurement_wait" ? { status: "waiting", reason: "measurement_wait", wakeAt: next.measurement?.closesAt ?? next.notBefore } : { status: "blocked", reason: String(scheduled.reason ?? "schedule_denied") };
+  }
+  if (adaptive) {
+    const closed = await apply("adaptive_complete_action", {actionHash:adaptive.actionHash,actionOrdinal:adaptive.ordinal});
+    return closed.closed === true ? {status:"progress",reason:"adaptive_action_closed"} : {status:"waiting",reason:String(closed.reason ?? "adaptive_action_unresolved")};
   }
   const evaluated = await apply("evaluate", {});
   return { status: evaluated.state === "completed" ? "completed" : evaluated.state === "stopped" ? "stopped" : evaluated.state === "waiting" ? "waiting" : "blocked", reason: String(evaluated.reason ?? "no_permitted_work") };
