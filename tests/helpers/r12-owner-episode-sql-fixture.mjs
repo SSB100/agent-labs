@@ -46,7 +46,8 @@ export async function exerciseOwnerEpisodeCatalogSql(db){
  const newest=await enrollOwnerEpisodeGrant(db,f);await selected(newest.grantId);
  return {oneProfile:true,newestInitialPreserved:true,ineligibleContinuationSkipped:true};
 }
-export async function runOwnerEpisodePhases(db,f,receipt,{onReserved=null,onFirstPost=null,expectStopped=false}={}){
+export async function runOwnerEpisodePhases(db,f,receipt,{onReserved=null,onFirstPost=null,expectStopped=false,reviewFailureCase=null}={}){
+ assert.ok(reviewFailureCase===null||reviewFailureCase==='response_schema');
  const view=await f.rpc('r12_discovery_owner_read',[f.businessId,receipt.scopeId,true]),scope=view.activation.scope,plan=view.activation.plan;
  const controller='inert-controller-'+receipt.scopeId,admission='inert-admission-'+receipt.scopeId,lease='inert-episode-lease-'+receipt.scopeId;
  const command=(op,payload,epoch=null)=>ownerInitialRuntimeRpc(db,'r07_controller',[f.businessId,f.goalId,op,['schedule','reserve'].includes(op)?{...payload,runtimeCapability:'inert-owner-episode-runtime-capability'}:payload,randomUUID(),controller,lease,epoch,admission]);
@@ -54,6 +55,7 @@ export async function runOwnerEpisodePhases(db,f,receipt,{onReserved=null,onFirs
  const operation=(attemptId,op,payload)=>ownerInitialRuntimeRpc(db,'r12_discovery_server',[f.businessId,attemptId,op,payload,controller]);
  const effects={operation,settle:(attemptId,settlement)=>command('settle',{attemptId,settlement}),dispatchedAt:async attemptId=>(await operation(attemptId,'load',{})).dispatchedAt};
  const outputs=ownerInitialPhaseOutputs(scope),adapters={};let posts=0,gets=0,postError;
+ if(reviewFailureCase==='response_schema')outputs.review.checks[0].rationale='x'.repeat(241);
  for(const step of plan.steps){const phase=step.key,generationId='gen-owner-episode-'+scope.id+'-'+phase;
   adapters[step.adapter]=createDiscoveryR12QuestAdapter({scope,phase,identity:{qualificationHash:step.qualificationHash,workflowDefinitionId:step.workflowDefinitionId,workerDefinitionId:step.workerDefinitionId,mode:'qualification'},dataClasses:phase==='search1'?['generic_public_query','public_evidence']:['business_context','public_evidence'],store:effects,
    config:{apiKey:'inert-owner-episode-only',baseUrl:'https://openrouter.ai/api/v1',appUrl:'https://agent-labs-two.vercel.app',appName:'Agent Labs'},quote:async()=>r12QuoteFixture(),
@@ -64,7 +66,21 @@ export async function runOwnerEpisodePhases(db,f,receipt,{onReserved=null,onFirs
     gets++;return new Response(JSON.stringify({data:{id:generationId,provider_name:phase==='review'?'Amazon Bedrock':'Azure',model}}),{status:200});}
   });
  }
- let last;for(let n=0;n<30;n++){try{last=await driveQuestOnce(store,{adapters,reconcile:true});}catch(error){if(expectStopped&&!postError&&error.message==='r12_discovery_receipt_pending'&&error.receipt?.status==='stopped'){last={status:'stopped',reason:'receipt_stopped'};break;}throw postError??error;}if(onReserved&&last.reason==='reserved')await onReserved({db,f,receipt,store,operation,controller,admission,last});if(last.status==='completed'||(expectStopped&&last.status!=='progress'))break;assert.equal(last.status,'progress',JSON.stringify(last));}
+ let last;for(let n=0;n<30;n++){try{last=await driveQuestOnce(store,{adapters,reconcile:true});}catch(error){if(reviewFailureCase&&posts===5&&!postError){last={status:'unaccepted',error};break;}if(expectStopped&&!postError&&error.message==='r12_discovery_receipt_pending'&&error.receipt?.status==='stopped'){last={status:'stopped',reason:'receipt_stopped'};break;}throw postError??error;}if(onReserved&&last.reason==='reserved')await onReserved({db,f,receipt,store,operation,controller,admission,last});if(last.status==='completed'||(expectStopped&&last.status!=='progress'))break;assert.equal(last.status,'progress',JSON.stringify(last));}
+ if(reviewFailureCase){
+  assert.equal(posts,5);assert.equal(gets,4);assert.equal(last.status,'unaccepted');
+  const failed=await one(db,`select a.id attempt_id,r.id request_id,a.status,
+   (select count(*)::int from private.r12_discovery_candidates c where c.request_id=r.id) candidates,
+   (select count(*)::int from private.r12_discovery_receipt_checks c where c.request_id=r.id) checks,
+   (select count(*)::int from private.r07_responses z where z.attempt_id=a.id) responses,
+   (select max(actual_microunits)::text from private.r05_settlements z where z.request_id=r.id) actual,
+   (select payload->>'code' from private.r12_discovery_response_observations o where o.request_id=r.id and kind='rejected') diagnostic
+   from private.r07_attempts a join private.r05_requests r on r.workflow_run_id=a.id where a.plan_id=$1 and a.step_key='review'`,[view.planId]);
+  assert.ok(failed);assert.notEqual(failed.status,'completed');assert.equal(failed.candidates,0);assert.equal(failed.checks,0);assert.equal(failed.responses,0);assert.equal(failed.actual,'10');assert.equal(failed.diagnostic,reviewFailureCase);
+  assert.equal((await one(db,"select count(*)::int n from private.r07_attempts where plan_id=$1 and status='completed'",[view.planId])).n,4);
+  await driveQuestOnce(store,{adapters,reconcile:true});assert.equal(posts,5);assert.equal(gets,4);
+  return {posts,gets,last,store,failed};
+ }
  if(expectStopped){assert.equal(posts,1);assert.equal(gets,0);assert.equal(last.status,'stopped');return {posts,gets,last,store};}
  assert.equal(last.status,'completed');assert.equal(posts,5);assert.equal(gets,5);assert.equal((await driveQuestOnce(store,{adapters,reconcile:true})).status,'completed');
  const raw=await f.rpc('r12_discovery_result_read',[f.businessId,receipt.scopeId]);const result=reconstructDiscoveryR12Result(raw,f.businessId,receipt.scopeId);assert.equal(result.review.outcome,'NEEDS_MORE_EVIDENCE');
@@ -133,7 +149,8 @@ export async function exerciseOwnerEpisodeSql(db,{legacy=null}={}){
  }});
 }
 
-export async function exerciseHistoricalOwnerEpisodeSql(db,evidence){
+export async function exerciseHistoricalOwnerEpisodeSql(db,evidence,{beforePlannerPreflight=false,onReady=null}={}){
+ if(beforePlannerPreflight)assert.equal((await one(db,"select to_regprocedure('public.r12_owner_research_preflight(uuid,uuid,text,jsonb)')::text value")).value,null);
  const {businessId,goalId,ownerId}=evidence.metadata;
  const originalGoalCount=(await one(db,'select count(*)::int n from public.goals where business_id=$1',[businessId])).n;
  const old=await one(db,`select (select jsonb_agg(to_jsonb(p) order by version) from private.r07_plans p where goal_id=$1) plans,
@@ -160,8 +177,9 @@ export async function exerciseHistoricalOwnerEpisodeSql(db,evidence){
  const rpc=async(name,args)=>{await db.exec('savepoint episode_owner_rpc');try{await db.query("select set_config('request.jwt.claim.sub',$1,true)",[ownerId]);await db.exec('set local role authenticated');const result=(await one(db,`select public.${name}(${args.map((_,i)=>'$'+(i+1)).join(',')}) result`,args)).result;await db.exec('reset role');return result;}catch(error){await db.exec('rollback to savepoint episode_owner_rpc');throw error;}finally{await db.exec('release savepoint episode_owner_rpc');}};
  const f={db,businessId,goalId,ownerId,bindingId,rootId,grantId,profile,pins,bootstrapKey,rpc,input:{businessId,goalId,goalRevision:gv.revision,profileId:profile.id,profileHash:hash(profile),grantId,marketSetKey:'gb',topicKey:'gardening',businessLifetimeLimitMicrounits:'6000000',researchLifetimeLimitMicrounits:'6000000',submissionId:randomUUID()},server:async(op,payload,key=bootstrapKey)=>{
   const result=await rpc('r12_owner_research_server',[businessId,op,payload,key]);
-  return op==='prepare'||op==='prepare_episode'?ownerPreflightPrepared(rpc,businessId,result):result;
- },confirmPayload:ownerConfirmPayload};
+  return !beforePlannerPreflight&&(op==='prepare'||op==='prepare_episode')?ownerPreflightPrepared(rpc,businessId,result):result;
+ },confirmPayload:beforePlannerPreflight?prepared=>({setupId:prepared.setupId,setupHash:prepared.setupHash,submissionId:randomUUID(),controllerKeyHash:sha('inert-controller-'+prepared.scopeId),admissionKeyHash:sha('inert-admission-'+prepared.scopeId),quote:r12QuoteFixture()}):ownerConfirmPayload};
+ if(onReady)return onReady({f,latest,scope,amount});
  const baselineMarkers=(await one(db,'select count(*)::int n from private.r05_markers where business_id=$1',[businessId])).n;
  const input=await episodeInput(db,f),prepared=await f.server('prepare_episode',{input,quote:r12QuoteFixture()});assert.equal(prepared.preview.predecessorClosure.predecessorPlanVersion,4);
  await f.server('confirm_episode',f.confirmPayload(prepared));const head=await one(db,'select * from private.r07_heads where goal_id=$1',[goalId]);

@@ -39,3 +39,11 @@ export function validateSteelReadbackClaim(raw:unknown,expected:{businessId:stri
  steelReadbackAssert(r.claim.hash===hash({version:'r12.steel-config-readback-claim.1',id:r.claim.id,targetHash:expected.targetHash,submissionId:expected.submissionId,expiresAt:r.claim.expiresAt}));
  return{version:'r12.steel-config-readback-claim-response.1',targetHash:expected.targetHash,mayFetch:true,claim:{...r.claim}as{id:string;hash:string;expiresAt:string},target};
 }
+
+/** Identifies configured bytes only; no registry or authority status is inferred. */
+export type ConfiguredR05Fingerprint={version:'r05.owner-configuration-fingerprint.1';businessId:string;keyHash:string|null;status:'configured'|'not_configured';checkedAt:string};
+export function validateConfiguredR05Fingerprint(raw:unknown,businessId:string):ConfiguredR05Fingerprint{
+ steelReadbackAssert(exact(raw,'version,businessId,keyHash,status,checkedAt')&&raw.version==='r05.owner-configuration-fingerprint.1'&&raw.businessId===businessId&&steelReadbackUuid(businessId));
+ steelReadbackAssert(raw.status==='configured'?steelReadbackDigest(raw.keyHash):raw.status==='not_configured'&&raw.keyHash===null);
+ steelReadbackTime(raw.checkedAt);return {...raw}as ConfiguredR05Fingerprint;
+}

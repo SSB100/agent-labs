@@ -61,7 +61,7 @@ async function focusedRecoveryOutcomes(db,closedUnsent,outcomes){
  });
 }
 
-export async function prepareR12OwnerWorkflows(){
+export async function prepareR12OwnerWorkflows({migrationThrough=null}={}){
  const sqlRequire=createRequire(path.resolve(host,'package.json'));let db;
  if(process.env.R12_REQUIRE_POSTGRES==='1')assert.ok(process.env.R12_POSTGRES_URL,'Actual PostgreSQL is required by this gate');
  if(process.env.R12_POSTGRES_URL){validatePg(process.env.R12_POSTGRES_URL);const {Client}=sqlRequire('pg');db=new Client({connectionString:process.env.R12_POSTGRES_URL});await db.connect();db.exec=sql=>db.query(sql);db.close=()=>db.end();try{assert.equal(Number((await db.query("select count(*) from pg_tables where schemaname in ('public','private')")).rows[0].count),0,'Fresh fixture database required');}catch(error){await db.close();throw error;}}
@@ -76,7 +76,7 @@ export async function prepareR12OwnerWorkflows(){
  const owner=source('src/lib/core-ui/owner-business.ts',{}),server=source('src/products/discovery-r12-scope-server.ts',{'server-only':{},'../lib/core-ui/owner-business':owner,'./discovery-r12-scope':scope});
   await db.exec("set timezone='UTC'");
   await db.exec(r04SqlBootstrap+sessionBootstrap);
-  for(const file of readdirSync(path.join(root,'supabase/migrations')).filter(x=>x.endsWith('.sql')).sort())try{const sql=readFileSync(path.join(root,'supabase/migrations',file),'utf8');if(file==='20261007210657_r12_recovery_evidence_refresh.sql'&&process.env.R12_POSTGRES_URL)await applyR12EvidenceRefreshWithCatalogCheck(db,sql);else await db.exec(sql);}catch(error){throw new Error(`${file}: ${error.message}`,{cause:error});}
+  for(const file of readdirSync(path.join(root,'supabase/migrations')).filter(x=>x.endsWith('.sql')&&(!migrationThrough||x<=migrationThrough)).sort())try{const sql=readFileSync(path.join(root,'supabase/migrations',file),'utf8');if(file==='20261007210657_r12_recovery_evidence_refresh.sql'&&process.env.R12_POSTGRES_URL)await applyR12EvidenceRefreshWithCatalogCheck(db,sql);else await db.exec(sql);}catch(error){throw new Error(`${file}: ${error.message}`,{cause:error});}
   const scannerQualification=await assertR12ScannerParity(db,{engine:process.env.R12_POSTGRES_URL?'postgresql':'pglite'});
   if(scannerQualification.skipped)console.log('R12 scanner stress parity stays in the native PostgreSQL gate; PGlite continues snapshot/runtime assertions.');
   assert.equal((await db.query('select count(*)::int n from private.r12_discovery_scopes')).rows[0].n,0);

@@ -1,12 +1,12 @@
 import 'server-only';
-import {randomUUID} from 'node:crypto';
+import {createHash,randomUUID} from 'node:crypto';
 import type {OwnerUiContext} from '../lib/core-ui/data';
 import {verifyOwnerBusiness} from '../lib/core-ui/owner-business';
 import {boundedRpc,requestDeadline} from '../core/request-deadline';
 import {getSteelConfig} from '../browser/providers/steel';
 import {getSteelCreateDeployment} from '../browser/etsy-steel-create-binding';
 import {qualifySteelExistingSessionReadback} from '../browser/etsy-steel-config-readback';
-import {steelReadbackAssert as check,steelReadbackUuid,steelReadbackDigest,steelReadbackHash as hash,steelReadbackTime,validateSteelReadbackStatus,validateSteelReadbackClaim,type SteelReadbackStatus} from './etsy-steel-readback-contracts';
+import {steelReadbackAssert as check,steelReadbackUuid,steelReadbackDigest,steelReadbackHash as hash,steelReadbackTime,validateSteelReadbackStatus,validateSteelReadbackClaim,validateConfiguredR05Fingerprint,type ConfiguredR05Fingerprint,type SteelReadbackStatus} from './etsy-steel-readback-contracts';
 
 /** Deployed same-owner read-only action implementation. No endpoint or form is
  * installed by this module. Private targets are independently reviewed SQL
@@ -70,4 +70,19 @@ export async function runSteelConfigReadback(context:OwnerUiContext,businessId:s
   // provider call or an invented failure after a possibly committed proof.
   return readSteelConfigReadback(context,businessId,targetHash);
  }
+}
+
+/** Same-owner fingerprint only. Fresh ownership is read under the caller's
+ * authenticated client rather than trusting the request's cached directory.
+ * No credential or digest is sent to a database or provider. This proves no
+ * registration, expiry, revocation, scoped classification, or root eligibility. */
+export async function readConfiguredR05Fingerprint(context:OwnerUiContext,businessId:string):Promise<ConfiguredR05Fingerprint>{
+ try{
+  check(steelReadbackUuid(businessId)&&steelReadbackUuid(context.userId));
+  const claims=await context.supabase.auth.getClaims();check(!claims.error&&claims.data?.claims?.sub===context.userId);
+  const owned=await boundedRpc(context.supabase.from('businesses').select('id').eq('id',businessId).eq('owner_user_id',context.userId).maybeSingle(),requestDeadline(15000),10000);
+  check(!owned.error&&owned.data?.id===businessId&&process.env.VERCEL_ENV==='production');
+  const configured=process.env.R05_ADMISSION_SERVER_KEY?.trim(),present=!!configured&&configured.length>=32&&configured.length<=200;
+  return validateConfiguredR05Fingerprint({version:'r05.owner-configuration-fingerprint.1',businessId,keyHash:present?createHash('sha256').update(configured).digest('hex'):null,status:present?'configured':'not_configured',checkedAt:new Date().toISOString()},businessId);
+ }catch{throw new Error('Server configuration fingerprint is unavailable.');}
 }

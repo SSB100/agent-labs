@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {randomUUID} from 'node:crypto';
+import {createHash,randomUUID} from 'node:crypto';
 import {one} from './helpers/r12-owner-initial-sql-fixture.mjs';
 import {currentOwnerJourneyDatabase,currentOwnerJourneyAuthority,currentOwnerJourneyComposition,publishCurrentOwnerReviewedAuthority,currentOwnerJourneyEnvironment,executeCurrentOwnerCycle,currentOwnerJourneyDiagnostics,ownerRenderedForm} from './helpers/r12-steel-current-owner-journey-fixture.mjs';
 import {deriveDirectServerKey} from '../.core-tests/products/discovery-r12-public-server-key.js';
@@ -18,7 +18,7 @@ test('current owner metadata forms save21400 proof before operator review, owner
   const counts=()=>one(db,'select (select count(*)::int from private.r12_direct_test_envelopes) envelopes,(select count(*)::int from private.r12_direct_test_confirmations) confirmations,(select count(*)::int from private.r12_etsy_steel_setups) setups');
   assert.equal((await counts()).envelopes,0);
   const newGrants=async()=>(await one(db,'select count(*)::int n from private.r12_owner_bootstrap_grants where id=$1',[a.grantId])).n;
-  let html=await page(base);assert.match(html,/Verify configured Steel project/);assert.equal(html.includes('Prepare grant extension review'),false);
+  let html=await page(base);assert.match(html,/Server configuration fingerprint/);assert.ok(html.includes(createHash('sha256').update(process.env.R05_ADMISSION_SERVER_KEY).digest('hex')));assert.doesNotMatch(html,/Server configuration fingerprint is unavailable/);assert.doesNotMatch(html,/inert-enrollment-root|inert-readback-existing-root/);assert.match(html,/Verify configured Steel project/);assert.equal(html.includes('Prepare grant extension review'),false);
   assert.equal((await currentOwnerJourneyDiagnostics(db,j)).configurationPermits,0);
   await assert.rejects(publishCurrentOwnerReviewedAuthority(db,a),/verified/);
   const metadataForm=ownerRenderedForm(html,'Verify configured Steel project');assert.equal(metadataForm.fields.targetHash,a.target.targetHash);
