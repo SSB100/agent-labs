@@ -7,9 +7,10 @@ import type {OwnerUiContext} from '../lib/core-ui/data';
 import {verifyOwnerBusiness} from '../lib/core-ui/owner-business';
 import {boundedRpc,requestDeadline} from '../core/request-deadline';
 import {publicUuid,publicHash,publicResearchHash as hash} from './discovery-r12-public-utils';
-import {validatePublicResearchOwnerTestReceipt,validatePublicResearchOwnerTestInput,validatePublicResearchProfile,qualifyPublicResearchWindowQuote,validatePublicResearchBrowserQuote} from './discovery-r12-public-preparation';
+import {validatePublicResearchOwnerTestReceipt,validatePublicResearchOwnerTestInput,validatePublicResearchProfile,qualifyPublicResearchWindowQuote,qualifyPublicResearchSonnetQuote,validatePublicResearchBrowserQuote} from './discovery-r12-public-preparation';
 import {validatePublicResearchPolicy,validatePublicResearchCommand} from './discovery-r12-public-contracts';
 import {fetchAdaptiveResearchQuote} from './discovery-r12-adaptive-quote';
+import {fetchDirectSonnetInferenceQuote} from './discovery-r12-public-reviewer-quote';
 import {createRuntimeClient} from '../lib/supabase/runtime';
 import {deriveDirectServerKey} from './discovery-r12-public-server-key';
 import {directResearchRuntimeWorkflow,directResearchResumeToken} from '../workflows/direct-research-runtime';
@@ -29,10 +30,15 @@ export async function confirmDirectResearchTest(context:OwnerUiContext,businessI
 export async function stopDirectResearchTest(context:OwnerUiContext,businessId:string,goalId:string,envelopeId:string){const{receipt:r}=await saved(context,businessId,goalId,envelopeId);return server(context,businessId,r.preview.grantId,'stop_test',{testEnvelopeId:envelopeId,testEnvelopeHash:r.testEnvelopeHash,submissionId:randomUUID()});}
 export async function prepareDirectResearchCycle(context:OwnerUiContext,businessId:string,goalId:string,envelopeId:string,initialCommand:unknown){
  const{receipt:r}=await saved(context,businessId,goalId,envelopeId);check(r.confirmed&&!r.stopped);const command=validatePublicResearchCommand(initialCommand);check(command.kind!=='finish');const pins={testEnvelopeId:envelopeId,testEnvelopeHash:r.testEnvelopeHash};
- const [q,source,inference]=await Promise.all([server(context,businessId,r.preview.grantId,'research_quote_context',pins),server(context,businessId,r.preview.grantId,'research_source_context',pins),fetchAdaptiveResearchQuote({version:'r12.adaptive-quote.2'})]);
+ const [q,source]=await Promise.all([server(context,businessId,r.preview.grantId,'research_quote_context',pins),server(context,businessId,r.preview.grantId,'research_source_context',pins)]);
  check(object(q)&&object(source)&&source.version==='r12.direct-research-source-context.1'&&source.businessId===businessId&&source.goalId===goalId&&source.testEnvelopeId===envelopeId&&source.testEnvelopeHash===r.testEnvelopeHash);const{contextHash,...body}=source;check(contextHash===hash(body));
- check(inference.version==='r12.adaptive-quote.2');
- const quote=qualifyPublicResearchWindowQuote(inference,q.browserQuote as Parameters<typeof qualifyPublicResearchWindowQuote>[1],r.preview.maximumMicrounits,Date.now(),r.preview.maximumAttemptsInWindow);
+ const sonnet=q.version==='r12.direct-owner-research-quote-context.2';
+ const baseKeys=['browserQuote','browserRevalidation','maximumAttemptsInWindow','originalRunMaximumMicrounits','approvedQuote'];
+ const expectedKeys=sonnet?[...baseKeys,'version','businessId','goalId','grantId','testEnvelopeId','testEnvelopeHash','reviewedPackageHash','inferenceQuoteVersion','contextHash']:baseKeys;
+ check(Object.keys(q).sort().join(',')===expectedKeys.sort().join(',')&&q.approvedQuote===null&&q.maximumAttemptsInWindow===r.preview.maximumAttemptsInWindow&&q.originalRunMaximumMicrounits===r.preview.maximumMicrounits);
+ if(sonnet){const{contextHash,...quoteBody}=q;check(contextHash===hash(quoteBody)&&q.businessId===businessId&&q.goalId===goalId&&q.grantId===r.preview.grantId&&q.testEnvelopeId===envelopeId&&q.testEnvelopeHash===r.testEnvelopeHash&&publicHash(q.reviewedPackageHash)&&q.inferenceQuoteVersion==='r12.direct-inference-quote.1');}
+ const browserQuote=validatePublicResearchBrowserQuote(q.browserQuote);
+ const quote=sonnet?qualifyPublicResearchSonnetQuote(await fetchDirectSonnetInferenceQuote(),browserQuote,r.preview.maximumMicrounits,Date.now(),r.preview.maximumAttemptsInWindow):await(async()=>{const inference=await fetchAdaptiveResearchQuote({version:'r12.adaptive-quote.2'});check(inference.version==='r12.adaptive-quote.2');return qualifyPublicResearchWindowQuote(inference,browserQuote,r.preview.maximumMicrounits,Date.now(),r.preview.maximumAttemptsInWindow);})();
  return server(context,businessId,r.preview.grantId,'prepare_research_v2',{...pins,initialCommand:command,quote,sourceAccess:source.sourceAccess,submissionId:randomUUID()});
 }
 /** Confirm the exact saved preview before starting one durable runtime. A lost

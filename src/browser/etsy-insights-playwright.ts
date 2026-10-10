@@ -170,8 +170,9 @@ export function createEtsyInsightsPlaywrightPort(input: EtsyInsightsPlaywrightPo
         dispose:[()=>context?.unrouteAll({behavior:'wait'})??Promise.resolve(),
           ()=>Promise.all((context?.pages()??[]).map(p=>awaitRequestDeadline(p.removeAllListeners(undefined,{behavior:'wait'}),requestDeadline(1000)))),
           ()=>context?.removeAllListeners(undefined,{behavior:'wait'})??Promise.resolve(),
-          ()=>networkGuard?.drain()??Promise.resolve(true),()=>cdp?.detach()??Promise.resolve(),
-          async()=>{if(browser?.isConnected())await browser.close();return !browser?.isConnected();}],
+          ()=>networkGuard?.drain()??Promise.resolve(true)],
+        finalize:[async()=>{if(browser?.isConnected())await browser.close();return !browser?.isConnected();},
+          ()=>networkGuard?.drain()??Promise.resolve(true)],
       });
     })();
     const abort = () => input.registerCleanup(cleanup().then(()=>undefined));
@@ -330,8 +331,9 @@ export function createEtsyInsightsVerificationPort(input:EtsyInsightsVerificatio
         dispose:[()=>context?.unrouteAll({behavior:'wait'})??Promise.resolve(),
           ()=>Promise.all((context?.pages()??[]).map(p=>awaitRequestDeadline(p.removeAllListeners(undefined,{behavior:'wait'}),requestDeadline(1000)))),
           ()=>context?.removeAllListeners(undefined,{behavior:'wait'})??Promise.resolve(),
-          ()=>networkGuard?.drain()??Promise.resolve(true),()=>cdp?.detach()??Promise.resolve(),
-          async()=>{if(browser?.isConnected())await browser.close();return !browser?.isConnected();}],
+          ()=>networkGuard?.drain()??Promise.resolve(true)],
+        finalize:[async()=>{if(browser?.isConnected())await browser.close();return !browser?.isConnected();},
+          ()=>networkGuard?.drain()??Promise.resolve(true)],
       });
     })();
     const abort=()=>input.registerCleanup(cleanup().then(()=>undefined));bounded.addEventListener('abort',abort,{once:true});

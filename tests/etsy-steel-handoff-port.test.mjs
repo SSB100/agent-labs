@@ -41,7 +41,7 @@ test('late CDP connection after Stop is disconnected and release is retained',as
 
 for(const stage of ['unroute-drain','page-drain','context-drain','cdp-detach','disconnect'])test(`owner ${stage} hang denies viewer proof and still releases provider`,async()=>{
  const hold=setTimeout(()=>{},5000);try{const f=fixture({hang:stage}),s=await f.port.createSession(f.request,f.signal);
- await assert.rejects(s.disconnectForOwner(f.signal));for(let i=0;i<20&&!f.events.includes('release');i++)await new Promise(r=>setImmediate(r));
+ await assert.rejects(s.disconnectForOwner(f.signal));const deadline=Date.now()+1500;while(!f.events.includes('release')&&Date.now()<deadline)await new Promise(r=>setTimeout(r,10));
  assert.ok(f.events.includes('release'));await Promise.all(f.cleanups);
  }finally{clearTimeout(hold);}
 });

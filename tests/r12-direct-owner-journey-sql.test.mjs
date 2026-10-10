@@ -20,7 +20,8 @@ test('ordinary rendered owner forms use actual authenticated SQL authority, one 
   const submit=async(html,button,extra={})=>{const f=ownerRenderedForm(html,button),r=await j.post(f.action,{...f.fields,...extra});assert.equal(r.status,303);return r.headers.get('Location');};
   const counts=()=>one(db,'select (select count(*)::int from private.r12_direct_test_envelopes) envelopes,(select count(*)::int from private.r12_direct_test_confirmations) confirmations,(select count(*)::int from private.r12_etsy_steel_setups) setups');
   assert.equal((await counts()).envelopes,0);
-  let html=await page(base);assert.match(html,/Prepare exact test review/);assert.equal(j.providerCalls.length,0);
+  const legacyEnrollment=await j.enrollment.readDirectEnrollmentCatalog(j.context(),a.f.businessId,a.f.goalId);assert.equal(legacyEnrollment.eligible,false);assert.deepEqual(legacyEnrollment.offers,[]);
+  let html=await page(base);assert.match(html,/Prepare exact test review/);assert.equal(html.includes('Prepare grant extension review'),false);assert.equal(j.providerCalls.length,0);
   let location=await submit(html,'Prepare exact test review',{grantId:a.f.grantId,maximumUsd:'10',maximumAttempts:'10'});
   if(new URL(location,'http://inert.local').searchParams.get('result')!=='prepared')throw Error(JSON.stringify({calls:j.rpcCalls,errors:j.errors}));
   assert.equal(new URL(location,'http://inert.local').searchParams.get('result'),'prepared',JSON.stringify(j.errors));
@@ -77,7 +78,7 @@ test('ordinary rendered owner forms use actual authenticated SQL authority, one 
   const callsBefore=j.providerCalls.length;await j.product.resumeDirectResearch(j.context(),a.f.businessId,a.f.goalId,envelopeId);assert.equal(j.resumes.length,2);assert.ok(j.resumes.every(r=>r.token==='agent-labs:direct-etsy-reconcile:'+i.scopeId&&r.payload.operation==='reconcile'));assert.equal(j.providerCalls.length,callsBefore);
   const stoppedView=await j.owner.readEtsySteelOwnerVerification(j.context(),a.f.businessId,operationId);assert.notEqual(stoppedView.status,'verified');assert.equal(stoppedView.observedShopName,null);
   j.setUser(randomUUID());await assert.rejects(j.product.resumeDirectResearch(j.context(),a.f.businessId,a.f.goalId,envelopeId));await assert.rejects(j.owner.readEtsySteelOwnerVerification(j.context(),a.f.businessId,operationId));assert.equal(j.resumes.length,2);
-  for(const c of j.rpcCalls){if(['r12_owner_direct_read','r12_owner_direct_server','r12_etsy_steel_owner','r12_owner_etsy_steel_verification_read','r12_owner_etsy_steel_renderer_review'].includes(c.name))assert.equal(c.role,'authenticated');else assert.equal(c.role,'anon');}
+  for(const c of j.rpcCalls){if(['r12_owner_direct_enrollment_read','r12_owner_direct_read','r12_owner_direct_server','r12_etsy_steel_owner','r12_owner_etsy_steel_verification_read','r12_owner_etsy_steel_renderer_review'].includes(c.name))assert.equal(c.role,'authenticated');else assert.equal(c.role,'anon');}
   assert.equal(external,0);assert.equal(j.providerCalls.filter(x=>x.path==='/v1/sessions').length,2);
  }finally{globalThis.fetch=fetch;for(const[k,v]of Object.entries(env))if(v===undefined)delete process.env[k];else process.env[k]=v;await db.close();}
 });

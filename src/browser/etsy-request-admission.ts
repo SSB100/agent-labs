@@ -82,25 +82,39 @@ export async function installEtsyRequestAdmission(input:{cdp:CDPSession;signal:A
   }});
 }
 
-/** Cleanup must attempt provider release even if every local observer hangs.
- * All local disposals start independently and have their own bounded wait. A
- * timeout is never proof of disposal. Keep the deny guard attached on an unknown
- * release; a late terminal release may finish cleanup but cannot upgrade the
- * already-returned result into an accepted evidence receipt. */
+/** Observer drains get at most 1s before an independent task attempts provider
+ * release. Steel release terminates the target, so acknowledgements must be
+ * collected while it is live; a hung drain never delays release indefinitely.
+ * `dispose` MUST NOT detach the sealed CDP guard. Only after exact terminal
+ * readback may `finalize` disconnect the owned browser connection and re-drain
+ * pending guard work. Every wait is bounded and every failure remains sticky.
+ * A late release may finish cleanup but cannot upgrade a returned unknown. */
 export async function releaseEtsyTransportAndDispose(input:{sessionId:string;marked:boolean;
   release():Promise<{sessionId:string;released:boolean;terminalReadback:boolean}>;
-  dispose:Array<()=>Promise<unknown>>;registerCleanup(work:Promise<void>):void
+  dispose:Array<()=>Promise<unknown>>;finalize?:Array<()=>Promise<unknown>>;registerCleanup(work:Promise<void>):void
 }):Promise<{sessionId:string;released:boolean;terminalReadback:boolean;observersDisposed:boolean}>{
   const unknown={sessionId:input.sessionId,released:false,terminalReadback:false};
-  const release=Promise.resolve().then(()=>input.marked?input.release():unknown).catch(()=>unknown);
-  let disposal:Promise<boolean>|null=null;
-  const dispose=()=>disposal??=Promise.all(input.dispose.map(async fn=>{
+  const boundedDispose=async(fn:()=>Promise<unknown>)=>{
     try{const result=await awaitRequestDeadline(Promise.resolve().then(fn),requestDeadline(1000));return result!==false;}catch{return false;}
-  })).then(results=>results.every(Boolean));
-  // This observer is also necessary after the bounded caller returns unknown.
-  input.registerCleanup(release.then(async r=>{if(r.sessionId===input.sessionId&&r.released&&r.terminalReadback)await dispose();}));
+  };
+  const drains=Promise.all(input.dispose.map(boundedDispose));
+  const release=(async()=>{
+    try{await awaitRequestDeadline(drains,requestDeadline(1000));}catch{/* independent release watchdog */}
+    return input.marked?input.release():unknown;
+  })().catch(()=>unknown);
+  let disposal:Promise<boolean>|null=null;
+  const finish=()=>disposal??=(async()=>{
+    const results=await drains;
+    // A failed/hung drain must not prevent the bounded physical disconnect.
+    // Its false result remains sticky and cannot become disposal proof.
+    for(const fn of input.finalize??[])results.push(await boundedDispose(fn));
+    return results.every(Boolean);
+  })();
+  input.registerCleanup(release.then(async r=>{if(r.sessionId===input.sessionId&&r.released&&r.terminalReadback)await finish();}));
   let result=unknown;
+  // Includes the at-most-1s pre-release drain grace period. The remote request
+  // remains registered for late cleanup if its readback takes longer.
   try{result=await awaitRequestDeadline(release,requestDeadline(2500));}catch{/* full liability remains held */}
   if(result.sessionId!==input.sessionId||!result.released||!result.terminalReadback)return {...unknown,observersDisposed:false};
-  return {...result,observersDisposed:await dispose()};
+  return {...result,observersDisposed:await finish()};
 }

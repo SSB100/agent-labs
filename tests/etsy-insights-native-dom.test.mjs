@@ -25,7 +25,7 @@ function resultHtml(shop,query,o={}){
 }
 async function nativeFixture(o={}){
  const f=researchRendererFixture({candidateBlock:false}),browser=await chromium.launch({executablePath,headless:true}),context=await browser.newContext({serviceWorkers:'block',viewport:{width:1280,height:900}}),page=await context.newPage();
- const requests=[],actions=[];page.on('request',r=>requests.push(r.url()));
+ const requests=[],actions=[],nativeCdps=[];page.on('request',r=>requests.push(r.url()));
  let url='about:blank';const frame=page.mainFrame(),frameProxy=new Proxy(frame,{get(t,k){if(k==='url')return()=>url;const v=Reflect.get(t,k);return typeof v==='function'?v.bind(t):v;}});
  const unwrap=new WeakMap();
  function locator(l){const proxy=new Proxy(l,{get(t,k){
@@ -41,17 +41,17 @@ async function nativeFixture(o={}){
   if(k==='on')return(name,fn)=>{t.on(name,name==='framenavigated'?f=>fn(f===frame?frameProxy:f):fn);return pageProxy;};
   const v=Reflect.get(t,k);return typeof v==='function'?v.bind(t):v;
  }});
- const contextProxy=new Proxy(context,{get(t,k){if(k==='pages')return()=>[pageProxy];if(k==='newCDPSession')return()=>t.newCDPSession(page);const v=Reflect.get(t,k);return typeof v==='function'?v.bind(t):v;}});
+ const contextProxy=new Proxy(context,{get(t,k){if(k==='pages')return()=>[pageProxy];if(k==='newCDPSession')return async()=>{const c=await t.newCDPSession(page);nativeCdps.push(c);return c;};const v=Reflect.get(t,k);return typeof v==='function'?v.bind(t):v;}});
  const browserProxy=new Proxy(browser,{get(t,k){if(k==='contexts')return()=>[contextProxy];const v=Reflect.get(t,k);return typeof v==='function'?v.bind(t):v;}});
  f.input.connect=async()=>browserProxy;f.port=createEtsyInsightsPlaywrightPort(f.input);
- return{...f,nativeBrowser:browser,requests,actions};
+ return{...f,nativeBrowser:browser,nativeCdps,requests,actions};
 }
 
 test('actual Chromium distinguishes observed landing controls from retained result selectors without Etsy traffic',{skip:!executablePath,timeout:60000},async()=>{
  const f=await nativeFixture();let session;
  try{session=await open(f);const landing=await session.observeAggregateView(f.stop.signal);assert.equal(landing.queryControl.id,'observed-insights-landing-controls.2');assert.equal(landing.visibleShopName,f.s.accountBinding.observedShopName);assert.equal(landing.query,null);assert.deepEqual(f.actions,[]);
   const result=await search(f,session),capture=await session.captureSameEpoch(result.documentEpoch,f.stop.signal);assert.equal(result.queryControl.id,'observed-insights-query-form');assert.equal(result.query,f.s.query);assert.equal(result.visibleShopName,f.s.accountBinding.observedShopName);assert.equal(capture.facts.find(x=>x.kind==='query').quote,f.s.query);assert.equal(capture.facts.find(x=>x.kind==='searches').quote,'Searches\n2.4k');assert.equal(capture.facts.find(x=>x.kind==='reporting_window').quote,'Last 30 days');assert.deepEqual(f.actions,['fill','submit']);assert.deepEqual(f.requests,[]);
-  assert.equal((await session.close(session.sessionId)).observersDisposed,true);assert.equal(f.nativeBrowser.isConnected(),false);
+  const cleanup=await session.close(session.sessionId);assert.equal(cleanup.observersDisposed,true,JSON.stringify({cleanup,browserConnected:f.nativeBrowser.isConnected()}));assert.equal(f.nativeBrowser.isConnected(),false);assert.equal(f.nativeCdps.length,1);for(const c of f.nativeCdps)await assert.rejects(c.send('Page.getFrameTree'));
  }finally{if(f.nativeBrowser.isConnected())await f.nativeBrowser.close();}
 });
 test('actual Chromium ambiguity, identity change and independent result mismatch fail closed',{skip:!executablePath,timeout:90000},async t=>{

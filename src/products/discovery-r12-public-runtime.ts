@@ -5,7 +5,8 @@ import {createRuntimeClient} from '../lib/supabase/runtime';
 import {deriveDirectServerKey,type DirectServerKeyPurpose} from './discovery-r12-public-server-key';
 import {publicResearchHash as hash,publicUuid,publicHash} from './discovery-r12-public-utils';
 import {validatePublicResearchPolicy} from './discovery-r12-public-contracts';
-import {validatePublicResearchProfile} from './discovery-r12-public-preparation';
+import {validatePublicResearchProfile,validatePublicResearchQuote} from './discovery-r12-public-preparation';
+import {fetchDirectSonnetInferenceQuote} from './discovery-r12-public-reviewer-quote';
 import {fetchAdaptiveResearchQuote} from './discovery-r12-adaptive-quote';
 import {validatePublicResearchState} from './discovery-r12-public-cycle';
 import {decidePublicResearchDriverAction} from './discovery-r12-public-driver';
@@ -41,7 +42,9 @@ export async function executePublicResearchRuntimeStep(input:PublicResearchRunti
  if(decision.kind==='schedule'){
   // Public inference catalog is fetched independently. SQL supplies browser
   // revalidation and preserves its original private qualification timestamps.
-  const inferenceQuote=await awaitRequestDeadline(fetchAdaptiveResearchQuote({version:'r12.adaptive-quote.2'}),signal);
+  check(object(p.quote)&&typeof p.quote.verifiedAt==='string');
+  const savedQuote=validatePublicResearchQuote(p.quote,Date.parse(p.quote.verifiedAt));check(savedQuote.quoteHash===policy.quoteHash);
+  const inferenceQuote=savedQuote.version==='r12.public-research-quote.3'?await awaitRequestDeadline(fetchDirectSonnetInferenceQuote(),signal):await awaitRequestDeadline(fetchAdaptiveResearchQuote({version:'r12.adaptive-quote.2'}),signal);
   const observed=await rpc('controller','observe_quote',{inferenceQuote});check(object(observed)&&object(observed.quote));
   attemptId=randomUUID();const scheduled=await rpc('controller','schedule',{phase,attemptId,runtimeCapability:randomBytes(32).toString('base64url'),expectedStateHash:decision.expectedStateHash,executionQuote:observed.quote});check(object(scheduled)&&scheduled.attemptId===attemptId&&scheduled.phase===phase);
  }else attemptId=decision.attemptId;

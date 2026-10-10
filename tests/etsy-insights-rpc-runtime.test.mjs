@@ -91,6 +91,15 @@ test('actual source composition reserves, binds, captures private PNG, releases,
  assert.equal(f.receipts.length,1);await assert.rejects(f.runtime.run(),/insights_run_replayed/);await Promise.all(f.cleanup);
  const before=f.events.length;await f.runtime.finishRecorded();assert.equal(f.events.length,before,'recovery finish never creates or navigates');
 });
+test('late observer completion cannot upgrade the actual persisted paused source receipt',async()=>{
+ const hold=setTimeout(()=>{},4000);let finish;const promise=new Promise(resolve=>{finish=resolve;});
+ try{
+  const f=fixture({browser:{drainGate:{name:'route',promise}}}),r=await f.runtime.run();
+  assert.equal(r.run.persistence,'verified');assert.equal(r.run.receipt.status,'paused');assert.equal(r.run.receipt.liabilityState,'unknown');assert.equal(r.completion,null);assert.deepEqual(r.run.receipt.captures,[]);
+  const saved=structuredClone(f.sourceReceipt);assert.equal(saved.status,'paused');finish();await Promise.all(f.cleanup);
+  assert.deepEqual(f.sourceReceipt,saved);assert.equal(f.calls.filter(x=>x==='source:source_receipt').length,1);assert.ok(!f.calls.includes('source:source_finish'));assert.equal(f.events.filter(x=>x==='create').length,1);
+ }finally{clearTimeout(hold);}
+});
 for(const [name,options] of [
  ['admission denied',{sourceDenied:'source_admit'}],['invalid reservation',{permit:{admissionHash:H(99)}}],['profile mismatch',{resolved:{profileBindingRevision:id(99)}}],
  ['qualification hash mismatch',{rendererQualification:{qualificationHash:H(99)}}],['transport acknowledgement changed',{transport:{operationId:id(99)}}],

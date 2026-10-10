@@ -63,8 +63,9 @@ export function createEtsySteelHandoffPort(input:{providerProjectId:string;admit
           dispose:[()=>context?.unrouteAll({behavior:'wait'})??Promise.resolve(),
             ()=>Promise.all((context?.pages()??[]).map(p=>awaitRequestDeadline(p.removeAllListeners(undefined,{behavior:'wait'}),requestDeadline(1000)))),
             ()=>context?.removeAllListeners(undefined,{behavior:'wait'})??Promise.resolve(),
-            ()=>guard?.drain()??Promise.resolve(true),()=>cdp?.detach()??Promise.resolve(),
-            async()=>{if(browser?.isConnected())await browser.close();return !browser?.isConnected();}],
+            ()=>guard?.drain()??Promise.resolve(true)],
+          finalize:[async()=>{if(browser?.isConnected())await browser.close();return !browser?.isConnected();},
+            ()=>guard?.drain()??Promise.resolve(true)],
         }).then(()=>undefined);
       })();
       const abortCleanup=()=>{if(!handedOff)input.registerCleanup(cleanup());};

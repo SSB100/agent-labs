@@ -21,7 +21,7 @@ test('scoped Steel port binds profile/project, performs one visible query and ca
  await assert.rejects(session.captureSameEpoch(p.documentEpoch,f.stop.signal));assert.equal(f.events.filter(x=>x==='screenshot').length,1);
  assert.equal(f.events.filter(x=>x==='submit').length,1);assert.ok(f.events.indexOf('qualify-renderer')<f.events.indexOf('create'));
  const close=await session.close(session.sessionId);assert.equal(close.observersDisposed,true);assert.equal(close.terminalReadback,true);
- assert.ok(f.events.indexOf('route-drain')<f.events.indexOf('disconnect'));assert.ok(f.events.indexOf('release')<f.events.indexOf('route-drain'));
+ assert.ok(f.events.indexOf('route-drain')<f.events.indexOf('disconnect'));assert.ok(f.events.indexOf('route-drain')<f.events.indexOf('release'));assert.ok(f.events.indexOf('release-readback')<f.events.indexOf('disconnect'));
  await Promise.all(f.cleanup);
 });
 for(const [name,o] of [
@@ -65,6 +65,11 @@ test('Stop and expiry cannot perform later query/capture; exact cleanup still wo
 });
 test('unknown cleanup does not claim terminal released authority',async()=>{
  for(const o of [{releaseFail:true},{disconnectFail:true},{drainFail:true}]){const f=fixture(o),s=await open(f),r=await s.close(s.sessionId);assert.ok(!r.released||!r.terminalReadback||!r.observersDisposed);}
+});
+test('unknown provider release retains the sealed CDP guard and never attests physical disconnect',async()=>{
+ const f=fixture({releaseFail:true}),s=await open(f),r=await s.close(s.sessionId);await Promise.all(f.cleanup);
+ assert.equal(r.observersDisposed,false);assert.equal(f.browser.isConnected(),true);assert.equal(f.ownedCdpConnected(),true);assert.ok(!f.events.includes('disconnect'));assert.ok(!f.events.includes('cdp-detach'));
+ await f.request(ROOT);assert.ok(f.cdpCommands.some(x=>x.name==='Fetch.failRequest'));assert.ok(!f.cdpCommands.some(x=>x.name==='Fetch.continueRequest'));
 });
 test('wrong close identity and duplicate creation cannot operate a different or second session',async()=>{
  const f=fixture(),s=await open(f);await assert.rejects(s.close(id(40)));assert.ok(!f.events.includes('release'));
@@ -118,11 +123,25 @@ test('async marker cannot silently bypass the synchronous one-shot dispatch barr
  const f=fixture();f.input.beforeCreate=async()=>{};const port=createEtsyInsightsPlaywrightPort(f.input);await assert.rejects(port.createSession(f.s,f.stop.signal));assert.ok(!f.events.includes('create'));await Promise.all(f.cleanup);
 });
 
-for(const stage of ['route-drain','page-drain','context-drain','cdp-detach','disconnect']){
+test('source disposal precedes target-closing release and uses acknowledged whole-connection disconnect',async()=>{
+ const f=fixture({strictDisposalOrdering:true,releaseClosesTarget:true}),s=await open(f),r=await s.close(s.sessionId);
+ assert.equal(r.observersDisposed,true);assert.equal(f.browser.isConnected(),false);assert.ok(!f.events.includes('cdp-detach'));assert.equal(f.ownedCdpConnected(),false);await Promise.all(f.cleanup);
+});
+test('verification disposal waits for real observer acknowledgements before accepting proof',async()=>{
+ const f=verificationFixture({strictDisposalOrdering:true,releaseClosesTarget:true}),r=await f.verifier.verify(f.authority,f.stop.signal);
+ assert.equal(r.status,'verified');assert.equal(r.release.observersDisposed,true);assert.ok(!f.events.includes('cdp-detach'));assert.ok(f.events.indexOf('release')<f.events.indexOf('disconnect'));assert.equal(f.browser.isConnected(),false);assert.equal(f.ownedCdpConnected(),false);assert.ok(f.events.indexOf('disconnect')<f.events.indexOf('stage:accept'));await Promise.all(f.cleanup);
+});
+test('Stop during a hung source drain retains one cleanup and still attempts release within the watchdog',async()=>{
+ const hold=setTimeout(()=>{},4000);try{
+  const f=fixture({hang:'route-drain'}),s=await open(f),closing=s.close(s.sessionId);await tick();f.stop.abort();
+  const result=await closing;await Promise.all(f.cleanup);assert.equal(result.observersDisposed,false);assert.equal(f.events.filter(x=>x==='release').length,1);assert.equal(f.events.filter(x=>x==='create').length,1);await assert.rejects(s.observeAggregateView(new AbortController().signal));
+ }finally{clearTimeout(hold);}
+});
+for(const stage of ['route-drain','page-drain','context-drain','disconnect']){
  test(`source ${stage} never resolving cannot delay provider release or certify disposal`,async()=>{
   const hold=setTimeout(()=>{},4000);try{
    const f=fixture({hang:stage}),s=await open(f),closing=s.close(s.sessionId);
-   await tick();assert.ok(f.events.includes('release'));const r=await closing;
+   const deadline=Date.now()+1500;while(!f.events.includes('release')&&Date.now()<deadline)await new Promise(r=>setTimeout(r,10));assert.ok(f.events.includes('release'));const r=await closing;
    assert.equal(r.released,true);assert.equal(r.terminalReadback,true);assert.equal(r.observersDisposed,false);
    await Promise.all(f.cleanup);
   }finally{clearTimeout(hold);}
@@ -130,7 +149,7 @@ for(const stage of ['route-drain','page-drain','context-drain','cdp-detach','dis
  test(`verification ${stage} never resolving cannot delay provider release or produce proof`,async()=>{
   const hold=setTimeout(()=>{},4000);try{
    const f=verificationFixture({hang:stage}),work=f.verifier.verify(f.authority,f.stop.signal);
-   for(let i=0;i<100&&!f.events.includes('release');i++)await tick();assert.ok(f.events.includes('release'));
+   const deadline=Date.now()+1500;while(!f.events.includes('release')&&Date.now()<deadline)await new Promise(r=>setTimeout(r,10));assert.ok(f.events.includes('release'));
    const r=await work;assert.equal(r.status,'paused');assert.equal(r.verification,null);assert.equal(r.release.observersDisposed,false);
    assert.ok(!f.events.includes('stage:accept'));await Promise.all(f.cleanup);
   }finally{clearTimeout(hold);}

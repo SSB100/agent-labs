@@ -1,9 +1,10 @@
+import {DIRECT_SONNET_REVIEWER,fetchDirectSonnetRouteProofOnce,validateDirectSonnetRouteProof} from './discovery-r12-public-reviewer-quote';
 import type { JsonObject } from "../core/contracts";
 import { containsCredentialLikeContent } from "../core/quest-intake";
 import { awaitRequestDeadline, boundedRpc, deadlineFetch, requestDeadline } from "../core/request-deadline";
 import { OpenRouterAdapter, getOpenRouterConfig, type OpenRouterConfig } from "../models/openrouter";
 import type { ModelDispatchAdmission, ModelProviderResponse, StructuredModelRequest } from "../models/types";
-import { fetchGenerationRouteProofOnce, validateGenerationRouteProof, type GenerationRouteProof } from "../research/generation-route";
+import { fetchGenerationRouteProofOnce, validateGenerationRouteProof, type GenerationRouteProof, type GenerationRouteExpectation } from "../research/generation-route";
 import { discoveryR12ReceiptExpectation, type DiscoveryR12Candidate, type DiscoveryR12CandidateBinding } from "./discovery-r12-receipt";
 import type { DiscoveryR12CompletedPhase } from "./discovery-r12-runtime";
 import { publicResearchModelCurrentCycleOrdinal, publicResearchModelCurrentRequestHash, buildPublicResearchModelRequest, inspectPublicResearchModelWire, projectPublicResearchModelPhase, readPublicResearchModelInputs, type PublicResearchModelContext, type PublicResearchModelInputs, type PublicResearchModelPhase } from "./discovery-r12-public-model";
@@ -15,7 +16,7 @@ export type PublicResearchModelRuntimeAuthority = { businessId: string; goalId: 
 export type PublicResearchModelRpc = (purpose: "controller" | "admission", operation: "attempt" | "candidate" | "dispatch" | "model_receipt", payload: JsonObject) => Promise<unknown>;
 export type PublicResearchModelProvider = {
   invoke(request: StructuredModelRequest, admit: ModelDispatchAdmission): Promise<ModelProviderResponse>;
-  routeProof(candidate: DiscoveryR12Candidate): Promise<GenerationRouteProof>;
+  routeProof(candidate: DiscoveryR12Candidate, expected?: GenerationRouteExpectation): Promise<GenerationRouteProof>;
 };
 export type PublicResearchModelRuntimeDependencies = { rpc: PublicResearchModelRpc; provider?: PublicResearchModelProvider; now?: () => number };
 export type PublicResearchModelRuntimeOutcome = {
@@ -81,7 +82,7 @@ export function createPublicResearchModelProvider(options: { config?: OpenRouter
   if (config.baseUrl !== "https://openrouter.ai/api/v1" || !config.apiKey || config.apiKey.length > 4096 || /[\r\n]/.test(config.apiKey)) fail();
   return {
     invoke: (request, admit) => new OpenRouterAdapter({ config, fetcher: boundedProviderFetch(fetcher, signal), admitDispatch: admit, timeoutMs: 45_000 }).invokeStructured(request),
-    routeProof: candidate => fetchGenerationRouteProofOnce({ ...discoveryR12ReceiptExpectation(candidate), config: { apiKey: config.apiKey }, fetcher: deadlineFetch(signal, fetcher) }),
+    routeProof: (candidate, expected) => expected && same(expected.acceptedResponseModelIds,[DIRECT_SONNET_REVIEWER.modelId,DIRECT_SONNET_REVIEWER.canonicalModelId]) && expected.providerName === "Amazon Bedrock" && expected.requestedEndpoint === "amazon-bedrock/us" ? fetchDirectSonnetRouteProofOnce({generationId:candidate.providerRequestId,apiKey:config.apiKey,fetcher:deadlineFetch(signal,fetcher),signal}) : fetchGenerationRouteProofOnce({ ...(expected ?? discoveryR12ReceiptExpectation(candidate)), config: { apiKey: config.apiKey }, fetcher: deadlineFetch(signal, fetcher) }),
   };
 }
 
@@ -208,7 +209,7 @@ export async function runPublicResearchModelAttempt(args: { authority: PublicRes
   if (a.candidate.reportedMicrousd === null) return outcome("pending", "billing_unknown");
   if (a.candidate.reportedMicrousd > a.binding.maximumMicrousd) return outcome("pending", "billing_above_reserved_bound");
   let proof: GenerationRouteProof;
-  try { proof = validateGenerationRouteProof(await port().routeProof(structuredClone(a.candidate)), discoveryR12ReceiptExpectation(a.candidate)); } catch { return outcome("pending", "route_proof_pending"); }
+  try { const expected:GenerationRouteExpectation = ctx.input.phase === "review" && ctx.input.quote.version === "r12.public-research-quote.3" ? {generationId:a.candidate.providerRequestId,providerName:"Amazon Bedrock",requestedEndpoint:"amazon-bedrock/us",acceptedResponseModelIds:[ctx.input.quote.inference.reviewer.modelId,ctx.input.quote.inference.reviewer.canonicalModelId]} : discoveryR12ReceiptExpectation(a.candidate); const raw=await port().routeProof(structuredClone(a.candidate),expected); proof = ctx.input.phase === "review" && ctx.input.quote.version === "r12.public-research-quote.3" ? validateDirectSonnetRouteProof(raw,a.candidate.providerRequestId) : validateGenerationRouteProof(raw, expected); } catch { return outcome("pending", "route_proof_pending"); }
   const rh = receiptHash(a.candidate, proof);
   try {
     const result = await deps.rpc("controller", "model_receipt", json({ attemptId, candidate: a.candidate, proof }));

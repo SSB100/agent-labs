@@ -2,6 +2,7 @@
 import{randomUUID}from'node:crypto';import{redirect}from'next/navigation';import{revalidatePath}from'next/cache';
 import{requireOwnerUiContext}from'@/lib/core-ui/data';
 import{readDirectResearchCatalog,prepareDirectResearchTest,confirmDirectResearchTest,stopDirectResearchTest,prepareDirectEtsyAccess,prepareDirectResearchCycle,confirmAndStartDirectResearch,resumeDirectResearch}from'@/products/discovery-r12-public-owner-server';
+import{prepareDirectEnrollment,confirmDirectEnrollment}from'@/products/discovery-r12-direct-enrollment-server';
 import{publicResearchCriteriaHash,publicResearchQuestionHash}from'@/products/discovery-r12-public-contracts';
 const field=(f:FormData,k:string)=>typeof f.get(k)==='string'?String(f.get(k)):'';
 const object=(x:unknown):x is Record<string,unknown>=>!!x&&typeof x==='object'&&!Array.isArray(x);
@@ -18,3 +19,7 @@ export async function startEtsyCycle(form:FormData){const c=await requireOwnerUi
 export async function stopEtsyTest(form:FormData){const c=await requireOwnerUiContext(),b=field(form,'businessId'),g=field(form,'goalId'),e=field(form,'envelopeId');try{await stopDirectResearchTest(c,b,g,e);}catch{finish(b,g,e,'stop-unconfirmed');}finish(b,g,e,'stopped');}
 
 export async function resumeEtsyResearch(form:FormData){const c=await requireOwnerUiContext(),b=field(form,'businessId'),g=field(form,'goalId'),e=field(form,'envelopeId');try{await resumeDirectResearch(c,b,g,e);}catch{finish(b,g,e,'recovery-unconfirmed');}finish(b,g,e,'reconciliation-requested');}
+
+function finishEnrollment(businessId:string,goalId:string,proposalId:string,result:string):never{revalidatePath('/dashboard/products/etsy-research');redirect(`/dashboard/products/etsy-research?${new URLSearchParams({business:businessId,goal:goalId,...(proposalId?{proposal:proposalId}:{}),result})}`);}
+export async function prepareEtsyEnrollment(form:FormData){const context=await requireOwnerUiContext(),b=field(form,'businessId'),g=field(form,'goalId');let id='';try{const r=await prepareDirectEnrollment(context,b,g,field(form,'reviewedPackageHash'));id=r.proposalId;}catch{finishEnrollment(b,g,'','enrollment-preparation-unavailable');}finishEnrollment(b,g,id,'enrollment-prepared');}
+export async function confirmEtsyEnrollment(form:FormData){const context=await requireOwnerUiContext(),b=field(form,'businessId'),g=field(form,'goalId'),p=field(form,'proposalId');if(field(form,'confirmEnrollment')!=='on')finishEnrollment(b,g,p,'enrollment-confirmation-required');try{await confirmDirectEnrollment(context,b,g,p,field(form,'proposalHash'));}catch{finishEnrollment(b,g,p,'enrollment-confirmation-unavailable');}finishEnrollment(b,g,p,'enrollment-confirmed');}

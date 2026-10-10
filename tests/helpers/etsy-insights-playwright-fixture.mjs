@@ -31,7 +31,8 @@ function scope(changes={}) {
 function fixture(o={}) {
  const s=scope(), events=[], cleanup=[], routes=[], handlers=new Map(),cdpHandlers=new Map(),cdpCommands=[];
  const hang=()=>new Promise(()=>{});
- let connected=true, released=false, marked=false, time=NOW, url=o.initialUrl??'about:blank', queryInput='', view='landing', mutated=false;
+ const drained=new Set();const drain=async name=>{if(o.strictDisposalOrdering)await tick();if(o.drainGate?.name===name)await o.drainGate.promise;drained.add(name);};
+ let connected=true,cdpConnected=true, released=false, marked=false, time=NOW, url=o.initialUrl??'about:blank', queryInput='', view='landing', mutated=false;
  const rect={x:300,y:150,width:700,height:80};
  function node(key){
   return {
@@ -68,15 +69,15 @@ function fixture(o={}) {
   async goto(value){events.push('goto');await o.beforeNavigate?.(value);url=o.redirect??value;handlers.get('framenavigated')?.(frame);},
   async waitForFunction(){events.push('readiness');if(o.notReady)throw Error('timed out');},
   async screenshot(args){events.push('screenshot');assert.ok(args.clip.x>=300);assert.equal(args.fullPage,undefined);if(o.duringCapture)mutated=true;return PNG;},
-  async close(){events.push('page-close');},async removeAllListeners(){events.push('page-drain');if(o.hang==='page-drain')return hang();},
+  async close(){events.push('page-close');},async removeAllListeners(){events.push('page-drain');if(o.hang==='page-drain')return hang();await drain('page');},
  };
  const context={pages:()=>[page],serviceWorkers:()=>o.worker?[{}]:[],
-  async newCDPSession(){return{on(name,fn){cdpHandlers.set(name,fn);},async send(name,args){events.push(name);cdpCommands.push({name,args});if(o.cdpFailCommand===name)throw Error('inert CDP failure');if(name==='Page.getFrameTree')return {frameTree:{frame:{id:'main'}}};},async detach(){events.push('cdp-detach');if(o.hang==='cdp-detach')return hang();}};},
+  async newCDPSession(){return{on(name,fn){cdpHandlers.set(name,fn);},async send(name,args){if(!cdpConnected||o.releaseClosesTarget&&released)throw Error('Session closed');events.push(name);cdpCommands.push({name,args});if(o.cdpFailCommand===name)throw Error('inert CDP failure');if(name==='Page.getFrameTree')return {frameTree:{frame:{id:'main'}}};},async detach(){events.push('cdp-detach');if(o.releaseClosesTarget&&released)throw Error('Terminal provider release already closed the target');if(o.hang==='cdp-detach')return hang();if(o.strictDisposalOrdering)assert.deepEqual([...drained].sort(),['context','page','route']);await drain('cdp');}};},
   on(name,fn){handlers.set(name,fn);},async route(pattern,fn){events.push('route');routes.push(fn);},
   async routeWebSocket(pattern,fn){events.push('websocket-guard');handlers.set('websocket',fn);},
-  async unrouteAll(){events.push('route-drain');if(o.drainFail)throw Error('drain');if(o.hang==='route-drain')return hang();},async removeAllListeners(){events.push('context-drain');if(o.hang==='context-drain')return hang();},
+  async unrouteAll(){events.push('route-drain');if(o.drainFail)throw Error('drain');if(o.hang==='route-drain')return hang();await drain('route');},async removeAllListeners(){events.push('context-drain');if(o.hang==='context-drain')return hang();await drain('context');},
  };
- const browser={contexts:()=>[context],isConnected:()=>connected,async close(){events.push('disconnect');if(o.disconnectFail)throw Error('disconnect');if(o.hang==='disconnect')return hang();connected=false;}};
+ const browser={contexts:()=>[context],isConnected:()=>connected,async close(){events.push('disconnect');if(o.disconnectFail)throw Error('disconnect');if(o.hang==='disconnect')return hang();if(o.strictDisposalOrdering)assert.deepEqual([...drained].sort(),['context','page','route'],'Disconnect cannot destroy pending observer acknowledgements');connected=false;cdpConnected=false;}};
  const input={providerProjectId:s.providerProjectId,config:{apiKey:'inert-only-etsy-port-key',baseUrl:'https://api.steel.dev'},
   now:()=>time,registerCleanup:p=>cleanup.push(p),admitDispatch:async()=>{events.push('transport');if(o.transportDenied)throw Error('denied');},
   async resolveAttempt(arg){assert.ok(Object.isFrozen(arg.accountBinding));return {sourceAttemptId:s.sourceAttemptId,requestHash:hash(s),sessionId:id(90),profileId:id(91),providerProjectId:s.providerProjectId,
@@ -87,14 +88,14 @@ function fixture(o={}) {
   async connect(){events.push('connect');return o.connect?o.connect(browser):browser;},
   async fetcher(address,init){
    const path=new URL(address).pathname;
-   if(path.endsWith('/release')){events.push('release');released=true;return Response.json({success:!o.releaseFail});}
+   if(path.endsWith('/release')){events.push('release');if(o.strictDisposalOrdering)assert.deepEqual([...drained].sort(),['context','page','route'],'Provider release cannot destroy pending observer acknowledgements');released=true;return Response.json({success:!o.releaseFail});}
    if(init.method==='POST'){events.push('create');const body=JSON.parse(init.body);assert.equal(body.profileId,id(91));assert.equal(body.persistProfile,false);assert.equal(body.projectId,s.providerProjectId);if(o.createFail)return new Response('private provider body',{status:500});}
    else events.push('release-readback');
    return Response.json({id:id(90),projectId:s.providerProjectId,profileId:id(91),status:released?'released':'live',debugUrl:`https://api.steel.dev/v1/sessions/${id(90)}/player`,solveCaptcha:false,useProxy:false,proxyBytesUsed:0,proxySource:null,timeout:s.limits.maximumSessionMs,duration:1000,...o.providerMetadata});
   },
  };
  const port=createEtsyInsightsPlaywrightPort(input),stop=new AbortController();
- return{s,port,input,stop,events,cleanup,routes,handlers,cdpHandlers,cdpCommands,request:async(url,changes={})=>cdpHandlers.get('Fetch.requestPaused')({requestId:'r'+cdpCommands.length,frameId:'main',resourceType:'Document',request:{url,method:'GET'},...changes}),browser,page,setTime:t=>{time=t;},getView:()=>view};
+ return{s,port,input,stop,events,cleanup,routes,handlers,cdpHandlers,cdpCommands,request:async(url,changes={})=>cdpHandlers.get('Fetch.requestPaused')({requestId:'r'+cdpCommands.length,frameId:'main',resourceType:'Document',request:{url,method:'GET'},...changes}),browser,page,ownedCdpConnected:()=>cdpConnected,setTime:t=>{time=t;},getView:()=>view};
 }
 async function open(f){const session=await f.port.createSession(f.s,f.stop.signal);await session.openApprovedInsights(f.stop.signal);return session;}
 async function search(f,session){const p=await session.observeAggregateView(f.stop.signal);await session.submitObservedQuery(p.queryControl.id,p.documentEpoch,f.s.query,f.stop.signal);return session.observeAggregateView(f.stop.signal);}

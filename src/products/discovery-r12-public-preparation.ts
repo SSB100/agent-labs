@@ -1,3 +1,4 @@
+import {validateDirectSonnetInferenceQuote,type DirectInferenceQuote,DIRECT_INFERENCE_REQUEST_BYTES} from './discovery-r12-public-reviewer-quote';
 import { quoteTextTokenCost } from "../research/qualification-quote";
 import { DISCOVERY_V2_BUDGET } from "./discovery-v2-budget";
 import { containsCredentialLikeValue, containsCredentialLikeContent } from "../core/quest-intake";
@@ -19,7 +20,8 @@ export function qualifyPublicResearchQuote(inference:EtsyAdaptiveResearchQuote,b
  const body={version:"r12.public-research-quote.1"as const,inference,browser,maximumAttemptsInWindow,maximumModelDispatches:3*maximumAttemptsInWindow,maximumSourceOperations:maximumAttemptsInWindow,phaseMaximumMicrounits,maximumAttemptMicrounits:attempt.toString(),maximumWindowMicrounits:(attempt*BigInt(maximumAttemptsInWindow)).toString(),originalRunMaximumMicrounits,verifiedAt:new Date(Math.max(time(inference.verifiedAt),time(browser.verifiedAt))).toISOString(),validUntil:new Date(Math.min(time(inference.validUntil),time(browser.validUntil))).toISOString(),proposalOnly:true as const,dispatchAuthorized:false as const};return{...body,quoteHash:publicResearchHash(body)};
 }
 export type PublicResearchWindowQuote=Omit<PublicResearchLegacyQuote,"version"> & {version:"r12.public-research-quote.2";modelRequestBytes:{plan:number;strategy:number;review:number}};
-export type PublicResearchQuote=PublicResearchLegacyQuote|PublicResearchWindowQuote;
+export type PublicResearchSonnetQuote=Omit<PublicResearchWindowQuote,"version"|"inference"> & {version:"r12.public-research-quote.3";inference:DirectInferenceQuote};
+export type PublicResearchQuote=PublicResearchLegacyQuote|PublicResearchWindowQuote|PublicResearchSonnetQuote;
 export const PUBLIC_RESEARCH_WINDOW_REQUEST_BYTES=Object.freeze({plan:32_768,strategy:65_536,review:65_536});
 /** Separately reviewed .4 window bounds. Never changes a legacy inference
  * quote or expands an already approved public quote through renewal. */
@@ -30,16 +32,23 @@ export function qualifyPublicResearchWindowQuote(inference:EtsyAdaptiveResearchQ
  const{quoteHash,...original}=legacy;void quoteHash;
  const body={...original,version:"r12.public-research-quote.2"as const,modelRequestBytes:{...PUBLIC_RESEARCH_WINDOW_REQUEST_BYTES},phaseMaximumMicrounits,maximumAttemptMicrounits:attempt.toString(),maximumWindowMicrounits:(attempt*BigInt(maximumAttemptsInWindow)).toString()};return{...body,quoteHash:publicResearchHash(body)};
 }
+/** Freshly reviewed direct Sonnet route; never a renewal of an older quote. */
+export function qualifyPublicResearchSonnetQuote(inference:DirectInferenceQuote,browser:PublicResearchBrowserQuote,originalRunMaximumMicrounits:string,now=Date.now(),maximumAttemptsInWindow=10):PublicResearchSonnetQuote{
+ validateDirectSonnetInferenceQuote(inference,now);validatePublicResearchBrowserQuote(browser,now);const maximum=money(originalRunMaximumMicrounits);
+ if(maximum<=BigInt(0)||maximum>BigInt(10000000)||!integer(maximumAttemptsInWindow,1,32))return fail();
+ const phaseMaximumMicrounits={plan:String(inference.ceilings.plan),source:browser.maximumMicrounits,strategy:String(inference.ceilings.strategy),review:String(inference.ceilings.review)},attempt=Object.values(phaseMaximumMicrounits).reduce((sum,x)=>sum+money(x),BigInt(0));
+ const body={version:"r12.public-research-quote.3"as const,inference,browser,maximumAttemptsInWindow,maximumModelDispatches:3*maximumAttemptsInWindow,maximumSourceOperations:maximumAttemptsInWindow,phaseMaximumMicrounits,maximumAttemptMicrounits:attempt.toString(),maximumWindowMicrounits:(attempt*BigInt(maximumAttemptsInWindow)).toString(),originalRunMaximumMicrounits,verifiedAt:new Date(Math.max(time(inference.verifiedAt),time(browser.verifiedAt))).toISOString(),validUntil:new Date(Math.min(time(inference.validUntil),time(browser.validUntil))).toISOString(),proposalOnly:true as const,dispatchAuthorized:false as const,modelRequestBytes:{...DIRECT_INFERENCE_REQUEST_BYTES}};return{...body,quoteHash:publicResearchHash(body)};
+}
 export function publicResearchModelRequestBytes(quote:PublicResearchQuote){
- if(quote.version==="r12.public-research-quote.2")return quote.modelRequestBytes;
+ if(quote.version==="r12.public-research-quote.2"||quote.version==="r12.public-research-quote.3")return quote.modelRequestBytes;
  if(quote.version==="r12.public-research-quote.1")return quote.inference.requestBytes;
  return fail("r12_public_quote_version_unqualified");
 }
 export function validatePublicResearchQuote(raw:unknown,now=Date.now()):PublicResearchQuote{
  const version=(raw as {version?:unknown}|null)?.version;
- if(version!=="r12.public-research-quote.1"&&version!=="r12.public-research-quote.2")return fail();
- if(!exact(raw,"version,inference,browser,maximumAttemptsInWindow,maximumModelDispatches,maximumSourceOperations,phaseMaximumMicrounits,maximumAttemptMicrounits,maximumWindowMicrounits,originalRunMaximumMicrounits,verifiedAt,validUntil,proposalOnly,dispatchAuthorized,quoteHash"+(version==="r12.public-research-quote.2"?",modelRequestBytes":"")))return fail();const q=raw as unknown as PublicResearchQuote;
- const expected=(version==="r12.public-research-quote.2"?qualifyPublicResearchWindowQuote:qualifyPublicResearchQuote)(q.inference,q.browser,q.originalRunMaximumMicrounits,now,q.maximumAttemptsInWindow);if(publicResearchHash(q)!==publicResearchHash(expected))return fail();return structuredClone(q);
+ if(version!=="r12.public-research-quote.1"&&version!=="r12.public-research-quote.2"&&version!=="r12.public-research-quote.3")return fail();
+ if(!exact(raw,"version,inference,browser,maximumAttemptsInWindow,maximumModelDispatches,maximumSourceOperations,phaseMaximumMicrounits,maximumAttemptMicrounits,maximumWindowMicrounits,originalRunMaximumMicrounits,verifiedAt,validUntil,proposalOnly,dispatchAuthorized,quoteHash"+(version!=="r12.public-research-quote.1"?",modelRequestBytes":"")))return fail();const q=raw as unknown as PublicResearchQuote;
+ const expected=q.version==="r12.public-research-quote.3"?qualifyPublicResearchSonnetQuote(q.inference,q.browser,q.originalRunMaximumMicrounits,now,q.maximumAttemptsInWindow):(q.version==="r12.public-research-quote.2"?qualifyPublicResearchWindowQuote:qualifyPublicResearchQuote)(q.inference,q.browser,q.originalRunMaximumMicrounits,now,q.maximumAttemptsInWindow);if(publicResearchHash(q)!==publicResearchHash(expected))return fail();return structuredClone(q);
 }
 export type PublicResearchOwnerTestInput={version:"r12.owner-direct-test-input.1";businessId:string;goalId:string;grantId:string;predecessorScopeId:string;predecessorScopeHash:string;maximumAttemptsInWindow:number;maximumRunMicrounits:string;capProposal:PublicResearchCapProposal;submissionId:string};
 export function validatePublicResearchOwnerTestInput(raw:unknown):PublicResearchOwnerTestInput{

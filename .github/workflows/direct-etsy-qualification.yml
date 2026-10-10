@@ -88,7 +88,9 @@ jobs:
           - file: r12-historical-stale-preview-upgrade-sql.test.mjs
             pattern: '.'
           - file: r12-insights-landing-controls-v2-sql.test.mjs
-            pattern: '.'
+            pattern: 'landing .2 requires'
+          - file: r12-insights-landing-controls-v2-sql.test.mjs
+            pattern: 'landing reviews fail closed'
           - file: r12-insights-verification-candidate-v3-sql.test.mjs
             pattern: 'candidate verification persists'
           - file: r12-insights-verification-candidate-v3-sql.test.mjs
@@ -100,6 +102,28 @@ jobs:
           - file: r12-direct-repair-postgrest-http.test.mjs
             pattern: '.'
             http: true
+          - file: r12-insights-proof-bound-research-sql.test.mjs
+            pattern: 'proof-bound research executes'
+          - file: r12-insights-proof-bound-research-sql.test.mjs
+            pattern: 'proof-bound preparation rejects'
+          - file: r12-insights-proof-bound-research-sql.test.mjs
+            pattern: 'proof-bound source rejects'
+          - file: r12-proof-bound-legacy-source-upgrade-sql.test.mjs
+            pattern: '.'
+          - file: r12-renderer-revocation-postgres-races.test.mjs
+            pattern: '.'
+          - file: r12-direct-reviewed-enrollment-sql.test.mjs
+            pattern: '.'
+          - file: r12-direct-enrollment-postgres-races.test.mjs
+            pattern: '.'
+          - file: r12-direct-sonnet-quote-sql.test.mjs
+            pattern: '.'
+          - file: r12-direct-sonnet-lifecycle-sql.test.mjs
+            pattern: '.'
+          - file: r12-direct-sonnet-standard-sql.test.mjs
+            pattern: '.'
+          - file: r12-direct-enrollment-owner-journey-sql.test.mjs
+            pattern: '.'
     services:
       postgres:
         image: public.ecr.aws/docker/library/postgres@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3
@@ -149,10 +173,14 @@ jobs:
         if: always() && matrix.http
         uses: actions/upload-artifact@v4
         with:
-          name: direct-etsy-postgrest-qualification
+          name: direct-etsy-postgrest-qualification-${{ matrix.file }}-${{ github.sha }}
           path: /tmp/r12-http-direct.json
 
   owner-next:
+    strategy:
+      fail-fast: false
+      matrix:
+        journey: [legacy, enrollment]
     runs-on: ubuntu-latest
     timeout-minutes: 25
     services:
@@ -191,12 +219,12 @@ jobs:
           R12_SQL_TEST_HOST: ${{ runner.temp }}/r12-sql-host
           R12_REQUIRE_POSTGRES: '1'
           R12_POSTGRES_URL: postgresql://r12_test:r12-isolated-fixture@127.0.0.1:5432/r12_test
-        run: node scripts/verify-r12-direct-owner-next.mjs
+        run: node "scripts/${{ matrix.journey == 'enrollment' && 'verify-r12-direct-enrollment-owner-next.mjs' || 'verify-r12-direct-owner-next.mjs' }}"
       - name: Preserve browser, app and explicit substitution evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: direct-etsy-owner-next-${{ github.sha }}
-          path: test-results/r12-direct-owner-next/
+          name: direct-etsy-owner-next-${{ matrix.journey }}-${{ github.sha }}
+          path: test-results/${{ matrix.journey == 'enrollment' && 'r12-direct-enrollment-owner-next' || 'r12-direct-owner-next' }}/
           if-no-files-found: error
           retention-days: 14

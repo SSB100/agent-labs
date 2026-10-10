@@ -75,15 +75,33 @@ test('unconfirmed child-target closure cannot certify drained observers',async()
 test('unknown provider release retains the request guard and cannot claim disposal',async()=>{
  const work=[],calls=[];
  const result=await releaseEtsyTransportAndDispose({sessionId:'one',marked:true,registerCleanup:p=>work.push(p),
-  release:async()=>{calls.push('release');throw Error('unknown');},dispose:[async()=>calls.push('detach')]});
+  release:async()=>{calls.push('release');throw Error('unknown');},dispose:[async()=>calls.push('drain')],finalize:[async()=>calls.push('detach')]});
  assert.deepEqual(result,{sessionId:'one',released:false,terminalReadback:false,observersDisposed:false});
- await Promise.all(work);assert.deepEqual(calls,['release']);
+ await Promise.all(work);assert.deepEqual(calls,['drain','release']);
+});
+test('failed observer disposal still attempts ordered detach and physical disconnect without claiming proof',async()=>{
+ const calls=[],work=[];
+ const result=await releaseEtsyTransportAndDispose({sessionId:'one',marked:true,registerCleanup:p=>work.push(p),
+  release:async()=>{calls.push('release');return{sessionId:'one',released:true,terminalReadback:true};},
+  dispose:[async()=>{calls.push('drain');throw Error('failed acknowledgement');}],
+  finalize:[async()=>{calls.push('detach');throw Error('failed detach');},async()=>calls.push('disconnect')]});
+ await Promise.all(work);assert.deepEqual(calls,['drain','release','detach','disconnect']);assert.equal(result.released,true);assert.equal(result.observersDisposed,false);
+});
+test('independent watchdog releases before an uncooperative drain completes; late completion cannot upgrade returned proof',async()=>{
+ const hold=setTimeout(()=>{},4000),calls=[],work=[];let finish,drained=false;
+ const pending=new Promise(resolve=>{finish=()=>{drained=true;resolve();};});
+ try{
+  const started=Date.now(),result=await releaseEtsyTransportAndDispose({sessionId:'one',marked:true,registerCleanup:p=>work.push(p),
+   release:async()=>{assert.equal(drained,false);calls.push('release');assert.ok(Date.now()-started<1800);return{sessionId:'one',released:true,terminalReadback:true};},
+   dispose:[()=>pending],finalize:[async()=>calls.push('disconnect')]});
+  assert.equal(result.observersDisposed,false);assert.deepEqual(calls,['release','disconnect']);finish();await Promise.all(work);assert.equal(result.observersDisposed,false);
+ }finally{clearTimeout(hold);}
 });
 test('late release after caller timeout cleans up but does not upgrade returned authority',async()=>{
  const hold=setTimeout(()=>{},4000);let finish;const pending=new Promise(r=>{finish=r;}),work=[],calls=[];
  try{
   const result=await releaseEtsyTransportAndDispose({sessionId:'one',marked:true,registerCleanup:p=>work.push(p),
-   release:async()=>{calls.push('release');return pending;},dispose:[async()=>calls.push('detach')]});
+   release:async()=>{calls.push('release');return pending;},dispose:[],finalize:[async()=>calls.push('detach')]});
   assert.equal(result.observersDisposed,false);assert.deepEqual(calls,['release']);
   finish({sessionId:'one',released:true,terminalReadback:true});await Promise.all(work);
   assert.deepEqual(calls,['release','detach']);assert.equal(result.released,false);
