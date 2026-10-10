@@ -1,0 +1,252 @@
+name: Direct Etsy native qualification
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+jobs:
+  native-direct:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        include:
+          - file: r12-direct-controller-lifecycle-sql.test.mjs
+            pattern: '.'
+          - file: r12-direct-controller-window-sql.test.mjs
+            pattern: '.'
+          - file: r12-direct-controller-control-sql.test.mjs
+            pattern: '.'
+          - file: r12-direct-controller-failure-sql.test.mjs
+            pattern: '.'
+          - file: r12-direct-controller-schema-sql.test.mjs
+            pattern: '.'
+          - file: r12-direct-source-renderer-v2-sql.test.mjs
+            pattern: 'reviewed source renderer'
+          - file: r12-direct-source-renderer-v2-sql.test.mjs
+            pattern: 'source renderer .1 retains'
+          - file: r12-direct-setup-renewal-sql.test.mjs
+            pattern: '.'
+          - file: r12-owner-verification-view-sql.test.mjs
+            pattern: '.'
+          - file: r12-etsy-steel-verification-runtime-sql.test.mjs
+            pattern: '.'
+          - file: r12-direct-runtime-composition-sql.test.mjs
+            pattern: '.'
+          - file: r12-direct-owner-server-context-sql.test.mjs
+            pattern: '.'
+          - file: r12-direct-late-head-fence-sql.test.mjs
+            pattern: '.'
+          - file: r12-direct-postgres-races.test.mjs
+            pattern: '.'
+          - file: r12-direct-owner-access-navigation-sql.test.mjs
+            pattern: '.'
+          - file: r12-direct-owner-test-exposure-sql.test.mjs
+            pattern: '.'
+          - file: r12-direct-runtime-repair-composition-sql.test.mjs
+            pattern: '.'
+          - file: r12-direct-owner-journey-sql.test.mjs
+            pattern: '.'
+          - file: r12-direct-controller-repair-schema-sql.test.mjs
+            pattern: '.'
+          - file: r12-direct-controller-repair-lifecycle-sql.test.mjs
+            pattern: '.'
+          - file: r12-direct-controller-repair-source-sql.test.mjs
+            pattern: '.'
+          - file: r12-direct-controller-repair-cap-sql.test.mjs
+            pattern: '.'
+          - file: r12-direct-controller-repair-legacy-sql.test.mjs
+            pattern: '.'
+          - file: r12-direct-controller-repair-window-sql.test.mjs
+            pattern: '.'
+          - file: r12-direct-controller-repair-stage-outcome-sql.test.mjs
+            pattern: '.'
+          - file: r12-direct-controller-repair-saved-legacy-sql.test.mjs
+            pattern: '.'
+          - file: r12-direct-controller-repair-head-fence-sql.test.mjs
+            pattern: '.'
+          - file: r12-direct-controller-repair-postgres-races.test.mjs
+            pattern: '.'
+          - file: r12-direct-grant-total-compatibility-sql.test.mjs
+            pattern: '.'
+          - file: r12-direct-legacy-compatibility-sql.test.mjs
+            pattern: '.'
+          - file: r12-direct-saved-etsy-upgrade-sql.test.mjs
+            pattern: '.'
+          - file: r12-direct-postgrest-http.test.mjs
+            pattern: '.'
+            http: true
+          - file: r12-historical-stopped-proof-upgrade-sql.test.mjs
+            pattern: '.'
+          - file: r12-historical-origin-snapshot-upgrade-sql.test.mjs
+            pattern: '.'
+          - file: r12-historical-adaptive-preview-upgrade-sql.test.mjs
+            pattern: '.'
+          - file: r12-historical-stale-preview-upgrade-sql.test.mjs
+            pattern: '.'
+          - file: r12-insights-landing-controls-v2-sql.test.mjs
+            pattern: 'landing .2 requires'
+          - file: r12-insights-landing-controls-v2-sql.test.mjs
+            pattern: 'landing reviews fail closed'
+          - file: r12-insights-verification-candidate-v3-sql.test.mjs
+            pattern: 'candidate verification persists'
+          - file: r12-insights-verification-candidate-v3-sql.test.mjs
+            pattern: 'candidate runtime rejects'
+          - file: r12-insights-verification-candidate-v3-sql.test.mjs
+            pattern: 'candidate identity cannot'
+          - file: r12-insights-verification-candidate-v3-sql.test.mjs
+            pattern: 'candidate owner sidecar'
+          - file: r12-direct-repair-postgrest-http.test.mjs
+            pattern: '.'
+            http: true
+          - file: r12-insights-proof-bound-research-sql.test.mjs
+            pattern: 'proof-bound research executes'
+          - file: r12-insights-proof-bound-research-sql.test.mjs
+            pattern: 'proof-bound preparation rejects'
+          - file: r12-insights-proof-bound-research-sql.test.mjs
+            pattern: 'proof-bound source rejects'
+          - file: r12-proof-bound-legacy-source-upgrade-sql.test.mjs
+            pattern: '.'
+          - file: r12-renderer-revocation-postgres-races.test.mjs
+            pattern: '.'
+          - file: r12-direct-reviewed-enrollment-sql.test.mjs
+            pattern: '.'
+          - file: r12-direct-enrollment-postgres-races.test.mjs
+            pattern: '.'
+          - file: r12-direct-sonnet-quote-sql.test.mjs
+            pattern: '.'
+          - file: r12-direct-sonnet-lifecycle-sql.test.mjs
+            pattern: '.'
+          - file: r12-direct-sonnet-standard-sql.test.mjs
+            pattern: '.'
+          - file: r12-direct-enrollment-owner-journey-sql.test.mjs
+            pattern: '.'
+          - file: r12-steel-current-owner-journey-sql.test.mjs
+            pattern: '.'
+          - file: r12-steel-readback-sql.test.mjs
+            pattern: '.'
+          - file: r12-steel-readback-postgres-races.test.mjs
+            pattern: '.'
+          - file: r12-steel-config-admission-sql.test.mjs
+            pattern: '.'
+          - file: r12-steel-config-postgres-races.test.mjs
+            pattern: '.'
+          - file: r12-mapped-steel-postgrest-http.test.mjs
+            pattern: 'native PostgREST qualifies fresh mapped enrollment'
+            http: true
+    services:
+      postgres:
+        image: public.ecr.aws/docker/library/postgres@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3
+        env:
+          POSTGRES_USER: r12_test
+          POSTGRES_DB: r12_test
+          POSTGRES_PASSWORD: r12-isolated-fixture
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U r12_test -d r12_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Install locked compiler and isolated native PostgreSQL client
+        run: |
+          npm ci --no-audit --no-fund
+          npm install --prefix "$RUNNER_TEMP/r12-sql-host" --no-audit --no-fund --ignore-scripts pg@8.16.3
+          npm run pretest
+      - name: Pin actual isolated PostgreSQL container address
+        run: |
+          address="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' '${{ job.services.postgres.id }}')"
+          test -n "$address"
+          echo "R12_CI_POSTGRES_ADDRESS=$address" >> "$GITHUB_ENV"
+      - name: Install pinned official PostgREST for the isolated HTTP case
+        if: matrix.http
+        run: |
+          mkdir -p "$RUNNER_TEMP/r12-postgrest"
+          curl --fail --location --output "$RUNNER_TEMP/r12-postgrest/postgrest.tar.xz" https://github.com/PostgREST/postgrest/releases/download/v13.0.7/postgrest-v13.0.7-linux-static-x86-64.tar.xz
+          printf '%s  %s\n' '4153f81ccc40e7b735edc89cd84b49da25ba27eb37d57c7f6a82c9005a0b762b' "$RUNNER_TEMP/r12-postgrest/postgrest.tar.xz" | sha256sum --check --strict
+          tar -xJf "$RUNNER_TEMP/r12-postgrest/postgrest.tar.xz" -C "$RUNNER_TEMP/r12-postgrest"
+      - name: Exercise actual migrated PostgreSQL, without a PGlite fallback
+        env:
+          R12_SQL_TEST_HOST: ${{ runner.temp }}/r12-sql-host
+          R12_REQUIRE_POSTGRES: '1'
+          R12_REQUIRE_POSTGREST: ${{ matrix.http && '1' || '0' }}
+          R12_POSTGREST_BINARY: ${{ runner.temp }}/r12-postgrest/postgrest
+          R12_HTTP_REPORT: /tmp/r12-http-direct.json
+          R12_POSTGRES_URL: postgresql://r12_test:r12-isolated-fixture@127.0.0.1:5432/r12_test
+          QUALIFICATION_FILE: ${{ matrix.file }}
+          QUALIFICATION_PATTERN: ${{ matrix.pattern }}
+        run: node --test --test-concurrency=1 --test-name-pattern="$QUALIFICATION_PATTERN" "tests/$QUALIFICATION_FILE"
+      - name: Preserve actual HTTP timings and qualification limits
+        if: always() && matrix.http
+        uses: actions/upload-artifact@v4
+        with:
+          name: direct-etsy-postgrest-qualification-${{ matrix.file }}-${{ github.sha }}
+          path: /tmp/r12-http-direct.json
+
+  owner-next:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - journey: legacy
+            script: verify-r12-direct-owner-next.mjs
+            artifact: r12-direct-owner-next
+          - journey: enrollment
+            script: verify-r12-direct-enrollment-owner-next.mjs
+            artifact: r12-direct-enrollment-owner-next
+          - journey: current
+            script: verify-r12-steel-current-owner-next.mjs
+            artifact: r12-steel-current-owner-next
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: public.ecr.aws/docker/library/postgres@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3
+        env:
+          POSTGRES_USER: r12_test
+          POSTGRES_DB: r12_test
+          POSTGRES_PASSWORD: r12-isolated-fixture
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U r12_test -d r12_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Install locked app, official browser and isolated native PostgreSQL client
+        run: |
+          npm ci --no-audit --no-fund
+          npx playwright-core install --with-deps chromium
+          npm install --prefix "$RUNNER_TEMP/r12-sql-host" --no-audit --no-fund --ignore-scripts pg@8.16.3
+          npm run pretest
+      - name: Pin the exact disposable database and installed browser
+        run: |
+          address="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' '${{ job.services.postgres.id }}')"
+          test -n "$address"
+          echo "R12_CI_POSTGRES_ADDRESS=$address" >> "$GITHUB_ENV"
+          browser="$(node -e 'console.log(require("playwright-core").chromium.executablePath())')"
+          test -f "$browser"
+          echo "GUIDED_UI_CHROMIUM_PATH=$browser" >> "$GITHUB_ENV"
+      - name: Exercise production Next owner actions with native SQL and real Chromium
+        env:
+          R12_SQL_TEST_HOST: ${{ runner.temp }}/r12-sql-host
+          R12_REQUIRE_POSTGRES: '1'
+          R12_POSTGRES_URL: postgresql://r12_test:r12-isolated-fixture@127.0.0.1:5432/r12_test
+        run: node "scripts/${{ matrix.script }}"
+      - name: Preserve browser, app and explicit substitution evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: direct-etsy-owner-next-${{ matrix.journey }}-${{ github.sha }}
+          path: test-results/${{ matrix.artifact }}/
+          if-no-files-found: error
+          retention-days: 14

@@ -183,7 +183,7 @@ export function simulatePackWorkflow(options: PackSimulationOptions): PackSimula
   const prepared = workflow.stages.map(stage => {
     const worker = workers.find(candidate => candidate.manifest.worker.workerKey === stage.workerKey && candidate.manifest.worker.version === stage.workerVersion);
     check(worker, `Worker for stage ${stage.key} is unavailable.`);
-    check(worker.execution.kind !== "web.research", `Stage ${stage.key} requests an external executor; local simulation cannot execute it.`);
+    check(worker.execution.kind !== "web.research" && worker.execution.kind !== "browser.etsy.insights.read_only" && worker.execution.kind !== "r12.direct-model", `Stage ${stage.key} requests an external executor; local simulation cannot execute it.`);
     for (const capability of worker.manifest.capabilityPolicy.allowed) {
       check(capabilities.get(capability)?.adapter === "structured.mapping", `Stage ${stage.key} requests an external capability; local simulation cannot execute ${capability}.`);
     }

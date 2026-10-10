@@ -1,0 +1,40 @@
+name: Etsy browser boundary qualification
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inert-browser-boundary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Install repository dependencies and pinned local browser
+        run: |
+          npm ci --no-audit --no-fund
+          npx playwright-core install --with-deps chromium
+      - name: Compile isolated ports
+        run: >-
+          npx tsc --ignoreConfig --target es2022 --module node16 --moduleResolution node16
+          --strict --esModuleInterop --skipLibCheck --types node --rootDir src --outDir .core-tests
+          src/accounts/etsy-steel-handoff-port.ts src/browser/etsy-insights-playwright.ts src/browser/etsy-insights-runtime.ts src/browser/etsy-insights-rpc-runtime.ts
+      - name: Prove redirect destinations receive zero requests and cleanup cannot hang release
+        run: |
+          set -o pipefail
+          export AGENT_LABS_LOCAL_CHROMIUM="$(node -e "console.log(require('playwright-core').chromium.executablePath())")"
+          node --test tests/etsy-request-admission.test.mjs tests/etsy-insights-renderer-policy.test.mjs tests/etsy-insights-playwright.test.mjs tests/etsy-steel-handoff-port.test.mjs tests/etsy-insights-adapter.test.mjs tests/etsy-insights-rpc-runtime.test.mjs tests/etsy-steel-accounting.test.mjs tests/etsy-steel-scoped-provider.test.mjs tests/etsy-insights-landing-controls.test.mjs tests/etsy-insights-renderer-candidate.test.mjs tests/etsy-insights-renderer-research.test.mjs tests/etsy-insights-native-dom.test.mjs 2>&1 | tee /tmp/etsy-browser-boundary.log
+      - name: Preserve bounded inert qualification result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: etsy-browser-boundary-${{ github.sha }}
+          path: /tmp/etsy-browser-boundary.log
+          if-no-files-found: error
+          retention-days: 14

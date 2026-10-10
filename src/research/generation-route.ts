@@ -10,7 +10,8 @@ const MAX_RETRY_AFTER_AT = "9999-12-31T23:59:59.999Z";
 const MAX_RETRY_AFTER_MS = Date.parse(MAX_RETRY_AFTER_AT);
 const MODEL_IDS = ["openai/gpt-5.6-luna", "openai/gpt-5.6-luna-20260709"] as const;
 const REVIEWER_MODEL_IDS = ["anthropic/claude-haiku-4.5", "anthropic/claude-4.5-haiku-20251001"] as const;
-type QualifiedRouteModelId = typeof MODEL_IDS[number] | typeof REVIEWER_MODEL_IDS[number];
+// Direct-mode proof DTOs share this type; the legacy runtime allowlist below remains exact.
+type QualifiedRouteModelId = typeof MODEL_IDS[number] | typeof REVIEWER_MODEL_IDS[number] | "anthropic/claude-sonnet-4.6" | "anthropic/claude-4.6-sonnet-20260217";
 const GENERATION_ID = /^gen-[A-Za-z0-9_-]{1,296}$/;
 
 export type GenerationRouteExpectation = {
