@@ -40,7 +40,7 @@ function outputFor(f,attempt){
  return{version:'r12.direct-etsy-review.1',proposalHash:i.dependencies.strategy.response.result.proposalHash,quality,hypothesisFinding:'undetermined',learningRecommendation:'NME',conclusion:'The descriptive result is concrete but the hypothesis remains unmeasured.',conclusionEvidenceRefs:[ref],contraryEvidenceRefs:[ref],proposedCommand:next};
 }
 
-export function steelConfigResearchRuntimeComposition(db,f,{rpcTransport=null,modelOutput=null,policyVersion='r12.direct-etsy-attempt-policy.1',browserFactory=researchRendererFixture,afterSourceCreate=null,configurationAdmit=null}={}){
+export function steelConfigResearchRuntimeComposition(db,f,{rpcTransport=null,modelInputs=null,modelOutput=null,policyVersion='r12.direct-etsy-attempt-policy.1',browserFactory=researchRendererFixture,afterSourceCreate=null,configurationAdmit=null}={}){
  assert.equal(f.policy.version,policyVersion,'The fixture must explicitly select the versioned authority under test');
  const calls=[],modelPosts=[],modelGets=[],catalogGets=[],browserPosts=[],browsers=[],sourceResults=[],modelResults=[],sqlErrors=[];
  const faults={proofUnavailable:false,sourceFinishUnavailable:0,failModelPhaseOnce:null};
@@ -113,7 +113,20 @@ export function steelConfigResearchRuntimeComposition(db,f,{rpcTransport=null,mo
   './discovery-r12-public-repair':core('products/discovery-r12-public-repair'),
   './discovery-r12-adaptive-quote':{...quote,fetchAdaptiveResearchQuote:options=>quote.fetchAdaptiveResearchQuote({...options,fetch:catalogFetch})},
   get './discovery-r12-public-reviewer-quote'(){const actual=core('products/discovery-r12-public-reviewer-quote');return{...actual,fetchDirectSonnetInferenceQuote:options=>actual.fetchDirectSonnetInferenceQuote({...options,fetch:catalogFetch})};},
-  './discovery-r12-public-model-runtime':{...modelRuntime,async runPublicResearchModelAttempt(args,deps){const result=await modelRuntime.runPublicResearchModelAttempt(args,{...deps,provider:modelProvider(args.attemptId)});modelResults.push(result);return result;}},
+  './discovery-r12-public-model-runtime':{...modelRuntime,async runPublicResearchModelAttempt(args,deps){
+   // Optional independent controller input read: the real runtime consumes this
+   // value for validation, request construction and receipt reconciliation.
+   // Exact parity keeps the transport seam from altering the admitted attempt.
+   const rpc=modelInputs?async(purpose,operation,payload)=>{
+    const attempt=await deps.rpc(purpose,operation,payload);
+    if(operation!=='attempt')return attempt;
+    assert.equal(purpose,'controller');
+    const inputs=await modelInputs(payload.attemptId);
+    assert.deepEqual(inputs,attempt.inputs,'Standalone model inputs must equal the actual attempt inputs');
+    return{...attempt,inputs};
+   }:deps.rpc;
+   const result=await modelRuntime.runPublicResearchModelAttempt(args,{...deps,rpc,provider:modelProvider(args.attemptId)});modelResults.push(result);return result;
+  }},
   get '../browser/etsy-steel-create-binding'(){return core('browser/etsy-steel-create-binding');},
   '../browser/etsy-insights-rpc-runtime':{...sourceRuntime,createEtsyInsightsRpcRuntime:actualSource},
  });

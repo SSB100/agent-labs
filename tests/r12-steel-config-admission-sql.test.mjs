@@ -104,18 +104,58 @@ async function rollbackProbe(db,work){
  // Existing frozen role helpers reset their role in finally. Preserve the real
  // denial while clearing PostgreSQL's aborted-statement state inside this
  // test-only rollback branch, so that their reset remains possible.
- const query=db.query.bind(db);
+ const originalQuery=db.query,query=originalQuery.bind(db);
  db.query=async(...args)=>{
+  // Native exec delegates to query. Wrapping SAVEPOINT/ROLLBACK TO/RELEASE
+  // would release the wrapper's parent and destroy the caller's nested fence.
+  // Transaction controls must reach the connection directly; ordinary RPC
+  // statements still recover before the frozen role helper's finally reset.
+  if(typeof args[0]==='string'&&/^\s*(?:begin|start\s+transaction|commit|end|rollback|abort|savepoint|release)\b/i.test(args[0]))return query(...args);
   await query('savepoint rollback_probe_statement');
   try{const result=await query(...args);await query('release savepoint rollback_probe_statement');return result;}
   catch(error){await query('rollback to savepoint rollback_probe_statement');await query('release savepoint rollback_probe_statement');throw error;}
  };
- try{return await work();}finally{db.query=query;await db.exec('rollback');delete db.steelConfigProbeTransaction;}
+ try{return await work();}finally{db.query=originalQuery;await db.exec('rollback');delete db.steelConfigProbeTransaction;}
 }
 async function exerciseCreate(db,stage){return exerciseConsumption(db,stage,await exerciseAdmission(db,stage));}
 
+// This is a transaction-control trace regression, not a database substitute.
+// The genuine lifecycle below also uses this exact native exec delegation.
+test('Steel rollback probe keeps native delegated transaction controls outside statement recovery',async()=>{
+ const trace=[],denial=new Error('inert statement denial');
+ const db={query:async sql=>{trace.push(sql);if(sql==='select inert_denial()')throw denial;return{rows:[]};}};
+ db.exec=sql=>db.query(sql);const originalQuery=db.query,originalExec=db.exec;
+ await rollbackProbe(db,async()=>{
+  await db.exec('savepoint expected_config_denial');
+  await db.exec('set role anon');
+  await assert.rejects(db.query('select inert_denial()'),error=>error===denial);
+  await db.exec('reset role');
+  await db.exec('rollback to savepoint expected_config_denial');
+  await db.exec('release savepoint expected_config_denial');
+  await db.exec('savepoint before_guard_mutation');
+  await db.query('select inert_mutation()');
+  await db.exec('savepoint expected_guard_denial');
+  await assert.rejects(db.query('select inert_denial()'),error=>error===denial);
+  await db.exec('rollback to savepoint expected_guard_denial');
+  await db.exec('rollback to savepoint before_guard_mutation');
+ });
+ const recovered=sql=>['savepoint rollback_probe_statement',sql,'release savepoint rollback_probe_statement'];
+ const rejected=['savepoint rollback_probe_statement','select inert_denial()','rollback to savepoint rollback_probe_statement','release savepoint rollback_probe_statement'];
+ assert.deepEqual(trace,['begin','savepoint expected_config_denial',...recovered('set role anon'),...rejected,...recovered('reset role'),
+  'rollback to savepoint expected_config_denial','release savepoint expected_config_denial','savepoint before_guard_mutation',
+  ...recovered('select inert_mutation()'),'savepoint expected_guard_denial',...rejected,'rollback to savepoint expected_guard_denial',
+  'rollback to savepoint before_guard_mutation','rollback']);
+ assert.equal(db.query,originalQuery);assert.equal(db.exec,originalExec);assert.equal(db.steelConfigProbeTransaction,undefined);
+ trace.length=0;
+ await assert.rejects(rollbackProbe(db,async()=>{throw denial;}),error=>error===denial);
+ assert.deepEqual(trace,['begin','rollback']);assert.equal(db.query,originalQuery);assert.equal(db.steelConfigProbeTransaction,undefined);
+});
+
 test('Steel config attestation is independent, private and mandatory for every genuine paid-create stage',options,async()=>{
  const db=await steelConfigDatabase(),oldFetch=globalThis.fetch;let externalCalls=0,latestAttestation,setup,source;
+ // Exercise the native Client's dynamic exec -> query path even on PGlite.
+ // Migration loading has finished; every remaining exec is one control statement.
+ db.exec=sql=>db.query(sql);
  globalThis.fetch=async()=>{externalCalls++;throw Error('External provider traffic forbidden in Steel SQL qualification');};
  try{
   const f=await steelConfigEnrollmentFixture(db,{

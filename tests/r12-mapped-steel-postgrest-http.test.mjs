@@ -136,10 +136,26 @@ async function qualify(useHttp){
   const quoteContext=await checked('r12_direct_controller_server',{p_business_id:f.authority.f.businessId,p_scope_id:f.prepared.scopeId,p_operation:'quote_context',p_payload:{},p_server_key:f.keys.controller});
   assert.deepEqual(quoteContext.approvedQuote,f.quote);assert.equal(quoteContext.maximumAttemptsInWindow,10);assert.equal(quoteContext.originalRunMaximumMicrounits,'10000000');
   assert.deepEqual(await fingerprint(),beforeQuoteRead,'Mapped quote-context read cannot reserve or consume work');
+  const modelInputReads=[];let rejectFirstModelInput=true;
   const runtime=steelConfigResearchRuntimeComposition(db,f,{
    policyVersion:f.policy.version,rpcTransport:checked,
+   modelInputs:async attemptId=>{
+    const inputs=await checked('r12_direct_controller_server',{p_business_id:f.authority.f.businessId,p_scope_id:f.prepared.scopeId,p_operation:'inputs',p_payload:{attemptId},p_server_key:f.keys.controller});
+    modelInputReads.push({attemptId,phase:inputs.phase,inputHash:inputs.inputHash});
+    // A mismatched input read must block the real model runtime before paid
+    // admission; the next invocation recovers using the actual facade result.
+    if(rejectFirstModelInput){rejectFirstModelInput=false;return{...inputs,inputHash:'0'.repeat(64)};}
+    return inputs;
+   },
    configurationAdmit:request=>admit(f.authority.f.businessId,request,f.keys.source,'source'),
   });
+  const beforeInputFault=await fingerprint(),inputRejected=await runtime.step();
+  assert.equal(inputRejected.reason,'pending');assert.equal(inputRejected.continue,false);
+  assert.equal(runtime.modelResults.at(-1).diagnostic,'attempt_read_unverified');
+  assert.equal(runtime.modelPosts.length,0);assert.equal(runtime.browserPosts.length,0);
+  assert.equal(runtime.calls.some(call=>call.operation==='dispatch'),false);
+  assert.deepEqual(await fingerprint(),beforeInputFault,'Rejected model inputs cannot reserve or dispatch provider work');
+  report.guards.push('mismatched_facade_model_inputs_block_actual_runtime_before_dispatch');
   for(const expected of ['accepted','source_recorded','accepted','accepted']){
    const result=await runtime.step();assert.equal(result.reason,expected,JSON.stringify({result,errors:runtime.sqlErrors}));
   }
@@ -148,6 +164,8 @@ async function qualify(useHttp){
   assert.equal(final.state.logicalCyclesStarted,1);assert.equal(final.state.unitsConsumed,1);assert.equal(final.state.modelDispatchesUsed,3);assert.equal(final.state.sourceOperationsStarted,1);assert.equal(final.state.nextAction,'next_cycle');assert.equal(final.state.questComplete,false);
   assert.equal(final.testExposure.knownActualMicrounits,'3');assert.equal(final.testExposure.boundedPendingMicrounits,'3000');assert.equal(final.testExposure.hasUnknownOrUnbounded,false);
   assert.deepEqual(runtime.modelPosts.map(p=>p.phase),['plan','strategy','review']);assert.equal(runtime.browserPosts.length,1);assert.equal(runtime.sourceResults[0].run.receipt.status,'completed');
+  for(const post of runtime.modelPosts)assert.ok(modelInputReads.some(read=>read.attemptId===post.attemptId&&read.phase===post.phase),'Every actual model attempt consumes standalone controller inputs');
+  report.guards.push('standalone_controller_inputs_consumed_by_actual_model_runtime');
   assert.deepEqual(permits.map(p=>p.stage),['setup','verification','source']);
   const used=(await db.query('select operation_id,admission_hash from private.r12_steel_create_config_uses')).rows;
   assert.equal(used.length,3);for(const p of permits)assert.ok(used.some(u=>u.operation_id===p.operationId&&u.admission_hash===p.admissionHash));
