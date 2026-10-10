@@ -1,0 +1,48 @@
+name: Etsy browser boundary qualification
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'src/browser/etsy-*.ts'
+      - 'src/accounts/etsy-steel-handoff-port.ts'
+      - 'tests/etsy-*'
+      - '.github/workflows/etsy-browser-boundary.yml'
+  push:
+    branches: [codex/r12-steel-insights-wip-20261010]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inert-browser-boundary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Install repository dependencies and pinned local browser
+        run: |
+          npm ci --no-audit --no-fund
+          npx playwright-core install --with-deps chromium
+      - name: Compile isolated ports
+        run: >-
+          npx tsc --ignoreConfig --target es2022 --module node16 --moduleResolution node16
+          --strict --esModuleInterop --skipLibCheck --types node --rootDir src --outDir .core-tests
+          src/accounts/etsy-steel-handoff-port.ts src/browser/etsy-insights-playwright.ts src/browser/etsy-insights-runtime.ts
+      - name: Prove redirect destinations receive zero requests and cleanup cannot hang release
+        run: |
+          set -o pipefail
+          export AGENT_LABS_LOCAL_CHROMIUM="$(node -e "console.log(require('playwright-core').chromium.executablePath())")"
+          node --test tests/etsy-request-admission.test.mjs tests/etsy-insights-playwright.test.mjs tests/etsy-steel-handoff-port.test.mjs 2>&1 | tee /tmp/etsy-browser-boundary.log
+      - name: Preserve bounded inert qualification result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: etsy-browser-boundary-${{ github.sha }}
+          path: /tmp/etsy-browser-boundary.log
+          if-no-files-found: error
+          retention-days: 14

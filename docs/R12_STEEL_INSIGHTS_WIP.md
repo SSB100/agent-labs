@@ -17,3 +17,9 @@ A second inert slice preserves the versioned test-window, account binding, conse
 ## Model and preparation checkpoint
 
 Fresh whole-app TypeScript checking and 68 focused tests pass for the reconstructed owner preparation, bounded cycle and three-model-wire contracts. ES2017-compatible BigInt use and deterministic reviewer-score replay are included. This remains an incomplete WIP, not release qualification. The current cycle's Quest-completion label is a known semantic defect: a concrete research-stage support or refutation does not achieve the broader business Goal. That label must be separated before activation. Per-attempt quote renewal and genuine SQL/HTTP/runtime integration remain pending; expired quotes fail closed.
+
+## Browser boundary and quote renewal checkpoint
+
+Reconstructed source, verification and owner-handoff ports now enforce request-stage CDP redirect admission and independently bounded provider cleanup. Actual redirected navigation/image/fetch destinations must receive zero requests in the dedicated CI job. Local Chromium launch was denied by the environment socket boundary; the real browser case is not locally qualified. Fresh inert browser/security checks passed116, followed by85 focused parameterized-handoff checks. No live provider session was created. The handoff now requires an independently reviewed renderer qualification before creation; actual static-asset qualification remains pending.
+
+Fresh78 contract tests cover bounded per-phase quote renewal, original liability preservation and historical quote provenance. Research-stage support/refutation is now separate from broad Quest completion; questComplete stays false. SQL controller and HTTP integration remain unqualified. The additional workflow is limited to this WIP branch and relevant pull requests, with locked dependency installation.

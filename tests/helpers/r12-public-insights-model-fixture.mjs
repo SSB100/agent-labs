@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
-import { ETSY_INSIGHTS_SCOPE_VERSION } from '../../.core-tests/browser/etsy-insights-contracts.js';
-import { ETSY_INSIGHTS_CAPTURE_POLICY_HASH, ETSY_INSIGHTS_SOURCE_POLICY_HASH, insightsHash as hash } from '../../.core-tests/browser/etsy-insights-policy.js';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+const loadBrowser=name=>import(pathToFileURL(resolve(process.env.R12_PUBLIC_CORE_DIR||'.core-tests','browser',`etsy-insights-${name}.js`)).href);
+const { ETSY_INSIGHTS_SCOPE_VERSION } = await loadBrowser('contracts');
+const { ETSY_INSIGHTS_CAPTURE_POLICY_HASH, ETSY_INSIGHTS_SOURCE_POLICY_HASH, insightsHash:hash } = await loadBrowser('policy');
+const { runEtsyInsightsResearch } = await loadBrowser('runtime');
 // Semantically reconstructed after workspace loss; fake providers only.
 const NOW = Date.parse('2026-10-10T11:40:00.000Z');
 const id = n => `30000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
@@ -15,7 +19,7 @@ function scope(changes={}) {
     verifiedAt:new Date(NOW-1000).toISOString(),expiresAt:new Date(NOW+120000).toISOString()};
   const s={version:ETSY_INSIGHTS_SCOPE_VERSION,operationId:id(1),sourceAttemptId:id(6),businessId:id(2),goalId:id(3),authorityRootId:id(4),scopeId:id(5),
     scopeHash:H(1),originDirectRunId:id(7),providerProjectId:id(24),window:{version:'r12.research-attempt-window.1',windowId:id(8),windowOrdinal:1,maximumAttemptsInWindow:16,baseAttemptsStarted:0,continuationHash:H(9)},
-    attemptOrdinal:1,windowAttemptOrdinal:1,criteriaHash:H(2),questionHash:H(3),quoteHash:H(4),sourcePolicyHash:ETSY_INSIGHTS_SOURCE_POLICY_HASH,
+    attemptOrdinal:1,windowAttemptOrdinal:1,criteriaHash:H(2),questionHash:H(3),quoteHash:H(4),executionQuoteHash:H(40),executionQuoteProofHash:H(41),sourcePolicyHash:ETSY_INSIGHTS_SOURCE_POLICY_HASH,
     accountBinding:{...b,bindingHash:hash(b)},capturePolicyHash:ETSY_INSIGHTS_CAPTURE_POLICY_HASH,query:QUERY,expiresAt:new Date(NOW+60000).toISOString(),
     maximumBrowserMicrounits:'20000',limits:{maximumSessionMs:30000,maximumActions:3,maximumTextBytes:3000,maximumScreenshotBytes:1000,maximumTotalCaptureBytes:4000}};
   return {...s,...changes,window:{...s.window,...changes.window},limits:{...s.limits,...changes.limits}};
@@ -51,4 +55,4 @@ function fixture(changes={}){
 }
 
 
-export { scope, fixture, identity, page, frame, NOW, id, H };
+export { scope, fixture, identity, page, frame, NOW, id, H, runEtsyInsightsResearch, ETSY_INSIGHTS_CAPTURE_POLICY_HASH, ETSY_INSIGHTS_SOURCE_POLICY_HASH };
