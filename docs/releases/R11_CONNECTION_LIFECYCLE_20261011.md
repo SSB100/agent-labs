@@ -90,6 +90,10 @@ reconciliation never makes that token usable: clean scoped reconnect is required
   replay, and Stop/reconcile. Provider responses are inert; no real network call.
 - Separate SQL cases prove expired-active reconciliation and unchanged candidate
   custody. The integrated caught-error case alone does not prove process recovery.
+- Local full typecheck and lint passed. The aggregate suite had 4,644 passes,
+  209 intentional skips and one explicit push-branch allowlist expectation failure.
+  The new exact branch was added consistently to the gate and its test; focused
+  release-gate recheck passed. Final full exact-head CI remains required.
 - Actual production Next build and four HTTP owner/read-only cases passed locally.
   Browser launch is blocked in this executor by socket permissions, including the
   reviewed shell escalation. Actual Chromium journeys and native PostgreSQL lock
