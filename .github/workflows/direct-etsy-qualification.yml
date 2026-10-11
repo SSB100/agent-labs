@@ -130,6 +130,20 @@ jobs:
             pattern: '.'
           - file: r12-steel-setup-recovery-sql.test.mjs
             pattern: '.'
+          - file: r12-steel-release-successor-sql.test.mjs
+            pattern: '.'
+          - file: r12-steel-replacement-expired-quote.test.mjs
+            pattern: '.'
+          - file: r12-steel-release-successor-races.test.mjs
+            pattern: 'native successor identical publication and conflicting retries serialize'
+          - file: r12-steel-release-successor-races.test.mjs
+            pattern: 'native successor publication wins setup and revocation fences paid creation'
+          - file: r12-steel-release-successor-races.test.mjs
+            pattern: 'native saved setup wins and prevents release transfer'
+          - file: r12-steel-release-successor-races.test.mjs
+            pattern: 'native original release revocation wins successor publication'
+          - file: r12-steel-release-successor-races.test.mjs
+            pattern: 'native publication wins original revocation and effective release then fails closed'
           - file: r12-steel-setup-recovery-races.test.mjs
             pattern: 'native reviewed release revocation wins before exact replacement paid create'
           - file: r12-steel-setup-recovery-http.test.mjs
