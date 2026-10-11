@@ -8,7 +8,7 @@ import {fileURLToPath} from 'node:url';
 import {r04SqlBootstrap} from './helpers/r04-sql-bootstrap.mjs';
 import {sessionBootstrap} from './helpers/r10-sql-fixture.mjs';
 import {setupResearchFixture,seedResearch,enrollResearch,hash,value,counts,guard,settle,collectionPayload} from './helpers/r11-public-research-fixture.mjs';
-import {completionPayload} from './helpers/r11-public-research-owner-proof.mjs';
+import {completionPayload,seedOwnerGrant} from './helpers/r11-public-research-owner-proof.mjs';
 import {researchV2,repairGuard,repairAdmission,repairSettle,repairWorkspace,repairPolicy,workflowStatus,r05FunctionSnapshot,setupContinuationFixture,importContinuationGrant,activateContinuation,continuationStateSnapshot} from './helpers/r11-public-research-repair-fixture.mjs';
 import {THIRTY_MINUTES,sourceWindow,freshPhaseQuote,seedWindowResearch,windowGuard,seedWindowContinuation,seedUnusedThirdPredecessor} from './helpers/r11-public-research-window-fixture.mjs';
 
@@ -21,6 +21,20 @@ async function memoryDatabase(){const require=createRequire(path.resolve(host,'p
 async function bootstrap(db){await db.exec(r04SqlBootstrap+sessionBootstrap);for(const name of migrations())await db.exec(source(name));}
 async function r05Rows(db){const result={};for(const {tablename} of(await db.query("select tablename from pg_tables where schemaname='private' and tablename like 'r05_%' order by 1")).rows)result[tablename]=(await db.query(`select to_jsonb(t) row from private.${tablename} t order by to_jsonb(t)::text`)).rows;return result;}
 async function noAdmissionEffects(db,s,fn,error=reject){const before=await counts(db,s);await assert.rejects(fn(),error);assert.deepEqual(await counts(db,s),before);}
+
+test('R11 continuation fixture declares its original Goal date across UTC midnight without extending access',async()=>{
+ const db={query:async()=>({rows:[]})},now=Date.parse('2026-10-11T23:50:00.000Z');
+ const validFrom=new Date(now-5000).toISOString(),validUntil=new Date(now+240000).toISOString();
+ const legacy=await seedOwnerGrant(db,{validFrom,validUntil,enroll:false});
+ assert.equal(legacy.grant.goalContent.parsed.deadline.date,'2026-10-11');
+ const goalDeadlineDate=new Date(now+60*60*1000).toISOString().slice(0,10);
+ const s=await seedOwnerGrant(db,{validFrom,validUntil,goalDeadlineDate,enroll:false});
+ assert.deepEqual(s.grant.goalContent.parsed.deadline,{date:'2026-10-12',time:'23:59:59',timezone:'UTC'});
+ assert.equal(s.grant.operatingPolicy.expiresAt,validUntil);assert.equal(s.grant.researchPolicy.validUntil,validUntil);assert.equal(s.grant.researchPolicy.quoteValidUntil,validUntil);
+ assert.equal(s.grant.researchPolicy.maximumMicrousd,legacy.grant.researchPolicy.maximumMicrousd);assert.deepEqual(s.grant.operatingPolicy.categoryLimits,legacy.grant.operatingPolicy.categoryLimits);
+ assert.equal(s.grantHash,hash(s.grant),'The original Goal date is included in the fixture grant hash before import');
+ assert.ok(Date.parse(sourceWindow(now).validUntil)<=Date.parse(`${goalDeadlineDate}T23:59:59Z`));
+});
 
 test('R11 fixed thirty-minute authority requires immutable fresh quotes per phase',{skip:!host,timeout:120000},async t=>{
  const db=await memoryDatabase();let legacy,legacyMarker,oldFunctions,oldR05,seen=false;
@@ -84,7 +98,9 @@ test('R11 fixed thirty-minute authority requires immutable fresh quotes per phas
 test('R11 thirty-minute continuation preserves the unused cancelled Business3 Goal6 cap3 predecessor',{skip:!host,timeout:120000},async t=>{
  const db=await memoryDatabase();
  try{
-  await bootstrap(db);const options=await setupContinuationFixture(db),{original,predecessor}=await seedUnusedThirdPredecessor(db,options);
+  // The original Goal must cover later continuations, including a UTC midnight crossing.
+  // This inert input does not extend any operating policy, quote or provider window.
+  await bootstrap(db);const options={...await setupContinuationFixture(db),goalDeadlineDate:new Date(Date.now()+60*60*1000).toISOString().slice(0,10)},{original,predecessor}=await seedUnusedThirdPredecessor(db,options);
   assert.equal(await workflowStatus(db,predecessor),'cancelled');assert.equal(await value(db,'select count(*)::int result from private.r05_requests where workflow_run_id=$1',[predecessor.workflowRunId]),0);
   assert.deepEqual((await repairPolicy(db,predecessor)).outcomes.map(({kind,reason,phase})=>({kind,reason,phase})),[{kind:'owner_stopped',reason:'owner_stopped',phase:'none'}]);
   await t.test('legacy source1 continuation remains limited to five minutes and source2 cannot exceed thirty',async()=>{
@@ -96,6 +112,7 @@ test('R11 thirty-minute continuation preserves the unused cancelled Business3 Go
   await t.test('fresh source2 continuation advances existing revisions while preserving cap, settled exposure, and history',async()=>{
    const oldR05=await r05Rows(db),priorWorkflows=(await db.query('select to_jsonb(w) row from public.workflow_runs w where business_id=$1 order by id',[predecessor.businessId])).rows;
    const s=await seedWindowContinuation(db,predecessor,{maximumMicrousd:230554});assert.equal(s.grant.continuation.businessRevision,3);assert.equal(s.grant.continuation.goalRevision,6);assert.equal(s.grant.continuation.capRevision,3);
+   assert.deepEqual(s.grant.goalContent.parsed.deadline,original.grant.goalContent.parsed.deadline,'Continuation inherits the exact original Goal deadline');
    const {result}=await activateContinuation(db,s);assert.equal(result.replayed,false);assert.equal(s.policy.version,'r11.public-research.2');assert.equal(s.policy.goalId,original.goalId);assert.equal(s.businessId,original.businessId);
    assert.equal(await value(db,'select revision result from private.r04_business_state where business_id=$1',[s.businessId]),4);assert.equal(await value(db,'select revision result from private.r04_goal_state where goal_id=$1',[s.goalId]),8);
    assert.deepEqual((await db.query('select revision,maximum_microunits::text maximum from private.r05_cap_versions where business_id=$1 order by revision',[s.businessId])).rows,[1,2,3,4].map(revision=>({revision,maximum:'848063'})));
