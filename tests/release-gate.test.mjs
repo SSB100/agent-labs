@@ -44,9 +44,9 @@ test('actual workflow selects the same focused/full modes and requires every nam
  const {load}=createRequire(import.meta.url)('js-yaml');
  const workflow=load(readFileSync(new URL('../.github/workflows/ci.yml',import.meta.url),'utf8'));
  assert.ok(workflow.on.pull_request.types.includes('ready_for_review'));
- assert.deepEqual(workflow.on.push.branches,['main','codex/r12-steel-insights-wip-20261010','codex/r12-single-release-successor-20261011']);
+ assert.deepEqual(workflow.on.push.branches,['main','codex/r12-steel-insights-wip-20261010','codex/r12-single-release-successor-20261011','codex/r12-stable-connections-20261011']);
  assert.equal(workflow.on.workflow_dispatch.inputs.gate.default,'release');
- const events=[['pull_request',{pull_request:{draft:true}}],['pull_request',{pull_request:{draft:false}}],['pull_request',{pull_request:{draft:true,head:{ref:'codex/r12-etsy-owner-baselines-20261010'}}}],['push',{ref:'refs/heads/main'}],['push',{ref:'refs/heads/codex/r12-steel-insights-wip-20261010'}],['push',{ref:'refs/heads/codex/r12-single-release-successor-20261011'}],['workflow_dispatch',{inputs:{gate:'focused'}}],['workflow_dispatch',{inputs:{gate:'focused',diagnostic:'owner-ui'}}],['workflow_dispatch',{inputs:{gate:'release'}}],['workflow_dispatch',{inputs:{gate:'release',diagnostic:'owner-ui'}}]];
+ const events=[['pull_request',{pull_request:{draft:true}}],['pull_request',{pull_request:{draft:false}}],['pull_request',{pull_request:{draft:true,head:{ref:'codex/r12-etsy-owner-baselines-20261010'}}}],['push',{ref:'refs/heads/main'}],['push',{ref:'refs/heads/codex/r12-steel-insights-wip-20261010'}],['push',{ref:'refs/heads/codex/r12-single-release-successor-20261011'}],['push',{ref:'refs/heads/codex/r12-stable-connections-20261011'}],['workflow_dispatch',{inputs:{gate:'focused'}}],['workflow_dispatch',{inputs:{gate:'focused',diagnostic:'owner-ui'}}],['workflow_dispatch',{inputs:{gate:'release'}}],['workflow_dispatch',{inputs:{gate:'release',diagnostic:'owner-ui'}}]];
  for(const [eventName,event] of events){
   const mode=ciGateMode(eventName,event),github={event_name:eventName,event,head_ref:event.pull_request?.head?.ref},inputs=event.inputs??{};
   const selected=job=>new Function('github','inputs',`return (${workflow.jobs[job].if});`)(github,inputs);

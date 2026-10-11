@@ -23,6 +23,8 @@
     "src/browser/types.ts",
     "src/core/**/*.ts",
     "src/connections/contracts.ts",
+    "src/connections/readiness.ts",
+    "src/connections/execution-release.ts",
     "src/connections/etsy-read.ts",
     "src/connections/etsy-refresh.ts",
     "src/connections/printful-read.ts",

@@ -81,8 +81,8 @@ try {
   let ready=false;
   for(let attempt=0;attempt<120;attempt++){try{const response=await fetch(origin+'/login',{redirect:'manual'});if(response.status<500){ready=true;break;}}catch{} await new Promise(resolve=>setTimeout(resolve,250));}
   assert.ok(ready,'Production Next fixture did not start');
-  if(!terminalOnly)await runNextJourneys({origin,boundary,output,httpOnly:process.argv.includes('--http-only')||process.argv.includes('--research-only')||process.argv.includes('--r12-only'),questsOnly:process.argv.includes('--quests-only'),controlsOnly:process.argv.includes('--controls-only'),historyOnly:process.argv.includes('--history-only'),workspaceOnly:process.argv.includes('--workspace-only'),knowledgeOnly:process.argv.includes('--knowledge-only'),browserWatchOnly:process.argv.includes('--browser-watch-only')});
-  if(!terminalOnly&&!process.argv.includes('--r12-only')&&(process.argv.includes('--research-only')||!process.argv.some(flag=>['--quests-only','--controls-only','--history-only','--workspace-only','--knowledge-only','--browser-watch-only'].includes(flag)))){
+  if(!terminalOnly)await runNextJourneys({origin,boundary,output,httpOnly:process.argv.includes('--http-only')||process.argv.includes('--research-only')||process.argv.includes('--r12-only'),questsOnly:process.argv.includes('--quests-only'),controlsOnly:process.argv.includes('--controls-only'),historyOnly:process.argv.includes('--history-only'),workspaceOnly:process.argv.includes('--workspace-only'),knowledgeOnly:process.argv.includes('--knowledge-only'),browserWatchOnly:process.argv.includes('--browser-watch-only'),connectionsOnly:process.argv.includes('--connections-only')});
+  if(!terminalOnly&&!process.argv.includes('--r12-only')&&(process.argv.includes('--research-only')||!process.argv.some(flag=>['--quests-only','--controls-only','--history-only','--workspace-only','--knowledge-only','--browser-watch-only','--connections-only'].includes(flag)))){
     const researchProbe=createServer();await new Promise(resolve=>researchProbe.listen(0,'127.0.0.1',resolve));const researchPort=researchProbe.address().port;await new Promise(resolve=>researchProbe.close(resolve));
     start(['start','-p',String(researchPort),'-H','127.0.0.1'],'r11-research-server.log',{VERCEL_ENV:'production',R05_ADMISSION_SERVER_KEY:R11_INERT_SERVER_KEY,OPENROUTER_API_KEY:'inert-r11-provider-placeholder'});
     const researchOrigin=`http://localhost:${researchPort}`;let researchReady=false;
@@ -90,7 +90,7 @@ try {
     assert.ok(researchReady,'R11 isolated production Next fixture did not start');
     await runResearchQualificationJourneys({origin:researchOrigin,noKeyOrigin:origin,boundary,output,httpOnly:process.argv.includes('--http-only')});
   }
-  if(terminalOnly||process.argv.includes('--r12-only')||!process.argv.some(flag=>['--quests-only','--controls-only','--history-only','--workspace-only','--knowledge-only','--browser-watch-only','--research-only'].includes(flag))){
+  if(terminalOnly||process.argv.includes('--r12-only')||!process.argv.some(flag=>['--quests-only','--controls-only','--history-only','--workspace-only','--knowledge-only','--browser-watch-only','--research-only','--connections-only'].includes(flag))){
     if(!process.env.R12_SQL_TEST_HOST)throw Error('R12 isolated SQL fixture host is required');
     const directory=await mkdtemp(path.join(temporaryRoot,'r12-next-'));
     try{

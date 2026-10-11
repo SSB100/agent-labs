@@ -198,6 +198,8 @@ The owner now authorizes implementation and paid testing of adaptive research wi
 
 **Exit:** actual paid/source receipts and independent results establish the research and production-purpose creative prerequisites without fabricated demand, reconstructed rejected strategy or unlimited repair loops. Commercial readiness remains gated by R13–R16.
 
+**Structural simplification (11 October 2026 owner direction):** implement the [stable permission and durable setup decision](decisions/ADR_004_STABLE_CONNECTIONS_AND_DURABLE_SETUP.md). Separate unchanged connection/operating permission from exact qualified releases, preserve full release/security evidence, and make external setup resumable by exact operation. Reuse existing permitted research/owner observations independently of account login and existing scoped own-shop OAuth where suitable. This supersedes further one-off Steel successor work as the implementation direction, not historical authority. The stopped test, USD 0.025 held maximum, original expiry and counters remain unchanged; no new OAuth/browser grant or operational restart is implied. The first useful slice is OAuth-first: clearer verified connection status, current operation eligibility, exact saved-attempt reconciliation and executing-release receipts on the existing R11 gate. Its migration/release is under qualification. The semantic/browser contracts remain inert and browser lifecycle integration remains separate.
+
 ### R13 Qualify products and the Etsy linked-draft bridge
 
 **Class:** new trusted evidence producers, topology contracts and external qualification. **Dependency:** R05, R11, R12.
