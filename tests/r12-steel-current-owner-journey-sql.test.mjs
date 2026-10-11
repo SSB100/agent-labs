@@ -4,14 +4,20 @@ import {createHash,randomUUID} from 'node:crypto';
 import {one} from './helpers/r12-owner-initial-sql-fixture.mjs';
 import {currentOwnerJourneyDatabase,currentOwnerJourneyAuthority,currentOwnerJourneyComposition,publishCurrentOwnerReviewedAuthority,currentOwnerJourneyEnvironment,executeCurrentOwnerCycle,currentOwnerJourneyDiagnostics,ownerRenderedForm} from './helpers/r12-steel-current-owner-journey-fixture.mjs';
 import {deriveDirectServerKey} from '../.core-tests/products/discovery-r12-public-server-key.js';
+import {readbackTarget,publishReadback} from './helpers/r12-steel-readback-sql-fixture.mjs';
+import {originalReadbackR11,readbackAuthorization,publishReadbackAuthorization} from './helpers/r12-steel-readback-authorization-fixture.mjs';
 
-test('current owner metadata forms save21400 proof before operator review, owner enrollment and genuine21300 source through Sonnet',{
+test('current owner expired-R11 one-shot metadata forms save proof before operator review, owner enrollment and genuine21300 source through Sonnet',{
  skip:!process.env.R12_SQL_TEST_HOST,timeout:300000,
 },async t=>{
  const db=await currentOwnerJourneyDatabase(),fetch=globalThis.fetch,restoreEnvironment=currentOwnerJourneyEnvironment();let external=0;
  globalThis.fetch=async()=>{external++;throw Error('No external transport');};
  try{
   const a=await currentOwnerJourneyAuthority(db);currentOwnerJourneyEnvironment();
+  const rootHash=createHash('sha256').update(process.env.R05_ADMISSION_SERVER_KEY).digest('hex');
+  const originalRoot=await one(db,'select to_jsonb(k) content from private.r05_server_keys k where key_hash=$1',[rootHash]);
+  assert.ok(Date.parse(originalRoot.content.expires_at)<Date.now());
+  assert.equal((await one(db,'select count(*)::int n from private.r11_research_policies where authority_key_hash=$1',[rootHash])).n,1);
   const j=currentOwnerJourneyComposition(db,a);t.diagnostic('Actual owner source hashes: '+JSON.stringify(j.sourceHashes));const base=`/dashboard/products/etsy-research?business=${a.f.businessId}&goal=${a.f.goalId}`;
   const page=async url=>{try{const r=await j.get(url);assert.equal(r.status,200);return r.text();}catch(error){error.message=new URL(url,'http://inert.local').pathname+': '+error.message;throw error;}};
   const submit=async(html,button,extra={})=>{const f=ownerRenderedForm(html,button),r=await j.post(f.action,{...f.fields,...extra});assert.equal(r.status,303);return r.headers.get('Location');};
@@ -89,6 +95,19 @@ test('current owner metadata forms save21400 proof before operator review, owner
   await j.product.resumeDirectResearch(j.context(),a.f.businessId,a.f.goalId,envelopeId);assert.equal(j.resumes.length,1,'Owner can wake registered hook after pre-attachment SQL failure');
   j.faults.hookLookupUnavailable=true;await assert.rejects(j.product.resumeDirectResearch(j.context(),a.f.businessId,a.f.goalId,envelopeId));assert.equal(j.resumes.length,1);j.faults.hookLookupUnavailable=false;
   const started=j.workflowStarts[0],i=started.input,key=deriveDirectServerKey(a.bootstrapKey,{businessId:i.businessId,goalId:i.goalId,testEnvelopeId:i.testEnvelopeId,envelopeHash:i.envelopeHash,routeHash:i.routeHash,purpose:'controller'});
+  // A genuine direct-purpose child cannot be elevated by attaching reviewed
+  // original-R11 provenance to a new expired registry row in this inert fixture.
+  const admission=deriveDirectServerKey(a.bootstrapKey,{businessId:i.businessId,goalId:i.goalId,testEnvelopeId:i.testEnvelopeId,envelopeHash:i.envelopeHash,routeHash:i.routeHash,purpose:'admission'});
+  assert.equal((await one(db,'select count(*)::int n from private.r12_direct_research_activations where admission_key_hash=$1',[createHash('sha256').update(admission).digest('hex')])).n,1);
+  await db.exec('begin');try{
+   const delegated=await originalReadbackR11(db,{key:admission,context:a.f});delegated.target=readbackTarget(delegated);await publishReadback(db,delegated.target);
+   await db.query("select set_config('request.jwt.claim.sub',$1,false)",[delegated.ownerId]);
+   await db.exec('savepoint direct_metadata_denial');
+   await assert.rejects(db.query("select public.r12_steel_config_readback_server($1,'claim',$2,$3)",[delegated.businessId,{targetHash:delegated.target.targetHash,submissionId:randomUUID()},admission]),/server_required/);
+   await db.exec('rollback to savepoint direct_metadata_denial');await db.exec('release savepoint direct_metadata_denial');
+   await assert.rejects(publishReadbackAuthorization(db,await readbackAuthorization(db,delegated)),/direct_dedicated_admission_required/);
+  }finally{await db.exec('rollback');}
+
   const attached=await j.runtime.rpc('r12_direct_controller_server',{p_business_id:i.businessId,p_scope_id:i.scopeId,p_operation:'attach_runtime',p_payload:{runtimeRunId:started.runId},p_server_key:key});assert.equal(attached.error,null);
   const again=await j.post(startForm.action,{...startForm.fields,confirmResearch:'on'});assert.equal(new URL(again.headers.get('Location'),'http://inert.local').searchParams.get('result'),'started');assert.equal(j.workflowStarts.length,1,'Duplicate owner invocation does not start a second workflow after durable attachment');
   const cycle=await executeCurrentOwnerCycle(db,j,envelopeId);t.diagnostic('Current owner cycle: '+JSON.stringify(cycle));assert.deepEqual(j.boundarySubstitutions,[]);
@@ -99,6 +118,8 @@ test('current owner metadata forms save21400 proof before operator review, owner
   const stoppedView=await j.owner.readEtsySteelOwnerVerification(j.context(),a.f.businessId,operationId);assert.notEqual(stoppedView.status,'verified');assert.equal(stoppedView.observedShopName,null);
   j.setUser(randomUUID());await assert.rejects(j.product.resumeDirectResearch(j.context(),a.f.businessId,a.f.goalId,envelopeId));await assert.rejects(j.owner.readEtsySteelOwnerVerification(j.context(),a.f.businessId,operationId));assert.equal(j.resumes.length,2);
   for(const c of j.rpcCalls){if(['r12_owner_steel_config_readback','r12_steel_config_readback_server','r12_owner_direct_enrollment_read','r12_owner_direct_enrollment_server','r12_owner_direct_read','r12_owner_direct_server','r12_etsy_steel_owner','r12_owner_etsy_steel_verification_read','r12_owner_etsy_steel_renderer_review'].includes(c.name))assert.equal(c.role,'authenticated');else assert.equal(c.role,'anon');}
+  assert.deepEqual(await one(db,'select to_jsonb(k) content from private.r05_server_keys k where key_hash=$1',[rootHash]),originalRoot,'Independent reviewed enrollment, test funding and child handoff never renew the original root');
+  await assert.rejects(db.query('select private.r11_research_key($1)',[rootHash]),/authority_required/);
   assert.equal(external,0);assert.equal(j.providerCalls.filter(x=>x.path==='/v1/sessions').length,2);
  }finally{globalThis.fetch=fetch;restoreEnvironment();await db.close();}
 });

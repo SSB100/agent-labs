@@ -12,7 +12,7 @@ const {reconstructDiscoveryR12Result}=require(repo+'/.core-tests/products/discov
 const {currentProductionCandidate,productionCreativeApproval}=require(repo+'/.core-tests/creative/production-approval.js');
 const {FLUX_KLEIN_APPROVAL_BINDING}=require(repo+'/.core-tests/creative/proposal.js');
 const {SCREEN_CATEGORIES}=require(repo+'/.core-tests/creative/types.js');
-export async function exerciseFocusedCreativeLifecycle(db,pilot){
+export async function exerciseFocusedCreativeLifecycle(db,pilot,{onActivated=null}={}){
  const one=async(sql,args=[])=>(await db.query(sql,args)).rows[0];
  const rpc=async(role,name,args)=>{await db.exec('savepoint creative_rpc');await db.exec('set role '+role);try{return(await one(`select public.${name}(${args.map((_,i)=>`$${i+1}`).join(',')}) result`,args)).result;}catch(error){await db.exec('rollback to savepoint creative_rpc');throw error;}finally{await db.exec('reset role');await db.exec('release savepoint creative_rpc');}};
  const reject=async(action,pattern)=>{await db.exec('savepoint creative_negative');try{await assert.rejects(action,pattern);}finally{await db.exec('rollback to savepoint creative_negative');await db.exec('release savepoint creative_negative');}};
@@ -82,6 +82,9 @@ export async function exerciseFocusedCreativeLifecycle(db,pilot){
  await rpc('authenticated','r05_policy_owner',[businessId,'confirm',{policyId:proposed.id,policyHash:proposed.hash},randomUUID()]);
  const activated=await runOperatorRecipe(operator,'activate',activationInput);
  assert.equal(activated.shouldDispatch,false);assert.equal(activated.authorityCreated,true);
+ // Optional qualification observer stops inside the caller's rollback boundary,
+ // before launch or any creative transport. The ordinary lifecycle is unchanged.
+ if(onActivated)return onActivated({db,businessId,ownerId,goalId:result.goalId,key:serverKey,approvalId,activated});
  await reject(()=>runOperatorRecipe(operator,'activate',activationInput),/activation_window_or_key_conflict/);
  const closeInput={preparation,scopeHash:activated.scopeHash,policyId:proposed.id,policyHash:proposed.hash};
  await reject(()=>runOperatorRecipe(operator,'close',closeInput),/terminal_or_owner_stop/);

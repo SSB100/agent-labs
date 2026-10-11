@@ -130,6 +130,13 @@ jobs:
             pattern: '.'
           - file: r12-steel-readback-sql.test.mjs
             pattern: '.'
+          - file: r12-steel-readback-authorization-sql.test.mjs
+            pattern: '.'
+          - file: r12-steel-readback-delegation-sql.test.mjs
+            pattern: '.'
+          - file: r12-steel-readback-postgrest-http.test.mjs
+            pattern: '.'
+            http: true
           - file: r12-steel-readback-postgres-races.test.mjs
             pattern: '.'
           - file: r12-steel-config-admission-sql.test.mjs
