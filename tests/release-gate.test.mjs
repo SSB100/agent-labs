@@ -44,9 +44,9 @@ test('actual workflow selects the same focused/full modes and requires every nam
  const {load}=createRequire(import.meta.url)('js-yaml');
  const workflow=load(readFileSync(new URL('../.github/workflows/ci.yml',import.meta.url),'utf8'));
  assert.ok(workflow.on.pull_request.types.includes('ready_for_review'));
- assert.deepEqual(workflow.on.push.branches,['main','codex/r12-steel-insights-wip-20261010']);
+ assert.deepEqual(workflow.on.push.branches,['main','codex/r12-steel-insights-wip-20261010','codex/r12-single-release-successor-20261011']);
  assert.equal(workflow.on.workflow_dispatch.inputs.gate.default,'release');
- const events=[['pull_request',{pull_request:{draft:true}}],['pull_request',{pull_request:{draft:false}}],['pull_request',{pull_request:{draft:true,head:{ref:'codex/r12-etsy-owner-baselines-20261010'}}}],['push',{ref:'refs/heads/main'}],['push',{ref:'refs/heads/codex/r12-steel-insights-wip-20261010'}],['workflow_dispatch',{inputs:{gate:'focused'}}],['workflow_dispatch',{inputs:{gate:'focused',diagnostic:'owner-ui'}}],['workflow_dispatch',{inputs:{gate:'release'}}],['workflow_dispatch',{inputs:{gate:'release',diagnostic:'owner-ui'}}]];
+ const events=[['pull_request',{pull_request:{draft:true}}],['pull_request',{pull_request:{draft:false}}],['pull_request',{pull_request:{draft:true,head:{ref:'codex/r12-etsy-owner-baselines-20261010'}}}],['push',{ref:'refs/heads/main'}],['push',{ref:'refs/heads/codex/r12-steel-insights-wip-20261010'}],['push',{ref:'refs/heads/codex/r12-single-release-successor-20261011'}],['workflow_dispatch',{inputs:{gate:'focused'}}],['workflow_dispatch',{inputs:{gate:'focused',diagnostic:'owner-ui'}}],['workflow_dispatch',{inputs:{gate:'release'}}],['workflow_dispatch',{inputs:{gate:'release',diagnostic:'owner-ui'}}]];
  for(const [eventName,event] of events){
   const mode=ciGateMode(eventName,event),github={event_name:eventName,event,head_ref:event.pull_request?.head?.ref},inputs=event.inputs??{};
   const selected=job=>new Function('github','inputs',`return (${workflow.jobs[job].if});`)(github,inputs);
@@ -132,4 +132,13 @@ test('current Steel owner path requires native metadata, races, full journey and
  const run=browser.steps.find(x=>x.run?.includes('matrix.script'));
  assert.equal(run.env.R12_REQUIRE_POSTGRES,'1');assert.equal(run.run.includes('--compile-only'),false);
  assert.ok(browser.steps.some(x=>x.if==='always()'&&x.with?.path==='test-results/${{ matrix.artifact }}/'&&x.with?.['if-no-files-found']==='error'));
+});
+
+test('single successor branch uses all normal release jobs without any branch deployment',()=>{
+ const {load}=createRequire(import.meta.url)('js-yaml'),branch='codex/r12-single-release-successor-20261011';
+ assert.equal(ciGateMode('push',{ref:'refs/heads/'+branch}),'release');
+ const vercel=JSON.parse(readFileSync(new URL('../vercel.json',import.meta.url),'utf8'));assert.equal(vercel.git.deploymentEnabled[branch],false);assert.equal(Object.hasOwn(vercel.git.deploymentEnabled,'main'),false);
+ const workflow=load(readFileSync(new URL('../.github/workflows/direct-etsy-qualification.yml',import.meta.url),'utf8')),cases=workflow.jobs['native-direct'].strategy.matrix.include;
+ for(const file of ['r12-steel-release-successor-sql.test.mjs','r12-steel-replacement-expired-quote.test.mjs'])assert.equal(cases.filter(x=>x.file===file&&x.pattern==='.').length,1);
+ const races=cases.filter(x=>x.file==='r12-steel-release-successor-races.test.mjs');assert.equal(races.length,5);assert.equal(new Set(races.map(x=>x.pattern)).size,5);assert.ok(races.every(x=>x.pattern.startsWith('native ')));
 });

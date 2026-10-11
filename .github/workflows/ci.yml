@@ -21,6 +21,7 @@ on:
     branches:
       - main
       - codex/r12-steel-insights-wip-20261010
+      - codex/r12-single-release-successor-20261011
 
 permissions:
   contents: read

@@ -15,12 +15,15 @@ import {deriveDirectServerKey} from '../../.core-tests/products/discovery-r12-pu
 import {discoveryV2Hash as hash} from '../../.core-tests/products/discovery-v2-hash.js';
 export const RECOVERY_MIGRATION='20261011024924_r12_steel_setup_recovery.sql';
 export async function setupRecoveryDatabase({apply=true}={}){const db=await steelConfigDatabase();try{for(const name of ['20261010121400_r12_steel_existing_session_readback.sql','20261010215020_r12_legacy_terminal_origin.sql','20261010230616_r12_steel_readback_authorization.sql',...(apply?[RECOVERY_MIGRATION]:[])])await db.exec(readFileSync('supabase/migrations/'+name,'utf8'));return db;}catch(e){await db.close();throw e;}}
-export async function setupRecoveryFixture(db){
+export async function setupRecoveryFixture(db,{quoteValidForMs=null,setupScope={},configureEnrollment=null}={}){
  Object.assign(process.env,{R05_ADMISSION_SERVER_KEY:ENROLLMENT_ROOT,VERCEL_ENV:'production',VERCEL_DEPLOYMENT_ID:INERT_STEEL_DEPLOYMENT.deploymentId,VERCEL_GIT_COMMIT_SHA:INERT_STEEL_DEPLOYMENT.releaseCommitSha});
  return enrollmentOriginFixture(db,{onReady:async original=>{
-  configureInertEnrollmentSteel(original);const enrolled=await enrollReviewedDirectGrant(db,original),f={...enrolled.f,grantId:enrolled.grantId,bootstrapKey:enrolled.bootstrapKey};
+  configureInertEnrollmentSteel(original);if(configureEnrollment)configureEnrollment(original);const enrolled=await enrollReviewedDirectGrant(db,original),f={...enrolled.f,grantId:enrolled.grantId,bootstrapKey:enrolled.bootstrapKey};
   const server=(operation,payload)=>f.rpc('r12_owner_direct_server',[f.businessId,operation,payload,enrolled.bootstrapKey]);
   const context=await server('initial_quote_context',{grantId:enrolled.grantId});
+  if(quoteValidForMs!==null){
+   for(const name of ['setupQuote','verificationQuote']){const {browserQuoteHash,...body}=context[name];void browserQuoteHash;body.validUntil=new Date(Date.now()+quoteValidForMs).toISOString();context[name]={...body,browserQuoteHash:hash(body)};}
+  }
   const origin=(await one(db,'select private.r12_direct_origin_build($1,$2) x',[f.businessId,f.goalId])).x;
   const funding=(await one(db,'select private.r12_direct_funding_snapshot($1) x',[f.businessId])).x,amount=10000000n;
   const cap=k=>({currentRevision:funding[k].revision,currentLimitMicrounits:funding[k].currentLimitMicrounits,proposedLimitMicrounits:String(BigInt(funding[k].currentLimitMicrounits)>BigInt(funding[k].conservativeExposureMicrounits)+amount?BigInt(funding[k].currentLimitMicrounits):BigInt(funding[k].conservativeExposureMicrounits)+amount)});
@@ -29,7 +32,7 @@ export async function setupRecoveryFixture(db){
   const prepared=await server('prepare_test',{input,setupQuote:context.setupQuote,verificationQuote:context.verificationQuote});
   const confirmed=await server('confirm_test',{testEnvelopeId:prepared.testEnvelopeId,testEnvelopeHash:prepared.testEnvelopeHash,submissionId:randomUUID()});
   const authority={db,f,project:enrolled.project,routeHash:enrolled.routeHash,tariffHash:enrolled.registry.browserRoute.tariff_hash,qualificationHash:enrolled.registry.browserRoute.qualification_hash,prepared,quote:context.setupQuote,confirm:async()=>confirmed,server,key:purpose=>deriveDirectServerKey(enrolled.bootstrapKey,{businessId:f.businessId,goalId:f.goalId,testEnvelopeId:prepared.testEnvelopeId,envelopeHash:prepared.testEnvelopeHash,routeHash:enrolled.routeHash,purpose})};
-  const bridge=await bindDirectHandoffFixture(db,authority),setup=await bridge.prepare();
+  const bridge=await bindDirectHandoffFixture(db,authority),setup=await bridge.prepare(typeof setupScope==='function'?setupScope(authority):setupScope);
   const approve=async s=>{const review=await ownerInitialRpc(db,f.ownerId,'r12_owner_etsy_steel_renderer_review',[f.businessId,s.scope.operationId]);return bridge.owner('approve',{operationId:s.scope.operationId,scopeHash:hash(s.scope),disclosureHash:s.scope.disclosureHash,expectedApprovalRevision:s.scope.approvalRevision,persistentAccessApproved:true,budgetApproved:true,rendererReviewHash:review.reviewHash});};
   await approve(setup);const reserved=await setup.admit('create');await publishInertSteelAttestation(db,authority.routeHash);
   await admitSteelConfig(db,f.businessId,steelConfigRequest(setup.scope,{setup:true}),bridge.keys.handoff);
@@ -115,3 +118,6 @@ export async function startReplacementResearchRuntime(db,x,verified,replacement,
 }
 
 export const applySetupRecovery=db=>db.exec(readFileSync('supabase/migrations/'+RECOVERY_MIGRATION,'utf8'));
+
+export const RELEASE_SUCCESSOR_MIGRATION='20261011111003_r12_steel_single_release_successor.sql';
+export const applyReleaseSuccessor=db=>db.exec(readFileSync('supabase/migrations/'+RELEASE_SUCCESSOR_MIGRATION,'utf8'));
