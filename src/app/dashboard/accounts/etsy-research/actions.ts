@@ -2,9 +2,30 @@
 import {redirect} from 'next/navigation';
 import {revalidatePath} from 'next/cache';
 import {requireOwnerUiContext} from '@/lib/core-ui/data';
-import {approveEtsySteelOwnerSetup,stopEtsySteelOwnerSetup,readEtsySteelOwnerSetup} from '@/accounts/etsy-steel-handoff-owner-server';
+import {approveEtsySteelOwnerSetup,stopEtsySteelOwnerSetup,readEtsySteelOwnerSetup,prepareEtsySteelReplacement,confirmEtsySteelReplacement} from '@/accounts/etsy-steel-handoff-owner-server';
 const field=(f:FormData,k:string)=>typeof f.get(k)==='string'?String(f.get(k)):'';
 function done(businessId:string,operationId:string,result:string):never{revalidatePath('/dashboard/accounts/etsy-research');redirect(`/dashboard/accounts/etsy-research?${new URLSearchParams({business:businessId,operation:operationId,result})}`);}
+export async function recoverEtsyResearchSetup(form:FormData){
+ const context=await requireOwnerUiContext(),businessId=field(form,'businessId'),operationId=field(form,'operationId');
+ try{const{recoverFailedEtsySteelSetup}=await import('@/accounts/etsy-steel-handoff-server');await recoverFailedEtsySteelSetup(context,businessId,operationId);}catch{done(businessId,operationId,'recovery-unconfirmed');}
+ done(businessId,operationId,'recovery-recorded');
+}
+export async function prepareEtsyResearchReplacement(form:FormData){
+ const context=await requireOwnerUiContext(),businessId=field(form,'businessId'),operationId=field(form,'operationId');
+ try{await prepareEtsySteelReplacement(context,businessId,operationId);}catch{done(businessId,operationId,'replacement-unconfirmed');}
+ done(businessId,operationId,'replacement-review');
+}
+export async function confirmEtsyResearchReplacement(form:FormData){
+ const context=await requireOwnerUiContext(),businessId=field(form,'businessId'),operationId=field(form,'operationId');
+ if(field(form,'replacementConsent')!=='on')done(businessId,operationId,'consent-required');
+ try{await confirmEtsySteelReplacement(context,businessId,operationId,field(form,'proposalId'),field(form,'proposalHash'));}catch{done(businessId,operationId,'replacement-unconfirmed');}
+ done(businessId,operationId,'replacement-confirmed');
+}
+export async function prepareEtsyResearchReplacementAccess(form:FormData){
+ const context=await requireOwnerUiContext(),businessId=field(form,'businessId'),operationId=field(form,'operationId');let next:string;
+ try{const old=await readEtsySteelOwnerSetup(context,businessId,operationId);const{prepareDirectEtsyAccess}=await import('@/products/discovery-r12-public-owner-server');const r=await prepareDirectEtsyAccess(context,businessId,old.scope.goalId,old.scope.testEnvelopeId,old.scope.expectedShopName,operationId);next=r.operationId;}catch{done(businessId,operationId,'replacement-unconfirmed');}
+ done(businessId,next,'replacement-access-review');
+}
 export async function approveEtsyResearchAccess(form:FormData){
  const context=await requireOwnerUiContext(),businessId=field(form,'businessId'),operationId=field(form,'operationId');
  if(field(form,'persistentAccessConsent')!=='on')done(businessId,operationId,'consent-required');

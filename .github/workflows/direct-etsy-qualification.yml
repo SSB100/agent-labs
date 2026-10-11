@@ -128,6 +128,13 @@ jobs:
             pattern: '.'
           - file: r12-steel-current-owner-journey-sql.test.mjs
             pattern: '.'
+          - file: r12-steel-setup-recovery-sql.test.mjs
+            pattern: '.'
+          - file: r12-steel-setup-recovery-races.test.mjs
+            pattern: 'native reviewed release revocation wins before exact replacement paid create'
+          - file: r12-steel-setup-recovery-http.test.mjs
+            pattern: '.'
+            http: true
           - file: r12-steel-readback-sql.test.mjs
             pattern: '.'
           - file: r12-steel-readback-authorization-sql.test.mjs

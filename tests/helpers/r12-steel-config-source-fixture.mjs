@@ -40,7 +40,7 @@ function outputFor(f,attempt){
  return{version:'r12.direct-etsy-review.1',proposalHash:i.dependencies.strategy.response.result.proposalHash,quality,hypothesisFinding:'undetermined',learningRecommendation:'NME',conclusion:'The descriptive result is concrete but the hypothesis remains unmeasured.',conclusionEvidenceRefs:[ref],contraryEvidenceRefs:[ref],proposedCommand:next};
 }
 
-export function steelConfigResearchRuntimeComposition(db,f,{rpcTransport=null,modelInputs=null,modelOutput=null,policyVersion='r12.direct-etsy-attempt-policy.1',browserFactory=researchRendererFixture,afterSourceCreate=null,configurationAdmit=null}={}){
+export function steelConfigResearchRuntimeComposition(db,f,{rpcTransport=null,modelInputs=null,modelOutput=null,policyVersion='r12.direct-etsy-attempt-policy.1',browserFactory=researchRendererFixture,afterSourceCreate=null,configurationAdmit=null,deployment=INERT_STEEL_DEPLOYMENT}={}){
  assert.equal(f.policy.version,policyVersion,'The fixture must explicitly select the versioned authority under test');
  const calls=[],modelPosts=[],modelGets=[],catalogGets=[],browserPosts=[],browsers=[],sourceResults=[],modelResults=[],sqlErrors=[];
  const faults={proofUnavailable:false,sourceFinishUnavailable:0,failModelPhaseOnce:null};
@@ -86,7 +86,7 @@ export function steelConfigResearchRuntimeComposition(db,f,{rpcTransport=null,mo
 
   browser.page.screenshot=async({clip})=>{browser.events.push('screenshot');assert.ok(clip.x>=300);return sharp({create:{width:clip.width,height:clip.height,channels:4,background:{r:0,g:0,b:0,alpha:0}}}).png({compressionLevel:9,palette:true}).toBuffer();};
   const runtime=sourceRuntime.createEtsyInsightsRpcRuntime({...input,config:INERT_STEEL_CONFIG,connect:browser.input.connect,
-   createConfigurationGuard:{scopeHash:hash(s),deployment:INERT_STEEL_DEPLOYMENT,admit:request=>configurationAdmit?configurationAdmit(request):admitSteelConfig(db,f.authority.f.businessId,request,f.keys.source)},
+   createConfigurationGuard:{scopeHash:hash(s),deployment,admit:request=>configurationAdmit?configurationAdmit(request):admitSteelConfig(db,f.authority.f.businessId,request,f.keys.source)},
    fetcher:async(address,init={})=>{
     const url=new URL(address),method=init.method??'GET';assert.equal(url.origin,'https://api.steel.dev');
     if(url.pathname==='/v1/sessions'){

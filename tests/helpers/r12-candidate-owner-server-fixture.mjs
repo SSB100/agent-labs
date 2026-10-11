@@ -11,7 +11,7 @@ function load(file,deps){const source=readFileSync(file,'utf8'),loaded={exports:
  new Function('require','module','exports',code)(name=>{assert.ok(Object.hasOwn(deps,name),'Unexpected owner dependency '+name);return deps[name];},loaded,loaded.exports);return loaded.exports;}
 export function candidateOwnerServer(db,scope){
  const calls=[],contracts=core('accounts/etsy-steel-handoff-contracts'),owner=load('src/accounts/etsy-steel-handoff-owner.ts',{'./etsy-steel-handoff-contracts':contracts});
- const server=load('src/accounts/etsy-steel-handoff-owner-server.ts',{'server-only':{},'../lib/core-ui/owner-business':load('src/lib/core-ui/owner-business.ts',{}),'../core/request-deadline':require('../../.core-tests/core/request-deadline.js'),'./etsy-steel-handoff-contracts':contracts,'./etsy-steel-handoff-owner':owner});
+ const server=load('src/accounts/etsy-steel-handoff-owner-server.ts',{'node:crypto':require('node:crypto'),'./etsy-steel-replacement':core('accounts/etsy-steel-replacement'),'server-only':{},'../lib/core-ui/owner-business':load('src/lib/core-ui/owner-business.ts',{}),'../core/request-deadline':require('../../.core-tests/core/request-deadline.js'),'./etsy-steel-handoff-contracts':contracts,'./etsy-steel-handoff-owner':owner});
  const context={userId:scope.ownerId,businesses:[{id:scope.businessId,name:'Inert candidate owner'}],supabase:{auth:{getClaims:async()=>({data:{claims:{sub:scope.ownerId}},error:null})},rpc:async(name,args)=>{
   calls.push({name,args:structuredClone(args)});try{
    assert.ok(['r12_etsy_steel_owner','r12_owner_etsy_steel_renderer_review','r12_owner_etsy_steel_verification_read'].includes(name));
