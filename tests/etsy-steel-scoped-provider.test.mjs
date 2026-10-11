@@ -45,3 +45,13 @@ test('missing terminal usage dimensions remain unknown and identity mismatch fai
  assert.equal(r.durationMs,null);assert.equal(r.providerTimeoutMs,null);assert.equal(r.proxyBytesUsed,null);assert.equal(r.proxySource,'unknown');assert.equal(r.solveCaptcha,null);
  for(const response of[{id:id(2),projectId:id(4),status:'released'},{id:id(1),projectId:id(3),status:'released'},{id:id(1),projectId:id(4),status:'live'}])await assert.rejects(fixture({response}).adapter.retrieveScopedTerminalUsage(id(1),id(4)));
 });
+test('recovery status allows an exact live session without weakening terminal accounting or exposing authentication fields',async()=>{
+ const f=fixture({response:{...session(),timeout:900000,duration:1000,proxySource:null,cookies:'private',profile:'private'}});
+ const r=await f.adapter.retrieveScopedRecoveryUsage(id(1),id(4));
+ assert.equal(r.version,'etsy.steel-recovery-usage.1');assert.equal(r.providerStatus,'live');
+ assert.equal(f.admissions[0].operation,'browser.etsy.session.release_readback');
+ assert.deepEqual(Object.keys(r).sort(),['version','sessionId','providerProjectId','providerStatus','providerTimeoutMs','durationMs','proxyBytesUsed','proxySource','solveCaptcha'].sort());
+ assert.doesNotMatch(JSON.stringify(r),/private|profile|debugUrl|websocket|cookies/);
+ await assert.rejects(f.adapter.retrieveScopedTerminalUsage(id(1),id(4)));
+ for(const response of[{id:id(2),projectId:id(4),status:'released'},{id:id(1),projectId:id(3),status:'failed'},{id:id(1),projectId:id(4),status:'unknown'}])await assert.rejects(fixture({response}).adapter.retrieveScopedRecoveryUsage(id(1),id(4)));
+});

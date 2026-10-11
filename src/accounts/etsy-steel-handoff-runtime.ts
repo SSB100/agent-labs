@@ -9,7 +9,7 @@ import {
   type EtsySteelHandoffReceipt, type EtsySteelOwnerSession, type EtsySteelOwner, type EtsySteelProfileCandidate,
 } from "./etsy-steel-handoff-contracts";
 
-const STAGE_MS = 15_000, CLEANUP_MS = 5_000;
+const STAGE_MS = 15_000, BEGIN_STAGE_MS = 60_000, CLEANUP_MS = 5_000;
 type PrivateSession = { version: "etsy.steel-owner-private.1"; scopeHash: string; sessionId: string; profileId: string; viewerUrl: string };
 type Reservation = { reservationId: string; reservationHash: string };
 const secretContext = (s: EtsySteelHandoffScope): AccountSecretContext => ({ businessId: s.businessId,
@@ -65,12 +65,12 @@ function receipt(scope: EtsySteelHandoffScope, values: Partial<Omit<EtsySteelHan
 }
 function code(error: unknown) { return error instanceof EtsySteelHandoffError ? error.code : "handoff_operation_unconfirmed"; }
 /** This local stage fence never extends the original session/approval deadline. */
-function stage(scope: EtsySteelHandoffScope, d: EtsySteelHandoffDependencies, expiresAt = scope.approvalExpiresAt) {
+function stage(scope: EtsySteelHandoffScope, d: EtsySteelHandoffDependencies, expiresAt = scope.approvalExpiresAt, maximumMs = STAGE_MS) {
   const now = d.now ?? Date.now, mono = d.monotonic ?? (() => performance.now());
-  const end = mono() + Math.min(STAGE_MS, Date.parse(expiresAt) - now());
+  const end = mono() + Math.min(maximumMs, Date.parse(expiresAt) - now());
   const controller = new AbortController();
   const stop = () => controller.abort(); d.signal.addEventListener("abort", stop, { once: true });
-  const timer = setTimeout(stop, Math.max(0, Math.min(STAGE_MS, Date.parse(expiresAt) - now())));
+  const timer = setTimeout(stop, Math.max(0, Math.min(maximumMs, Date.parse(expiresAt) - now())));
   function active() {
     handoffAssert(!d.signal.aborted, "handoff_stopped");
     handoffAssert(!controller.signal.aborted && mono() < end && now() >= Date.parse(scope.approvedAt) &&
@@ -139,7 +139,11 @@ async function recordOutcome(result: EtsySteelHandoffReceipt, scope: EtsySteelHa
 
 export async function beginEtsySteelHandoff(input: EtsySteelHandoffScope, d: EtsySteelHandoffDependencies): Promise<EtsySteelHandoffReceipt> {
   const scope = validateEtsySteelHandoffScope(input); validateDependencies(d);
-  const done = registeredCleanup(d), s = stage(scope, d);
+  // Begin includes admitted create, CDP setup, guarded navigation, physical
+  // disconnect and publication. Match the existing port/server 60s ceiling;
+  // owner view/return keep their 15s fence. Neither approval nor session life
+  // is extended, and the shared monotonic fence still covers the whole begin.
+  const done = registeredCleanup(d), s = stage(scope, d, scope.approvalExpiresAt, Math.min(BEGIN_STAGE_MS, scope.maximumSessionMs));
   let reservation: EtsySteelHandoffPermit | null = null, creation: Promise<EtsySteelOwnerSession> | null = null;
   let session: EtsySteelOwnerSession | null = null, pinned: PrivateSession | null = null, dispatched = false;
   let result = receipt(scope, {}), handedOff = false, pendingHandoffId: string | null = null;

@@ -328,16 +328,21 @@ export class SteelBrowserAdapter implements BrowserProviderAdapter {
   /** Authenticated, whitelisted terminal metadata only. No viewer, CDP URL,
    * profile/auth state, headers or provider credit balance is returned. Missing
    * usage dimensions are unknown and cannot qualify bounded accounting. */
-  async retrieveScopedTerminalUsage(sessionId:string,projectId:string,signal?:AbortSignal){
+  async retrieveScopedRecoveryUsage(sessionId:string,projectId:string,signal?:AbortSignal){
     const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
     if(!uuid.test(sessionId)||!uuid.test(projectId))throw new Error('invalid_scoped_session');
     const r=await this.scopedResearchRequest(`/v1/sessions/${sessionId}`,'browser.etsy.session.release_readback',{},undefined,signal);
-    if(r.id!==sessionId||r.projectId!==projectId||!['released','failed'].includes(String(r.status)))throw new Error('scoped_terminal_usage_unconfirmed');
+    if(r.id!==sessionId||r.projectId!==projectId||!['live','released','failed'].includes(String(r.status)))throw new Error('scoped_terminal_usage_unconfirmed');
     const nonnegative=(v:unknown)=>typeof v==='number'&&Number.isSafeInteger(v)&&v>=0?v:null;
-    return{version:'etsy.steel-terminal-usage.1' as const,sessionId,providerProjectId:projectId,
-      providerStatus:r.status as 'released'|'failed',providerTimeoutMs:nonnegative(r.timeout),durationMs:nonnegative(r.duration),
+    return{version:'etsy.steel-recovery-usage.1' as const,sessionId,providerProjectId:projectId,
+      providerStatus:r.status as 'live'|'released'|'failed',providerTimeoutMs:nonnegative(r.timeout),durationMs:nonnegative(r.duration),
       proxyBytesUsed:nonnegative(r.proxyBytesUsed),proxySource:r.proxySource===null?null:r.proxySource==='steel'||r.proxySource==='external'?r.proxySource:'unknown',
       solveCaptcha:typeof r.solveCaptcha==='boolean'?r.solveCaptcha:null};
+  }
+  async retrieveScopedTerminalUsage(sessionId:string,projectId:string,signal?:AbortSignal){
+    const usage=await this.retrieveScopedRecoveryUsage(sessionId,projectId,signal);
+    if(usage.providerStatus==='live')throw new Error('scoped_terminal_usage_unconfirmed');
+    return {...usage,version:'etsy.steel-terminal-usage.1' as const,providerStatus:usage.providerStatus as 'released'|'failed'};
   }
   async releaseOwnerHandoffSession(sessionId:string,projectId:string){
     const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;if(!uuid.test(sessionId)||!uuid.test(projectId))throw new Error('invalid_scoped_session');

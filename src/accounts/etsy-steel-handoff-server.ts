@@ -9,7 +9,8 @@ import {validatePublicResearchOwnerTestReceipt} from '../products/discovery-r12-
 import {deriveDirectServerKey} from '../products/discovery-r12-public-server-key';
 import {discoveryV2Hash} from '../products/discovery-v2-hash';
 import {handoffAssert,handoffHash,handoffUuid} from './etsy-steel-handoff-contracts';
-import {readEtsySteelOwnerSetup} from './etsy-steel-handoff-owner-server';
+import {readEtsySteelOwnerSetup,stopEtsySteelOwnerSetup} from './etsy-steel-handoff-owner-server';
+import {recoverEtsySteelPreHandoff} from './etsy-steel-recovery';
 import {createEtsySteelHandoffRpcDependencies} from './etsy-steel-handoff-rpc';
 import {SteelBrowserAdapter} from '../browser/providers/steel';
 import {verifyApprovedEtsySteelProfile} from './etsy-steel-verification-runtime';
@@ -39,6 +40,10 @@ async function dependencies(context:OwnerUiContext,businessId:string,operationId
    handoffAssert(!response.error,'handoff_server_state_unconfirmed');return response.data;
  };
  const evidenceKey=deriveDirectServerKey(bootstrap,{...pins,purpose:'evidence'});
+ const recoveryRpc=async(operation:'inputs'|'record',payload:Record<string,unknown>)=>{
+   const response=await boundedRpc(runtimeClient.rpc('r12_etsy_steel_recovery_server',{p_business_id:businessId,p_operation:operation,p_payload:payload,p_server_key:evidenceKey}),requestDeadline(15000),10000);
+   handoffAssert(!response.error&&response.data!==null,'handoff_recovery_unconfirmed');return response.data;
+ };
  const ledgerFor=async(targetOperationId:string,operation:'read'|'bind_session'|'receipt'|'evidence'|'reconcile',payload:Record<string,unknown>)=>{
    handoffAssert([scope.operationId,scope.verificationOperationId].includes(targetOperationId),'handoff_accounting_scope_changed');
    const response=await boundedRpc(runtimeClient.rpc('r12_direct_browser_ledger',{p_business_id:businessId,p_operation_id:targetOperationId,p_operation:operation,p_payload:payload,p_server_key:evidenceKey}),requestDeadline(15000),10000);
@@ -66,7 +71,19 @@ async function dependencies(context:OwnerUiContext,businessId:string,operationId
  const createConfigurationGuard=forCreate?{scopeHash:discoveryV2Hash(scope),deployment:getSteelCreateDeployment(),admit:createConfigAdmit(key)}:undefined;
  const d=createEtsySteelHandoffRpcDependencies({scope,vaultKey,signal,createConfigurationGuard,registerCleanup:work=>after(work),rpc,rendererQualification,
    recordRendererDecision:async decision=>{const result=await rpc('renderer_decision',{operationId,decision});handoffAssert(object(result)&&result.accepted===true,'handoff_renderer_decision_unconfirmed');}});
- return{view,d,rpc,ledger,ledgerFor,verificationRpc,refreshVerification,verificationCreateConfigurationGuard,provider,routeHash:p.setupOperation.routeHash};
+ return{view,d,rpc,ledger,ledgerFor,verificationRpc,refreshVerification,verificationCreateConfigurationGuard,provider,recoveryRpc,routeHash:p.setupOperation.routeHash};
+}
+/** Stop only the failed connection setup, then reconcile its existing session.
+ * This never stops the test, creates a session, or reuses a saved profile. */
+export async function recoverFailedEtsySteelSetup(context:OwnerUiContext,businessId:string,operationId:string){
+ const current=await readEtsySteelOwnerSetup(context,businessId,operationId);
+ const failed=current.receipts.find(r=>r.status==='failed'&&r.handoffId===null);
+ handoffAssert(failed&&!current.receipts.some(r=>r.handoffId!==null),'handoff_pre_handoff_failure_required');
+ if(current.status!=='stopped')await stopEtsySteelOwnerSetup(context,businessId,operationId);
+ const{provider,recoveryRpc}=await dependencies(context,businessId,operationId);
+ return recoverEtsySteelPreHandoff({businessId,operationId,failedReceiptHash:failed.receiptHash,signal:requestDeadline(60_000),rpc:recoveryRpc,
+  readUsage:(sessionId,projectId,signal)=>provider.retrieveScopedRecoveryUsage(sessionId,projectId,signal),
+  release:(sessionId,projectId)=>provider.releaseOwnerHandoffSession(sessionId,projectId)});
 }
 export async function startApprovedEtsySteelSetup(context:OwnerUiContext,businessId:string,operationId:string){const{view,d}=await dependencies(context,businessId,operationId,true);handoffAssert(view.status==='approved','handoff_owner_approval_required');handoffAssert(Date.parse(view.scope.approvalExpiresAt)-Date.now()>=view.scope.maximumSessionMs,'handoff_setup_expiry_requires_review');return beginEtsySteelHandoff(view.scope,d);}
 export async function readPrivateEtsySteelOwnerHandoff(context:OwnerUiContext,businessId:string,operationId:string,handoffId:string){const{view,d}=await dependencies(context,businessId,operationId);handoffAssert(view.status==='approved'&&handoffUuid(handoffId),'handoff_owner_approval_required');return openEtsySteelOwnerHandoff({ownerId:context.userId,businessId},handoffId,d);}
