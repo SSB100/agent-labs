@@ -1,3 +1,4 @@
+import {runConnectionJourneys} from './r11-connection-journeys.mjs';
 import { runViewerHttp } from './r10-http.mjs';
 import { runViewerJourneys } from './r10-journeys.mjs';
 import { runKnowledgeHttp } from './r09-http.mjs';
@@ -53,7 +54,7 @@ export function createFixtureRequestRouter(origin,external){
   return{handle,interruptBusinessesRsc};
 }
 
-export async function runNextJourneys({origin,boundary,output,httpOnly=false,questsOnly=false,controlsOnly=false,historyOnly=false,workspaceOnly=false,knowledgeOnly=false,browserWatchOnly=false}) {
+export async function runNextJourneys({origin,boundary,output,httpOnly=false,questsOnly=false,controlsOnly=false,historyOnly=false,workspaceOnly=false,knowledgeOnly=false,browserWatchOnly=false,connectionsOnly=false}) {
   const results=[];let browserStatus=httpOnly?'unrun (HTTP-only requested)':'unrun';
   const report=()=>writeFile(path.join(output,'acceptance.json'),JSON.stringify({results,browser:browserStatus},null,2));
   const check=async(name,fn)=>{
@@ -103,6 +104,7 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false,que
     await context.route('**/*',requestRouter.handle);
     page.on('response',r=>{if(r.headers()['content-type']?.includes('text/x-component'))requests.push({url:r.url(),status:r.status()});if(r.request().method()==='POST'&&r.request().headers()['next-action'])actions.push({url:r.url(),status:r.status(),revalidated:r.headers()['x-action-revalidated']??null,redirect:r.headers()['x-action-redirect']??null});});
     const business=id(1);
+    if(connectionsOnly){await runConnectionJourneys({page,context,origin,boundary,output,check});assert.deepEqual(external,[]);assert.deepEqual(boundary.denied,[]);assert.ok(results.every(r=>r.status==='passed'),'Connections Next checks failed; see acceptance.json');await context.close();return;}
     if(browserWatchOnly){
       await runViewerJourneys({page,context,origin,boundary,output,check,requests,actions});
       assert.deepEqual(external,[],'R10 browser attempted an external request');assert.deepEqual(boundary.denied,[],'R10 boundary denied an unreviewed operation');
@@ -276,28 +278,7 @@ export async function runNextJourneys({origin,boundary,output,httpOnly=false,que
         await page.goBack();await page.waitForURL(u=>u.pathname===`/dashboard/accounts/${route}`);await page.reload();await link.waitFor();assert.equal(await page.locator('input[type=password]').count(),0,'Expired/unavailable entry must expose no credential input');
       }
     });
-    await check('R11 renewable-read metadata is inert and Stop survives repeated navigation and reload',async()=>{
-      await control({r11Reads:true,r11ReadState:'ready'});await page.setViewportSize({width:1280,height:720});await page.goto(origin+`/dashboard/connections?business=${business}`);
-      await page.getByRole('heading',{name:'Authorized own-shop reads',exact:true}).waitFor();await page.getByText(/Observed 2 drafts/).waitFor();
-      assert.equal(await page.getByRole('button',{name:'Read latest draft status',exact:true}).isDisabled(),true,'No Production credentials are present in the inert browser fixture');
-      await page.screenshot({path:path.join(output,'r11-read-window-ready-1280x720.png'),fullPage:true});const before=boundary.effects.length;
-      await page.getByRole('button',{name:'Stop this read window',exact:true}).click();await page.waitForFunction(()=>[...document.querySelectorAll('button')].some(b=>b.textContent==='Stop this read window'&&b.disabled));assert.equal(boundary.effects.length,before+1);
-      await page.reload();assert.equal(await page.getByRole('button',{name:'Stop this read window',exact:true}).isDisabled(),true);
-      await page.goto(origin+`/dashboard/connections?business=${id(2)}`);assert.equal(await page.getByRole('button',{name:'Stop this read window',exact:true}).isEnabled(),true);
-      await page.goBack();await page.waitForURL(u=>u.searchParams.get('business')===business);assert.equal(await page.getByRole('button',{name:'Stop this read window',exact:true}).isDisabled(),true);assert.equal(boundary.effects.length,before+1);
-      await control({r11ReadState:'candidate'});await page.reload();await page.getByText(/refresh_unverified/).waitFor();await page.getByText(/An unknown refresh or unverified rotated token needs explicit recovery/).waitFor();assert.equal(await page.getByRole('button',{name:'Read latest draft status',exact:true}).isDisabled(),true);
-      await page.setViewportSize({width:390,height:844});await page.screenshot({path:path.join(output,'r11-read-window-candidate-390x844.png'),fullPage:true});assert.equal(boundary.effects.length,before+1);await control({r11Reads:false,r11ReadState:'ready'});
-    });
-    await check('R11 exact read-only connections preserve Business and local disconnect across real Next actions',async()=>{
-      await page.setViewportSize({width:1280,height:720});await page.goto(origin+`/dashboard/connections?business=${business}`);
-      await page.getByRole('heading',{name:'Read-only store connections',exact:true}).waitFor();
-      await page.getByText(/token_expired/).waitFor();assert.equal(await page.getByRole('button',{name:'Continue to Etsy read-only consent',exact:true}).isDisabled(),true);await page.screenshot({path:path.join(output,'r11-connections-token-expired-1280x720.png'),fullPage:true});
-      const before=boundary.effects.length;await page.getByRole('button',{name:'Disconnect locally',exact:true}).click();await page.getByRole('button',{name:'Disconnect locally',exact:true}).waitFor();
-      await page.waitForFunction(()=>[...document.querySelectorAll('button')].some(b=>b.textContent==='Disconnect locally'&&b.disabled));assert.equal(boundary.effects.length,before+1);
-      await page.reload();assert.equal(await page.getByRole('button',{name:'Disconnect locally',exact:true}).isDisabled(),true);await page.screenshot({path:path.join(output,'r11-connections-revoked-1280x720.png'),fullPage:true});
-      await page.goto(origin+`/dashboard/connections?business=${id(2)}`);await page.getByText(/token_expired/).waitFor();assert.equal(await page.getByRole('button',{name:'Disconnect locally',exact:true}).isEnabled(),true);
-      await page.goBack();await page.waitForURL(u=>u.searchParams.get('business')===business);assert.equal(await page.getByRole('button',{name:'Disconnect locally',exact:true}).isDisabled(),true);
-    });
+    await runConnectionJourneys({page,context,origin,boundary,output,check});
     const effectCount=boundary.effects.length;
     await check('workflow server error boundary reloads the same exact owned record without a new effect',async()=>{
       await control({failTable:'workflow_runs'});await page.goto(origin+`/dashboard/workflows/${id(1001)}?business=${business}`);

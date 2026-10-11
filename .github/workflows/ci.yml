@@ -22,6 +22,7 @@ on:
       - main
       - codex/r12-steel-insights-wip-20261010
       - codex/r12-single-release-successor-20261011
+      - codex/r12-stable-connections-20261011
 
 permissions:
   contents: read
@@ -456,6 +457,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
+      - name: Install and compile actual connection implementation for integrated acceptance
+        run: npm ci --no-audit --no-fund && npm run pretest
       - name: Install pinned isolated SQL runtimes
         run: npm install --prefix "$RUNNER_TEMP/r11-sql-host" --no-audit --no-fund --ignore-scripts @electric-sql/pglite@0.5.8 pg@8.16.3
       - name: Verify scoped connection ACLs, custody, rollback and PostgreSQL races

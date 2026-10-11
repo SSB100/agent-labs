@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { requireOwnerUiContext } from "@/lib/core-ui/data";
 import { beginEtsyReadConnection,qualifyPrintfulEnvironment,disconnectQualifiedConnection } from "@/connections/server";
 import { UUID } from "@/connections/contracts";
-import { performEtsyDraftStatusRead,revokeEtsyReadWindow } from "@/connections/refresh-server";
+import { performEtsyDraftStatusRead,revokeEtsyReadWindow,reconcileEtsyDraftStatusRead } from "@/connections/refresh-server";
 export async function qualifyConnection(form:FormData){
  const businessId=String(form.get("businessId")??""),grantId=String(form.get("grantId")??""),provider=String(form.get("provider")??"");
  if(!UUID.test(businessId)||!UUID.test(grantId))throw new Error("Exact qualification unavailable");
@@ -38,4 +38,10 @@ export async function stopOwnShopReads(form:FormData){
  const businessId=String(form.get("businessId")??"");if(!UUID.test(businessId))throw new Error("Exact Business unavailable");
  try{await revokeEtsyReadWindow(await requireOwnerUiContext(),businessId,String(form.get("windowId")??""));}catch{/* Saved authority/status is reread; no invented success. */}
  revalidatePath("/dashboard/connections");redirect(`/dashboard/connections?business=${businessId}`);
+}
+
+export async function reconcileOwnShopRead(form:FormData){
+ const businessId=String(form.get("businessId")??"");if(!UUID.test(businessId))throw new Error("Exact Business unavailable");
+ try{await reconcileEtsyDraftStatusRead(await requireOwnerUiContext(),businessId,String(form.get("operationId")??""));}catch{/* Saved receipt remains authoritative; no provider retry. */}
+ revalidatePath("/dashboard/connections");redirect(`/dashboard/connections?business=${businessId}&readNotice=check-saved-state`);
 }

@@ -1,4 +1,5 @@
 import "server-only";
+import { ownShopExecutionRelease } from "./execution-release";
 import type { OwnerUiContext } from "../lib/core-ui/data";
 import { verifyOwnerBusiness } from "../lib/core-ui/owner-business";
 import { sealAccountSecret, unsealAccountSecret } from "../accounts/vault";
@@ -19,7 +20,7 @@ async function currentOwner(context: OwnerUiContext, businessId: string) {
   requireConnection(!error && data?.claims?.sub === context.userId && typeof data.claims.session_id === "string" && UUID.test(data.claims.session_id));
 }
 async function transition(context: OwnerUiContext, businessId: string, operation: string, payload: Record<string, unknown>, serverKey: string) {
-  const { data, error } = await context.supabase.rpc("r11_etsy_read_owner", { p_business_id: businessId, p_operation: operation, p_payload: payload, p_server_key: serverKey });
+  const { data, error } = await context.supabase.rpc("r11_etsy_read_owner", { p_business_id: businessId, p_operation: operation, p_payload: ["begin","mark_refresh","mark_read"].includes(operation) ? {...payload, executionRelease:ownShopExecutionRelease()} : payload, p_server_key: serverKey });
   requireConnection(!error, "own_shop_read_unavailable"); return record(data);
 }
 function storedTokens(value: unknown, expected: { businessId: string; connectionId: string; bindingRevision: string; generationId: string; format: string; identity: ReadTokenIdentity; localCutoff: string; tokenExpiresAt: string }): ReadTokens {
@@ -77,4 +78,13 @@ export async function performEtsyDraftStatusRead(context: OwnerUiContext, busine
 export async function revokeEtsyReadWindow(context: OwnerUiContext, businessId: string, windowId: string) {
   requireConnection(UUID.test(windowId)); await currentOwner(context, businessId);
   return transition(context, businessId, "revoke_window", { windowId }, "");
+}
+
+/** Read/reconcile only the exact saved attempt. Works after Stop and from a new
+ * owner session; it does not need execution keys or authorize another request. */
+export async function reconcileEtsyDraftStatusRead(context:OwnerUiContext,businessId:string,operationId:string):Promise<{status:string}>{
+  requireConnection(UUID.test(operationId));await currentOwner(context,businessId);
+  const result=await transition(context,businessId,"reconcile",{operationId},"");
+  requireConnection(result.shouldDispatch===false&&typeof result.status==="string"&&["reserved","refresh_marked","rotated","read_marked","succeeded","failed","cancelled"].includes(result.status));
+  return {status:result.status};
 }
