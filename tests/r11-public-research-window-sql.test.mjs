@@ -27,7 +27,10 @@ test('R11 continuation fixture declares its original Goal date across UTC midnig
  const validFrom=new Date(now-5000).toISOString(),validUntil=new Date(now+240000).toISOString();
  const legacy=await seedOwnerGrant(db,{validFrom,validUntil,enroll:false});
  assert.equal(legacy.grant.goalContent.parsed.deadline.date,'2026-10-11');
- const goalDeadlineDate=new Date(now+60*60*1000).toISOString().slice(0,10);
+ const options=await setupContinuationFixture(db,{now}),{goalDeadlineDate}=options;
+ assert.equal(options.validFrom,validFrom);assert.equal(options.validUntil,validUntil);
+ const short=await setupContinuationFixture(db,{now:Date.parse('2026-10-11T23:58:00.000Z'),windowMs:2200});
+ assert.equal(short.validUntil,'2026-10-11T23:58:02.200Z');assert.equal(short.goalDeadlineDate,'2026-10-12');
  const s=await seedOwnerGrant(db,{validFrom,validUntil,goalDeadlineDate,enroll:false});
  assert.deepEqual(s.grant.goalContent.parsed.deadline,{date:'2026-10-12',time:'23:59:59',timezone:'UTC'});
  assert.equal(s.grant.operatingPolicy.expiresAt,validUntil);assert.equal(s.grant.researchPolicy.validUntil,validUntil);assert.equal(s.grant.researchPolicy.quoteValidUntil,validUntil);
@@ -98,9 +101,7 @@ test('R11 fixed thirty-minute authority requires immutable fresh quotes per phas
 test('R11 thirty-minute continuation preserves the unused cancelled Business3 Goal6 cap3 predecessor',{skip:!host,timeout:120000},async t=>{
  const db=await memoryDatabase();
  try{
-  // The original Goal must cover later continuations, including a UTC midnight crossing.
-  // This inert input does not extend any operating policy, quote or provider window.
-  await bootstrap(db);const options={...await setupContinuationFixture(db),goalDeadlineDate:new Date(Date.now()+60*60*1000).toISOString().slice(0,10)},{original,predecessor}=await seedUnusedThirdPredecessor(db,options);
+  await bootstrap(db);const options=await setupContinuationFixture(db),{original,predecessor}=await seedUnusedThirdPredecessor(db,options);
   assert.equal(await workflowStatus(db,predecessor),'cancelled');assert.equal(await value(db,'select count(*)::int result from private.r05_requests where workflow_run_id=$1',[predecessor.workflowRunId]),0);
   assert.deepEqual((await repairPolicy(db,predecessor)).outcomes.map(({kind,reason,phase})=>({kind,reason,phase})),[{kind:'owner_stopped',reason:'owner_stopped',phase:'none'}]);
   await t.test('legacy source1 continuation remains limited to five minutes and source2 cannot exceed thirty',async()=>{

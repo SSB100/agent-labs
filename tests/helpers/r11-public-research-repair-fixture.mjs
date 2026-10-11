@@ -44,15 +44,18 @@ export async function repairStateSnapshot(db,s){
 }
 
 export const importContinuationGrant=(db,s)=>db.query('insert into private.r11_research_continuation_grants(id,business_id,owner_id,grant_json,grant_canonical,grant_hash) values($1,$2,$3,$4,$5,$6)',[s.grant.id,s.businessId,s.grant.ownerId,s.grant,canonical(s.grant),s.grantHash]);
-export async function setupContinuationFixture(db,{windowMs=240000}={}){
- const validFrom=new Date(Date.now()-5000).toISOString(),validUntil=new Date(Date.now()+windowMs).toISOString();
+export async function setupContinuationFixture(db,{windowMs=240000,now=Date.now()}={}){
+ const validFrom=new Date(now-5000).toISOString(),validUntil=new Date(now+windowMs).toISOString();
+ // The original synthetic Goal covers later continuations across UTC midnight.
+ // Policy, quote and operation windows remain the exact short fixture windows.
+ const goalDeadlineDate=new Date(now+60*60*1000).toISOString().slice(0,10);
  await db.query('insert into auth.users(id,email) values($1,$2),($3,$4)',[RESEARCH_OWNER,'r11-repair@example.invalid',RESEARCH_OTHER,'r11-repair-other@example.invalid']);
  await db.query('insert into auth.sessions(id,user_id) values($1,$2),($3,$4)',[RESEARCH_SESSION,RESEARCH_OWNER,RESEARCH_OTHER_SESSION,RESEARCH_OTHER]);
  await db.query("insert into public.packs(id,pack_key,version,name,kind,status) values($1,'r11.research.inert','1.0.0','R11 inert repair SQL only','workflow','qualified')",[RESEARCH_PACK]);
  await db.query("insert into public.workflow_definitions(id,pack_id,workflow_key,version,name,status) values($1,$2,'r11.research.inert','1.0.0','R11 inert repair','qualified')",[RESEARCH_WORKFLOW,RESEARCH_PACK]);
  for(const [operation,liability] of [['research.search',149560],['research.model',26311]])await db.query("insert into private.r05_operations values($1,$2,$3,'openrouter','inert/model','Research planning','USD','model',10000,4000,$4,$5,$6,repeat('a',64),repeat('b',64),repeat('c',64),$7,$8)",[operation,RESEARCH_PACK,RESEARCH_WORKFLOW,liability,JSON.stringify(RESEARCH_DOMAINS),JSON.stringify(RESEARCH_CLASSES),validFrom,validUntil]);
  await db.query("insert into private.r05_server_keys values($1,$2::timestamptz+interval '20 minutes')",[sha(OWNER_PROOF_KEY),validUntil]);await authenticate(db);
- return{validFrom,validUntil};
+ return{validFrom,validUntil,goalDeadlineDate};
 }
 export async function seedContinuationPredecessor(db,options){
  const s=await seedOwnerGrant(db,{...options,expectedExposure:'598063',enroll:false});s.serverKey=OWNER_PROOF_KEY;
