@@ -41,19 +41,34 @@ export default async function OwnerResearchPage({ searchParams }: { searchParams
   const adaptiveCatalog = adaptiveLoaded?.catalog?.businessId === businessId && adaptiveLoaded.catalog.goalId === goalId ? adaptiveLoaded.catalog : null;
   const adaptiveReceipt = typeof adaptiveSetupId === "string" ? adaptiveCatalog?.setups.find(setup => setup.setupId === adaptiveSetupId && setup.businessId === businessId && setup.goalId === goalId) ?? null : null;
   const observedAt = await loadConsoleObservationTime();
-  return <ConsoleShell active="research" context={context} navigationBusinessId={businessId}>
-    <section className="ownerResearchPage" aria-labelledby="owner-research-title">
-      <header><p className="coreEyebrow">A bounded episode for your actual objective</p><h1 id="owner-research-title">Research a saved Quest</h1><p>{business?.name ?? "Business unavailable"}</p></header>
-      <nav aria-label="Research navigation"><Link href={`/dashboard?view=research&business=${businessId}`}>Back to research</Link><Link href={`/dashboard/quests?business=${businessId}${goalId ? `&quest=${goalId}` : ""}`}>Create or edit a Quest</Link>{goalId ? <Link href={base}>Choose another Quest</Link> : null}{exactGoal && !unavailable ? <Link href={`/dashboard/products/etsy-research?${new URLSearchParams({business:businessId,goal:exactGoal.id})}`}>Review an Etsy research test</Link> : null}</nav>
-      {!businessError && business?.id === businessId ? <OwnerResearchBootstrapReference key={`${context.userId}:${businessId}`} businessId={businessId} ownerId={context.userId}/> : null}
-      {unavailable ? <p role="alert">This exact Business, Quest or setup could not be verified. No substitute was selected. Reload this URL after the data service is available.</p> : !goalId && selection ? <>
+  const ordinaryWorkspace = unavailable ? <p role="alert">This exact Business, Quest or setup could not be verified. No substitute was selected. Reload this URL after the data service is available.</p> : !goalId && selection ? <>
         <h2>Choose your saved objective</h2><p>Saving a Quest records intent only. Select it explicitly here, then review a supported profile and complete financial packet.</p>
         <p>{selection.total} saved Quests · showing {selection.offset + (selection.quests.length ? 1 : 0)}–{selection.offset + selection.quests.length}</p>
         <ul className="ownerResearchList">{selection.quests.map(goal => <li key={goal.id}><Link href={ownerResearchSetupHref(businessId, goal.id)}>{goal.title}</Link><span>Version {goal.revision} · {goal.preference}</span></li>)}</ul>
         {!selection.quests.length ? <p>No Quests on this page. <Link href={`/dashboard/quests?business=${businessId}#quest-entry`}>Create a Quest with your real objective, target, budget and deadline</Link>.</p> : null}
         <nav aria-label="Saved Quest pages">{selection.offset > 0 ? <Link href={`${base}&offset=${Math.max(0, selection.offset - selection.limit)}`}>Previous Quests</Link> : null}{selection.offset + selection.limit < selection.total ? <Link href={`${base}&offset=${selection.offset + selection.limit}`}>Next Quests</Link> : null}</nav>
-      </> : catalog && exactGoal ? <OwnerResearchWorkspace key={`${context.userId}:${businessId}:${goalId}:${setupId ?? "new"}:${JSON.stringify(catalog)}`} ownerId={context.userId} catalog={catalog} selectedReceipt={receipt} observedAt={observedAt}/> : null}
-      {goalId && !businessError ? adaptiveSetupId && !adaptiveReceipt ? <p role="alert">This exact adaptive setup could not be verified. No other setup was selected. Reload its saved URL after the data service is available.</p> : <OwnerAdaptiveResearchWorkspace key={`${context.userId}:${businessId}:${goalId}:${adaptiveSetupId ?? "new"}:${JSON.stringify(adaptiveCatalog)}`} businessId={businessId} ownerId={context.userId} catalog={adaptiveCatalog} selectedReceipt={adaptiveReceipt} observedAt={observedAt}/> : null}
+      </> : catalog && exactGoal ? <OwnerResearchWorkspace key={`${context.userId}:${businessId}:${goalId}:${setupId ?? "new"}:${JSON.stringify(catalog)}`} ownerId={context.userId} catalog={catalog} selectedReceipt={receipt} observedAt={observedAt}/> : null;
+  const observationWorkspace = goalId && !businessError ? adaptiveSetupId && !adaptiveReceipt ? <p id="owner-observation-research" role="alert">This exact adaptive setup could not be verified. No other setup was selected. Reload its saved URL after the data service is available.</p> : <OwnerAdaptiveResearchWorkspace key={`${context.userId}:${businessId}:${goalId}:${adaptiveSetupId ?? "new"}:${JSON.stringify(adaptiveCatalog)}`} businessId={businessId} ownerId={context.userId} catalog={adaptiveCatalog} selectedReceipt={adaptiveReceipt} observedAt={observedAt}/> : null;
+  return <ConsoleShell active="research" context={context} navigationBusinessId={businessId}>
+    <section className="ownerResearchPage" aria-labelledby="owner-research-title">
+      <header><p className="coreEyebrow">A bounded episode for your actual objective</p><h1 id="owner-research-title">Research a saved Quest</h1><p>{business?.name ?? "Business unavailable"}</p></header>
+      <nav aria-label="Research navigation"><Link href={`/dashboard?view=research&business=${businessId}`}>Back to research</Link><Link href={`/dashboard/quests?business=${businessId}${goalId ? `&quest=${goalId}` : ""}`}>Create or edit a Quest</Link>{goalId ? <Link href={base}>Choose another Quest</Link> : null}{exactGoal && !unavailable ? <Link href={`/dashboard/products/etsy-research?${new URLSearchParams({business:businessId,goal:exactGoal.id})}`}>Review an Etsy research test</Link> : null}</nav>
+      {!businessError && business?.id === businessId ? <section className="ownerResearchEvidenceGuide" aria-label="Research evidence choices">
+        <h2>Start with your objective and evidence</h2>
+        <p>No Etsy connection or saved browser session is required here. Your Agent Labs owner sign-in protects this Business. Research produces hypotheses; evidence must support any demand claim.</p>
+        <ul>
+          <li><strong>Genuine Etsy observations:</strong> save aggregate facts you actually saw, with dates, source and limitations. Private capture storage needs no research grant. The existing three-role research option requires an eligible closed research episode and a separately reviewed finite approval.</li>
+          <li><strong>Permitted public sources:</strong> use only the sources in an available reviewed research option. This is not an arbitrary URL importer or automatic Etsy marketplace scraping.</li>
+        </ul>
+        {exactGoal && !unavailable ? <nav aria-label="Choose research evidence"><a href="#owner-observation-research">Save Etsy observations and review readiness</a><a href="#public-source-research">Review permitted public research</a></nav> : <p>Select your actual saved Quest below. Saving evidence or reviewing a setup does not start paid work.</p>}
+        <p>Before a run, review the exact evidence, data recipients, current quote and cumulative cost limits. Missing permission stays blocked; stopped setups and earlier costs are never reset.</p>
+      </section> : null}
+      {setupId ? <>{ordinaryWorkspace}{observationWorkspace}</> : <>{observationWorkspace}{ordinaryWorkspace}</>}
+      {!businessError && business?.id === businessId ? <details className="ownerResearchAdvanced">
+        <summary>Advanced setup reference</summary>
+        <p>This optional operator verifier is not needed to save observations. It creates no permission or paid work.</p>
+        <OwnerResearchBootstrapReference key={`${context.userId}:${businessId}`} businessId={businessId} ownerId={context.userId}/>
+      </details> : null}
     </section>
   </ConsoleShell>;
 }

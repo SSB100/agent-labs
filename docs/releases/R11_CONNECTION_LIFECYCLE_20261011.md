@@ -1,6 +1,9 @@
 # R11 OAuth-first connection lifecycle
 
-Status: implementation / draft qualification. Production migration not installed.
+Status: released in PR89 at `76abe0c35fcbb403b1d5569c241690f27a4f26f4`,
+unchanged qualified tree `63331c2cf81b97389412d2b5a234429c246e5274`.
+Production migration installed as `20261011224821`; installed statement hash matches below.
+Production deployment: `dpl_EPZeLj5Yuda7Xmx9A1mjBQ33fYbT`.
 Baseline: `a4aa0e6166a04915cfe9079ad5d6cfbcc23c6d6e` (PR 88).
 
 ## Useful result and exact scope
@@ -90,14 +93,20 @@ reconciliation never makes that token usable: clean scoped reconnect is required
   replay, and Stop/reconcile. Provider responses are inert; no real network call.
 - Separate SQL cases prove expired-active reconciliation and unchanged candidate
   custody. The integrated caught-error case alone does not prove process recovery.
-- Local full typecheck and lint passed. The aggregate suite had 4,644 passes,
-  209 intentional skips and one explicit push-branch allowlist expectation failure.
-  The new exact branch was added consistently to the gate and its test; focused
-  release-gate recheck passed. Final full exact-head CI remains required.
-- Actual production Next build and four HTTP owner/read-only cases passed locally.
-  Browser launch is blocked in this executor by socket permissions, including the
-  reviewed shell escalation. Actual Chromium journeys and native PostgreSQL lock
-  races remain required in the existing CI jobs before release readiness.
+- [Exact source-head qualification](https://github.com/SSB100/agent-labs/actions/runs/38179726477)
+  passed 92 jobs with one intended diagnostic skip. The downloaded release receipt
+  matches commit `c6c1292c15c072acefed297024ba2847e2ae36ef` and the unchanged
+  merged tree, with all 15 required release gates successful.
+- The full quality job passed lint, typecheck, Next build and 4,882 tests with
+  148 explicit test skips. Native R11 SQL passed all 37 cases, including the
+  completion/reconciliation and session-expiry lock races.
+- Actual Chromium/Next navigation, Stop and exact-attempt reconciliation passed.
+  Eight downloaded acceptance reports contained 337 passing scenarios. Mobile
+  reconciled/reconnect states and the desktop stopped state were visually reviewed.
+- The [exact-merge run](https://github.com/SSB100/agent-labs/actions/runs/38181917059)
+  retains the same full gate. See that run and PR89's release handoff for final
+  post-merge qualification. No additional provider request is part of deployment
+  verification.
 - The Next UI fixture proves real actions/navigation/reload/Back behavior against
   an inert RPC boundary; it is not evidence of SQL/provider recovery by itself.
 

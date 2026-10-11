@@ -23,6 +23,7 @@ on:
       - codex/r12-steel-insights-wip-20261010
       - codex/r12-single-release-successor-20261011
       - codex/r12-stable-connections-20261011
+      - codex/r12-login-free-research-entry-20261011
 
 permissions:
   contents: read

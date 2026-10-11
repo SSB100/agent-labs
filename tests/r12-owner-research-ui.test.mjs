@@ -237,11 +237,21 @@ test('exact selection route ignores R04 current/last fallback and never guesses 
   const Reference=props=>React.createElement('div',{'data-bootstrap-business':props.businessId});
   const route=load('src/app/dashboard/quests/research/page.tsx',{'next/navigation':{notFound(){throw Error('not found');}},'@/components/console/console-shell':{ConsoleShell:({children})=>React.createElement('main',null,children)},'@/components/quests/owner-research-entry':entry,'@/components/quests/owner-research-workspace':{OwnerResearchWorkspace:Workspace},'@/components/quests/owner-adaptive-research-workspace':{OwnerAdaptiveResearchWorkspace:({selectedReceipt,catalog})=>React.createElement('div',{'data-adaptive-setup':selectedReceipt?.setupId??'', 'data-adaptive-goal':catalog?.goalId??''})},'@/components/quests/owner-research-bootstrap-reference':{OwnerResearchBootstrapReference:Reference},'@/lib/core-ui/data':{requireOwnerUiContext:async()=>context},'@/lib/core-ui/console-data':{loadConsoleObservationTime:async()=>f.now},'@/lib/core-ui/owner-research-form':money,'@/core/quest-contract':{R04_RPC:{read:'r04_quest_read'}},'@/products/discovery-r12-goal-preparation-server':{readOwnerResearchCatalog:async(_context,business,goal,setup)=>{reads.push({business,goal,setup});return goal===id(998)?{available:false,catalog:null}:{available:true,catalog:f.catalog};}},'@/products/discovery-r12-adaptive-owner-server':{readAdaptiveOwnerResearch:async(_context,business,goal,setup)=>{reads.push({adaptive:true,business,goal,setup});return {available:true,catalog:{businessId:business,goalId:goal,setups:setup?[{businessId:business,goalId:goal,setupId:id(60)}]:[]}};}}}).default;
   let html=renderToStaticMarkup(await route({searchParams:Promise.resolve({business:id(1)})}));assert.match(html,/Explicit selectable Quest/);assert.match(html,new RegExp(`data-bootstrap-business="${id(1)}"`));assert.doesNotMatch(html,/Must not select automatically|data-exact-goal/);assert.match(html,/Next Quests/);
+  assert.match(html,/No Etsy connection or saved browser session is required/);assert.match(html,/Agent Labs owner sign-in/);assert.match(html,/Research produces hypotheses/);
+  assert.match(html,/<details class="ownerResearchAdvanced"><summary>Advanced setup reference<\/summary>/);
+  assert.ok(html.indexOf('Explicit selectable Quest')<html.indexOf('Advanced setup reference'),'The owner chooses the real objective before any optional operator helper');
+  html=renderToStaticMarkup(await route({searchParams:Promise.resolve({business:id(1),quest:id(2)})}));
+  assert.match(html,/href="#owner-observation-research"/);assert.match(html,/href="#public-source-research"/);
+  assert.ok(html.indexOf('data-adaptive-setup')<html.indexOf('data-exact-goal'),'Fresh entry leads with private evidence and its readiness');
+  assert.ok(html.indexOf('data-exact-goal')<html.indexOf('Advanced setup reference'));
   html=renderToStaticMarkup(await route({searchParams:Promise.resolve({business:id(1),quest:id(2),setup:id(10)})}));assert.match(html,new RegExp(`data-exact-goal="${id(2)}"`));
+  assert.ok(html.indexOf('data-exact-goal')<html.indexOf('data-adaptive-setup'),'An exact public packet and its Stop controls remain first');
   html=renderToStaticMarkup(await route({searchParams:Promise.resolve({business:id(1),quest:id(2),setup:id(999)})}));assert.match(html,/No substitute was selected/);assert.match(html,/data-bootstrap-business/);assert.doesNotMatch(html,/data-exact-goal/);
   html=renderToStaticMarkup(await route({searchParams:Promise.resolve({business:id(1),quest:id(998)})}));assert.match(html,/No substitute was selected/);assert.match(html,/data-bootstrap-business/);assert.doesNotMatch(html,/data-exact-goal/);
   html=renderToStaticMarkup(await route({searchParams:Promise.resolve({business:id(1),quest:id(2),adaptiveSetup:id(60)})}));assert.match(html,new RegExp(`data-adaptive-setup="${id(60)}"`));assert.ok(reads.some(read=>read.adaptive&&read.setup===id(60)));
+  assert.ok(html.indexOf('data-adaptive-setup')<html.indexOf('data-exact-goal'),'An exact observation packet and its Stop controls remain first');
   html=renderToStaticMarkup(await route({searchParams:Promise.resolve({business:id(1),quest:id(2),adaptiveSetup:id(61)})}));assert.match(html,/This exact adaptive setup could not be verified/);assert.doesNotMatch(html,/data-adaptive-setup/);
+  assert.match(html,/<p id="owner-observation-research" role="alert">/,'Evidence navigation reaches the exact error, never a substitute setup');
   await assert.rejects(route({searchParams:Promise.resolve({business:id(1),quest:id(2),setup:id(10),adaptiveSetup:id(60)})}),/not found/);
   await assert.rejects(route({searchParams:Promise.resolve({quest:id(2)})}),/not found/);await assert.rejects(route({searchParams:Promise.resolve({business:[id(1),id(2)]})}),/not found/);
 });
@@ -417,4 +427,38 @@ test('authenticated missing-source pause survives fresh render without inferring
   }
   assert.doesNotMatch(render({...receipt,stopped:true}),/Saved research pause/);
   assert.doesNotMatch(render({...receipt,preview:{...receipt.preview,version:'r12.adaptive-research-preview.1'}}),/Saved research pause/);
+});
+
+test('observation readiness explains the same preparation guards while private intake stays independent',async()=>{
+  const cases=[
+    ['missing predecessor',f=>f.catalog.predecessorClosure=null,/eligible closed research episode/],
+    ['missing imports',f=>f.catalog.imports.pop(),/retained findings/],
+    ['no grant',f=>f.catalog.grants=[],/No current reviewed Etsy-observation option/],
+    ['no profile',f=>f.catalog.profiles=[],/No current reviewed Etsy-observation option/],
+    ['expired grant',f=>f.catalog.grants[0].expiresAt=new Date(f.now-1).toISOString(),/current reviewed research option/],
+    ['expired profile',f=>f.catalog.profiles[0].profile.validUntil=new Date(f.now-1).toISOString(),/current reviewed research option/],
+    ['unknown funding',f=>f.catalog.funding.hasUnknown=true,/Pending or unknown liabilities/],
+    ['unknown Business liability',f=>f.catalog.business.hasUnknown=true,/Pending or unknown liabilities/],
+    ['no remaining allocation',f=>f.catalog.grants[0].remainingAllocationMicrounits='0',/unused allocation/],
+    ['expired window',f=>f.catalog.deadline=new Date(f.now-1).toISOString(),/window must still be current/],
+    ['existing activation',f=>f.catalog.activation={setupId:id(77)},/existing adaptive setup is recorded/],
+  ];
+  for(const [name,change,explanation]of cases){
+    const f=adaptiveFixture(),states=[],refs=[],calls=[];let stateIndex=0,refIndex=0;
+    const hooks={...React,useId:()=>':readiness:',useState(initial){const i=stateIndex++;if(!(i in states))states[i]=initial;return[states[i],value=>states[i]=typeof value==='function'?value(states[i]):value];},useRef(initial){return refs[refIndex++]??={current:initial};},useEffect(){}};
+    const view=load('src/components/quests/owner-adaptive-research-workspace.tsx',{react:hooks,'next/navigation':{useRouter:()=>({})},'@/app/dashboard/quests/research/actions':{prepareAdaptiveOwnerResearchAction:async()=>{calls.push('prepare');throw Error('must remain blocked');}},'@/lib/core-ui/owner-research-form':money,'./owner-adaptive-research-packet':adaptivePacket});
+    const props={businessId:id(1),ownerId:id(90),catalog:f.catalog,selectedReceipt:null,observedAt:f.now};
+    const render=()=>{stateIndex=0;refIndex=0;return view.OwnerAdaptiveResearchWorkspace(props);};
+    let tree=render();elements(tree,e=>e.type==='select')[0].props.onChange({target:{value:`${id(3)}:${id(4)}`}});
+    tree=render();elements(tree,e=>e.type==='select')[1].props.onChange({target:{value:'gb'}});
+    tree=render();elements(tree,e=>e.type==='select')[2].props.onChange({target:{value:'nature'}});
+    tree=render();elements(tree,e=>typeof e.props?.onSelect==='function')[0].props.onSelect({manifestHash:'9'.repeat(64),manifest:[{bundleId:id(92),bundleHash:'8'.repeat(64),selectedObservationIds:[id(93)]}]});
+    tree=render();assert.equal(button(tree,'Prepare adaptive research packet').props.disabled,false,name);
+    assert.match(renderToStaticMarkup(tree),/ready for a fresh quote and exact packet review/);
+    change(f);tree=render();assert.notEqual(button(tree,'Prepare adaptive research packet')?.props.disabled,false,name);
+    assert.match(renderToStaticMarkup(tree),explanation,name);
+    const intake=elements(tree,e=>typeof e.props?.onSelect==='function');assert.equal(intake.length,1,name);assert.equal(intake[0].props.disabled,false,name);assert.equal(intake[0].props.grantId,'',name);
+    for(const form of elements(tree,e=>e.type==='form'))form.props.onSubmit({preventDefault(){}});
+    await tick();assert.deepEqual(calls,[],name);
+  }
 });

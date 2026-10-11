@@ -111,6 +111,8 @@ export async function runOwnerInitialJourney({origin,boundary,output}) {
     await check('Business-level setup reference uses the real owner route without creating authority or dispatch',async()=>{
       const state=async()=>(await current().db.query('select (select count(*) from private.r12_owner_setups) setups,(select count(*) from private.r12_owner_activations) initial_activations,(select count(*) from private.r12_owner_episode_activations) episode_activations,(select count(*) from private.r12_discovery_scopes) scopes')).rows[0];
       const before=await state(),field=page.getByRole('textbox',{name:'Operator-supplied grant UUID',exact:true});
+      const advanced=page.locator('details.ownerResearchAdvanced');assert.equal(await advanced.getAttribute('open'),null);
+      await advanced.getByText('Advanced setup reference',{exact:true}).click();
       await page.getByRole('heading',{name:'Prepare research setup reference',exact:true}).waitFor();
       await field.fill('not-a-uuid');assert.equal(await page.getByRole('button',{name:'Prepare setup reference',exact:true}).isDisabled(),true);
       await field.fill(current().continuationGrantId);await page.getByRole('button',{name:'Prepare setup reference',exact:true}).click();
@@ -124,6 +126,7 @@ export async function runOwnerInitialJourney({origin,boundary,output}) {
       await page.setViewportSize({width:320,height:800});await capture('01b-setup-reference-320');
       await field.focus();await page.keyboard.press('Tab');const focus=await page.getByRole('button',{name:'Prepare setup reference',exact:true}).evaluate(node=>({active:document.activeElement===node,visible:node.matches(':focus-visible'),outline:parseFloat(getComputedStyle(node).outlineWidth)}));assert.ok(focus.active&&focus.visible&&focus.outline>=2,'Setup reference button must have visible keyboard focus at mobile width');
       await page.setViewportSize({width:1280,height:900});
+      await advanced.getByText('Advanced setup reference',{exact:true}).click();assert.equal(await field.isVisible(),false);
     });
     await check('actual R04 creation and ready preference lead to Research this Quest without substituting objective',async()=>{
       await page.getByRole('link',{name:'Create or edit a Quest',exact:true}).click();
@@ -360,6 +363,32 @@ export async function runOwnerInitialJourney({origin,boundary,output}) {
       assert.deepEqual(current().calls,beforeCalls);assert.deepEqual(current().receipts,beforeReceipts);
       const stillSame=(await catalog(goalId)).goal;assert.equal(stillSame.id,goalId);
       await capture('11a-same-quest-budget-revised');
+    });
+    await check('login-free research entry reaches private evidence without the optional operator helper',async()=>{
+      const calls=[...current().calls],bootstrapRequests=[];
+      const observe=request=>{if(new URL(request.url()).pathname==='/api/research/r12/owner-bootstrap')bootstrapRequests.push(request.method());};
+      page.on('request',observe);
+      try {
+        await page.goto(`${origin}/dashboard/quests/research?business=${current().businessId}&quest=${goalId}`);
+        await page.getByRole('heading',{name:'Start with your objective and evidence',exact:true}).waitFor();
+        assert.match(await text(),/No Etsy connection or saved browser session is required/);
+        assert.match(await text(),/Agent Labs owner sign-in/);
+        assert.match(await text(),/Research produces hypotheses/);
+        assert.equal((await adaptiveCatalog(goalId)).grants.length,0);
+        const advanced=page.locator('details.ownerResearchAdvanced');
+        assert.equal(await advanced.getAttribute('open'),null);
+        assert.equal(await page.getByLabel('Operator-supplied grant UUID',{exact:true}).isVisible(),false);
+        await page.getByRole('link',{name:'Save Etsy observations and review readiness',exact:true}).click();
+        await page.getByRole('heading',{name:'Actual Etsy observations',exact:true}).waitFor();
+        assert.equal(await page.getByRole('button',{name:'Prepare adaptive research packet',exact:true}).count(),0);
+        assert.match(await page.getByRole('region',{name:'Observation research readiness',exact:true}).innerText(),/No current reviewed Etsy-observation option/);
+        await advanced.getByText('Advanced setup reference',{exact:true}).click();
+        assert.equal(await page.getByLabel('Operator-supplied grant UUID',{exact:true}).isVisible(),true);
+        await advanced.getByText('Advanced setup reference',{exact:true}).click();
+        assert.equal(await page.getByLabel('Operator-supplied grant UUID',{exact:true}).isVisible(),false);
+        assert.deepEqual(bootstrapRequests,[],'Opening/closing the optional verifier never submits it');
+        assert.deepEqual(current().calls,calls,'Entry, readiness and navigation do not dispatch');
+      } finally { page.off('request',observe); }
     });
     await check('ordinary owner saves reviews and explicitly selects an immutable Etsy comparison without a grant or provider call',async()=>{
       await page.goto(`${origin}/dashboard/quests/research?business=${current().businessId}&quest=${goalId}`);
