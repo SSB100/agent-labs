@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {resolve} from 'node:path';
 import {randomUUID} from 'node:crypto';
-import {confirmedRepairFixture,inertReleaseSuccessor,rehash,currentRelease,hash,one,useInertSuccessor} from './helpers/r12-steel-release-successor-fixture.mjs';
+import {confirmedRepairFixture,inertReleaseSuccessor,rehash,currentRelease,hash,one,useInertSuccessor,admitSavedReplacementCreate} from './helpers/r12-steel-release-successor-fixture.mjs';
 import {asRole,orderedRace,validateOwnerInitialRaceEnvironment} from './helpers/r12-owner-initial-postgres-races.mjs';
 import {publishInertRepairAttestation} from './helpers/r12-steel-setup-recovery-fixture.mjs';
 import {steelConfigRequest,admitSteelConfig} from './helpers/r12-steel-config-sql-fixture.mjs';
@@ -29,8 +29,9 @@ test('native successor publication wins setup and revocation fences paid creatio
   await clients(db,async connections=>{const race=await orderedRace({...connections,first:c=>publish(c,body),second:c=>prepare(c,x,payload)});assert.equal(race.observedLockWait,true);assert.equal(race.second.error,undefined);assert.equal(race.second.value.operationId,body.replacementOperationId);});
   assert.equal((await currentRelease(db,x)).review_hash,body.reviewHash);assert.deepEqual(await counts(db),{...before,successors:1});
   useInertSuccessor(x,body);await publishInertRepairAttestation(db,x);
-  // Reopen exact already-saved scope through its ordinary idempotent preparation.
-  const replacement=await x.bridge.prepare(payload.scope);await x.approve(replacement);await replacement.admit('create');await admitSteelConfig(db,x.f.businessId,steelConfigRequest(replacement.scope,{setup:true,configuration:x.repair.configuration}),x.bridge.keys.handoff);const reserved=await counts(db);
+  // The racing prepare already saved the scope. Read it, approve its exact
+  // disclosure and admit create without attempting a forbidden second prepare.
+  const {view}=await admitSavedReplacementCreate(x,payload.scope);await admitSteelConfig(db,x.f.businessId,steelConfigRequest(view.scope,{setup:true,configuration:x.repair.configuration}),x.bridge.keys.handoff);const reserved=await counts(db);
   await clients(db,async connections=>{const race=await orderedRace({...connections,first:c=>c.query('insert into private.r12_steel_setup_release_successor_revocations(review_hash) values($1)',[body.reviewHash]),second:c=>asRole(c,'anon','r12_etsy_steel_server',[x.f.businessId,'transport',{operationId:body.replacementOperationId,request:{provider:'steel',operation:'browser.etsy.owner_handoff.create',method:'POST',endpoint:'https://api.steel.dev/v1/sessions'}},x.bridge.keys.handoff])});assert.equal(race.observedLockWait,true);assert.match(race.second.error.message,/successor_inactive/);});
   assert.deepEqual(await counts(db),reserved);await assert.rejects(currentRelease(db,x),/successor_inactive/);console.log('Native publisher-before-setup and successor-revocation-before-create locks verified');
  }finally{await db.close();}

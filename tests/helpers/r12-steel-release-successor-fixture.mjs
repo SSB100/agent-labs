@@ -1,5 +1,6 @@
 /** Synthetic operator evidence only, exercising real immutable SQL publishers. */
 import {createHmac,randomUUID} from 'node:crypto';
+import assert from 'node:assert/strict';
 import {setupRecoveryDatabase,setupRecoveryFixture,publishInertRepairRelease,publishInertRepairAttestation,applyReleaseSuccessor} from './r12-steel-setup-recovery-fixture.mjs';
 import {INERT_STEEL_CONFIG} from './r12-steel-config-sql-fixture.mjs';
 import {one} from './r12-owner-initial-sql-fixture.mjs';
@@ -33,3 +34,15 @@ export const publishSuccessor=(db,body)=>one(db,'select private.r12_steel_publis
 export const rehash=(body,change)=>{const result={...body,...change};delete result.reviewHash;return{...result,reviewHash:hash(result)};};
 export const currentRelease=(db,x)=>one(db,'select to_jsonb(private.r12_steel_setup_repair_release_current($1)) result',[x.authority.prepared.testEnvelopeId]).then(r=>r.result);
 export async function preservedRows(db){const tables=['r12_steel_setup_repair_releases','r12_steel_setup_repair_debits','r12_steel_setup_replacement_proposals','r12_steel_setup_recoveries','r12_direct_test_envelopes','r12_direct_enrollment_packages','r12_direct_browser_accounting'];const rows={};for(const table of tables)rows[table]=(await db.query(`select to_jsonb(t) row from private.${table} t order by to_jsonb(t)::text`)).rows;return rows;}
+
+/** Continue the already-saved scope through owner read/approval and normal
+ * admission. SQL prepare is deliberately NOT a replayable read operation. */
+export async function admitSavedReplacementCreate(x,expectedScope){
+ const view=await x.bridge.owner('read',{operationId:expectedScope.operationId});
+ assert.deepEqual(view.scope,expectedScope);assert.equal(view.scopeHash,hash(expectedScope));
+ await x.approve(view);
+ const request={version:'etsy.steel-owner-handoff-admission.1',operation:'create',requestId:randomUUID(),scopeHash:view.scopeHash,
+  ...Object.fromEntries(['operationId','ownerId','businessId','authorityRootId','testEnvelopeId','testEnvelopeHash','providerProjectId','accountId','accountRevision','approvalId','approvalRevision','disclosureHash','quoteHash','maximumBrowserMicrounits'].map(k=>[k,view.scope[k]])),
+  handoffId:null,sessionId:null,profileId:null,reservationId:null,reservationHash:null};
+ const admission=await x.bridge.server('admit',{request});return{view,admission};
+}

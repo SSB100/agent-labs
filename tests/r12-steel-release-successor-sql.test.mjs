@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
-import {confirmedRepairFixture,inertReleaseSuccessor,publishSuccessor,rehash,currentRelease,preservedRows,applyReleaseSuccessor,hash,one,useInertSuccessor} from './helpers/r12-steel-release-successor-fixture.mjs';
+import {confirmedRepairFixture,inertReleaseSuccessor,publishSuccessor,rehash,currentRelease,preservedRows,applyReleaseSuccessor,hash,one,useInertSuccessor,admitSavedReplacementCreate} from './helpers/r12-steel-release-successor-fixture.mjs';
 import {publishInertRepairAttestation} from './helpers/r12-steel-setup-recovery-fixture.mjs';
 import {admitSteelConfig,steelConfigRequest} from './helpers/r12-steel-config-sql-fixture.mjs';
 import {validateEtsySteelReplacementView} from '../.core-tests/accounts/etsy-steel-replacement.js';
@@ -52,7 +52,9 @@ test('single successor upgrades historical confirmed debit without rewritten ter
   await db.query('select private.r12_steel_setup_repair_create_release($1,$2,$3)',[review.testEnvelopeId,review.replacementOperationId,freshAttestation.attestation]);
   await assert.rejects(db.query('select private.r12_steel_setup_repair_create_release($1,$2,$3)',[review.testEnvelopeId,randomUUID(),freshAttestation.attestation]),/lineage_required/);
   const replacement=await x.bridge.prepare({operationId:review.replacementOperationId,accountId:review.accountId,profileAccessExpiresAt:x.setup.scope.profileAccessExpiresAt,maximumBrowserMicrounits:'25000',verificationMaximumMicrounits:'25000'});
-  await assert.rejects(replacement.admit('create'),/inactive|approval|current/);await x.approve(replacement);await replacement.admit('create');
+  await assert.rejects(replacement.admit('create'),/inactive|approval|current/);
+  await assert.rejects(x.bridge.prepare(replacement.scope),/etsy_handoff_prepare_replay/,'Prepare must not be used to reopen saved scope');
+  await admitSavedReplacementCreate(x,replacement.scope);
   await assert.rejects(admitSteelConfig(db,x.f.businessId,steelConfigRequest(replacement.scope,{setup:true,configuration:x.predecessor.configuration}),x.bridge.keys.handoff),/required|inactive|invalid/);
   await admitSteelConfig(db,x.f.businessId,steelConfigRequest(replacement.scope,{setup:true,configuration:x.repair.configuration}),x.bridge.keys.handoff);
   await replacement.transport('browser.etsy.owner_handoff.create','POST','https://api.steel.dev/v1/sessions');
