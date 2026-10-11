@@ -195,7 +195,10 @@ export async function runOwnerInitialJourney({origin,boundary,output}) {
         const geometry=await zoomPage.evaluate(()=>({width:innerWidth,documentWidth:document.documentElement.scrollWidth}));assert.ok(geometry.width>=630&&geometry.width<=650,'Verify actual 2x browser zoom viewport');assert.ok(geometry.documentWidth<=geometry.width+1);
         const confirm=zoomPage.getByRole('button',{name:'Confirm this exact research policy',exact:true});await confirm.scrollIntoViewIfNeeded();const box=await confirm.boundingBox();assert.ok(box&&box.width>=100&&box.height>=43.5,'Zoomed confirmation stays reachable/readable');
         await captureOwnerZoomViewport({page:zoomPage,target:confirm,output,name:'owner-packet-controls-zoom200.png'});
+        const advanced=zoomPage.locator('details.ownerResearchAdvanced');assert.equal(await advanced.getAttribute('open'),null);
+        await advanced.getByText('Advanced setup reference',{exact:true}).click();
         await captureOwnerZoomViewport({page:zoomPage,target:zoomPage.getByRole('button',{name:'Prepare setup reference',exact:true}),output,name:'owner-setup-reference-zoom200.png'});
+        await advanced.getByText('Advanced setup reference',{exact:true}).click();assert.equal(await advanced.getAttribute('open'),null);
         await captureOwnerZoomViewport({page:zoomPage,target:zoomPage.getByRole('heading',{name:'Research a saved Quest',exact:true}),output,name:'owner-packet-zoom200.png'});assert.deepEqual(current().calls,[]);
       }catch(error){if(zoomPage)await captureFailure(zoomPage);throw error;}finally{await zoom.close();}
     });
