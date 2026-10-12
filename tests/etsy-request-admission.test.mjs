@@ -121,7 +121,7 @@ test('actual Chromium blocks redirect destinations before any HTTP request',
    res.setHeader('content-type','text/html');
    if(req.url==='/image-page')res.end('<!doctype html><img src="/image">');
    else if(req.url==='/fetch-page')res.end('<!doctype html><script>fetch("/fetch").catch(()=>{});</script>');
-   else if(req.url==='/owner-page')res.end('<!doctype html><p>Owner bootstrap only</p><img src="/owner-image"><script>fetch("/owner-data",{method:"POST"}).catch(()=>{});</script>');
+   else if(req.url==='/owner-page')res.end('<!doctype html><p>Owner bootstrap only</p><img src="/owner-image"><script>fetch("/owner-data",{method:"POST"}).catch(()=>{}).finally(()=>{window.ownerDataSettled=true;});</script>');
    else res.end('forbidden destination');
   });
   await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
@@ -153,6 +153,7 @@ test('actual Chromium blocks redirect destinations before any HTTP request',
     blocked.push(r);return 'deny_owner_subresource';
    }});
    await page.goto(origin+'/owner-page',{waitUntil:'load',timeout:5000});
+   await page.waitForFunction(()=>window.ownerDataSettled===true,{},{timeout:5000});
    assert.ok(blocked.some(r=>r.resourceType==='image'));assert.ok(blocked.some(r=>r.method==='POST'));
    assert.deepEqual(reasons,[]);assert.equal(hits.filter(x=>['/owner-image','/owner-data'].includes(x)).length,0);
    guard.seal();await context.close();await guard.drain();

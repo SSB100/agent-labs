@@ -20,6 +20,11 @@ zero R05/R07 markers and transport claims, one historical pass retained. The
 reloaded owner page showed zero known and held cost for this run. The earlier
 USD 0.025 bounded unknown remains untouched and reserved separately.
 
+The retained row records admission, not an executed research pass: no provider
+dispatch, search or phase completed. The approved retry therefore retains five
+executed research passes within the original unspent USD 10, with no parallel
+active predecessor or extra funding root.
+
 ## Narrow repair
 
 The migration removes only the unused `finance` field from the internal scope
@@ -45,6 +50,15 @@ verified live background-worker status.
   not a successful full Production dispatch.
 - Local owner/action/diagnostic regression: 31 tests passed. Native full-path
   timing, exact-head CI and final browser qualification remain required.
+
+The first repair-head CI passed the actual owner/Workflow browser journey. Its
+new native profile was rejected before dispatch because the synthetic domain
+list had different JS/C and native collation order. The corrected fixture uses
+reserved `.invalid` hosts of identical lengths, checks the native canonical
+order, and retains the six-domain/919-byte shape and every real guard. This is
+synthetic shape evidence, not an exact replay of production source domains.
+The unrelated Chromium POST assertion now waits for its fixture fetch to settle
+before checking the unchanged admission and zero-request assertions.
 
 The repair is not installed by this record. A new run requires fresh appropriate
 owner authority; the cancelled run, its wire and counters are not reset.

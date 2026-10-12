@@ -46,7 +46,12 @@ export async function seedPodDiagnosticHistory(db,a){
 export async function preparePodDispatchProfile(db){
  const fixtureDb={exec:(...args)=>db.exec(...args),query:async(sql,args)=>{
   if(sql.startsWith('insert into private.r12_pod_templates(')){
-   args=[...args];args[2]={...args[2],excludedDomains:['etsy.com','etsy.me','etsystatic.com','nrf.com','printify.com','printifyapp.com']};args[3]=podHash(args[2]);
+   // Keep the full six-domain/919-byte shape without a punctuation-sensitive
+   // tie: JS/C and native en_US disagree on printify.com/printifyapp.com.
+   const excludedDomains=['aaaa.invalid','bbbbbbb.invalid','etsy.com','etsy.me','etsystatic.com','nrf.com'];
+   const canonical=(await podOne(db,'select jsonb_agg(x order by x) domains from (select distinct jsonb_array_elements_text($1::jsonb) x) q',[JSON.stringify(excludedDomains)])).domains;
+   assert.deepEqual(canonical,excludedDomains,'Diagnostic domains must be canonical in both the runtime and native database');
+   args=[...args];args[2]={...args[2],excludedDomains};args[3]=podHash(args[2]);
   }
   return db.query(sql,args);
  }};
