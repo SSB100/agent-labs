@@ -1,0 +1,140 @@
+{
+  "version": "r12.pod-failed-pass-recovery-independent-review.1",
+  "reviewAsOfUtc": "2026-10-12T13:57:00Z",
+  "status": "conditionally-accepted-static-security-and-accounting-review",
+  "technicalExecutionAccepted": false,
+  "productionAdmissionApproved": false,
+  "worktreeBaseCommit": "e4d3c4aab507744493c1216e12c4e0e0675bf4a0",
+  "revisionQualification": "Uncommitted worktree snapshot identified by the file hashes below, not an exact-head CI-qualified release.",
+  "migration": {
+    "path": "supabase/migrations/20261012131500_r12_pod_failed_pass_recovery.sql",
+    "sha256": "e4850eb1c4ae8fb1bec1acd4a0357d74c00915e107881542d567e7d5438a2ad4"
+  },
+  "securityAndAccountingFindings": [
+    "No remaining blocking static admission, accounting, idempotency or Stop issue identified at this snapshot.",
+    "One immutable recovery link supports stopped original v1 to successor v2 on the same Goal. A second recovery cannot recursively reset the allowance.",
+    "The failed reviewer response remains rejected and its original pass remains incomplete; recovery inserts no replacement acceptance or closure.",
+    "All predecessor calls must be marked, transported and settled. Prior calls, searches, pass ordinals, spend and head counters carry forward.",
+    "Successor allocation is bounded by original remaining allowance and the unchanged Business cap. Existing separately held liabilities remain part of Business exposure.",
+    "Business-row locking serializes consequential operations; unique predecessor links and head compare-and-swap prevent concurrent double recovery in the design.",
+    "Current ownership, source-policy equality, explicit .3 template/capability and new owner confirmation are required. Existing .2 templates do not inherit recovery permission.",
+    "Stop remains policy revocation and scoped successor keys cannot authorize predecessor requests. History does not override deadline, source or budget gates.",
+    "SQL now independently checks length-only structure and review-domain constraints, derives an exact classification/diagnostic hash, and application reclassification must agree.",
+    "Object.hasOwn fixes prototype-named additional-property/inherited-required bypasses in the shared schema validator.",
+    "PR92 discarded finance projection remains removed and PR94 bounded-source plan caching is not replaced.",
+    "SQL repeat-query rejection now includes the immutable predecessor scope, matching application historical-query checks."
+  ],
+  "pureClassifierLimitation": "Classification proves only bounded schema/domain eligibility for a failed response. It is not an accepted independent review, semantic verification, authenticated provenance by itself, an admission grant, or permission to execute suggested actions. Provenance and admission depend on the immutable SQL lineage, exact saved outputs and fresh approved policy.",
+  "historyTrust": "The planner receives a bounded projection derived from four accepted outputs, exact selected quotes, prior candidate/query labels and output hashes, plus labelled untrusted rejected critique. It does not receive or accept four full historical outputs. A fresh complete five-phase pass and ordinary independent review remain required.",
+  "semanticLimits": [
+    "No paraphrase or semantic-equivalence claim is made; there is no paid formatting call.",
+    "Materially different investigation is model guidance. The mechanical guard rejects normalized exact-repeat queries, not every semantically similar query.",
+    "The reused SQL validator counts minLength in Unicode code points while JavaScript counts UTF-16 code units. This may conservatively reject some emoji-heavy otherwise-valid inputs. Overflow classification itself uses UTF-16 length."
+  ],
+  "unchangedSourceExclusions": [
+    "etsy.com",
+    "etsy.me",
+    "etsystatic.com",
+    "nrf.com",
+    "printify.com",
+    "printifyapp.com"
+  ],
+  "retainedHistoryWireCheck": {
+    "status": "passed-offline-conservative-sizing",
+    "historyBytes": 9730,
+    "requestBytes": 16503,
+    "wireBytes": 14873,
+    "boundBytes": 24576,
+    "requestHeadroomBytes": 8073,
+    "wireHeadroomBytes": 9703,
+    "originalReviewContentHashVerified": true,
+    "selectedExactSpans": 4,
+    "substitutions": {
+      "fixed64CharacterHashes": [
+        "future scope hash",
+        "source-policy hash",
+        "future pass hash",
+        "four accepted response hashes"
+      ],
+      "retrievedAt": "Saved search output database timestamp (32 characters); candidate construction uses canonical ISO timestamps, normally 24 characters.",
+      "priceLimits": "24-character positive decimal representations for conservative sizing only, not qualified provider prices."
+    },
+    "scope": "Actual retained prose with conservative fixed-width metadata and price serialization substitutions; not a fresh live quote or exact future request identity."
+  },
+  "pendingQualification": [
+    "Exact-head required CI and native PostgreSQL qualification must pass before technical execution is accepted.",
+    "Native simultaneous duplicate/competing confirmation and Stop-versus-reserved-dispatch tests need observed outcomes, not only sequential fixture results.",
+    "Fresh-backend successor dispatch must be shown under the unchanged anon 3-second statement timeout; old .2 timing does not qualify .3 performance.",
+    "Negative SQL classifier tests must cover prototype/additional keys, wrong evidence references, duplicate checks, mixed defects, valid-review rejection and altered diagnostic/classification hashes.",
+    "Boundary coverage should show a predecessor that consumed four passes permits only one remaining complete pass.",
+    "Production migration, reviewed recovery-only template/capability installation and exact new recovery approval remain separate release gates."
+  ],
+  "ciWiringObservation": "The explicit native recovery test step is now present in .github/workflows/ci.yml. Its results were not executed or accepted by this reviewer.",
+  "sourceSha256": {
+    "supabase/migrations/20261012131500_r12_pod_failed_pass_recovery.sql": "e4850eb1c4ae8fb1bec1acd4a0357d74c00915e107881542d567e7d5438a2ad4",
+    "src/products/discovery-r12-pod-recovery.ts": "46859785728aabf45c68f851b8d3e072ee232f4aacc0e770b980f61ee7eeb68d",
+    "src/products/discovery-r12-pod-review-failure.ts": "86dfe09455aed8d33f95def11b09afc37f92f265c7df62308ba531a7d9413ce8",
+    "src/products/discovery-r12-pod-runtime.ts": "de5a00847bcba5600daaa02c3d43ba727ca1b14027614828addf4003e7738d89",
+    "src/products/discovery-r12-pod-owner-server.ts": "7af9cb9256bec68cfeffe52d620ffc00c2c81258f92e0b7c6362c8b4b27ae6d8",
+    "src/products/discovery-r12-pod-owner-contract.ts": "40261d3a7075a1d4dff9baaa45af54f75fcce38add13a1465c4b4115ed9e6dba",
+    "src/products/discovery-r12-pod-analysis.ts": "971392d666ee355bafba50bc60203511f7847fcf6b89008980d6df2fd371a70f",
+    "src/products/discovery-r12-wire.ts": "7f474d31f75c084eab6115a495221e1e0f4355703abeeba15f176e1413eb4a4b",
+    "src/products/discovery-r12-receipt.ts": "cc851a0e35f4e073b966e8acd068f1c06b663d00940dbc6f391aa347ab0200c9",
+    "src/workers/schema-validator.ts": "38030bc424ae0c80e2f126b41748bb6e83a421cca9fb8854e267cb7c1ab1ec99",
+    "src/products/discovery-r12-adapter.ts": "cac634c9196ffa0ef177e7c5bdf706db5d4b0688e777473d75497c991f029de1",
+    "src/products/discovery-r12-server.ts": "6eb9f5ee51cbc251543f81390503a8a8d800e36cbdd3d873f84a97a1d4d0273d",
+    "src/products/discovery-r12-pod-status.ts": "9b286a9853aa6d7a61744118274d39596384576041a0daab3bef559d51fb6135",
+    "src/components/quests/pod-research-workspace.tsx": "8a63b9530287969e7163dff5f58116150b59b221db9da375fb386a7a871227bd",
+    "src/app/dashboard/quests/research/pod/actions.ts": "8055bfaa1e73962781cc67dafd8d3686dc721f7507f50431a7740bed3c6fd0d0",
+    "docs/R12_POD_FAILED_PASS_RECOVERY.md": "911dc7da78422f6cc4814cd55eb14c4f9625f70678b3bfb8c208bcd0a6198504",
+    "src/app/api/research/pod/release/route.ts": "429b6c5b95e8095f4098692ed27406bf1f6907c1403c0100e97b6ecfc1e89b0d"
+  },
+  "evidenceSha256": {
+    "pod94FailedReviewRaw.json": "0bd310e8b452fa3da7fa1d734cc2a4b27358086bd1881a727758b2ecc9283330",
+    "pod94AppResearchOutputs.json": "8b9a46ed266803d4f469a5e58ac0ae7e326fce90c39a49a1469beb15f793b74d"
+  },
+  "installationBundleSha256": "30fd07b4b938c77ae841bded9f5b06e9a27e249fa611c231c8ad68fc3157b7b0",
+  "artifactSha256": {
+    "retained-history-wire-size.mjs": "26d2593ceeff89e375568aaafd741ce05b75adb0107882e78e7c449e535755eb",
+    "retained-history-wire-size.json": "8aea6b90a5b679a8e8b52371746425cfdd37577904e22a9b67c7154e3a481488"
+  },
+  "actions": {
+    "repositoryEdits": 0,
+    "productionWrites": 0,
+    "liveDatabaseReads": 0,
+    "providerCalls": 0,
+    "offlineSerializerRuns": true,
+    "evidenceArtifactsWrittenOnly": true
+  },
+  "sourceSnapshotSupersedesRawSha256": "8b36e4b56c9a48750ffd09d9dc8f45530407bea0756b308fdc2d46b964b84599",
+  "reviewedSourceDeltas": {
+    "scopeUnchanged": true,
+    "changes": [
+      {
+        "file": "src/products/discovery-r12-pod-review-failure.ts",
+        "before": "d085782cb3099784babe1d351e411e12e0dc5a9771f4ca04041674ad0fc09052",
+        "after": "86dfe09455aed8d33f95def11b09afc37f92f265c7df62308ba531a7d9413ce8"
+      },
+      {
+        "file": "docs/R12_POD_FAILED_PASS_RECOVERY.md",
+        "before": "01ef56b098b7b9edc1271fa95902f0392aec59804f40e51959ba434443cb24b1",
+        "after": "911dc7da78422f6cc4814cd55eb14c4f9625f70678b3bfb8c208bcd0a6198504"
+      }
+    ],
+    "findings": [
+      "Classifier change is exactly one removed final LF; behavior unchanged.",
+      "Owner consent is now tied to the exact setupHash. Recovery submission reuse checks Business/setup/setupHash across navigation, and the server validates UUID submission IDs. Pending refs suppress duplicate preparation clicks.",
+      "Documentation now names bounded projections, exact source exclusions, release/rollback limits, observed-prose sizing and pending native qualification; these changes add no authority.",
+      "Existing owner-authenticated release endpoint adds recovery schema pins only, preserving owner checks and authorityCreated:false."
+    ]
+  },
+  "isolatedRecipeQualification": {
+    "recipeSha256": "945ed8a8cf94c93c038e4334d6e00d6c8103507f2006a8f912d9dcfc69c06f54",
+    "result": "passed",
+    "engine": "PostgreSQL 18.3 (PGlite 0.5.8) on wasm32-unknown-emscripten, compiled by emcc (Emscripten gcc/clang-like replacement + linker emulating GNU ld) 3.1.74 (1092ec30a3fb1d46b1782ff1b4db5094d3d06ae5), 32-bit",
+    "checks": 13,
+    "technicalExecutionAcceptance": false,
+    "artifact": "test-recovery-template.json",
+    "artifactRawSha256": "b6604a383d6a922a8b341a17e8856e241a9d945180abed61dfaa81335f366928"
+  }
+}

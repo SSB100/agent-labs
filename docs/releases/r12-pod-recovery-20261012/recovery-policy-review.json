@@ -1,0 +1,98 @@
+{
+  "version": "r12.pod-recovery-policy-review.1",
+  "reviewedAt": "2026-10-12T13:57:00Z",
+  "templateVersion": "r12.pod-template.3",
+  "scopeVersion": "r12.pod-research-goal.2",
+  "reviewerRole": "Independent engineering reviewer, separate from implementation owner; narrow delta review of the evaluated contract.",
+  "migration": {
+    "path": "supabase/migrations/20261012131500_r12_pod_failed_pass_recovery.sql",
+    "sha256": "e4850eb1c4ae8fb1bec1acd4a0357d74c00915e107881542d567e7d5438a2ad4"
+  },
+  "sourcePolicyHash": "c7226bd85c587e0e30b6c48301a48274dd9a9556fab45a864baa340aa29edc9b",
+  "reviewValidUntil": "2026-10-19T02:31:00.000Z",
+  "originalSourceReview": {
+    "bundleHash": "37eccdecbfc4663a3aa07ab48970c81323e826b18263d4eec43a8784fa289b02",
+    "reviewId": "65c10a84-6fea-8b54-a4c2-d269213d12da",
+    "restrictionsRevision": "37b68726fd02f02211187c06e76fc5c252f96ae32a0507014553ab5b6e5af750",
+    "termsReviewHash": "cc230863d7976bcf5d48afb5ff3ee6f9472bcfb41560f7527474e19b11826b34",
+    "independentReviewHash": "dc38a036b98d96e8e211a8e1a530595352848de31b7a3021b8ea9737436179ed",
+    "sourceReviewManifestHash": "37fc326c60c5dbfe7a91fd548ef5618547019c1f392db5523a27063aaf12e977",
+    "unchanged": true,
+    "repeatedSourceResearch": false
+  },
+  "conditionalOn": [
+    "Exact-head required CI and native recovery qualification, including concurrency/Stop outcomes and the unchanged anon 3-second successor dispatch deadline.",
+    "Exact reviewed recovery-only .3 installation and readback, preserving this exact existing source-policy hash.",
+    "Fresh explicit owner approval of the same-Goal remaining-only recovery and its new bounded window, with current quote, ownership, source validity and finance checked at use."
+  ],
+  "authorityCreated": false,
+  "technicalExecutionAccepted": false,
+  "productionAdmissionApproved": false,
+  "referenceReview": {
+    "file": "independent-review.json",
+    "rawSha256": "3a46f4c3d5d8688e9a4259a0b790df4b2c1f338012976be1d9c03f49d3afaff6"
+  },
+  "evidence": {
+    "templateReadbackRawSha256": "381df591d39b4d5f486e6941144232bdaa7191f504cc1d1f29f826690242a301",
+    "retainedHistoryMeasurementRawSha256": "8aea6b90a5b679a8e8b52371746425cfdd37577904e22a9b67c7154e3a481488"
+  },
+  "hashContract": "Review pins use SHA-256 of canonical JSON with recursively sorted object keys, no insignificant whitespace or final newline (publicResearchHash); raw file SHA-256 is separately recorded.",
+  "verdict": "BOUNDED_REMAINING_ONLY_RECOVERY_POLICY_ACCEPTED_CONDITIONALLY",
+  "scope": "Distinct policy-interpretation delta for one explicitly approved same-Goal successor; no template, policy, stopped scope or original review is reinterpreted retroactively.",
+  "lineage": {
+    "businessAndAuthorityRootId": "91ff7c87-60e4-4dbb-8e84-be63b53c2c79",
+    "goalId": "719c0f8b-72b5-44c1-ada3-e0323a212667",
+    "predecessorSetupId": "86867892-1aec-4d85-94b2-176597440bda",
+    "predecessorScopeId": "8320bdac-94d4-42ee-abc5-11bd3bf9cb44",
+    "oneUse": true,
+    "planVersionTransition": "original v1 to linked successor v2 only",
+    "sameGoalAndFundingRoot": true
+  },
+  "originalRunAllowance": {
+    "currency": "USD",
+    "maximumMicrounits": "10000000",
+    "maximumCalls": 25,
+    "maximumPasses": 5,
+    "maximumSearches": 5
+  },
+  "retainedUsed": {
+    "calls": 5,
+    "passes": 1,
+    "searches": 1,
+    "knownMicrounits": "28912",
+    "source": "Saved stopped-runtime-readback.json; deduplicated same-phase provider charges, not sum of repeated settlement rows.",
+    "immutable": true
+  },
+  "maximumRemaining": {
+    "currency": "USD",
+    "microunits": "9971088",
+    "calls": 20,
+    "passes": 4,
+    "searches": 4,
+    "condition": "A maximum only; live immutable lineage, current quotes, full-pass reservation and Business-wide exposure may restrict admission further."
+  },
+  "grantAndWindow": "A fresh remaining-only policy and successor plan require explicit owner confirmation. Only the new policy gets a 30-minute dispatch window plus 30-minute exact already-sent receipt grace, bounded by source/template/knowledge validity. The predecessor stays revoked and its deadline remains unchanged.",
+  "accounting": "All old charges/calls/pass ordinals and R07 head counters remain counted. Five paid call slots and the quoted whole-pass liability are admitted atomically; reservation also checks the cumulative 25-call limit. The Business cap is not increased, no balance is reset and no old ledger, receipt, hold or accepted dependency is rewritten.",
+  "oldHold": {
+    "microunits": "25000",
+    "classification": "separate historical bounded-pending liability",
+    "settledByThisRecovery": false,
+    "heldInFull": true,
+    "treatment": "Remains included in Business committed exposure under its genuine existing proof. It is not part of the five failed-pass charges, is not erased, and must not be subtracted twice when computing remaining Business availability."
+  },
+  "concurrencyAndStop": "Business locks, immutable one-predecessor uniqueness and head compare-and-swap are the reviewed serialization design. Stop/revocation and exact scoped keys still govern new sends; native race outcomes remain a qualification condition.",
+  "noReviewAcceptance": "The failed pass stays incomplete and rejected review stays unaccepted. A fresh full five-phase pass and new independent review are required for any reviewed result. No proposed nextTest, product action or further purchase is authorized by historical critique.",
+  "sourceSha256": {
+    "supabase/migrations/20261012131500_r12_pod_failed_pass_recovery.sql": "e4850eb1c4ae8fb1bec1acd4a0357d74c00915e107881542d567e7d5438a2ad4",
+    "src/products/discovery-r12-pod-recovery.ts": "46859785728aabf45c68f851b8d3e072ee232f4aacc0e770b980f61ee7eeb68d",
+    "src/products/discovery-r12-pod-runtime.ts": "de5a00847bcba5600daaa02c3d43ba727ca1b14027614828addf4003e7738d89",
+    "src/products/discovery-r12-pod-owner-server.ts": "7af9cb9256bec68cfeffe52d620ffc00c2c81258f92e0b7c6362c8b4b27ae6d8",
+    "src/products/discovery-r12-pod-owner-contract.ts": "40261d3a7075a1d4dff9baaa45af54f75fcce38add13a1465c4b4115ed9e6dba",
+    "src/products/discovery-r12-adapter.ts": "cac634c9196ffa0ef177e7c5bdf706db5d4b0688e777473d75497c991f029de1",
+    "src/products/discovery-r12-server.ts": "6eb9f5ee51cbc251543f81390503a8a8d800e36cbdd3d873f84a97a1d4d0273d",
+    "src/components/quests/pod-research-workspace.tsx": "8a63b9530287969e7163dff5f58116150b59b221db9da375fb386a7a871227bd",
+    "src/app/api/research/pod/release/route.ts": "429b6c5b95e8095f4098692ed27406bf1f6907c1403c0100e97b6ecfc1e89b0d"
+  },
+  "accountingEvidenceRawSha256": "acc6a40af01a055233960b88859076ec932fd64bd84ac1edbacc3fc19485183f",
+  "sourceDeltaScope": "Same review scope. Rechecked exact-setup consent/retry identity, nonsecret recovery schema readback and formatting-only classifier change; no new permission or execution acceptance."
+}

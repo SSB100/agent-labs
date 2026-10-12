@@ -1,0 +1,67 @@
+{
+  "version": "r12.pod-retained-history-wire-measurement.1",
+  "result": "fits-unchanged-bound-offline",
+  "notExecutionOrAdmissionApproval": true,
+  "retainedRawReviewBytes": 3905,
+  "rawContentHashVerified": true,
+  "historyBytes": 9730,
+  "requestBytes": 16503,
+  "wireBytes": 14873,
+  "boundBytes": 24576,
+  "requestHeadroomBytes": 8073,
+  "wireHeadroomBytes": 9703,
+  "sourceExclusions": [
+    "etsy.com",
+    "etsy.me",
+    "etsystatic.com",
+    "nrf.com",
+    "printify.com",
+    "printifyapp.com"
+  ],
+  "historyDomains": [
+    "business.pinterest.com",
+    "printful.com",
+    "trends.google.com"
+  ],
+  "observedDomains": [
+    "www.printful.com"
+  ],
+  "selectedExactSpans": 4,
+  "diagnosticFields": [
+    "$.checks[1].rationale",
+    "$.checks[2].rationale",
+    "$.checks[3].rationale",
+    "$.checks[4].rationale",
+    "$.checks[5].rationale",
+    "$.nextTest"
+  ],
+  "substitutions": {
+    "fixed64CharacterHashes": [
+      "future scope hash",
+      "source-policy hash",
+      "future pass hash",
+      "four accepted response hashes"
+    ],
+    "retrievedAt": "Saved search output database timestamp (32 characters); candidate construction uses canonical ISO timestamps, normally 24 characters.",
+    "priceLimits": "24-character positive decimal representations for conservative sizing only, not qualified provider prices."
+  },
+  "networkCalls": 0,
+  "liveDatabaseReads": 0,
+  "evidenceSha256": {
+    "pod94FailedReviewRaw.json": "0bd310e8b452fa3da7fa1d734cc2a4b27358086bd1881a727758b2ecc9283330",
+    "pod94AppResearchOutputs.json": "8b9a46ed266803d4f469a5e58ac0ae7e326fce90c39a49a1469beb15f793b74d"
+  },
+  "installationBundleSha256": "30fd07b4b938c77ae841bded9f5b06e9a27e249fa611c231c8ad68fc3157b7b0",
+  "sourceSha256": {
+    "supabase/migrations/20261012131500_r12_pod_failed_pass_recovery.sql": "e4850eb1c4ae8fb1bec1acd4a0357d74c00915e107881542d567e7d5438a2ad4",
+    "src/products/discovery-r12-pod-recovery.ts": "46859785728aabf45c68f851b8d3e072ee232f4aacc0e770b980f61ee7eeb68d",
+    "src/products/discovery-r12-pod-review-failure.ts": "d085782cb3099784babe1d351e411e12e0dc5a9771f4ca04041674ad0fc09052",
+    "src/products/discovery-r12-pod-runtime.ts": "de5a00847bcba5600daaa02c3d43ba727ca1b14027614828addf4003e7738d89",
+    "src/products/discovery-r12-pod-owner-server.ts": "7af9cb9256bec68cfeffe52d620ffc00c2c81258f92e0b7c6362c8b4b27ae6d8",
+    "src/products/discovery-r12-pod-owner-contract.ts": "40261d3a7075a1d4dff9baaa45af54f75fcce38add13a1465c4b4115ed9e6dba",
+    "src/products/discovery-r12-pod-analysis.ts": "971392d666ee355bafba50bc60203511f7847fcf6b89008980d6df2fd371a70f",
+    "src/products/discovery-r12-wire.ts": "7f474d31f75c084eab6115a495221e1e0f4355703abeeba15f176e1413eb4a4b",
+    "src/products/discovery-r12-receipt.ts": "cc851a0e35f4e073b966e8acd068f1c06b663d00940dbc6f391aa347ab0200c9",
+    "src/workers/schema-validator.ts": "38030bc424ae0c80e2f126b41748bb6e83a421cca9fb8854e267cb7c1ab1ec99"
+  }
+}

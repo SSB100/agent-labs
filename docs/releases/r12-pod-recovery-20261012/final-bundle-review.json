@@ -1,0 +1,78 @@
+{
+  "version": "r12.pod-recovery-final-bundle-review.1",
+  "reviewedAt": "2026-10-12T15:34:50Z",
+  "verdict": "CONSISTENT_PENDING_EXACT_OWNER_APPROVAL",
+  "blockingFindings": [],
+  "bundleCanonicalHash": "27170bb8af63834f0d2a282188ada66c62019d9fbfee3f51a56e1f1e39a2047a",
+  "bundleRawSha256": "25ca781abf55ff3271f0c71ebad5a3efd0cef23dc6b5c7b477637c4fa7420e4e",
+  "reviewPins": {
+    "executionReviewHash": "dfaf2c2829daaeafd4f3eb6808f418abbc335b1b6c8fbdb07d044521a29e263a",
+    "eligibilityReviewHash": "dd3cd5a0484475d4a512aac1436fb7450f0a43d713673db4fd0be9254fa1b452",
+    "policyInterpretationHash": "85dcaaf6d54a944c85f63f1a29f4579e18903fe4a302eb67c7f721b54033fa3e"
+  },
+  "migration": {
+    "path": "supabase/migrations/20261012131500_r12_pod_failed_pass_recovery.sql",
+    "sha256": "e4850eb1c4ae8fb1bec1acd4a0357d74c00915e107881542d567e7d5438a2ad4"
+  },
+  "templateRecipe": {
+    "path": "recovery-template.sql.in",
+    "sha256": "945ed8a8cf94c93c038e4334d6e00d6c8103507f2006a8f912d9dcfc69c06f54"
+  },
+  "qualifiedCommit": "374788383d1dfad7e1199dbcb6e5840ebe5dc5ba",
+  "qualifiedTree": "1353d381777bff9183ee34b24711ec00cf60820a",
+  "qualifiedRunId": "38265862266",
+  "savedProductionMapping": {
+    "observedAt": "2026-10-12T15:31:52Z",
+    "alias": "agent-labs-two.vercel.app",
+    "deploymentId": "dpl_4X4vu6Sq4FqSFrXMQ6pzQy39qwYm",
+    "recordSha256": "970f44a2c98e59652604242dc3a66e65b64a3001f4cb9b358299facb46499f00"
+  },
+  "checks": [
+    "Recomputed exact canonical bundle and all three distinct review pins.",
+    "Rehashed unchanged migration, fixed recipe, all 17 reviewed source files and referenced source/preflight/release records.",
+    "Matched qualified head/tree/15 successful required groups to accepted execution review.",
+    "Compared ordinary schemas and five packs directly with genuine historical owner-provided verifier; only recovery planner system differs.",
+    "Reconstructed unchanged six-domain source-policy hash from prior source policy plus actual deterministic review identity.",
+    "Verified same Goal/root/predecessor and cumulative original USD 10 / 25 calls / 5 passes / 5 searches minus immutable used USD 0.028912 / 5 calls / 1 pass / 1 search."
+  ],
+  "maximumRemaining": {
+    "currency": "USD",
+    "microunits": "9971088",
+    "calls": 20,
+    "passes": 4,
+    "searches": 4,
+    "condition": "Current immutable lineage, source validity, quote, whole-pass reservation and Business exposure may restrict admission further."
+  },
+  "oldSeparateHoldMicrounits": "25000",
+  "failedReviewRemainsUnaccepted": true,
+  "formattingCalls": 0,
+  "verifierProvenance": {
+    "historicalOwnerObservationAt": "2026-10-12T08:16:18.000Z",
+    "historicalResponseHash": "0ad9e489f9f5f6d67f3ec6775af5d3a740f2b42faebb5a836afd3e916292eb6f",
+    "priorBundleFileSha256": "30fd07b4b938c77ae841bded9f5b06e9a27e249fa611c231c8ad68fc3157b7b0",
+    "freshEndpointObservationClaimed": false,
+    "applicationCapability": "Historical nonsecret endpoint hash matches current parent-template saved preflight; source recomputation is explicitly identified, not a refreshed endpoint measurement."
+  },
+  "remainingGates": [
+    "Exact owner approval for this bundle, migration, template installation and new remaining-only recovery/provider execution.",
+    "Transactional installation/readback and a fresh owner recovery preview/confirmation using current checks and a new bounded window."
+  ],
+  "limitations": [
+    "Production mapping is checked against saved connector evidence; this reviewer made no new live reads.",
+    "Automatic main CI 38270215077 was recorded in progress; existing exact-commit release qualification is accepted.",
+    "Existing static review pins are unchanged; this consistency record creates no authority or permission."
+  ],
+  "authorityCreated": false,
+  "productionMigrationApproved": false,
+  "templateInstallationApproved": false,
+  "ownerRunApproved": false,
+  "reviewerActions": {
+    "productionWrites": 0,
+    "liveReads": 0,
+    "providerCalls": 0,
+    "repositoryEdits": 0,
+    "evidenceWrites": [
+      "final-bundle-review.json"
+    ]
+  }
+}

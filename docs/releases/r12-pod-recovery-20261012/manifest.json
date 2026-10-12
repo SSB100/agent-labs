@@ -1,0 +1,83 @@
+{
+  "version": "r12.pod-recovery-remote-evidence-manifest.1",
+  "qualifiedApplicationCommit": "374788383d1dfad7e1199dbcb6e5840ebe5dc5ba",
+  "canonicalInstallationBundleHash": "27170bb8af63834f0d2a282188ada66c62019d9fbfee3f51a56e1f1e39a2047a",
+  "authorityCreated": false,
+  "files": [
+    {
+      "path": "docs/releases/r12-pod-recovery-20261012/installation-bundle.json",
+      "rawSha256": "25ca781abf55ff3271f0c71ebad5a3efd0cef23dc6b5c7b477637c4fa7420e4e",
+      "gitBlobSha": "e7be8e2690a17d1227c286b47e0bc0d600fb6bd3"
+    },
+    {
+      "path": "docs/releases/r12-pod-recovery-20261012/installation-bundle.sha256",
+      "rawSha256": "bdf9e2177a643cf99e6060ad286002322b1be0b8821347e1355a7b2cc70719e4",
+      "gitBlobSha": "a4ecaa8f3ce319e737e64bc1612a08b0a8949f2b"
+    },
+    {
+      "path": "docs/releases/r12-pod-recovery-20261012/recovery-template.sql.in",
+      "rawSha256": "945ed8a8cf94c93c038e4334d6e00d6c8103507f2006a8f912d9dcfc69c06f54",
+      "gitBlobSha": "dd1915c6a11a081a6a04af996a5b8451fcd8a7c0"
+    },
+    {
+      "path": "docs/releases/r12-pod-recovery-20261012/recovery-eligibility-review.json",
+      "rawSha256": "2f2cdcd655b7624979cc9eb5dc75a1ce886b9aecae68b2ed897872abf741e861",
+      "gitBlobSha": "9fcc51facc9bbef79a8bbf0b65e952e76422e285"
+    },
+    {
+      "path": "docs/releases/r12-pod-recovery-20261012/recovery-policy-review.json",
+      "rawSha256": "c8301378c813a943b33c6ede41ff6adf70678cc02822b8a3b044e9c53e7692a2",
+      "gitBlobSha": "30afa8a1f086165ec17e73cf50aa3aa76ba57c33"
+    },
+    {
+      "path": "docs/releases/r12-pod-recovery-20261012/execution-review.json",
+      "rawSha256": "641793f513c324f61ab55943068d0286fbd97f3d176b3fb8f7209e10b2404fd4",
+      "gitBlobSha": "995fcd519af54aed04568f1fdb5e51a82d161e2b"
+    },
+    {
+      "path": "docs/releases/r12-pod-recovery-20261012/final-bundle-review.json",
+      "rawSha256": "cd15a11a77e598d01fef8601bd38e2d0f990d4afab9ff49979623c6943032531",
+      "gitBlobSha": "aafd043b4723664a754cf05e437dd1c577c3a054"
+    },
+    {
+      "path": "docs/releases/r12-pod-recovery-20261012/independent-review.json",
+      "rawSha256": "3a46f4c3d5d8688e9a4259a0b790df4b2c1f338012976be1d9c03f49d3afaff6",
+      "gitBlobSha": "8ac6782fa35752ef96f151bb1e5a7996f928821d"
+    },
+    {
+      "path": "docs/releases/r12-pod-recovery-20261012/source-contract-verification.json",
+      "rawSha256": "80d35fe92dd6ea3b80191eae561ccb743448ed31258bb2d7605037d6829ec4ff",
+      "gitBlobSha": "f4761e4ee1afe0cc0ec98028d2f23d365efe9132"
+    },
+    {
+      "path": "docs/releases/r12-pod-recovery-20261012/production-release.json",
+      "rawSha256": "970f44a2c98e59652604242dc3a66e65b64a3001f4cb9b358299facb46499f00",
+      "gitBlobSha": "9fcbf8ed993c1b6295d35ab5cc47267f6d6e0baf"
+    },
+    {
+      "path": "docs/releases/r12-pod-recovery-20261012/production-preflight-20261012-151258.json",
+      "rawSha256": "0af6341f1df72262c04973e833887ff848812f0e0a8d0d5a9824692f2c0e4627",
+      "gitBlobSha": "a9eef5a04177740791f4bffdfadd43e16d22b17f"
+    },
+    {
+      "path": "docs/releases/r12-pod-recovery-20261012/retained-history-wire-size.json",
+      "rawSha256": "8aea6b90a5b679a8e8b52371746425cfdd37577904e22a9b67c7154e3a481488",
+      "gitBlobSha": "df276bd2cfbd62ea00f53b306aedafa95033129a"
+    },
+    {
+      "path": "docs/releases/r12-pod-recovery-20261012/test-recovery-template.json",
+      "rawSha256": "b6604a383d6a922a8b341a17e8856e241a9d945180abed61dfaa81335f366928",
+      "gitBlobSha": "ce3b41ae64f9210187d6ab7cc7c907dea2e7201a"
+    },
+    {
+      "path": "docs/releases/r12-pod-recovery-20261012/ci/release-qualification-37478838.json",
+      "rawSha256": "96be0eb16b17b029278072005d0bf72373bfdfaa49a0aca902d7a5f301d24181",
+      "gitBlobSha": "365b8fab92e5353a157df1dcd35d579b91566714"
+    },
+    {
+      "path": "docs/releases/r12-pod-recovery-20261012/README.md",
+      "rawSha256": "29646c4bd8632a25a3cf44a19cc18ee6d69adc761485ea56cb7d566fde3400b2",
+      "gitBlobSha": "fde7ff5809f60029088586dae69a8089144e545f"
+    }
+  ]
+}

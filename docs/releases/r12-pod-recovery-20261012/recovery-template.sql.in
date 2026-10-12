@@ -1,0 +1,62 @@
+-- Review-only recipe. Exact qualified release evidence and detached owner
+-- approval must replace the three markers; this file is intentionally not SQL.
+begin;
+set local lock_timeout='10s';
+set local statement_timeout='60s';
+do $install$
+declare
+ bundle jsonb := __EXACT_RECOVERY_INSTALLATION_BUNDLE__;
+ approval jsonb := __EXACT_OWNER_APPROVAL__;
+ expected_hash text := __EXACT_CANONICAL_BUNDLE_HASH__;
+ prior private.r12_pod_templates; installed private.r12_pod_templates;
+ pins jsonb; k text; stamp timestamptz:=clock_timestamp(); identity_hash text; template_id uuid;
+begin
+ if current_setting('session_replication_role')<>'origin' or current_user in ('anon','authenticated','service_role') then
+  raise exception 'Reviewed migration-owner installation required';end if;
+ if private.stage14_hash(bundle) is distinct from expected_hash or approval->>'decision' is distinct from 'approved'
+ or approval->>'bundleHash' is distinct from expected_hash or coalesce(approval->>'evidenceReference','')='' then
+  raise exception 'Exact reviewed recovery installation approval required';end if;
+ if bundle->>'version' is distinct from 'r12.pod-recovery-installation.1'
+ or bundle->'authorityCreated' is distinct from 'false'::jsonb
+ or bundle->'bounds' is distinct from '{"originalMicrounits":10000000,"maximumPasses":5,"maximumCalls":25,"maximumSearches":5,"dispatchMinutes":30,"receiptMinutes":30,"formattingCalls":0,"allowanceReset":false}'::jsonb
+ or (bundle->>'validFrom')::timestamptz>stamp or (bundle->>'validUntil')::timestamptz<=stamp then
+  raise exception 'Recovery installation bundle bounds or validity differ';end if;
+ -- This is a new reviewed capability, not a new app credential/catalog engine.
+ lock table private.r12_pod_templates,private.r12_pod_template_revocations in share row exclusive mode;
+ select * into strict prior from private.r12_pod_templates where id=(bundle->>'parentTemplateId')::uuid;
+ if prior.version<>'r12.pod-template.2' or prior.reviewed_bundle_hash is distinct from bundle->>'parentBundleHash'
+ or prior.pins_hash is distinct from bundle->>'parentPinsHash'
+ or prior.source_policy_hash is distinct from bundle->>'sourcePolicyHash'
+ or prior.server_key_hash is distinct from bundle->>'applicationCapabilityHash'
+ or (bundle->>'validUntil')::timestamptz>prior.valid_until then raise exception 'Existing template changed';end if;
+ perform private.r12_pod_template_check(prior,stamp,true);
+ if coalesce(bundle->'recoverySchemas'->'plan'->>'systemHash','') !~ '^[a-f0-9]{64}$' then raise exception 'Explicit reviewed planner system hash required';end if;
+ foreach k in array array['executionReviewHash','eligibilityReviewHash','policyInterpretationHash'] loop
+  if coalesce(bundle->>k,'') !~ '^[a-f0-9]{64}$' or bundle->>k=prior.pins->>k then raise exception 'New exact recovery review pin required: %',k;end if;
+ end loop;
+ if (select count(distinct value) from jsonb_each_text(jsonb_build_object('execution',bundle->>'executionReviewHash','eligibility',bundle->>'eligibilityReviewHash','policy',bundle->>'policyInterpretationHash')))<>3 then raise exception 'Distinct recovery review records required';end if;
+ if bundle->'ordinarySchemas' is distinct from prior.pins->'schemas'
+ or (bundle->'recoverySchemas' #- '{plan,systemHash}') is distinct from (bundle->'ordinarySchemas' #- '{plan,systemHash}')
+ or bundle->'recoverySchemas'->'plan'->>'systemHash'=bundle->'ordinarySchemas'->'plan'->>'systemHash'
+ then raise exception 'Only the separately reviewed planner system may change';end if;
+ pins:=prior.pins||jsonb_build_object('schemas',bundle->'recoverySchemas',
+  'executionReviewHash',bundle->>'executionReviewHash','eligibilityReviewHash',bundle->>'eligibilityReviewHash',
+  'policyInterpretationHash',bundle->>'policyInterpretationHash');
+ identity_hash:=encode(extensions.digest(convert_to('r12.pod-recovery-template-id.3:'||expected_hash,'UTF8'),'sha256'),'hex');
+ template_id:=(substr(identity_hash,1,8)||'-'||substr(identity_hash,9,4)||'-8'||substr(identity_hash,14,3)||'-a'||substr(identity_hash,18,3)||'-'||substr(identity_hash,21,12))::uuid;
+ select * into installed from private.r12_pod_templates where id=template_id;
+ if installed.id is null then
+  insert into private.r12_pod_templates(id,version,source_policy,source_policy_hash,pins,pins_hash,server_key_hash,reviewed_bundle_hash,valid_from,valid_until)
+  values(template_id,'r12.pod-template.3',prior.source_policy,prior.source_policy_hash,pins,private.stage14_hash(pins),prior.server_key_hash,expected_hash,(bundle->>'validFrom')::timestamptz,(bundle->>'validUntil')::timestamptz);
+  select * into strict installed from private.r12_pod_templates where id=template_id;
+ end if;
+ if installed.version<>'r12.pod-template.3' or installed.source_policy is distinct from prior.source_policy
+ or installed.pins is distinct from pins or installed.server_key_hash<>prior.server_key_hash
+ or installed.reviewed_bundle_hash<>expected_hash or installed.valid_from<>(bundle->>'validFrom')::timestamptz
+ or installed.valid_until<>(bundle->>'validUntil')::timestamptz then raise exception 'Conflicting existing recovery template';end if;
+ perform private.r12_pod_template_check(installed,stamp,true);
+ -- No setup, policy, confirmation, key, scope, request, reservation or dispatch
+ -- is inserted here. The ordinary owner recovery UI is the only run path.
+ raise notice 'Recovery capability installed: %, no owner authority created',template_id;
+end $install$;
+commit;

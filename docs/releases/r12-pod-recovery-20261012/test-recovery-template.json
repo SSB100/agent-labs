@@ -1,0 +1,38 @@
+{
+  "version": "r12.pod-recovery-template-isolated-test.1",
+  "result": "passed",
+  "engine": "PGlite in-memory only",
+  "engineVersion": "PostgreSQL 18.3 (PGlite 0.5.8) on wasm32-unknown-emscripten, compiled by emcc (Emscripten gcc/clang-like replacement + linker emulating GNU ld) 3.1.74 (1092ec30a3fb1d46b1782ff1b4db5094d3d06ae5), 32-bit",
+  "recipeSha256": "945ed8a8cf94c93c038e4334d6e00d6c8103507f2006a8f912d9dcfc69c06f54",
+  "migrationSha256": "e4850eb1c4ae8fb1bec1acd4a0357d74c00915e107881542d567e7d5438a2ad4",
+  "migrationCount": 167,
+  "checks": [
+    "append-only .3 installation; source/catalog/application hash preserved; no owner authority or cost rows",
+    "idempotent replay returns the same unchanged row",
+    "missing executionReviewHash rejected and rolled back",
+    "reuse-old executionReviewHash rejected and rolled back",
+    "missing eligibilityReviewHash rejected and rolled back",
+    "reuse-old eligibilityReviewHash rejected and rolled back",
+    "missing policyInterpretationHash rejected and rolled back",
+    "reuse-old policyInterpretationHash rejected and rolled back",
+    "missing planner system pin rejected and rolled back",
+    "old planner system pin rejected and rolled back",
+    "duplicate new review pins rejected and rolled back",
+    "non-system schema change rejected and rolled back",
+    "unapproved bundle rejected and rolled back"
+  ],
+  "sourceExclusions": [
+    "etsy.com",
+    "etsy.me",
+    "etsystatic.com",
+    "nrf.com",
+    "printify.com",
+    "printifyapp.com"
+  ],
+  "networkCalls": 0,
+  "liveDatabaseReads": 0,
+  "productionWrites": 0,
+  "ownerGrantsCreated": 0,
+  "technicalExecutionAcceptance": false,
+  "nativeAndExactHeadQualification": "still required; this smoke only validates the isolated installation recipe"
+}

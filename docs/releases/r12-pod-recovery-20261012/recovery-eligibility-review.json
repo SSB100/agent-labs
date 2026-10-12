@@ -1,0 +1,86 @@
+{
+  "version": "r12.pod-recovery-eligibility-review.1",
+  "reviewedAt": "2026-10-12T13:57:00Z",
+  "templateVersion": "r12.pod-template.3",
+  "scopeVersion": "r12.pod-research-goal.2",
+  "reviewerRole": "Independent engineering reviewer, separate from implementation owner; narrow delta review of the evaluated contract.",
+  "migration": {
+    "path": "supabase/migrations/20261012131500_r12_pod_failed_pass_recovery.sql",
+    "sha256": "e4850eb1c4ae8fb1bec1acd4a0357d74c00915e107881542d567e7d5438a2ad4"
+  },
+  "sourcePolicyHash": "c7226bd85c587e0e30b6c48301a48274dd9a9556fab45a864baa340aa29edc9b",
+  "reviewValidUntil": "2026-10-19T02:31:00.000Z",
+  "originalSourceReview": {
+    "bundleHash": "37eccdecbfc4663a3aa07ab48970c81323e826b18263d4eec43a8784fa289b02",
+    "reviewId": "65c10a84-6fea-8b54-a4c2-d269213d12da",
+    "restrictionsRevision": "37b68726fd02f02211187c06e76fc5c252f96ae32a0507014553ab5b6e5af750",
+    "termsReviewHash": "cc230863d7976bcf5d48afb5ff3ee6f9472bcfb41560f7527474e19b11826b34",
+    "independentReviewHash": "dc38a036b98d96e8e211a8e1a530595352848de31b7a3021b8ea9737436179ed",
+    "sourceReviewManifestHash": "37fc326c60c5dbfe7a91fd548ef5618547019c1f392db5523a27063aaf12e977",
+    "unchanged": true,
+    "repeatedSourceResearch": false
+  },
+  "conditionalOn": [
+    "Exact-head required CI and native recovery qualification, including concurrency/Stop outcomes and the unchanged anon 3-second successor dispatch deadline.",
+    "Exact reviewed recovery-only .3 installation and readback, preserving this exact existing source-policy hash.",
+    "Fresh explicit owner approval of the same-Goal remaining-only recovery and its new bounded window, with current quote, ownership, source validity and finance checked at use."
+  ],
+  "authorityCreated": false,
+  "technicalExecutionAccepted": false,
+  "productionAdmissionApproved": false,
+  "referenceReview": {
+    "file": "independent-review.json",
+    "rawSha256": "3a46f4c3d5d8688e9a4259a0b790df4b2c1f338012976be1d9c03f49d3afaff6"
+  },
+  "evidence": {
+    "templateReadbackRawSha256": "381df591d39b4d5f486e6941144232bdaa7191f504cc1d1f29f826690242a301",
+    "retainedHistoryMeasurementRawSha256": "8aea6b90a5b679a8e8b52371746425cfdd37577904e22a9b67c7154e3a481488"
+  },
+  "hashContract": "Review pins use SHA-256 of canonical JSON with recursively sorted object keys, no insignificant whitespace or final newline (publicResearchHash); raw file SHA-256 is separately recorded.",
+  "verdict": "BOUNDED_RECOVERY_ELIGIBILITY_ACCEPTED_CONDITIONALLY",
+  "scope": "Eligibility delta only. Existing .2 source/terms/recipient reviews and source-policy bytes remain intact; this record is a distinct .3 eligibility pin, not a replacement source-policy review or an execution acceptance.",
+  "allowedProjection": "Owner-approved public brief plus bounded historical projection derived from four accepted public-research outputs: prior queries/domains/candidate labels, selected exact evidence views, assessment summary/recommendation/limitations, output hashes, and explicitly labelled rejected-review critique. No full private Business, customer, account or credential context is added.",
+  "recipients": {
+    "router": "openrouter.ai",
+    "search": "exa.ai",
+    "researcher": "azure/us",
+    "reviewer": "amazon-bedrock/us"
+  },
+  "retention": {
+    "inference": "no_training_zdr",
+    "search": "query_retention_improvement_training_possible",
+    "application": "bounded_attributed_audit_evidence"
+  },
+  "excludedDomains": [
+    "etsy.com",
+    "etsy.me",
+    "etsystatic.com",
+    "nrf.com",
+    "printify.com",
+    "printifyapp.com"
+  ],
+  "routing": "The recovery planner history is sent only to OpenRouter/Azure under the existing inference controls. Exa receives the new bounded public query and domain filters, not the full historical packet. Amazon Bedrock receives the ordinary new-pass brief/evidence/assessment for a fresh independent review.",
+  "untrustedFailureBoundary": "The saved critique is rejected model output, never an accepted review or executable instruction. Suggested Etsy scraping, account access, private-data collection, direct scraping, paywall bypass or transactions cannot authorize any action or override domain/source/retention/recipient/budget/Stop constraints.",
+  "sourceConditions": "Use the unchanged OpenRouter/Exa factual-snippet method, bounded public queries and all six exclusions. Returned URL screening and source choice are restrictions, not publisher permission or evidence of demand. Current source-review expiry/revocation remains binding.",
+  "classifierLimitation": "Classification proves only bounded schema/domain eligibility for a failed response. It is not an accepted independent review, semantic verification, authenticated provenance by itself, an admission grant, or permission to execute suggested actions. Provenance and admission depend on the immutable SQL lineage, exact saved outputs and fresh approved policy.",
+  "sizeEvidence": {
+    "historyBytes": 9730,
+    "requestBytes": 16503,
+    "wireBytes": 14873,
+    "unchangedBoundBytes": 24576,
+    "scope": "Actual retained prose measured offline with documented conservative fixed-width substitutions; no provider call."
+  },
+  "sourceSha256": {
+    "supabase/migrations/20261012131500_r12_pod_failed_pass_recovery.sql": "e4850eb1c4ae8fb1bec1acd4a0357d74c00915e107881542d567e7d5438a2ad4",
+    "src/products/discovery-r12-pod-recovery.ts": "46859785728aabf45c68f851b8d3e072ee232f4aacc0e770b980f61ee7eeb68d",
+    "src/products/discovery-r12-pod-review-failure.ts": "86dfe09455aed8d33f95def11b09afc37f92f265c7df62308ba531a7d9413ce8",
+    "src/products/discovery-r12-pod-runtime.ts": "de5a00847bcba5600daaa02c3d43ba727ca1b14027614828addf4003e7738d89",
+    "src/products/discovery-r12-pod-owner-server.ts": "7af9cb9256bec68cfeffe52d620ffc00c2c81258f92e0b7c6362c8b4b27ae6d8",
+    "src/products/discovery-r12-pod-analysis.ts": "971392d666ee355bafba50bc60203511f7847fcf6b89008980d6df2fd371a70f",
+    "src/products/discovery-r12-wire.ts": "7f474d31f75c084eab6115a495221e1e0f4355703abeeba15f176e1413eb4a4b",
+    "src/workers/schema-validator.ts": "38030bc424ae0c80e2f126b41748bb6e83a421cca9fb8854e267cb7c1ab1ec99",
+    "src/components/quests/pod-research-workspace.tsx": "8a63b9530287969e7163dff5f58116150b59b221db9da375fb386a7a871227bd",
+    "src/app/api/research/pod/release/route.ts": "429b6c5b95e8095f4098692ed27406bf1f6907c1403c0100e97b6ecfc1e89b0d"
+  },
+  "sourceDeltaScope": "Same review scope. Rechecked exact-setup consent/retry identity, nonsecret recovery schema readback and formatting-only classifier change; no new permission or execution acceptance."
+}

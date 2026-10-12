@@ -1,0 +1,26 @@
+{
+  "version": "agent-labs.release-qualification.1",
+  "qualified": true,
+  "mode": "release",
+  "commit": "374788383d1dfad7e1199dbcb6e5840ebe5dc5ba",
+  "tree": "1353d381777bff9183ee34b24711ec00cf60820a",
+  "requiredJobs": {
+    "quality": "success",
+    "r04-sql": "success",
+    "r05-sql": "success",
+    "r06-sql": "success",
+    "r07-sql": "success",
+    "r08-sql": "success",
+    "r09-sql": "success",
+    "r10-sql": "success",
+    "r11-sql": "success",
+    "r11-research-sql": "success",
+    "r12-sql": "success",
+    "r12-adaptive-races": "success",
+    "r03-next": "success",
+    "r12-direct": "success",
+    "r12-etsy-browser": "success"
+  },
+  "eventName": "push",
+  "runId": "38265862266"
+}

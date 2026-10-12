@@ -1,0 +1,287 @@
+{
+  "version": "r12.pod-recovery-execution-review.1",
+  "reviewedAt": "2026-10-12T15:26:00Z",
+  "verdict": "EXACT_RELEASE_TECHNICAL_EXECUTION_QUALIFICATION_ACCEPTED",
+  "technicalExecutionAccepted": true,
+  "productionMigrationApproved": false,
+  "templateInstallationApproved": false,
+  "ownerRunApproved": false,
+  "authorityCreated": false,
+  "reviewScope": "Independent review of the exact final-head aggregate receipt, native recovery/race/deadline artifacts, hosted-CI actual Chromium/Next/Workflow evidence, unchanged source pins, and code-first old-database compatibility. Synthetic fixtures establish technical behavior, not market findings.",
+  "release": {
+    "repository": "SSB100/agent-labs",
+    "commit": "374788383d1dfad7e1199dbcb6e5840ebe5dc5ba",
+    "tree": "1353d381777bff9183ee34b24711ec00cf60820a",
+    "runId": 38265862266,
+    "runUrl": "https://github.com/SSB100/agent-labs/actions/runs/38265862266",
+    "event": "push",
+    "conclusion": "success",
+    "requiredGroups": {
+      "quality": "success",
+      "r04-sql": "success",
+      "r05-sql": "success",
+      "r06-sql": "success",
+      "r07-sql": "success",
+      "r08-sql": "success",
+      "r09-sql": "success",
+      "r10-sql": "success",
+      "r11-sql": "success",
+      "r11-research-sql": "success",
+      "r12-sql": "success",
+      "r12-adaptive-races": "success",
+      "r03-next": "success",
+      "r12-direct": "success",
+      "r12-etsy-browser": "success"
+    },
+    "totalJobs": 94,
+    "successfulJobs": 92,
+    "intentionallySkippedDiagnostics": 2,
+    "receiptRawSha256": "96be0eb16b17b029278072005d0bf72373bfdfaa49a0aca902d7a5f301d24181",
+    "terminalMetadataRawSha256": "81fc089aa6e442387cc09b195a2f4d3b67f1dd9d11a3b32e73cb00482524ddc9"
+  },
+  "migration": {
+    "path": "supabase/migrations/20261012131500_r12_pod_failed_pass_recovery.sql",
+    "sha256": "e4850eb1c4ae8fb1bec1acd4a0357d74c00915e107881542d567e7d5438a2ad4"
+  },
+  "existingIndependentReviewPins": {
+    "eligibility": "dd3cd5a0484475d4a512aac1436fb7450f0a43d713673db4fd0be9254fa1b452",
+    "policy": "85dcaaf6d54a944c85f63f1a29f4579e18903fe4a302eb67c7f721b54033fa3e",
+    "preservedUnchanged": true
+  },
+  "nativeRecovery": {
+    "jobUrl": "https://github.com/SSB100/agent-labs/actions/runs/38265862266/job/114868220865",
+    "fixture": "Disposable native PostgreSQL 17.6, real controller/adapter path with inert transport",
+    "result": "passed",
+    "races": [
+      {
+        "name": "duplicate-recovery-confirm-one-successor",
+        "observedLockWait": true,
+        "waitEvent": "transactionid"
+      },
+      {
+        "name": "competing-recovery-setups-one-successor",
+        "observedLockWait": true,
+        "waitEvent": "transactionid"
+      },
+      {
+        "name": "stop-before-reserved-successor-dispatch-no-marker",
+        "observedLockWait": true,
+        "waitEvent": "transactionid"
+      }
+    ],
+    "firstSuccessorDispatch": {
+      "engine": "native-postgresql",
+      "session": "fresh-backend",
+      "role": "anon",
+      "phase": "successor-first-plan",
+      "statementTimeoutMs": 3000,
+      "elapsedMs": 336.435,
+      "shouldDispatch": true,
+      "rolledBack": true,
+      "providerCalls": 0
+    },
+    "verifiedBoundaries": [
+      "Real post-reservation wire preparation required; missing-wire dispatch rejected.",
+      "One stopped rejected pass followed by one fresh full five-phase reviewed result; predecessor records unchanged.",
+      "Original cumulative limit stops at 25 calls, 5 searches and 5 admissions.",
+      "A failure after four used passes permits exactly one remaining complete pass.",
+      "Owner Stop blocks a prepared reserved successor send; no marker or provider transport; proven-unsent cancellation retains predecessor charges."
+    ],
+    "entrySha256": {
+      "r12-pod-recovery-ci.log": "ae8f04cdb66b7cb56c1085f9b42eb64eddc1081b940030b3adae44fbc1160912",
+      "r12-pod-fresh-backend.json": "4ddfcebb5c06fbb108bac31f3288baa2b1ced4930ccc56ff6619d53f0ccdadc1"
+    }
+  },
+  "hostedBrowser": {
+    "jobUrl": "https://github.com/SSB100/agent-labs/actions/runs/38265862266/job/114868220981",
+    "nextVersion": "16.3.8",
+    "browser": "actual Chromium",
+    "database": "Fresh PGlite with all actual migrations; distinct from native SQL proof",
+    "workflow": "Actual SDK local host, production Workflow/plugin/generated routes unchanged",
+    "provider": "Inert loopback only",
+    "results": [
+      {
+        "name": "actual Next owner route, auth and release verifier render without authority or provider calls",
+        "status": "passed"
+      },
+      {
+        "name": "launch actual isolated Chromium",
+        "status": "passed"
+      },
+      {
+        "name": "general goal and budget prepare an exact review; lost reply recovers the same immutable setup",
+        "status": "passed"
+      },
+      {
+        "name": "actual background Workflow refines a weak pass into a different-query useful second pass within one total cap",
+        "status": "passed"
+      },
+      {
+        "name": "saved sourced second-pass hypothesis retains caveats, reload and Stop without a third pass or repeat calls",
+        "status": "passed"
+      },
+      {
+        "name": "a second ordinary owner run saves a rejected reviewer response and stops through the actual owner UI",
+        "status": "passed"
+      },
+      {
+        "name": "recovery review survives a lost reply and reload while preserving the failed pass and remaining allowance",
+        "status": "passed"
+      },
+      {
+        "name": "explicit recovery approval uses the actual Workflow for a fresh accepted pass while the old review stays rejected",
+        "status": "passed"
+      }
+    ],
+    "externalRequests": 0,
+    "unexpectedErrors": 0,
+    "deniedBoundaryRequests": 0,
+    "leaseHandoff": {
+      "kind": "actual-workflow-controller-snapshot",
+      "at": 1791816849241,
+      "runtimeReadOrdinal": 2,
+      "leaseExpiresAt": "2026-10-12T14:55:07.146+00:00",
+      "providerCalls": 6,
+      "receipts": 6
+    },
+    "negativePathLog": "Expected Workflow FatalError for the deliberately rejected original review is present; no unexpected boundary/runtime RPC errors. Fresh recovery Workflow subsequently passed.",
+    "entrySha256": {
+      "acceptance.json": "89794412836da430d05a64f0098cb8eb1882f1039fb3454cb96642c28e5c7d0c",
+      "isolation.json": "8dcbe109d87ae094b0b7e352e79e1dfa8db6da6a036aa9713e5962de71de603f",
+      "boundary.json": "4875d71ddba471c7227bce9f6e70e2bb9447e4888539c1909d9021468c5a00ff",
+      "build.log": "467f78b0f0379069f25f6dd0c1923f812cb2e6d7948833bc9a1780d36eca29cd",
+      "server.log": "b59120184101a757a7e8cc350e12d5c5e5c74434014f6afab46e0f952ea5a94d"
+    }
+  },
+  "retainedPerformanceRegression": {
+    "scope": "Separate pre-existing historical-shape POD HTTP/controlled-CPU diagnostic, not a recovery-plus-Production-hardware benchmark",
+    "engine": {
+      "version": "PostgreSQL 17.6 (Debian 17.6-2.pgdg13+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit",
+      "server_version": "17.6 (Debian 17.6-2.pgdg13+1)"
+    },
+    "postgrestVersion": "13.0.7",
+    "passed": true,
+    "providerCalls": 0,
+    "sharedBuffersCold": false,
+    "hardwareReplica": false,
+    "nativeDeadlineEnforced": true,
+    "guards": [
+      "business_lock_respects_3s_and_no_marker",
+      "same_native_backend_warmed_stop_and_http_stop_block",
+      "old_unknown_and_new_reservation_retained",
+      "provider_transport_never_called"
+    ],
+    "cachedVariantQuarterCpuMs": [
+      1576,
+      1212
+    ]
+  },
+  "sourceContract": {
+    "ordinarySchemasAndPacksMatchPriorOwnerVerifier": true,
+    "onlyRecoveryPlannerSystemDiffers": true,
+    "currentHeadRecomputedMatchesRecordedContract": true,
+    "sourcePolicyHash": "c7226bd85c587e0e30b6c48301a48274dd9a9556fab45a864baa340aa29edc9b",
+    "sourceExclusions": [
+      "etsy.com",
+      "etsy.me",
+      "etsystatic.com",
+      "nrf.com",
+      "printify.com",
+      "printifyapp.com"
+    ],
+    "comparisonEvidenceFile": "source-contract-verification.json",
+    "comparisonEvidenceRawSha256": "80d35fe92dd6ea3b80191eae561ccb743448ed31258bb2d7605037d6829ec4ff",
+    "provenance": "Existing owner verifier is historical comparison evidence, not a fabricated refreshed endpoint read. The current head was recompiled locally and compared to its recorded schemas/packs without network."
+  },
+  "oldDatabaseCompatibility": {
+    "codeFirstReleaseCompatible": true,
+    "conditions": [
+      "No linked recovery setup/template exists before migration, as observed in the saved preflight.",
+      "Ordinary catalog/prepare/confirm/Stop keep existing RPCs; absent recovery fields resolve to null and unchanged ordinary contracts.",
+      "New recovery RPCs run only on explicit recovery preparation or a saved recovery preview; absent database support fails closed."
+    ],
+    "rollbackCaution": "After migration and a confirmed successor grant, do not treat the new plan as original v1 during code rollback; preserve history and use supported Stop."
+  },
+  "savedProductionPreflight": {
+    "observedAt": "2026-10-12T15:12:58.387581+00:00",
+    "timezone": "UTC",
+    "migrationPresent": false,
+    "recoveryTemplates": 0,
+    "predecessorStopped": true,
+    "predecessorCalls": 5,
+    "predecessorPasses": 1,
+    "parentTemplate": {
+      "id": "a958cb7b-d388-8316-a4b4-5117c23c994b",
+      "revoked": false,
+      "version": "r12.pod-template.2",
+      "pinsHash": "ad917f1047fec43038cc8cee0131b08e08fcb12c7c7dcebdc75ab89a352acf6b",
+      "validUntil": "2026-10-19T02:31:00+00:00",
+      "sourcePolicyHash": "c7226bd85c587e0e30b6c48301a48274dd9a9556fab45a864baa340aa29edc9b",
+      "reviewedBundleHash": "37eccdecbfc4663a3aa07ab48970c81323e826b18263d4eec43a8784fa289b02",
+      "applicationCapabilityHash": "c89e419be540dbe675201c1a51e3be91a6e2876af55c8e284a06797f06e249d3"
+    },
+    "rawSha256": "0af6341f1df72262c04973e833887ff848812f0e0a8d0d5a9824692f2c0e4627",
+    "limitation": "Saved read-only observation, not a new live read by this reviewer or an installation/activation receipt."
+  },
+  "separateRemainingGates": [
+    "Exact production migration/installation approval and transactional readback.",
+    "Exact reviewed .3 template bundle, this execution pin and unchanged eligibility/policy pins; no fabricated new source review or credential.",
+    "Fresh explicit owner confirmation of same Goal/root and remaining-only 20 calls/4 passes/4 searches/up to USD 9.971088; current immutable finance and source validity remain decisive.",
+    "Old USD 0.025 hold stays separate and fully reserved; no ledger cleanup or allowance reset."
+  ],
+  "limitations": [
+    "Native 336.435 ms evidence is a fresh-backend final SQL dispatch with already-prepared wire; it is not cold shared buffers or full HTTP/live-provider timing.",
+    "The historical-shape HTTP test is a separate controlled fixture and does not guarantee Production latency or all contention patterns.",
+    "Browser/database substitutes are disclosed; no paid provider calls or real commercial findings were produced.",
+    "Length-only classification is eligibility evidence, not accepted review, semantic validation, authenticated authority by itself, or permission to follow suggested scraping/actions."
+  ],
+  "artifacts": [
+    {
+      "file": "ci/r12-recovery-http-37478838.zip",
+      "id": 11755389423,
+      "name": "r12-recovery-http-374788383d1dfad7e1199dbcb6e5840ebe5dc5ba",
+      "sha256": "18d80046947b6c4cb6501b10879e02e71a93d4dbe4bbc40b669345ada3e3f398",
+      "githubDigestVerified": true
+    },
+    {
+      "file": "ci/r12-pod-next-37478838.zip",
+      "id": 11756415435,
+      "name": "r12-pod-next-374788383d1dfad7e1199dbcb6e5840ebe5dc5ba",
+      "sha256": "28e6ec3518e3698998da4576c4edc9f423a06ea5102e56dbb23bc577d6884475",
+      "githubDigestVerified": true
+    },
+    {
+      "file": "ci/release-qualification-37478838.zip",
+      "id": 11756282435,
+      "name": "release-qualification-374788383d1dfad7e1199dbcb6e5840ebe5dc5ba",
+      "sha256": "b7afbe73deaf35f3ab605390e0bdd62f21ba3cbfb09192957b1808d698204f75",
+      "githubDigestVerified": true
+    }
+  ],
+  "sourceSha256": {
+    "supabase/migrations/20261012131500_r12_pod_failed_pass_recovery.sql": "e4850eb1c4ae8fb1bec1acd4a0357d74c00915e107881542d567e7d5438a2ad4",
+    "src/products/discovery-r12-pod-recovery.ts": "46859785728aabf45c68f851b8d3e072ee232f4aacc0e770b980f61ee7eeb68d",
+    "src/products/discovery-r12-pod-review-failure.ts": "86dfe09455aed8d33f95def11b09afc37f92f265c7df62308ba531a7d9413ce8",
+    "src/products/discovery-r12-pod-runtime.ts": "de5a00847bcba5600daaa02c3d43ba727ca1b14027614828addf4003e7738d89",
+    "src/products/discovery-r12-pod-owner-server.ts": "7af9cb9256bec68cfeffe52d620ffc00c2c81258f92e0b7c6362c8b4b27ae6d8",
+    "src/products/discovery-r12-pod-owner-contract.ts": "40261d3a7075a1d4dff9baaa45af54f75fcce38add13a1465c4b4115ed9e6dba",
+    "src/products/discovery-r12-pod-analysis.ts": "971392d666ee355bafba50bc60203511f7847fcf6b89008980d6df2fd371a70f",
+    "src/products/discovery-r12-wire.ts": "7f474d31f75c084eab6115a495221e1e0f4355703abeeba15f176e1413eb4a4b",
+    "src/products/discovery-r12-receipt.ts": "cc851a0e35f4e073b966e8acd068f1c06b663d00940dbc6f391aa347ab0200c9",
+    "src/workers/schema-validator.ts": "38030bc424ae0c80e2f126b41748bb6e83a421cca9fb8854e267cb7c1ab1ec99",
+    "src/products/discovery-r12-adapter.ts": "cac634c9196ffa0ef177e7c5bdf706db5d4b0688e777473d75497c991f029de1",
+    "src/products/discovery-r12-server.ts": "6eb9f5ee51cbc251543f81390503a8a8d800e36cbdd3d873f84a97a1d4d0273d",
+    "src/products/discovery-r12-pod-status.ts": "9b286a9853aa6d7a61744118274d39596384576041a0daab3bef559d51fb6135",
+    "src/components/quests/pod-research-workspace.tsx": "8a63b9530287969e7163dff5f58116150b59b221db9da375fb386a7a871227bd",
+    "src/app/dashboard/quests/research/pod/actions.ts": "8055bfaa1e73962781cc67dafd8d3686dc721f7507f50431a7740bed3c6fd0d0",
+    "docs/R12_POD_FAILED_PASS_RECOVERY.md": "911dc7da78422f6cc4814cd55eb14c4f9625f70678b3bfb8c208bcd0a6198504",
+    "src/app/api/research/pod/release/route.ts": "429b6c5b95e8095f4098692ed27406bf1f6907c1403c0100e97b6ecfc1e89b0d"
+  },
+  "reviewerActions": {
+    "productionWrites": 0,
+    "liveDatabaseReads": 0,
+    "providerCalls": 0,
+    "repositoryEdits": 0,
+    "evidenceWrite": "Only this new execution-review.json; old review records and pins preserved."
+  }
+}

@@ -1,0 +1,87 @@
+{
+  "version": "r12.pod-recovery-source-contract-verification.1",
+  "commit": "132b361786382ccc68118d667d9a6e58dd510bc8",
+  "tree": "7d348571664d705fdf5522164c23e4d7831e3e7e",
+  "provenance": "Computed from exact checked-out source using existing current-source compiler. Existing owner-provided verifier is comparison evidence, not a new live endpoint read.",
+  "ordinarySchemasAndPacksMatchPriorOwnerVerifier": true,
+  "onlyRecoveryPlannerSystemDiffers": true,
+  "schemas": {
+    "plan": {
+      "localHash": "db511d623c6a20f26bf6373da878fe3eb51ce1ff0bec49df1df615334773fee0",
+      "wireHash": "7285b4d7f376da6477bc4a775ca7c62d0d776f591dbb1af7b9ca67ecbf049e23",
+      "systemHash": "dca90b45d3e6447dc2362ffece8cf3c832440c7f3feef9a0a846b822e9155eae",
+      "outputLimitsHash": "f9822307667d944c4632629070b391af3ddbdd31333cd30d2129c74e1471c1fc"
+    },
+    "select1": {
+      "localHash": "e1bedf858d2286df3a2007c6a17040eb4c2e42ef8f92c445979be74f02e3a39c",
+      "wireHash": "8ecda611f97e9ad9fb515c985be2eb93cdc1dd034d6e758760e888449d8a5cc9",
+      "systemHash": "32bd2898237eeebe2bf336d781d71ff5f4b49e0a6aea573da824458a66d6fc5e",
+      "outputLimitsHash": "4b5a8ff30291331a54bd9e904b47d8ecd79352763f41288ecf63bc9bd95deab8"
+    },
+    "strategy": {
+      "localHash": "5637450bf3f525d396db3ea3e11127169581d1fdd213d6d86d52806e049c3fcf",
+      "wireHash": "6ad11c598ea4c0a6406eb806a4aa91fd9898b7da111d64a644c4bedc0021b10b",
+      "systemHash": "9b4f35933e4844b8af36be3f2aae308316c5ba11281cf4c88545923b9e421345",
+      "outputLimitsHash": "854c04dc83791f19e21898cfb58971748095bc8a7777b6729250d47c58f11ee4"
+    },
+    "review": {
+      "localHash": "795c08c2b1b8e44deeb6324da82dc6e2c4af46b6d481caef0bbcb221764b1d53",
+      "wireHash": "6993a7b5ceb1e8f05557f363e3980333a18653573b48931f7f4a29c8bad29c65",
+      "systemHash": "ee0aa296907f272bb27f941e6d099d1ae9109700cc3dc5ddd0b5c72a086f4103",
+      "outputLimitsHash": "b8ac46e0861b3a657e4803a41ce62213aa4cb0f78d0a67adc2e7ddfb51bd501b"
+    }
+  },
+  "recoverySchemas": {
+    "plan": {
+      "localHash": "db511d623c6a20f26bf6373da878fe3eb51ce1ff0bec49df1df615334773fee0",
+      "wireHash": "7285b4d7f376da6477bc4a775ca7c62d0d776f591dbb1af7b9ca67ecbf049e23",
+      "systemHash": "11cd922449f69fe5aacbb635d8c48e9195128c1b265a19ede1ea030558d48507",
+      "outputLimitsHash": "f9822307667d944c4632629070b391af3ddbdd31333cd30d2129c74e1471c1fc"
+    },
+    "select1": {
+      "localHash": "e1bedf858d2286df3a2007c6a17040eb4c2e42ef8f92c445979be74f02e3a39c",
+      "wireHash": "8ecda611f97e9ad9fb515c985be2eb93cdc1dd034d6e758760e888449d8a5cc9",
+      "systemHash": "32bd2898237eeebe2bf336d781d71ff5f4b49e0a6aea573da824458a66d6fc5e",
+      "outputLimitsHash": "4b5a8ff30291331a54bd9e904b47d8ecd79352763f41288ecf63bc9bd95deab8"
+    },
+    "strategy": {
+      "localHash": "5637450bf3f525d396db3ea3e11127169581d1fdd213d6d86d52806e049c3fcf",
+      "wireHash": "6ad11c598ea4c0a6406eb806a4aa91fd9898b7da111d64a644c4bedc0021b10b",
+      "systemHash": "9b4f35933e4844b8af36be3f2aae308316c5ba11281cf4c88545923b9e421345",
+      "outputLimitsHash": "854c04dc83791f19e21898cfb58971748095bc8a7777b6729250d47c58f11ee4"
+    },
+    "review": {
+      "localHash": "795c08c2b1b8e44deeb6324da82dc6e2c4af46b6d481caef0bbcb221764b1d53",
+      "wireHash": "6993a7b5ceb1e8f05557f363e3980333a18653573b48931f7f4a29c8bad29c65",
+      "systemHash": "ee0aa296907f272bb27f941e6d099d1ae9109700cc3dc5ddd0b5c72a086f4103",
+      "outputLimitsHash": "b8ac46e0861b3a657e4803a41ce62213aa4cb0f78d0a67adc2e7ddfb51bd501b"
+    }
+  },
+  "packs": [
+    {
+      "packKey": "worker.pod-research-plan",
+      "version": "1.0.0",
+      "manifestHash": "76c65db4ce7846ddef44762ad1e5b772eac4b9b94b438ce1a05186b40545910c"
+    },
+    {
+      "packKey": "worker.pod-research-research",
+      "version": "1.0.0",
+      "manifestHash": "2cf11d7679f69b74fa98de88f06a680fe76a667a1484e33e35366e88eb3db952"
+    },
+    {
+      "packKey": "worker.pod-research-strategy",
+      "version": "1.0.0",
+      "manifestHash": "3b7bf7e407b6d11bb3410a4a66036438ebecb55c079e6c6eb7a85941545cb4c6"
+    },
+    {
+      "packKey": "worker.pod-research-review",
+      "version": "1.0.0",
+      "manifestHash": "73308672118b08882ffa15187a4505ad0d0b749bb6d13860793ea603379af817"
+    },
+    {
+      "packKey": "workflow.pod-research",
+      "version": "1.0.0",
+      "manifestHash": "c706b80d0df52489db2c86af53ee19f33761b6f3af2d883e3b9e583c5498bc49"
+    }
+  ]
+}
