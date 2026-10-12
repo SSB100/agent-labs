@@ -150,3 +150,16 @@ supported reconciliation of the old USD 0.025 needs its own exact-operation
 billing evidence and authorization; it is not implied by the new permission.
 The useful acceptance is the resulting real app-produced report and receipts,
 not fixtures or a separately authored research report.
+
+## Reviewed activation evidence
+
+The [source/recipient review](reviews/r12-pod-20261012/README.md) and canonical
+[hash manifest](reviews/r12-pod-20261012/manifest.json) document the actual
+review evidence. The initial template must include the six reviewed excluded
+domains and expire no later than 2026-10-19T02:31:00Z. These files are not an
+owner approval, current provider-price quote or production activation.
+
+The real Next/Workflow browser fixture keeps production pages, actions, Workflow
+SDK/plugin/routes, controller and migrated SQL, substituting only loopback
+auth/data/provider transports. CI executes it in the normal required Next gate.
+Until that run passes, this is a pending acceptance test, not hosted evidence.

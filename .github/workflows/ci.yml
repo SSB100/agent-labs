@@ -731,8 +731,17 @@ jobs:
           R12_SQL_TEST_HOST: ${{ runner.temp }}/r12-next-sql-host
         run: |
           node tests/next-fixture/knowledge-contracts.mjs
+          node tests/next-fixture/r12-pod-runner.mjs
           node scripts/verify-r03-next.mjs
           node scripts/verify-r12-owner-next.mjs
+      - name: Preserve actual POD owner and Workflow journey
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r12-pod-next-${{ github.sha }}
+          path: test-results/r12-pod-next/
+          if-no-files-found: error
+          retention-days: 14
       - name: Preserve ordinary owner Goal browser evidence
         if: always()
         uses: actions/upload-artifact@v4

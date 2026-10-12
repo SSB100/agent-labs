@@ -51,7 +51,7 @@ test('permission review discloses the actual brief, recipients, retention, cumul
   const f = fixture();
   f.receipt.preview.publicBrief = { objective: OBJECTIVE, publicConstraints: ['Use aggregate adult-buyer observations only.'], fulfilmentContext: 'printful_available' };
   const h = workspace(f, { selected: f.receipt }), markup = html(h.render());
-  for (const expected of [OBJECTIVE, 'Use aggregate adult-buyer observations only.', 'Printful', 'OpenRouter', 'Azure', 'Exa', 'Amazon Bedrock', 'zero-data-retention', 'Exa may retain queries', 'improve or train', 'Agent Labs retains', 'USD 0.500000', 'USD 1.000000', 'USD 0.300000', 'USD 0.600000', 'USD 0.100000', 'Earlier costs stay counted', '30 minutes after approval', 'another 30 minutes', 'already incurred charges remain payable', 'No refund', 'no subscription']) assert.ok(markup.includes(expected), expected);
+  for (const expected of [OBJECTIVE, 'Use aggregate adult-buyer observations only.', 'Printful', 'OpenRouter', 'Azure', 'Exa', 'Amazon Bedrock', 'retained public excerpts, selected evidence and assessment', 'zero-data-retention', 'Exa may retain queries', 'improve or train', 'Agent Labs retains', 'USD 0.500000', 'USD 1.000000', 'USD 0.300000', 'USD 0.600000', 'USD 0.100000', 'Earlier costs stay counted', '30 minutes after approval', 'another 30 minutes', 'already incurred charges remain payable', 'No refund', 'no subscription']) assert.ok(markup.includes(expected), expected);
   assert.equal(elements(h.render(), e => e.type === 'input' && e.props.type === 'checkbox')[0].props.checked, false);
   assert.equal(button(h.render(), 'Approve and research').props.disabled, true);
   assert.equal(h.calls.length, 0, 'Reading the approval packet never confirms it');
