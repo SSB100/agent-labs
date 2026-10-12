@@ -125,7 +125,19 @@ async function rejectedPass(db,{failureOrdinal=0}={}){
 async function classifierAdversaries(db,failed){
  const {c,classified,originalReview}=failed,schema=podSource('products/discovery-r12-pod-analysis').podResearchSchema('review');
  const assessment=c.inputs.dependencies.find(d=>d.stepKey==='strategy').candidate.output;
- const classify=raw=>podOne(db,'select private.r12_pod_length_classification($1,$2,$3,$4,$5) classified',[raw,schema,assessment,c.history.evidence,classified.evidenceHash]);
+ // pg encodes a top-level JS array as a PostgreSQL array literal. PGlite
+ // accepts that same JS value as JSON, which previously hid native 22P02.
+ // Explicit JSON text and casts keep every classifier JSON argument portable.
+ const classifierArgs=raw=>[raw,schema,assessment,c.history.evidence].map(value=>JSON.stringify(value)).concat(classified.evidenceHash);
+ const classify=raw=>podOne(db,'select private.r12_pod_length_classification($1::jsonb,$2::jsonb,$3::jsonb,$4::jsonb,$5::text) classified',classifierArgs(raw));
+ const require=createRequire(path.resolve(host,'package.json'));
+ assert.equal(require('pg/package.json').version,'8.16.3','Binding check uses the pinned native CI client');
+ const {prepareValue}=require(path.join(path.dirname(require.resolve('pg')),'utils.js'));
+ const args=classifierArgs(originalReview),bound=args.map(value=>prepareValue(value));
+ assert.deepEqual(bound,args,'pg must send the explicit JSON texts unchanged');
+ assert.deepEqual(bound.slice(0,4).map(value=>JSON.parse(value)),[originalReview,schema,assessment,c.history.evidence]);
+ assert.notEqual(prepareValue(c.history.evidence),bound[3],'The original bare-array binding must remain distinguishable from JSON text');
+ assert.deepEqual((await podOne(db,'select private.r12_pod_length_classification($1::jsonb,$2::jsonb,$3::jsonb,$4::jsonb,$5::text) classified',bound)).classified,classified,'Actual pg-bound text must satisfy the same SQL classifier');
  assert.deepEqual((await classify(originalReview)).classified,classified);
  const mutations=[
   ['owned extra key',r=>r.extra='unauthorized'],

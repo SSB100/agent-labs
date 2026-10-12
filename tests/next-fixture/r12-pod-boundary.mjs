@@ -20,6 +20,37 @@ export const POD_INERT_RELEASE = { VERCEL_ENV: 'production', VERCEL_GIT_COMMIT_S
 export function podSafeRpcError(error) {
   return { code: /^[0-9A-Z]{5}$/.test(error?.code ?? '') ? error.code : null, reason: /^r\d{2}_[a-z][a-z0-9_]{1,95}$/.test(error?.message ?? '') ? error.message : 'redacted_database_error' };
 }
+const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+function pendingPodData(response, label) {
+  assert.ok(object(response), `${label}: missing RPC envelope`);
+  assert.equal(response.error, null, `${label}: RPC error must not be treated as pending`);
+  if (response.data === null) return null;
+  assert.ok(object(response.data), `${label}: malformed present data`);
+  return response.data;
+}
+// UI clicks return before the server action has created the scope/controller.
+// Only an explicit successful null read means pending; failures stay visible.
+export function podNextRejectedReviewReady(response) {
+  const status = pendingPodData(response, 'POD rejected-review progress');
+  if (status === null) return false;
+  assert.ok(Array.isArray(status.phases), 'POD progress must contain saved phases');
+  for (const phase of status.phases) {
+    assert.ok(object(phase) && typeof phase.phase === 'string' && typeof phase.status === 'string', 'POD saved phase is malformed');
+    if (phase.responseDiagnostic !== undefined && phase.responseDiagnostic !== null) {
+      assert.ok(object(phase.responseDiagnostic) && typeof phase.responseDiagnostic.code === 'string' && typeof phase.responseDiagnostic.observationSaved === 'boolean' && Array.isArray(phase.responseDiagnostic.issues), 'POD response diagnostic is malformed');
+    }
+  }
+  return status.phases.some(phase => phase.phase === 'review' && phase.responseDiagnostic?.code === 'response_schema');
+}
+export function podNextRecoveryResultReady(response, summary) {
+  const saved = pendingPodData(response, 'POD recovery result');
+  assert.ok(object(summary) && (summary.head === null || object(summary.head) && typeof summary.head.state === 'string'), 'POD pass summary is malformed');
+  if (saved === null) return false;
+  assert.equal(saved.version, 'r12.pod-saved-result.2', 'POD saved result version is malformed');
+  assert.ok(Number.isInteger(saved.context?.attempt?.adaptiveActionOrdinal), 'POD saved result pass is malformed');
+  assert.ok(['HYPOTHESIS_TO_TEST', 'INSUFFICIENT_EVIDENCE'].includes(saved.current?.candidate?.output?.outcome), 'POD saved result outcome is malformed');
+  return saved.context.attempt.adaptiveActionOrdinal === 1 && saved.current.candidate.output.outcome === 'HYPOTHESIS_TO_TEST' && summary.head?.state === 'completed';
+}
 export function assertPodLeaseQuiet(logs, handoff) {
   const index = logs.indexOf(handoff), expiry = Date.parse(handoff.leaseExpiresAt);
   assert.ok(index >= 0 && Number.isFinite(expiry) && expiry > handoff.at, 'The real controller snapshot must expose a live prior lease');

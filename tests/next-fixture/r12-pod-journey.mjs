@@ -4,7 +4,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { chromium } from 'playwright-core';
 import { captureOwnerJourneyFailure } from './r12-owner-initial-journey.mjs';
-import { assertPodLeaseQuiet } from './r12-pod-boundary.mjs';
+import { assertPodLeaseQuiet, podNextRejectedReviewReady, podNextRecoveryResultReady } from './r12-pod-boundary.mjs';
 import { POD_OBJECTIVE, POD_PHASES, podInertOutputs } from '../helpers/r12-pod-sql-fixture.mjs';
 
 const waitUntil = async (check, description, timeout = 90000) => {
@@ -163,8 +163,7 @@ export async function runPodNextJourney({ origin, boundary, output, fixture, htt
         const confirmed = await action('confirmPodResearchAction', input(), selectedPath()); assert.equal(confirmed.ok, true, confirmed.message); assert.equal(confirmed.runtimeStarted, true);
       }
       await waitUntil(async () => {
-        const status = await boundary.progress(receipt.scopeId); assert.equal(status.error, null);
-        return status.data.phases.some(phase => phase.phase === 'review' && phase.responseDiagnostic?.code === 'response_schema');
+        return podNextRejectedReviewReady(await boundary.progress(receipt.scopeId));
       }, 'the actual Workflow preserving the synthetic length-rejected independent review');
       assert.deepEqual(sentPhases().slice(failedCallsStart), POD_PHASES.map(phase => ({ ordinal: 0, phase })));
       assert.equal((await boundary.result(receipt.scopeId)).data, null);
@@ -228,7 +227,7 @@ export async function runPodNextJourney({ origin, boundary, output, fixture, htt
       await waitUntil(async () => {
         assert.deepEqual(boundary.logs.filter(event => event.kind === 'actual-workflow-rpc-error'), [], 'Recovery runtime errors cannot be hidden by a longer wait');
         const saved = await boundary.result(receipt.scopeId), summary = await boundary.passSummary(receipt.scopeId);
-        return saved.data?.current.candidate.output.outcome === 'HYPOTHESIS_TO_TEST' && summary.head?.state === 'completed';
+        return podNextRecoveryResultReady(saved, summary);
       }, 'the real background Workflow completing a fresh independently accepted recovery pass', 180000);
       assert.ok(boundary.logs.filter(event => event.kind === 'actual-workflow-runtime-read').length > runtimeReadsBefore);
       assert.deepEqual(sentPhases().slice(failedCallsStart), expectedPhases, 'Exactly one failed pass and one fresh pass are charged; the rejected reviewer is never resent');

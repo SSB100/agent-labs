@@ -13,7 +13,7 @@ export function ciGateMode(eventName,event){
   const mode=event.inputs?.gate;
   assert.ok(['focused','release'].includes(mode),'Unknown requested gate');return mode;
  }
- assert.ok(eventName==='push'&&['refs/heads/main','refs/heads/codex/r12-steel-insights-wip-20261010','refs/heads/codex/r12-single-release-successor-20261011','refs/heads/codex/r12-stable-connections-20261011','refs/heads/codex/r12-login-free-research-entry-20261011','refs/heads/codex/r12-goal-driven-public-research-20261012'].includes(event.ref),'Unsupported qualification event');
+ assert.ok(eventName==='push'&&['refs/heads/main','refs/heads/codex/r12-steel-insights-wip-20261010','refs/heads/codex/r12-single-release-successor-20261011','refs/heads/codex/r12-stable-connections-20261011','refs/heads/codex/r12-login-free-research-entry-20261011','refs/heads/codex/r12-goal-driven-public-research-20261012','refs/heads/codex/r12-pod-counted-review-repair-20261012'].includes(event.ref),'Unsupported qualification event');
  return 'release';
 }
 export function qualifyRelease({mode,needs,commit,tree}){

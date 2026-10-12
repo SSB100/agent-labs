@@ -6,7 +6,7 @@ import { createHash, createHmac } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
-import { seedPodNextDatabase, podNextProvider, podNextFailedReview, podNextAudit, assertPodLeaseQuiet, podSafeRpcError } from './next-fixture/r12-pod-boundary.mjs';
+import { seedPodNextDatabase, podNextProvider, podNextFailedReview, podNextAudit, podNextRejectedReviewReady, podNextRecoveryResultReady, assertPodLeaseQuiet, podSafeRpcError } from './next-fixture/r12-pod-boundary.mjs';
 import { R12_INERT_ROOT } from './next-fixture/r12-sql.mjs';
 import { podRpc, podQuoteFixture, podInertOutputs, podSource, podHash, POD_PHASES } from './helpers/r12-pod-sql-fixture.mjs';
 const host = process.env.R12_SQL_TEST_HOST;
@@ -35,6 +35,29 @@ test('the existing Next journey adds failed-pass recovery after its ordinary two
   for (const rpc of ['r12_pod_recovery_read', 'r12_pod_recovery_owner_server']) assert.ok(boundary.includes(rpc));
   assert.match(boundary, /schemas: podSource\('products\/discovery-r12-pod-runtime'\)\.podResearchSchemaPins\(true\)/);
   assert.doesNotMatch(boundary, /update\s+private\.r12_(?:discovery_response_observations|discovery_candidates|pod_templates)/i);
+});
+test('async owner confirmation polls successful null progress until the real rejected review exists', () => {
+  const rejected = { phase: 'review', status: 'dispatched', responseDiagnostic: { code: 'response_schema', observationSaved: true, issues: [{ path: '$.nextTest', constraint: 'max_length', limit: 400 }] } };
+  const sequence = [null, null, { phases: [] }, { phases: [{ phase: 'plan', status: 'reserved' }] }, { phases: [rejected] }];
+  assert.deepEqual(sequence.map(data => podNextRejectedReviewReady({ error: null, data })), [false, false, false, false, true]);
+  assert.equal(podNextRejectedReviewReady({ error: null, data: { phases: [{ ...rejected, responseDiagnostic: null }] } }), false);
+  for (const response of [null, {}, { error: { message: 'Synthetic RPC failure' }, data: null }, { error: null },
+    ...[false, [], {}, { phases: null }, { phases: [null] }, { phases: [{ phase: 'review' }] }, { phases: [{ ...rejected, responseDiagnostic: {} }] }].map(data => ({ error: null, data }))]) {
+    assert.throws(() => podNextRejectedReviewReady(response), /POD/, 'Only successful explicit null is pending; malformed present status and real errors must fail');
+  }
+});
+test('recovery result polling waits for async scope/result creation but exposes RPC and present-shape failures', () => {
+  const completed = { head: { state: 'completed' } }, running = { head: { state: 'running' } }, absent = { head: null };
+  const result = { version: 'r12.pod-saved-result.2', context: { attempt: { adaptiveActionOrdinal: 1 } }, current: { candidate: { output: { outcome: 'HYPOTHESIS_TO_TEST' } } } };
+  assert.deepEqual([null, null, result, result].map((data, index) => podNextRecoveryResultReady({ error: null, data }, [absent, running, running, completed][index])), [false, false, false, true]);
+  assert.equal(podNextRecoveryResultReady({ error: null, data: { ...result, current: { candidate: { output: { outcome: 'INSUFFICIENT_EVIDENCE' } } } } }, completed), false);
+  assert.equal(podNextRecoveryResultReady({ error: null, data: { ...result, context: { attempt: { adaptiveActionOrdinal: 0 } } } }, completed), false);
+  for (const response of [{ error: { message: 'Synthetic result failure' }, data: null }, { error: null },
+    ...[{}, { ...result, version: 'old' }, { ...result, context: {} }, { ...result, current: {} }].map(data => ({ error: null, data }))]) assert.throws(() => podNextRecoveryResultReady(response, completed), /POD/);
+  for (const summary of [null, {}, { head: [] }, { head: {} }]) assert.throws(() => podNextRecoveryResultReady({ error: null, data: null }, summary), /summary/);
+  const journey = readFileSync(new URL('./next-fixture/r12-pod-journey.mjs', import.meta.url), 'utf8');
+  assert.match(journey, /podNextRejectedReviewReady\(await boundary\.progress\(receipt\.scopeId\)\)/);
+  assert.match(journey, /podNextRecoveryResultReady\(saved, summary\)/);
 });
 test('every Next runner uses the same unmodified R12 dependency fixture, including POD quote forwarding', () => {
   for (const file of ['../scripts/verify-r03-next.mjs', '../scripts/verify-r12-owner-next.mjs', './next-fixture/r12-pod-runner.mjs']) {
