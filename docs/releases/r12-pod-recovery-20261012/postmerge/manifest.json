@@ -1,0 +1,45 @@
+{
+  "version": "r12.pod-recovery-postmerge-files.1",
+  "files": [
+    {
+      "path": "docs/releases/r12-pod-recovery-20261012/postmerge/main-run-38270215077-attempt1-sha256.json",
+      "rawSha256": "c38bc8b46cc8b62ff5a73934d0e2307ff24435ebf52d84bf8737469fe9af04e8",
+      "gitBlobSha": "f31900fab81c5e93b41d30f0907806557ee060b8"
+    },
+    {
+      "path": "docs/releases/r12-pod-recovery-20261012/postmerge/main-release-qualification-attempt1-37478838.json",
+      "rawSha256": "1272deddeadff1cc3747b4a06b47c1f1e3e51133b0390eb9cedaff3f904352d2",
+      "gitBlobSha": "cc0acc2a93a293d76ab9103f93992375d821a265"
+    },
+    {
+      "path": "docs/releases/r12-pod-recovery-20261012/postmerge/main-job-114882343586-ecr-rate-limit.log",
+      "rawSha256": "dfea3199b592e8cd7f5617c23a4a91de23f8738c0183bc748335cbab0899b90c",
+      "gitBlobSha": "62e4e012eaa985156af4fe25f93d1e0411acab80"
+    },
+    {
+      "path": "docs/releases/r12-pod-recovery-20261012/postmerge/main-job-114882344936-ecr-rate-limit.log",
+      "rawSha256": "6297177c6a211b1d6988a3db47daab45a8d67a67ae3c45078f268e46484ce41f",
+      "gitBlobSha": "049c68f699c3174939c2edd639d98bef4d5566fe"
+    },
+    {
+      "path": "docs/releases/r12-pod-recovery-20261012/postmerge/main-job-114882351862-ecr-rate-limit.log",
+      "rawSha256": "e7e82a7a49b537c203108acd873ce456e100dcdeb25a14a3b75c298ea9022bd1",
+      "gitBlobSha": "70d67b6ad8bb5bbcf688553822afb3d2077061ad"
+    },
+    {
+      "path": "docs/releases/r12-pod-recovery-20261012/postmerge/main-job-114882352576-ecr-rate-limit.log",
+      "rawSha256": "ae907a137455c93020968dc4b20a0a4bc1ce9b302818fd9b71199561f7654349",
+      "gitBlobSha": "5573a5de410c3a66f0daaa9f629b97896f90a264"
+    },
+    {
+      "path": "docs/releases/r12-pod-recovery-20261012/postmerge/main-run-38270215077-attempt1-terminal.json.gz",
+      "rawSha256": "9c77cfac192436d45a452d1fa5927469f447d78ed37939e4698f211da5e0f9c3",
+      "gitBlobSha": "3364bcc3fa0bc4ab895c0883359f1d841fc2fd69"
+    },
+    {
+      "path": "docs/releases/r12-pod-recovery-20261012/postmerge/outcome.json",
+      "rawSha256": "ba076dc123fe3d0b238151d957b5a87594710d52bc3d8a1ad6e8beed9fd0095f",
+      "gitBlobSha": "59a07105a47b9c9dc83d2cb06728211d28194f4e"
+    }
+  ]
+}

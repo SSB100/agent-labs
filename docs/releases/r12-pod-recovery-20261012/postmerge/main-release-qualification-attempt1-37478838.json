@@ -1,0 +1,10 @@
+{
+  "version": "agent-labs.release-qualification.1",
+  "qualified": false,
+  "mode": "release",
+  "commit": "374788383d1dfad7e1199dbcb6e5840ebe5dc5ba",
+  "tree": "1353d381777bff9183ee34b24711ec00cf60820a",
+  "eventName": "push",
+  "runId": "38270215077",
+  "reason": "Required release check did not succeed: r12-direct\n+ actual - expected\n\n+ 'failure'\n- 'success'\n"
+}

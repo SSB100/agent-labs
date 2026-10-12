@@ -1,0 +1,45 @@
+{
+  "version": "r12.pod-recovery-postmerge-outcome.1",
+  "observedAt": "2026-10-12T15:57:54Z",
+  "runId": 38270215077,
+  "runUrl": "https://github.com/SSB100/agent-labs/actions/runs/38270215077",
+  "commit": "374788383d1dfad7e1199dbcb6e5840ebe5dc5ba",
+  "tree": "1353d381777bff9183ee34b24711ec00cf60820a",
+  "conclusion": "failure",
+  "successfulJobs": 87,
+  "intentionalDiagnosticSkips": 2,
+  "infrastructureFailuresBeforeCheckout": [
+    114882343586,
+    114882344936,
+    114882351862,
+    114882352576
+  ],
+  "dependentAggregateFailure": 114894159582,
+  "failureCause": "ECR PostgreSQL image initialization: toomanyrequests Data limit exceeded on three pulls; all four jobs stopped before checkout/tests. Dependent r12-direct aggregate therefore failed.",
+  "criticalResults": {
+    "nativeRecovery": "success",
+    "observedLockRaces": 3,
+    "freshBackendAnonDispatchMs": 177.934,
+    "statementTimeoutMs": 3000,
+    "actualBrowserAndWorkflow": "success"
+  },
+  "originalExactHeadQualification": {
+    "runId": 38265862266,
+    "qualified": true,
+    "successfulJobs": 92,
+    "intentionalDiagnosticSkips": 2,
+    "allRequiredGroups": 15,
+    "unchanged": true
+  },
+  "retriesPerformed": 0,
+  "closureDecision": "Persist transparent outcome without rerunning identical already-qualified commit.",
+  "activationBundleCanonicalHash": "27170bb8af63834f0d2a282188ada66c62019d9fbfee3f51a56e1f1e39a2047a",
+  "activationBundleChanged": false,
+  "productionMigrationApplied": false,
+  "templateInstalled": false,
+  "ownerGrantCreated": false,
+  "providerCalls": 0,
+  "rawTerminalSnapshot": "main-run-38270215077-attempt1-terminal.json.gz",
+  "rawUncompressedSha256": "4d3f92d4b8fe2714d4d563d5892fca315f9b3328daa1b08233e31ef40109a26c",
+  "artifactRetentionNote": "Hash manifest includes GitHub-hosted ZIP artifacts; only the aggregate JSON, terminal snapshot and four infrastructure logs are copied here. Earlier exact qualification and independent technical review remain in the parent evidence directory."
+}
