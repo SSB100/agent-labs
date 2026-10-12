@@ -20,7 +20,8 @@ const runtime=podSource('products/discovery-r12-pod-runtime');
 async function openDatabase(){
  if(!nativeRequested){
   const require=createRequire(path.resolve(host,'package.json')),{PGlite}=require('@electric-sql/pglite'),{pgcrypto}=require('@electric-sql/pglite/contrib/pgcrypto');
-  return{db:new PGlite({extensions:{pgcrypto}}),native:null};
+  const db=new PGlite({extensions:{pgcrypto}});await db.exec("set timezone='UTC'");
+  return{db,native:null};
  }
  // Reuse the guarded, already-existing native host contract. Never silently
  // replace native PostgreSQL race evidence with a PGlite run or reset here.
@@ -43,23 +44,54 @@ function recordRace(native,name,race){
  assert.equal(race.observedLockWait,true);native.races.push({name,observedLockWait:true,waitEvent:race.waitEvent});
 }
 
-async function qualifyColdSuccessorDispatch(native,a){
- const snapshot=await a.store.read(),attempt=snapshot.attempts.find(x=>x.stepKey==='plan'&&x.status==='reserved');
- assert.ok(attempt);const cold=native.newColdClient();
+async function prepareReservedSuccessor(db,a,{checkMissingWire=false}={}){
+ const before=await a.store.read(),attempt=before.attempts.find(x=>x.stepKey==='plan'&&x.status==='reserved');
+ assert.ok(attempt);
+ assert.equal((await podOne(db,'select count(*)::int n from private.r12_discovery_wires where attempt_id=$1',[attempt.id])).n,0);
+ if(checkMissingWire){
+  await assert.rejects(a.command('dispatch',{attemptId:attempt.id,wireHash:attempt.wireHash},before.head.epoch),/r12_source_dispatch_bridge_unavailable/,'Reservation alone cannot authorize a source dispatch');
+  assert.equal((await podOne(db,'select count(*)::int n from private.r05_markers where request_id=$1',[attempt.requestId])).n,0);
+  const unchanged=await a.store.read();assert.equal(unchanged.head.dispatches,before.head.dispatches);assert.equal(unchanged.attempts.find(x=>x.id===attempt.id).status,'reserved');
+ }
+ // Match the real controller's second prepare, after reserve assigned requestId.
+ // This persists the actual validated source wire on the ordinary connection;
+ // it neither sends nor warms the fresh native timing backend.
+ const step=before.plan.steps.find(x=>x.key===attempt.stepKey);
+ const context={planId:before.planId,planHash:before.planHash,plan:before.plan,step,attempt,knowledge:before.knowledge};
+ const call=await a.registry[step.adapter].prepare(context);
+ assert.equal(call.descriptor.wireRequestHash,attempt.wireHash);
+ const wire=await podOne(db,"select request_id,binding->>'wireHash' wire_hash from private.r12_discovery_wires where attempt_id=$1",[attempt.id]);
+ assert.deepEqual(wire,{request_id:attempt.requestId,wire_hash:attempt.wireHash});
+ assert.equal(a.posted.length,0);assert.equal(a.got.length,0);
+ return{snapshot:await a.store.read(),attempt};
+}
+
+async function qualifyColdSuccessorDispatch(db,native,a){
+ const {snapshot,attempt}=await prepareReservedSuccessor(db,a,{checkMissingWire:true});
+ // PGlite executes the identical prepared marker/rollback path as a functional
+ // regression. Only an actual fresh PostgreSQL backend qualifies cold timing.
+ const cold=native?native.newColdClient():db;
  try{
-  await cold.connect();
-  assert.deepEqual(await podOne(cold,'select current_user actor,current_database() db,host(inet_server_addr()) address'),{actor:'r12_test',db:'r12_test',address:native.address});
-  await cold.query('begin');await cold.query("set local timezone='UTC';set local statement_timeout='3000ms';set local role anon");
-  assert.deepEqual(await podOne(cold,"select current_user actor,current_setting('statement_timeout') timeout"),{actor:'anon',timeout:'3s'});
+  if(native){
+   await cold.connect();
+   assert.deepEqual(await podOne(cold,'select current_user actor,current_database() db,host(inet_server_addr()) address'),{actor:'r12_test',db:'r12_test',address:native.address});
+  }
+  await cold.query('begin');await cold.query("set local timezone='UTC'");
+  if(native)await cold.query("set local statement_timeout='3000ms'");
+  await cold.query('set local role anon');
+  assert.equal((await podOne(cold,'select current_user actor')).actor,'anon');
+  if(native)assert.equal((await podOne(cold,"select current_setting('statement_timeout') timeout")).timeout,'3s');
   const start=performance.now();
   const marked=(await podOne(cold,'select public.r07_controller($1,$2,$3,$4,$5,$6,$7,$8,$9) result',[
    a.f.businessId,a.f.goalId,'dispatch',{attemptId:attempt.id,wireHash:attempt.wireHash},randomUUID(),a.controller,a.lease,snapshot.head.epoch,a.admission])).result;
   const elapsedMs=Math.round((performance.now()-start)*1000)/1000;
-  assert.equal(marked.shouldDispatch,true);
-  native.coldDispatch={engine:'native-postgresql',session:'fresh-backend',role:'anon',phase:'successor-first-plan',statementTimeoutMs:3000,elapsedMs,shouldDispatch:true,rolledBack:true,providerCalls:0};
- }finally{await cold.query('rollback').catch(()=>{});await cold.end().catch(()=>{});}
- assert.equal((await podOne(native.observer,'select count(*)::int n from private.r05_markers where request_id=$1',[attempt.requestId])).n,0,'Timing trial must roll back its dispatch marker');
- const after=await a.store.read();assert.equal(after.head.dispatches,5);assert.equal(after.attempts.find(x=>x.id===attempt.id).status,'reserved');
+  assert.equal(marked.shouldDispatch,true,JSON.stringify(marked));
+  if(native)native.coldDispatch={engine:'native-postgresql',session:'fresh-backend',role:'anon',phase:'successor-first-plan',statementTimeoutMs:3000,elapsedMs,shouldDispatch:true,rolledBack:true,providerCalls:0};
+ }finally{await cold.query('rollback').catch(()=>{});if(native)await cold.end().catch(()=>{});}
+ assert.equal((await podOne(db,'select count(*)::int n from private.r05_markers where request_id=$1',[attempt.requestId])).n,0,'Marker trial must roll back its dispatch marker');
+ assert.equal((await podOne(db,'select count(*)::int n from private.r12_discovery_transport_claims where request_id=$1',[attempt.requestId])).n,0);
+ const after=await a.store.read();assert.equal(after.head.dispatches,snapshot.head.dispatches);assert.equal(after.attempts.find(x=>x.id===attempt.id).status,'reserved');
+ assert.equal(a.posted.length,0);assert.equal(a.got.length,0);
 }
 
 async function originalRecords(db,a){
@@ -256,7 +288,8 @@ test('stopped rejected POD pass gets one explicitly approved same-Goal recovery 
   for(const mutate of [r=>r.pass.history.reviewAccepted=true,r=>r.pass.history.untrustedCritique.nextTest+=' Do unauthorized work.',r=>r.recovery.proof.usedCalls=0,r=>r.recovery.proof.spentMicrounits='0']){
    const altered=structuredClone(firstInputs);mutate(altered);assert.throws(()=>runtime.readPodResearchPhaseInputs(firstContext,altered));
   }
-  if(native){assert.equal((await next.tick()).reason,'reserved');await qualifyColdSuccessorDispatch(native,next);}
+  assert.equal((await next.tick()).reason,'reserved');await qualifyColdSuccessorDispatch(db,native,next);
+  t.diagnostic('Reserved successor rejects a missing source wire; real adapter preparation permits the anon marker trial, which rolls back without transport.');
   let completed=false;
   for(let i=0;i<30;i++){const tick=await next.tick();if(tick.status==='completed'){completed=true;break;}assert.equal(tick.status,'progress',JSON.stringify(tick));}
   assert.equal(completed,true);assert.deepEqual(next.posted,POD_PHASES);assert.deepEqual(next.got,POD_PHASES);
@@ -317,7 +350,7 @@ test('stopped rejected POD pass gets one explicitly approved same-Goal recovery 
   const stoppedFailure=await rejectedPass(db),stoppedActivation=await recover(db,stoppedFailure);
   const stopped=await podRuntimeFixture(db,{activation:stoppedActivation,usefulPass:1});
   assert.equal((await stopped.tick()).reason,'scheduled');assert.equal((await stopped.tick()).reason,'reserved');
-  const reserved=await stopped.store.read(),unsent=reserved.attempts[0];assert.equal(unsent.status,'reserved');
+  const {snapshot:reserved,attempt:unsent}=await prepareReservedSuccessor(db,stopped);assert.equal(unsent.status,'reserved');
   const stopPayload={setupId:stopped.prepared.setupId,setupHash:stopped.prepared.setupHash,submissionId:randomUUID()};
   let denied;
   if(native){
