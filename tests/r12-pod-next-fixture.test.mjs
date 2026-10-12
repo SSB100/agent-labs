@@ -37,6 +37,21 @@ test('the existing Next journey adds failed-pass recovery after its ordinary two
   assert.match(boundary, /podThoroughSqlTemplate\(db,.*recovery: true/s);
   assert.doesNotMatch(boundary, /update\s+private\.r12_(?:discovery_response_observations|discovery_candidates|pod_templates)/i);
 });
+test('POD browser expands complete saved findings and provenance in ordinary and recovery result journeys', () => {
+  const journey = readFileSync(new URL('./next-fixture/r12-pod-journey.mjs', import.meta.url), 'utf8');
+  const disclosures = journey.slice(journey.indexOf('async function assertPodResultDetails('), journey.indexOf('export async function runPodNextJourney('));
+  for (const label of ['Full findings and assessment', 'Sources and quoted evidence', 'Full independent review', 'Research provenance']) assert.ok(disclosures.includes(label), label);
+  for (const details of ['findings', 'sources', 'review', 'provenance']) assert.ok(disclosures.includes(`await ${details}.locator('summary').click()`), details);
+  assert.ok(disclosures.indexOf("await sources.locator('summary').click()") < disclosures.indexOf("source.getAttribute('href')"), 'Open the native evidence disclosure before reading its visible source link');
+  for (const proof of ['expected.review.rationale.slice(0, 600)', 'expected.review.nextTest.slice(0, 600)', 'expected.strategy.explorationSummary', 'expected.select1.selections[0].quote', 'expected.plan.query', 'POD_PHASES.map']) assert.ok(disclosures.includes(proof), proof);
+  assert.doesNotMatch(disclosures, /includeHidden|evaluate|setAttribute/);
+  assert.match(journey, /const secondOutput = podNextThoroughOutputs\(1\)/);
+  assert.equal(journey.match(/await assertPodResultDetails\(page, secondOutput, receipt.scopeId\)/g)?.length, 4, 'Check original result, reload, counted malformed recovery, and explicit recovery');
+  for (const stage of ['saved sourced second-pass hypothesis', 'a malformed thorough review', 'explicit recovery approval']) {
+    const start = journey.indexOf(`await check('${stage}`), end = journey.indexOf('await check(', start + 1);
+    assert.ok(start >= 0, stage); assert.match(journey.slice(start, end < 0 ? undefined : end), /await assertPodResultDetails\(page, secondOutput, receipt.scopeId\)/);
+  }
+});
 test('async owner confirmation polls successful null progress until the real rejected review exists', () => {
   const rejected = { phase: 'review', status: 'dispatched', responseDiagnostic: { code: 'response_schema', observationSaved: true, issues: [{ path: '$.nextTest', constraint: 'max_length', limit: 400 }] } };
   const sequence = [null, null, { phases: [] }, { phases: [{ phase: 'plan', status: 'reserved' }] }, { phases: [rejected] }];

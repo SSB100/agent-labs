@@ -36,6 +36,13 @@ export async function r11RefreshSqlCases(t,{db,user,authSession,key,envelope,Cli
  await t.test('R11 fresh-token lazy read has zero refresh markers and consumes its GET exactly once',async()=>{
   const f=await fixture(),w=await f.window({mode:'lazy'}),a=await f.begin(w);assert.equal(a.needsRefresh,false);await assert.rejects(f.step('mark_refresh',a.operationId),/not_dispatchable/);await f.step('mark_read',a.operationId);await f.step('complete',a.operationId,{proof:f.proof()});assert.equal(await value('select count(*)::int result from private.r11_etsy_read_attempts where window_id=$1 and refresh_marked_at is not null',[w]),0);assert.equal((await f.begin(w)).status,'exhausted');
  });
+ await t.test('R11 observation chronology rejects even one microsecond before the saved read marker',async()=>{
+  const f=await fixture(),w=await f.window({mode:'lazy'}),a=await f.begin(w);await f.step('mark_read',a.operationId);
+  const early=await value("select (read_marked_at-interval '1 microsecond')::text result from private.r11_etsy_read_attempts where id=$1",[a.operationId]);
+  await assert.rejects(f.step('complete',a.operationId,{proof:{...f.proof(),verifiedAt:early}}),/r11_invalid_observation_time/);
+  const pending=await value('select to_jsonb(a) result from private.r11_etsy_read_attempts a where id=$1',[a.operationId]);assert.equal(pending.status,'read_marked');assert.equal(pending.proof,null);
+  await f.step('complete',a.operationId,{proof:f.proof()});assert.equal((await f.begin(w,a.operationId)).status,'succeeded');
+ });
  await t.test('R11 new read authority does not inherit the expired historical setup deadline',async()=>{
   const f=await fixture({setupMs:400}),w=await f.window({mode:'lazy'});await new Promise(r=>setTimeout(r,500));const a=await f.begin(w);assert.equal(a.shouldDispatch,true);await f.step('mark_read',a.operationId);await f.step('complete',a.operationId,{proof:f.proof()});
  });

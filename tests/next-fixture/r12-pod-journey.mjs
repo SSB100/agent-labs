@@ -4,21 +4,63 @@ import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { chromium } from 'playwright-core';
 import { captureOwnerJourneyFailure } from './r12-owner-initial-journey.mjs';
-import { podNextRejectedReviewReady, podNextRecoveryResultReady } from './r12-pod-boundary.mjs';
-import { POD_OBJECTIVE, POD_PHASES, podInertOutputs } from '../helpers/r12-pod-sql-fixture.mjs';
+import { podNextRejectedReviewReady, podNextRecoveryResultReady, podNextThoroughOutputs, POD_INERT_RELEASE } from './r12-pod-boundary.mjs';
+import { POD_OBJECTIVE, POD_PHASES } from '../helpers/r12-pod-sql-fixture.mjs';
 
 const waitUntil = async (check, description, timeout = 90000) => {
   const until = Date.now() + timeout;
   while (Date.now() < until) { if (await check()) return; await new Promise(resolve => setTimeout(resolve, 100)); }
   throw Error(`Timed out: ${description}`);
 };
+// Follow the owner's disclosure controls: a collapsed result must stay concise,
+// while the complete saved findings, attribution and receipts remain reachable.
+async function assertPodResultDetails(page, expected, scopeId) {
+  const result = page.getByRole('region', { name: 'Sourced research result', exact: true });
+  const disclosure = name => result.locator('details').filter({ has: page.locator('summary').filter({ hasText: new RegExp(`^${name}$`) }) });
+  const findings = disclosure('Full findings and assessment'), sources = disclosure('Sources and quoted evidence');
+  const review = disclosure('Full independent review'), provenance = disclosure('Research provenance');
+  for (const details of [findings, sources, review, provenance]) assert.equal(await details.getAttribute('open'), null, 'Saved results start with concise summaries');
+  assert.ok(expected.review.rationale.length > 600 && expected.review.nextTest.length > 600, 'Exercise actual long thorough output');
+  const summaries = result.locator(':scope > p');
+  assert.equal(await summaries.nth(0).innerText(), `${expected.review.rationale.slice(0, 600)}… (Full text below)`);
+  assert.equal(await summaries.nth(2).innerText(), `${expected.review.nextTest.slice(0, 600)}… (Full text below)`);
+  assert.equal(await result.getByRole('link', { name: /E1: Inert public-source fixture/ }).count(), 0, 'Collapsed evidence is not exposed as a visible link');
+
+  await findings.locator('summary').click();
+  assert.equal(await findings.locator(':scope > p').nth(0).innerText(), expected.review.rationale);
+  assert.equal(await findings.locator(':scope > p').nth(1).innerText(), expected.review.nextTest);
+  assert.equal(await findings.locator(':scope > p').nth(2).innerText(), expected.strategy.explorationSummary);
+  await findings.getByRole('heading', { name: `Recommended hypothesis: ${expected.strategy.candidates[0].productType} · ${expected.strategy.candidates[0].niche}`, exact: true }).waitFor();
+
+  await sources.locator('summary').click();
+  const source = sources.getByRole('link', { name: 'E1: Inert public-source fixture', exact: true });
+  await source.waitFor({ state: 'visible' });
+  assert.equal(await source.getAttribute('href'), expected.search1.annotations[0].url_citation.url);
+  const attribution = source.locator('..');
+  assert.equal(await attribution.locator('p').innerText(), expected.select1.selections[0].quote);
+  assert.match(await attribution.locator('small').innerText(), /Retrieved .+; publication date not verified/);
+
+  await review.locator('summary').click();
+  await review.getByRole('heading', { name: 'Independent review', exact: true }).waitFor();
+  const checks = await review.getByRole('listitem').allInnerTexts();
+  assert.equal(checks.length, expected.review.checks.length);
+  for (const [index, check] of expected.review.checks.entries()) {
+    assert.ok(checks[index].includes(`${check.check.replaceAll('_', ' ')}: ${check.verdict}`));
+    assert.ok(checks[index].includes(check.rationale), 'The full independent review is preserved');
+  }
+  await provenance.locator('summary').click();
+  assert.equal(await provenance.locator(':scope > p').nth(0).innerText(), `Submitted query: ${expected.plan.query}`);
+  assert.equal(await provenance.locator(':scope > p').nth(1).innerText(), expected.plan.sourceChoiceRationale);
+  const release = `${POD_INERT_RELEASE.VERCEL_GIT_COMMIT_SHA.slice(0, 12)} · ${POD_INERT_RELEASE.VERCEL_DEPLOYMENT_ID}`;
+  assert.deepEqual((await provenance.getByRole('listitem').allInnerTexts()).sort(), POD_PHASES.map(phase => `${phase}: ${release} · gen-r12-pod-next-${scopeId}-1-${phase}`).sort());
+}
 export async function runPodNextJourney({ origin, boundary, output, fixture, httpOnly = false }) {
   const results = [], external = [], errors = [];
   let browser = null, page = null, receipt = null, failedReceipt = null, failedAudit = null, failedCallsStart = 0, originalGoals = null, leaseHandoff = null, browserStatus = httpOnly ? 'unrun: explicitly HTTP-only' : 'not started';
   const current = () => boundary.state().r12;
   const expectedPhases = [0, 1].flatMap(ordinal => POD_PHASES.map(phase => ({ ordinal, phase })));
   const sentPhases = () => current().calls.map(({ ordinal, phase }) => ({ ordinal, phase }));
-  const secondOutput = podInertOutputs({ passOrdinal: 1, useful: true });
+  const secondOutput = podNextThoroughOutputs(1);
   let basePath = `/dashboard/quests/research/pod?business=${current().businessId}`;
   const selectedPath = () => `${basePath}&setup=${receipt.setupId}`;
   const report = () => writeFile(path.join(output, 'acceptance.json'), JSON.stringify({ results, browser: browserStatus, workflowHost: 'actual SDK local host; production workflow/plugin/generated routes unchanged', provider: 'inert loopback only; no paid calls or live permission', leaseHandoff, external, errors }, null, 2));
@@ -122,9 +164,10 @@ export async function runPodNextJourney({ origin, boundary, output, fixture, htt
       const html = await read(selectedPath());
       for (const phrase of ['A hypothesis worth testing', 'Earlier passes remain saved as audit evidence', 'Sources and quoted evidence', 'What remains unknown', 'Independent review', 'inert-sql-fixture', 'Research provenance']) assert.ok(html.includes(phrase), phrase);
       if (page) {
-        assert.equal(await page.getByRole('link', { name: /E1: Inert public-source fixture/ }).getAttribute('href'), secondOutput.search1.annotations[0].url_citation.url);
+        await assertPodResultDetails(page, secondOutput, receipt.scopeId);
         assert.match(await page.locator('main').innerText(), /Research pass 2 of 5/);
         await page.reload(); await page.getByRole('heading', { name: 'A hypothesis worth testing', exact: true }).waitFor();
+        await assertPodResultDetails(page, secondOutput, receipt.scopeId);
         for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }]) { await page.setViewportSize(viewport); const geometry = await page.evaluate(() => ({ viewport: document.documentElement.clientWidth, content: document.documentElement.scrollWidth })); assert.ok(geometry.content <= geometry.viewport + 1, 'POD result has no horizontal page overflow'); await page.screenshot({ path: path.join(output, `pod-result-${viewport.width}.png`), fullPage: true }); }
         await page.getByRole('button', { name: 'Stop research', exact: true }).click(); await waitUntil(async () => (await getSaved()).stopped, 'saved Stop');
         await page.getByRole('button', { name: 'Stop research', exact: true }).waitFor({ state: 'hidden' });
@@ -156,6 +199,7 @@ export async function runPodNextJourney({ origin, boundary, output, fixture, htt
       assert.equal(summary.closures.reduce((sum, pass) => sum + Number(pass.committed_microunits), 0), 100);
       if (page) {
         await page.goto(origin + selectedPath()); await page.getByRole('heading', { name: 'A hypothesis worth testing', exact: true }).waitFor();
+        await assertPodResultDetails(page, secondOutput, receipt.scopeId);
         assert.equal(await page.getByRole('button', { name: 'Review next-pass recovery', exact: true }).count(), 0);
         await page.screenshot({ path: path.join(output, 'pod-counted-failure-result.png'), fullPage: true });
         await page.getByRole('button', { name: 'Stop research', exact: true }).click(); await waitUntil(async () => (await getSaved()).stopped, 'Stop after counted recovery');
@@ -266,6 +310,7 @@ export async function runPodNextJourney({ origin, boundary, output, fixture, htt
         assert.match(await page.locator('main').innerText(), /Research pass 2 of 5/);
         assert.match(await page.locator('main').innerText(), /Total known cost across the original and recovery: USD 0\.000100/);
         await page.reload(); await page.getByRole('heading', { name: 'A hypothesis worth testing', exact: true }).waitFor();
+        await assertPodResultDetails(page, secondOutput, receipt.scopeId);
         await page.screenshot({ path: path.join(output, 'pod-recovery-result.png'), fullPage: true });
       }
       assert.equal(current().calls.length, 30); assert.deepEqual(external, []); assert.deepEqual(errors, []);

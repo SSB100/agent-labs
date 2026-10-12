@@ -3,6 +3,7 @@ import {randomUUID} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 import {createRequire} from 'node:module';
 import {runInNewContext} from 'node:vm';
+import {setTimeout as delay} from 'node:timers/promises';
 const require=createRequire(import.meta.url),ts=require('typescript');
 const C=require('../../.core-tests/connections/contracts.js'),V=require('../../.core-tests/accounts/vault.js'),E=require('../../.core-tests/connections/etsy-read.js'),R=require('../../.core-tests/connections/etsy-refresh.js');
 const {etsyConnectionReadiness}=require('../../.core-tests/connections/readiness.js');
@@ -22,7 +23,17 @@ export async function r11ConnectionAcceptance(t,{db,user,authSession,key}){
     if(type==='refresh_token'){assert.equal(new URLSearchParams(init.body).get('refresh_token'),'100.inert-initial-refresh');currentAccess='100.inert-refreshed-access';}
     body={token_type:'Bearer',access_token:currentAccess,refresh_token:type==='authorization_code'?'100.inert-initial-refresh':'100.inert-refreshed-refresh',scope:'shops_r listings_r',expires_in:type==='authorization_code'?60:3600};
    }else if(u==='https://api.etsy.com/v3/application/users/100/shops'){assert.equal(method,'GET');calls.push('shop');body={user_id:100,shop_id:shopId,shop_name:shopName,currency_code:'NZD'};}
-   else{assert.equal(u,`https://api.etsy.com/v3/application/shops/${shopId}/listings?state=draft&limit=1&offset=0`);assert.equal(method,'GET');calls.push('drafts');if(failGet)throw Error('inert interrupted GET');body={count:0,results:[]};}
+   else{
+    assert.equal(u,`https://api.etsy.com/v3/application/shops/${shopId}/listings?state=draft&limit=1&offset=0`);assert.equal(method,'GET');calls.push('drafts');if(failGet)throw Error('inert interrupted GET');
+    // A zero-latency inert response can finish in the dispatch millisecond.
+    // PostgreSQL retains microseconds, but the real verifier's Date does not.
+    // Wait for the saved marker's next representable millisecond rather than
+    // fabricating a future verifiedAt or relaxing the production SQL guard.
+    const markers=(await db.query("select ceil(extract(epoch from read_marked_at)*1000)::double precision response_after_ms from private.r11_etsy_read_attempts where window_id=$1 and status='read_marked'",[windowId])).rows;
+    assert.ok(markers.length<=1);
+    if(markers.length){const after=markers[0].response_after_ms;assert.ok(Number.isSafeInteger(after));while(Date.now()<after)await delay(after-Date.now(),undefined,{signal:init.signal});}
+    body={count:0,results:[]};
+   }
    if(method==='GET')assert.equal(headers.get('authorization'),`Bearer ${currentAccess}`);
    return new Response(JSON.stringify(body),{headers:{'content-type':'application/json'}});
   };
@@ -52,6 +63,8 @@ export async function r11ConnectionAcceptance(t,{db,user,authSession,key}){
   const receipts=(await server.readConnectionQualification(context,businessId)).readAttempts;assert.ok(receipts.find(a=>a.id===first).executionReceipts.every(r=>r.release.commitSha==='a'.repeat(40)));assert.ok(receipts.find(a=>a.id===second).executionReceipts.every(r=>r.release.commitSha==='b'.repeat(40)));
   failGet=true;const interrupted=randomUUID();await assert.rejects(runtime.performEtsyDraftStatusRead(context,businessId,windowId,interrupted),/unverified/);const dispatched=calls.length;assert.equal((await runtime.reconcileEtsyDraftStatusRead(context,businessId,interrupted)).status,'failed');assert.equal((await runtime.performEtsyDraftStatusRead(context,businessId,windowId,interrupted)).status,'failed');assert.equal(calls.length,dispatched);
   failGet=false;assert.equal((await runtime.performEtsyDraftStatusRead(context,businessId,windowId,randomUUID())).status,'succeeded');
+  const chronology=(await db.query("select count(*)::int total,count(*) filter(where status='succeeded' and (proof->>'verifiedAt')::timestamptz>=read_marked_at)::int verified,count(*) filter(where status='failed' and proof is null)::int interrupted from private.r11_etsy_read_attempts where window_id=$1",[windowId])).rows[0];
+  assert.deepEqual(chronology,{total:4,verified:3,interrupted:1});
   await runtime.revokeEtsyReadWindow(context,businessId,windowId);const stoppedCalls=calls.length;await assert.rejects(runtime.performEtsyDraftStatusRead(context,businessId,windowId,randomUUID()));assert.equal((await runtime.reconcileEtsyDraftStatusRead(context,businessId,second)).status,'succeeded');assert.equal(calls.length,stoppedCalls);assert.equal((await server.readConnectionQualification(context,businessId)).readWindows[0].state,'revoked');
   assert.equal(calls.filter(c=>c==='authorization_code').length,1);assert.equal(calls.filter(c=>c==='refresh_token').length,1);
  });
