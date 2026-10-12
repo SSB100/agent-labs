@@ -42,6 +42,7 @@ export async function exerciseOwnerInitialRuntime(db, { legacy = null, onComplet
   // Multiple runtime scenarios share the native race database. Derive each
   // fixture grant from its Business/owner/grant IDs instead of the default key.
   const f = await ownerInitialSqlFixture(db, { ...fixtureOptions, legacy, bootstrapRoot: 'inert-owner-initial-runtime-bootstrap-root-0123456789' });
+  const diagnosticBaseline = fixtureOptions.beforeInitialFunding ? await one(db,"select (select (private.r12_owner_funding(b)->>'committedMicrounits')::int from private.r12_owner_funding_bindings b where business_id=$1) committed,(select count(*)::int from public.product_experiments where business_id=$1) experiments",[f.businessId]) : null;
   const prepared = await f.prepare();
   const root = 'inert-owner-initial-root-configuration-0123456789';
   const derive = role => createHmac('sha256', root).update(JSON.stringify({ version: 'r12.scoped-authority.1', role, businessId: f.businessId, ownerId: f.ownerId, scopeId: prepared.scopeId })).digest('base64url');
@@ -139,18 +140,18 @@ export async function exerciseOwnerInitialRuntime(db, { legacy = null, onComplet
     runtime.reconstructDiscoveryR12Result(rawResult.data, f.businessId, scope.id);
     const saved = await owner.readDiscoveryR12Result(context, f.businessId, scope.id);
     assert.equal(saved.available, true); assert.ok(saved.record); assert.equal(saved.record.review.outcome, 'NEEDS_MORE_EVIDENCE'); assert.equal(saved.record.phaseReceipts.length, 5);
-    assert.equal(saved.record.executionAuthorized, false); assert.equal(saved.record.ownerInitial.fundingKind, legacy ? 'legacy_research_root' : 'r05_business'); assert.equal(saved.record.objective, f.content.objective);
+    assert.equal(saved.record.executionAuthorized, false); assert.equal(saved.record.ownerInitial.fundingKind, f.legacy ? 'legacy_research_root' : 'r05_business'); assert.equal(saved.record.objective, f.content.objective);
     const wallClock = Date.now;
     try { Date.now = () => wallClock() + 2 * 86400000; assert.deepEqual(runtime.reconstructDiscoveryR12Result(rawResult.data, f.businessId, scope.id), saved.record, 'historical receipt replay must not renew or require a currently live profile'); }
     finally { Date.now = wallClock; }
     const complete = await owner.readDiscoveryR12Workspace(context, f.businessId, scope.id);
-    assert.equal(complete.available, true); assert.equal(complete.record.cost.knownMicrousd, '50'); assert.equal(complete.record.rootFunding.committedMicrousd, 50 + (legacy?.committedMicrounits ?? 0)); assert.equal(complete.record.rootFunding.pendingExposureMicrousd, 0);
+    assert.equal(complete.available, true); assert.equal(complete.record.cost.knownMicrousd, '50'); assert.equal(complete.record.rootFunding.committedMicrousd, 50 + (diagnosticBaseline?.committed ?? legacy?.committedMicrounits ?? 0)); assert.equal(complete.record.rootFunding.pendingExposureMicrousd, 0);
     const reviewAttempt = final.attempts.find(a => a.stepKey === 'review');
     const raw = await rpc('r12_discovery_server', [f.businessId, reviewAttempt.id, 'inputs', {}, controller]);
     if (raw.error) throw raw.error;
     assert.equal(raw.data.version, 'r12.discovery-owner-initial-inputs.1'); assert.equal(raw.data.inputMode, 'receipt'); assert.equal(raw.data.committedMicrousd, 40);
     assert.equal(raw.data.committedMicrousd, raw.data.dependencies.reduce((n, d) => n + Number(d.candidate.reportedMicrousd), 0));
-    assert.equal((await one(db, 'select count(*)::int n from public.product_experiments where business_id=$1', [f.businessId])).n, legacy ? 1 : 0, 'owner-initial execution creates no legacy experiment');
+    assert.equal((await one(db, 'select count(*)::int n from public.product_experiments where business_id=$1', [f.businessId])).n, diagnosticBaseline?.experiments ?? (legacy ? 1 : 0), 'owner-initial execution creates no legacy experiment');
     if (onCompleted) return await onCompleted({ f, prepared, activated, scope, saved: saved.record, rawResult: rawResult.data, context, server, owner, store, controller, admission });
     // Synthetic later activity is seeded only to test historical isolation.
     // A current funding mismatch or newer unfinished round must block fresh
@@ -166,7 +167,7 @@ export async function exerciseOwnerInitialRuntime(db, { legacy = null, onComplet
     const laterHistory = await owner.readDiscoveryR12Result(context, f.businessId, scope.id);
     assert.equal(laterHistory.available, true); assert.deepEqual(laterHistory.record, saved.record);
     const laterWorkspace = await owner.readDiscoveryR12Workspace(context, f.businessId, scope.id);
-    assert.equal(laterWorkspace.available, true); assert.equal(laterWorkspace.record.rootFunding.pendingExposureMicrousd, 1000); assert.equal(laterWorkspace.record.rootFunding.committedMicrousd, 1050 + (legacy?.committedMicrounits ?? 0));
+    assert.equal(laterWorkspace.available, true); assert.equal(laterWorkspace.record.rootFunding.pendingExposureMicrousd, 1000); assert.equal(laterWorkspace.record.rootFunding.committedMicrousd, 1050 + (diagnosticBaseline?.committed ?? legacy?.committedMicrounits ?? 0));
     // Catalog revocation blocks new use but leaves historical verification and
     // the exact key-free owner Stop available.
     await db.query('insert into private.r12_owner_profile_revocations(profile_id,reason) values($1,$2)', [f.profileId, 'Synthetic post-completion revocation']);

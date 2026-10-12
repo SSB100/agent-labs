@@ -6,8 +6,9 @@ import path from 'node:path';
 import {validateOwnerInitialRaceEnvironment} from './r12-owner-initial-postgres-races.mjs';
 import {setupRecoveryFixture} from './r12-steel-setup-recovery-fixture.mjs';
 import {podSqlFixture,podQuoteFixture,podPlannerPreflight,podRpc,podOne,podHash,podSource} from './r12-pod-sql-fixture.mjs';
-export async function historicalPodActivate(db){
- const x=await setupRecoveryFixture(db),business=x.f.businessId;
+export async function historicalPodActivate(db,{seedHistory=null}={}){
+ let legacyShape=null;
+ const x=await setupRecoveryFixture(db,{beforeInitialFunding:seedHistory?async(database,fixture)=>{legacyShape=await seedHistory(database,fixture);return legacyShape;}:null}),business=x.f.businessId;
  await x.stop();const recovered=await x.recovery('record',{...x.pins,usage:x.usage});assert.equal(recovered.status,'qualified_bounded_pending');
  const catalog=await podSqlFixture(db),content=structuredClone(catalog.content);
  const goal=await x.f.rpc('r04_quest_transition',[business,'quest.save',{goalId:null,expectedRevision:0,content},randomUUID()]);
@@ -25,11 +26,12 @@ export async function historicalPodActivate(db){
  const pass=(operation,payload={})=>podRpc(db,'anon',null,'r12_pod_pass_server',[f.businessId,prepared.scopeId,operation,payload,controller]);
  const store={read:()=>command('read',{}),readAdaptiveAction:()=>pass('context'),command:(op,payload,epoch)=>op==='adaptive_complete_action'?pass('complete',payload):command(op,['schedule','reserve'].includes(op)?{...payload,runtimeCapability:'inert-pod-runtime-'+prepared.scopeId}:payload,epoch)};
  const inputs=attemptId=>podRpc(db,'anon',null,'r12_discovery_server',[f.businessId,attemptId,'inputs',{},controller]);
- return{f,prepared,activated,controller,admission,lease,command,store,inputs,pass,operations:authority.operations,plan:authority.plan,scope:(await podOne(db,'select amendment from private.r12_discovery_scopes where id=$1',[prepared.scopeId])).amendment};
+ return{f,prepared,activated,controller,admission,lease,command,store,inputs,pass,operations:authority.operations,plan:authority.plan,legacyShape,scope:(await podOne(db,'select amendment from private.r12_discovery_scopes where id=$1',[prepared.scopeId])).amendment};
 }
 
-export async function seedPodDiagnosticHistory(db,a){
- for(let i=0;i<23;i++){
+export async function seedPodDiagnosticHistory(db,a,additionalUnsent=0){
+ assert.ok(additionalUnsent===0||additionalUnsent===1);
+ for(let i=0;i<23+additionalUnsent;i++){
   const w=randomUUID(),r=randomUUID(),key='diagnostic-settled-history:'+r;
   await db.query("insert into public.workflow_runs(id,business_id,workflow_definition_id,idempotency_key,status,input) values($1,$2,$3,$4,'completed',$5)",[w,a.f.businessId,a.plan.steps[0].workflowDefinitionId,key,{syntheticDiagnosticHistory:true}]);
   const policy=(await podOne(db,'select policy_id from private.r12_pod_setups where scope_id=$1',[a.scope.id])).policy_id;
@@ -43,7 +45,7 @@ export async function seedPodDiagnosticHistory(db,a){
 
 }
 
-export async function preparePodDispatchProfile(db){
+export async function preparePodDispatchProfile(db,{seedHistory=null,additionalUnsent=0}={}){
  const fixtureDb={exec:(...args)=>db.exec(...args),query:async(sql,args)=>{
   if(sql.startsWith('insert into private.r12_pod_templates(')){
    // Keep the full six-domain/919-byte shape without a punctuation-sensitive
@@ -55,7 +57,7 @@ export async function preparePodDispatchProfile(db){
   }
   return db.query(sql,args);
  }};
- const a=await historicalPodActivate(fixtureDb);await seedPodDiagnosticHistory(db,a);
+ const a=await historicalPodActivate(fixtureDb,{seedHistory});await seedPodDiagnosticHistory(db,a,additionalUnsent);
  await a.pass('admit',{quote:podQuoteFixture()});const action=await a.pass('context'),claim=await a.command('claim',{seconds:120}),attemptId=randomUUID();
  await a.store.command('schedule',{stepKey:'plan',attemptId,actionHash:action.actionHash,actionOrdinal:action.ordinal,reason:'Inert first planner dispatch profile',evidenceHash:'8'.repeat(64)},claim.epoch);
  let snapshot=await a.store.read();const context=()=>({planId:snapshot.planId,planHash:snapshot.planHash,plan:snapshot.plan,attempt:snapshot.attempts.find(a=>a.id===attemptId),step:snapshot.plan.steps[0],knowledge:snapshot.knowledge});

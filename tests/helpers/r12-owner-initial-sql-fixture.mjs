@@ -30,7 +30,7 @@ export function ownerConfirmPayload(prepared){
  assert.ok(pin,'Prepared SQL fixture requires a genuine owner planner preflight');
  return {setupId:prepared.setupId,setupHash:prepared.setupHash,submissionId:randomUUID(),controllerKeyHash:sha('inert-controller-'+prepared.scopeId),admissionKeyHash:sha('inert-admission-'+prepared.scopeId),quote:pin.quote,preflight:pin.receipt};
 }
-export async function ownerInitialSqlFixture(db,{maximumScopes=4,maximumAllocation=8000000,objective='Investigate original astronomy T-shirt opportunities for adult buyers.',legacy=null,bootstrapRoot=null}={}){
+export async function ownerInitialSqlFixture(db,{maximumScopes=4,maximumAllocation=8000000,objective='Investigate original astronomy T-shirt opportunities for adult buyers.',legacy=null,bootstrapRoot=null,beforeInitialFunding=null}={}){
  const ownerId=randomUUID(),businessId=randomUUID(),profileId=randomUUID(),bindingId=randomUUID(),rootId=randomUUID(),grantId=randomUUID();
  await db.query('insert into auth.users(id,email) values($1,$2)',[ownerId,ownerId+'@example.invalid']);
  await db.query('insert into public.businesses(id,owner_user_id,name) values($1,$2,$3)',[businessId,ownerId,'Inert owner-goal research']);
@@ -64,6 +64,7 @@ export async function ownerInitialSqlFixture(db,{maximumScopes=4,maximumAllocati
     await db.query('insert into public.product_research_cost_settlements(business_id,reservation_id,reported_microusd,provider_request_id,fingerprint) values($1,$2,$3,$4,$5)',[businessId,rid,cost,receipt,'5'.repeat(64)]);}
   }}
  }
+ if(beforeInitialFunding){assert.equal(legacy,null,'Diagnostic pre-cap history cannot replace an existing root');const history=await beforeInitialFunding(db,{f:{businessId,ownerId},plan:{steps:[{workflowDefinitionId:fd.id}]}});assert.ok(history.fundingRoot);legacy=history.fundingRoot;}
  await db.query("insert into private.r12_owner_funding_bindings(id,business_id,kind,authority_root_id,original_semantic_goal_hash) values($1,$2,$3,$4,$5)",[bindingId,businessId,legacy?'legacy_research_root':'r05_business',legacy?.rootId??businessId,legacy?.semanticHash??null]);
  await db.query('insert into private.r12_owner_grant_roots(id,business_id,binding_id,maximum_scopes,maximum_allocation_microunits,approval_hash) values($1,$2,$3,$4,$5,$6)',[rootId,businessId,bindingId,maximumScopes,maximumAllocation,'1'.repeat(64)]);
  await db.query('insert into private.r12_owner_bootstrap_grants(id,root_id,business_id,owner_id,profile_id,server_key_hash,approval_hash,valid_from,valid_until,business_revision,business_hash) values($1,$2,$3,$4,$5,$6,$7,$8,$9,1,$10)',[grantId,rootId,businessId,ownerId,profileId,sha(bootstrapKey),'2'.repeat(64),profile.validFrom,profile.validUntil,businessHash]);
