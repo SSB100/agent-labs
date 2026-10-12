@@ -11,6 +11,7 @@ import {sessionBootstrap} from './helpers/r10-sql-fixture.mjs';
 import {validateOwnerInitialRaceEnvironment} from './helpers/r12-owner-initial-postgres-races.mjs';
 import {preparePodDispatchProfile} from './helpers/r12-pod-dispatch-profile.mjs';
 import {seedLegacyShape} from './helpers/r12-pod-diagnostic-legacy.mjs';
+import {exercisePodHttpStress} from './helpers/r12-pod-http-stress.mjs';
 import {podOne} from './helpers/r12-pod-sql-fixture.mjs';
 
 const root=fileURLToPath(new URL('../',import.meta.url));
@@ -22,7 +23,7 @@ test('Current POD dispatch is the first application call on each fresh native ba
  const report={version:'r12.pod-fresh-backend-diagnostic.1',releaseQualified:false,providerCalls:0,
   candidateFirst:true,sharedBuffersCold:false,history:'synthetic aggregate shape; no private rows exported',trials:[]};
  const clients=[],originalFetch=globalThis.fetch;let externalHttp=0;
- globalThis.fetch=async()=>{externalHttp++;throw Error('External HTTP forbidden in this isolated diagnostic');};
+ globalThis.fetch=async(input,...args)=>{const u=new URL(typeof input==='string'?input:input.url??String(input));if(process.env.R12_POD_HTTP_STRESS==='1'&&u.protocol==='http:'&&u.hostname==='127.0.0.1')return originalFetch(input,...args);externalHttp++;throw Error('External HTTP forbidden in this isolated diagnostic');};
  const connect=async label=>{const db=new Client({connectionString:target.url,ssl:false,connectionTimeoutMillis:5000,application_name:label});clients.push(db);await db.connect();db.exec=sql=>db.query(sql);return db;};
  try{
   const setup=await connect('pod-fresh-setup');report.setupPid=setup.processID;
@@ -31,6 +32,7 @@ test('Current POD dispatch is the first application call on each fresh native ba
   await setup.exec(r04SqlBootstrap+sessionBootstrap);
   for(const file of readdirSync(root+'/supabase/migrations').filter(f=>f.endsWith('.sql')).sort())await setup.exec(readFileSync(root+'/supabase/migrations/'+file,'utf8'));
   assert.equal((await podOne(setup,"select current_setting('server_version_num') version")).version,'170006','Diagnostic must match live PostgreSQL17.6');
+  report.engine=await podOne(setup,"select version() version,current_setting('server_version') server_version");
   const signature='private.r12_pod_bounded_source(uuid,text,bigint)';
   const original=await podOne(setup,"select pg_get_functiondef(p.oid) definition,p.prosrc body,p.oid,p.proowner,p.proacl,p.provolatile,p.prosecdef,p.proisstrict,p.proleakproof,p.proparallel,p.procost,p.prorows,p.proconfig from pg_proc p where p.oid=$1::regprocedure",[signature]);
   const cached=(generic=false)=>`CREATE OR REPLACE FUNCTION private.r12_pod_bounded_source(b uuid,source text,p_held bigint) RETURNS boolean LANGUAGE plpgsql STABLE SECURITY INVOKER SET search_path='' ${generic?"SET plan_cache_mode='force_generic_plan'":''} AS $diagnostic$ BEGIN RETURN (${original.body.trim().replace(/;$/, '')}); END $diagnostic$`;
@@ -54,7 +56,8 @@ test('Current POD dispatch is the first application call on each fresh native ba
   const backendPids=new Set([report.setupPid]);
   const counters=async db=>Object.fromEntries((await db.query("select schemaname||'.'||funcname name,calls,total_time total_ms,self_time self_ms from pg_stat_xact_user_functions where schemaname in ('private','public')")).rows.map(r=>[r.name,r]));
   const controls=await connect('pod-isolated-variant-control');
-  try{for(const [variant,definition] of [['current_sql',original.definition],['cached_auto',cached()],['cached_generic',cached(true)]]){
+  try{if(process.env.R12_POD_HTTP_STRESS==='1'){report.http={};await exercisePodHttpStress({db:controls,a,claim,original:original.definition,candidate:cached(true),fingerprint,initial,report:report.http});}
+  else for(const [variant,definition] of [['current_sql',original.definition],['cached_auto',cached()],['cached_generic',cached(true)]]){
    await controls.exec(definition);
    const attributes=await podOne(controls,"select p.oid,p.proowner,p.proacl,p.provolatile,p.prosecdef,p.proisstrict,p.proleakproof,p.proparallel,p.procost,p.prorows,p.proconfig from pg_proc p where p.oid=$1::regprocedure",[signature]);
    const {body,definition:originalDefinition,...expected}=original;void body;void originalDefinition;
@@ -104,12 +107,12 @@ test('Current POD dispatch is the first application call on each fresh native ba
   const control=await connect('pod-fresh-deadline-control');await control.exec("set statement_timeout='3s'");
   await assert.rejects(control.query('select pg_sleep(3.2)'),error=>error.code==='57014');report.nativeDeadlineEnforced=true;
   assert.equal(externalHttp,0);
-  report.passed=report.trials.every(t=>!t.error&&t.result?.shouldDispatch===true&&t.elapsedMs<3000);
+  report.passed=report.http?.passed??report.trials.every(t=>!t.error&&t.result?.shouldDispatch===true&&t.elapsedMs<3000);
   assert.equal(report.passed,true,'A fresh candidate backend must complete the unchanged full dispatch within three seconds');
  }finally{
   globalThis.fetch=originalFetch;
   await Promise.all(clients.map(db=>db.end().catch(()=>{})));
   writeFileSync('/tmp/r12-pod-fresh-backend.json',JSON.stringify(report,null,2)+'\n');
-  console.log('POD fresh-backend diagnostic:',JSON.stringify({passed:report.passed??false,releaseQualified:false,providerCalls:0,trials:report.trials.map(({functions,...t})=>({...t,functionCount:functions?.length??0}))}));
+  console.log('POD fresh-backend diagnostic:',JSON.stringify({passed:report.passed??false,releaseQualified:false,providerCalls:0,http:report.http,trials:report.trials.map(({functions,...t})=>({...t,functionCount:functions?.length??0}))}));
  }
 });

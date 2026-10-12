@@ -52,3 +52,22 @@ mode also applies to nested planning while the function executes; a gain
 cannot be attributed solely to its outer query. Null/wrong-source/insufficient-hold and warmed-plan revocation
 cases preserve full unknown exposure. Definitions are restored afterward.
 No production migration is proposed or installed by this diagnostic.
+
+## HTTP and controlled-resource comparison
+
+Exact17.6 direct native results: currentSQL first dispatch869/874ms; automatic
+PL/pgSQL690/690ms; function-local generic412/420ms. The latter reduced the
+bounded proof from~519ms to~69ms across9calls. All variants passed equivalent
+boolean guards and retained full unknown exposure. The live timeout is still
+not reproduced by that unconstrained native result.
+
+The final diagnostic uses pinned official PostgREST13.0.7, anon's ordinary3s
+statement limit, a single-connection pool and a fresh process per pair. The
+real RPC runs with mandatory transaction rollback so the same immutable
+request can be compared. Every response checks the complete unchanged
+financial/marker/attempt fingerprint. Only the isolated service container is
+limited to1CPU then0.25CPU, with its original resource setting restored. This
+is controlled headroom testing, not a replica of Production hardware.
+A held Business-row lock must time out without a marker; a genuine committed
+isolated ownerStop after warming must block further dispatch and retain holds.
+No broad qualification run, Production change or provider dispatch is added.
