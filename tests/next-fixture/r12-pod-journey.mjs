@@ -4,6 +4,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { chromium } from 'playwright-core';
 import { captureOwnerJourneyFailure } from './r12-owner-initial-journey.mjs';
+import { assertPodLeaseQuiet } from './r12-pod-boundary.mjs';
 import { POD_OBJECTIVE, POD_PHASES, podInertOutputs } from '../helpers/r12-pod-sql-fixture.mjs';
 
 const waitUntil = async (check, description, timeout = 90000) => {
@@ -13,14 +14,14 @@ const waitUntil = async (check, description, timeout = 90000) => {
 };
 export async function runPodNextJourney({ origin, boundary, output, fixture, httpOnly = false }) {
   const results = [], external = [], errors = [];
-  let browser = null, page = null, receipt = null, browserStatus = httpOnly ? 'unrun: explicitly HTTP-only' : 'not started';
+  let browser = null, page = null, receipt = null, leaseHandoff = null, browserStatus = httpOnly ? 'unrun: explicitly HTTP-only' : 'not started';
   const current = () => boundary.state().r12;
   const expectedPhases = [0, 1].flatMap(ordinal => POD_PHASES.map(phase => ({ ordinal, phase })));
   const sentPhases = () => current().calls.map(({ ordinal, phase }) => ({ ordinal, phase }));
   const secondOutput = podInertOutputs({ passOrdinal: 1, useful: true });
   const basePath = `/dashboard/quests/research/pod?business=${current().businessId}`;
   const selectedPath = () => `${basePath}&setup=${receipt.setupId}`;
-  const report = () => writeFile(path.join(output, 'acceptance.json'), JSON.stringify({ results, browser: browserStatus, workflowHost: 'actual SDK local host; production workflow/plugin/generated routes unchanged', provider: 'inert loopback only; no paid calls or live permission', external, errors }, null, 2));
+  const report = () => writeFile(path.join(output, 'acceptance.json'), JSON.stringify({ results, browser: browserStatus, workflowHost: 'actual SDK local host; production workflow/plugin/generated routes unchanged', provider: 'inert loopback only; no paid calls or live permission', leaseHandoff, external, errors }, null, 2));
   const check = async (name, work) => {
     const result = { name, status: 'running' }; results.push(result); await report(); console.log('START:', name);
     try { await work(); result.status = 'passed'; console.log('PASS:', name); }
@@ -75,17 +76,42 @@ export async function runPodNextJourney({ origin, boundary, output, fixture, htt
       if (page) { const approve = page.getByRole('button', { name: 'Approve and research', exact: true }); assert.equal(await approve.isDisabled(), true); await page.reload(); assert.equal(await approve.isDisabled(), true); await page.screenshot({ path: path.join(output, 'pod-approval-desktop.png'), fullPage: true }); }
     });
     await check('actual background Workflow refines a weak pass into a different-query useful second pass within one total cap', async () => {
+      // This stage includes the real 60-second R07 lease handoff. Do not expire
+      // the lease in SQL, replace the Workflow clock or widen unrelated waits.
+      const deadline = Date.now() + 180000, remaining = () => Math.max(1, deadline - Date.now());
       boundary.holdProvider();
       if (page) { await page.getByRole('checkbox', { name: 'I approve this public brief, recipients, bounded source policy and maximum charge.', exact: true }).check(); await page.getByRole('button', { name: 'Approve and research', exact: true }).click(); await page.getByRole('button', { name: 'Continue saved run', exact: true }).waitFor(); }
       else { const confirmed = await action('confirmPodResearchAction', input(), selectedPath()); assert.equal(confirmed.ok, true, confirmed.message); assert.equal(confirmed.runtimeStarted, true, 'The actual workflow/api.start boundary must succeed'); }
-      await waitUntil(() => current().calls.some(call => call.ordinal === 0 && call.phase === 'plan'), 'actual Workflow host dispatching the first inert phase');
+      await waitUntil(() => current().calls.some(call => call.ordinal === 0 && call.phase === 'plan'), 'actual Workflow host dispatching the first inert phase', remaining());
       assert.ok(boundary.logs.some(item => item.kind === 'actual-workflow-runtime-read'), 'No direct test invocation of the runtime may replace the Workflow host');
       if (page) await page.goto(origin + basePath);
       boundary.releaseProvider();
+      await waitUntil(() => {
+        assert.deepEqual(boundary.logs.filter(item => item.kind === 'actual-workflow-rpc-error'), [], 'Actual runtime RPC failures must not be hidden by a longer wait');
+        leaseHandoff = boundary.logs.find(item => item.kind === 'actual-workflow-controller-snapshot' && item.runtimeReadOrdinal >= 2 && Date.parse(item.leaseExpiresAt) > item.at) ?? null;
+        return leaseHandoff !== null;
+      }, 'a fresh actual Workflow step reading the saved controller and waiting on its prior live lease', remaining());
+      assert.ok(leaseHandoff.providerCalls > 0 && leaseHandoff.providerCalls < expectedPhases.length, 'The lease handoff must occur during the saved partial research, before completion');
+      const expiry = Date.parse(leaseHandoff.leaseExpiresAt);
+      assert.ok(expiry - leaseHandoff.at >= 1000, 'The fixture must observe a real live-lease interval');
+      await report();
+      await waitUntil(() => {
+        assertPodLeaseQuiet(boundary.logs, leaseHandoff);
+        if (Date.now() >= expiry) return true;
+        assert.equal(current().calls.length, leaseHandoff.providerCalls, 'No new provider send during the prior lease');
+        assert.equal(current().receipts.length, leaseHandoff.receipts, 'No replacement receipt work during the prior lease');
+        return false;
+      }, 'the real prior lease expiry with no new sends, claims or premature Workflow retry', remaining());
       await waitUntil(async () => {
+        assert.deepEqual(boundary.logs.filter(item => item.kind === 'actual-workflow-rpc-error'), [], 'Actual runtime RPC failures must remain visible');
         const saved = (await boundary.result(receipt.scopeId)).data, summary = await boundary.passSummary(receipt.scopeId);
         return saved?.version === 'r12.pod-saved-result.2' && saved.context.attempt.adaptiveActionOrdinal === 1 && saved.current.candidate.output.outcome === 'HYPOTHESIS_TO_TEST' && summary.head?.state === 'completed';
-      }, 'actual Workflow completing its independently reviewed second pass and stopping early');
+      }, 'actual Workflow completing its independently reviewed second pass after the real lease expiry and stopping early', remaining());
+      assertPodLeaseQuiet(boundary.logs, leaseHandoff);
+      const resumed = boundary.logs.find(item => item.kind === 'actual-workflow-runtime-read' && item.runtimeReadOrdinal > leaseHandoff.runtimeReadOrdinal);
+      assert.ok(resumed && resumed.at >= expiry, 'The actual Workflow host must resume in a later step after the prior lease expires');
+      const nextSend = boundary.logs.slice(boundary.logs.indexOf(leaseHandoff) + 1).find(item => item.kind === 'inert-pod-provider' && item.method === 'POST');
+      assert.ok(nextSend && nextSend.at >= expiry, 'The saved second pass may continue sending only after lease expiry');
       assert.deepEqual(sentPhases(), expectedPhases); assert.deepEqual(current().receipts, expectedPhases);
       const searches = current().calls.filter(call => call.phase === 'search1'); assert.equal(searches.length, 2); assert.notEqual(searches[0].query, searches[1].query);
       assert.equal(searches[1].query, secondOutput.plan.query);

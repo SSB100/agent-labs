@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createHash, createHmac } from 'node:crypto';
-import { seedPodNextDatabase, podNextProvider } from './next-fixture/r12-pod-boundary.mjs';
+import { seedPodNextDatabase, podNextProvider, assertPodLeaseQuiet, podSafeRpcError } from './next-fixture/r12-pod-boundary.mjs';
 import { R12_INERT_ROOT } from './next-fixture/r12-sql.mjs';
 import { podRpc, podQuoteFixture, podInertOutputs, POD_PHASES } from './helpers/r12-pod-sql-fixture.mjs';
 const host = process.env.R12_SQL_TEST_HOST;
@@ -16,6 +16,35 @@ test('POD Next runner preserves production actions and Workflow host while block
   const journey = readFileSync(new URL('./next-fixture/r12-pod-journey.mjs', import.meta.url), 'utf8');
   assert.match(journey, /actual-workflow-runtime-read/); assert.match(journey, /boundary\.result\(receipt\.scopeId\)/);
   assert.doesNotMatch(journey, /continuePodResearchRuntime\(/);
+  assert.match(journey, /const deadline = Date\.now\(\) \+ 180000/); assert.match(journey, /assertPodLeaseQuiet\(boundary\.logs, leaseHandoff\)/);
+  assert.match(journey, /current\(\)\.calls\.length, leaseHandoff\.providerCalls/); assert.match(journey, /resumed\.at >= expiry/);
+  const boundary = readFileSync(new URL('./next-fixture/r12-pod-boundary.mjs', import.meta.url), 'utf8');
+  assert.match(boundary, /leaseExpiresAt: data\?\.head\?\.leaseExpiresAt/);
+  assert.doesNotMatch(boundary, /(?:update|set)\s+[^;\n]*lease_expires_at/i);
+});
+test('POD lease handoff observer rejects work or premature host retries until the real saved expiry', () => {
+  const at = 100000, expiry = at + 60000;
+  const handoff = { kind: 'actual-workflow-controller-snapshot', at, leaseExpiresAt: new Date(expiry).toISOString(), runtimeReadOrdinal: 2, providerCalls: 6, receipts: 6 };
+  const before = { kind: 'inert-pod-provider', at: at - 1, method: 'POST', phase: 'plan' };
+  const resumed = { kind: 'actual-workflow-runtime-read', at: expiry, runtimeReadOrdinal: 3 };
+  assert.doesNotThrow(() => assertPodLeaseQuiet([before, handoff, resumed, { kind: 'inert-pod-provider', at: expiry + 1, method: 'POST', phase: 'search1' }], handoff));
+  for (const event of [
+    { kind: 'inert-pod-provider', method: 'POST' },
+    { kind: 'actual-workflow-controller-call', operation: 'claim' },
+    { kind: 'actual-workflow-controller-call', operation: 'cancel' },
+    { kind: 'actual-workflow-runtime-read', runtimeReadOrdinal: 3 },
+    { kind: 'actual-workflow-pass', operation: 'admit' },
+  ]) assert.throws(() => assertPodLeaseQuiet([before, handoff, { ...event, at: expiry - 1 }], handoff), /neither claim nor send/);
+  assert.throws(() => assertPodLeaseQuiet([], handoff), /real controller snapshot/);
+  const expired = { ...handoff, at: expiry }; assert.throws(() => assertPodLeaseQuiet([expired], expired), /real controller snapshot/);
+});
+test('POD runtime diagnostics retain exact symbolic SQL failure without raw keys, arguments or database detail', () => {
+  assert.deepEqual(podSafeRpcError({ code: '42501', message: 'r07_lease_held', detail: 'must never be persisted' }), { code: '42501', reason: 'r07_lease_held' });
+  for (const message of [R12_INERT_ROOT, 'r07_lease_held: p_server_key=private', 'f'.repeat(64), 'select private_key from secret']) {
+    const diagnostic = podSafeRpcError({ code: 'not-a-code', message, detail: R12_INERT_ROOT, parameters: { p_server_key: R12_INERT_ROOT } });
+    assert.deepEqual(diagnostic, { code: null, reason: 'redacted_database_error' });
+    assert.ok(!JSON.stringify(diagnostic).includes(R12_INERT_ROOT));
+  }
 });
 test('POD Next seed uses actual migrations and a synthetic template without execution authority', { skip: !host, timeout: 90000 }, async () => {
   const { db, seeded } = await seedPodNextDatabase(host);

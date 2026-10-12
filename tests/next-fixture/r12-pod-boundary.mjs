@@ -15,6 +15,21 @@ import { sessionBootstrap } from '../helpers/r10-sql-fixture.mjs';
 import { podSqlFixture, podInertOutputs, podQuoteFixture, POD_PHASES } from '../helpers/r12-pod-sql-fixture.mjs';
 const root = fileURLToPath(new URL('../../', import.meta.url));
 export const POD_INERT_RELEASE = { VERCEL_ENV: 'production', VERCEL_GIT_COMMIT_SHA: 'a'.repeat(40), VERCEL_DEPLOYMENT_ID: 'dpl_inert_pod_next' };
+// Only symbolic database errors are safe for persisted diagnostics. Never log
+// RPC arguments, authority material, SQL detail/context or arbitrary messages.
+export function podSafeRpcError(error) {
+  return { code: /^[0-9A-Z]{5}$/.test(error?.code ?? '') ? error.code : null, reason: /^r\d{2}_[a-z][a-z0-9_]{1,95}$/.test(error?.message ?? '') ? error.message : 'redacted_database_error' };
+}
+export function assertPodLeaseQuiet(logs, handoff) {
+  const index = logs.indexOf(handoff), expiry = Date.parse(handoff.leaseExpiresAt);
+  assert.ok(index >= 0 && Number.isFinite(expiry) && expiry > handoff.at, 'The real controller snapshot must expose a live prior lease');
+  const premature = logs.slice(index + 1).filter(event => event.at < expiry && (
+    event.kind === 'actual-workflow-runtime-read' || event.kind === 'actual-workflow-pass' ||
+    event.kind === 'actual-workflow-controller-call' && event.operation !== 'read' ||
+    event.kind === 'inert-pod-provider' && event.method === 'POST'
+  ));
+  assert.deepEqual(premature, [], 'A waiting Workflow must neither claim nor send nor spin up another runtime step before the actual lease expires');
+}
 export async function seedPodNextDatabase(host) {
   assert.ok(host, 'An existing isolated PGlite host is required');
   const require = createRequire(path.resolve(host, 'package.json'));
@@ -65,7 +80,8 @@ export async function startPodNextBoundary(host) {
   state.owner = seeded.ownerId; await mirrorR12(state); state.businesses = state.db.businesses;
   state.db.profiles = [{ id: seeded.ownerId, display_name: 'Inert POD owner' }];
   state.quests.rows = (await db.query('select public.r04_quest_read($1,$2,20,0) result', [seeded.businessId, seeded.goalId])).rows[0].result.quests;
-  const logs = [], denied = [], waiting = []; let held = false, losePrepare = false;
+  const logs = [], denied = [], waiting = []; let held = false, losePrepare = false, runtimeReadOrdinal = 0, initialControllerRead = false;
+  const runtimeError = (rpc, operation, status, error) => logs.push({ kind: 'actual-workflow-rpc-error', at: Date.now(), rpc, operation: operation ?? null, status, ...podSafeRpcError(error) });
   async function exclusive(fn) { const r = state.r12, previous = r.queue ?? Promise.resolve(); let release; r.queue = new Promise(resolve => { release = resolve; }); await previous; try { return await fn(); } finally { release(); } }
   async function sql(name, args, keys, role) {
     return exclusive(async () => {
@@ -91,15 +107,18 @@ export async function startPodNextBoundary(host) {
         return send(result);
       }
       if (req.url === '/rest/v1/rpc/r12_pod_runtime_read') {
-        logs.push({ kind: 'actual-workflow-runtime-read', businessId: input.p_business_id, scopeId: input.p_scope_id });
+        runtimeReadOrdinal++; initialControllerRead = true;
+        logs.push({ kind: 'actual-workflow-runtime-read', at: Date.now(), runtimeReadOrdinal, providerCalls: state.r12.calls.length });
         const result = await sql('r12_pod_runtime_read', input, ['p_business_id', 'p_scope_id', 'p_server_key'], 'anon');
+        if (result.error) runtimeError('r12_pod_runtime_read', null, 400, result.error);
         return result.error ? send(result.error, 400) : send(result.data);
       }
       if (req.url === '/rest/v1/rpc/r12_pod_pass_server') {
         const keys = ['p_business_id', 'p_scope_id', 'p_operation', 'p_payload', 'p_server_key']; assert.deepEqual(Object.keys(input).sort(), [...keys].sort());
         assert.ok(['admit', 'context', 'complete'].includes(input.p_operation));
         const result = await sql('r12_pod_pass_server', input, keys, 'anon');
-        logs.push({ kind: 'actual-workflow-pass', operation: input.p_operation, ordinal: result.data?.ordinal ?? input.p_payload.actionOrdinal ?? null, outcome: result.data?.outcome ?? null, completed: result.data?.completed ?? false, error: result.error?.message ?? null });
+        logs.push({ kind: 'actual-workflow-pass', at: Date.now(), operation: input.p_operation, ordinal: result.data?.ordinal ?? input.p_payload.actionOrdinal ?? null, outcome: result.data?.outcome ?? null, completed: result.data?.completed ?? false, error: result.error ? podSafeRpcError(result.error).reason : null });
+        if (result.error) runtimeError('r12_pod_pass_server', input.p_operation, 400, result.error);
         if (!result.error && (input.p_operation === 'context' || input.p_operation === 'admit' && result.data?.ordinal !== undefined)) state.r12.podPass = result.data;
         if (!result.error && input.p_operation === 'complete') state.r12.podPass = null;
         return result.error ? send(result.error, 400) : send(result.data);
@@ -107,12 +126,21 @@ export async function startPodNextBoundary(host) {
       if (req.url === '/r12/quote') { assert.equal(input.podResearch, true, 'POD uses the actual refinement quote qualifier'); state.r12.quoteReads++; return send(podQuoteFixture()); }
       if (req.url === '/r12/provider') {
         if (input.method === 'GET' && input.phase === 'plan' && held) await new Promise(resolve => waiting.push(resolve));
-        const result = podNextProvider(state, input); logs.push({ kind: 'inert-pod-provider', method: input.method, phase: input.phase }); return send(result);
+        logs.push({ kind: 'inert-pod-provider', at: Date.now(), method: input.method, phase: input.phase }); const result = podNextProvider(state, input); return send(result);
       }
       const allowed = ['/claims', '/user', '/read', '/rpc'];
       if (!allowed.includes(req.url) && !req.url.startsWith('/rest/v1/rpc/')) { denied.push(req.url); return send({ error: 'Unknown POD fixture endpoint' }, 404); }
+      const controller = req.url === '/rest/v1/rpc/r07_controller', initialSnapshot = controller && input.p_operation === 'read' && initialControllerRead, readOrdinal = runtimeReadOrdinal;
+      if (initialSnapshot) initialControllerRead = false;
+      if (controller) logs.push({ kind: 'actual-workflow-controller-call', at: Date.now(), runtimeReadOrdinal: readOrdinal, operation: input.p_operation });
       const response = await fetch(base.origin + req.url, { method: req.method, headers: { 'content-type': 'application/json' }, ...(body ? { body } : {}), signal: AbortSignal.timeout(30000) });
-      res.statusCode = response.status; res.setHeader('content-type', response.headers.get('content-type') ?? 'application/json'); res.end(await response.text());
+      const responseBody = await response.text();
+      if (req.url.startsWith('/rest/v1/rpc/')) {
+        const data = JSON.parse(responseBody);
+        if (!response.ok) runtimeError(req.url.slice('/rest/v1/rpc/'.length), input.p_operation, response.status, data);
+        if (response.ok && initialSnapshot) logs.push({ kind: 'actual-workflow-controller-snapshot', at: Date.now(), runtimeReadOrdinal: readOrdinal, leaseExpiresAt: data?.head?.leaseExpiresAt ?? null, providerCalls: state.r12.calls.length, receipts: state.r12.receipts.length });
+      }
+      res.statusCode = response.status; res.setHeader('content-type', response.headers.get('content-type') ?? 'application/json'); res.end(responseBody);
     } catch (error) { logs.push({ kind: 'boundary-error', message: String(error) }); res.statusCode = 500; res.end(JSON.stringify({ error: 'Inert POD boundary failure' })); }
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));

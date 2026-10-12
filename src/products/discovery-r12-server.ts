@@ -84,6 +84,9 @@ async function continuePreparedDiscoveryR12(businessId:string,scopeId:string,row
  }
  const saved=await controller.read();
  if(saved&&saved.planHash!==activation.planHash)return fail();
+ // A new durable step has a new random controller lease token. Never steal or
+ // reuse the previous process's live lease: wait, then reconcile its exact work.
+ if(isPodResearchGoalScope(scope)&&saved){const expiry=Date.parse(saved.head.leaseExpiresAt);if(Number.isFinite(expiry)&&expiry>Date.now())return{status:'waiting',reason:'controller_lease_pending',wakeAt:new Date(expiry+1000).toISOString()};}
  if(!saved){
   if(row.activeWindow!==true||plan.format==='r12.discovery-review.1'||plan.format==='r12.discovery-evidence.1'||plan.format==='r12.discovery-episode.1')return fail();
   await controller.command('plan',{plan,expectedVersion:0,reason:isPodResearchGoalScope(scope)?'Owner-confirmed public POD product research':scope.version==='r12.discovery-owner-initial.1'?'Owner-confirmed bounded original POD research':'Approved bounded nature-shirt discovery',evidenceHash:isPodResearchGoalScope(scope)?scope.sourcePolicy.independentReviewHash:scope.independentReviewHash});
@@ -95,8 +98,8 @@ async function continuePreparedDiscoveryR12(businessId:string,scopeId:string,row
   if(unsent.length){const lease=await controller.command('claim',{seconds:60});for(const attempt of unsent)await controller.command('cancel',{attemptId:attempt.id,evidenceHash:sha(`pod-stopped-unsent:${scopeId}:${attempt.id}`)},Number(lease.epoch));}
  }
  const started=recovery?requestStarted:Date.now();
- // Existing Core takes one finite transition at a time. This request can make
- // at most the approved five effects; pause/receipt-wait returns to the owner.
+ // Existing Core takes one finite transition at a time. Each request has a
+ // finite transition chunk; durable POD continuation preserves the run limits.
  // Stop starting transitions at 200s, leaving room for the bounded 45s model
  // transport, 20s receipt and persistence within the 300s dashboard limit.
  // Recovery: 22 RPCs at their caller bounds, catalogs20s, model45s and
