@@ -27,7 +27,7 @@ export function createQuestControllerStore(businessId: string, goalId: string, a
       p_payload: owned, p_submission_id: randomUUID(), p_server_key: key, p_lease_token: lease, p_epoch: epoch ?? null, p_admission_key: admissionKey });
     const result = authority?.requestSignal ? await boundedRpc(query, authority.requestSignal, recoveryDispatch ? 10000 : 5000) : await query;
     // Never reflect database detail: RPC parameters include authority credentials.
-    if (result.error) throw new Error("quest_controller_transition_unverified");
+    if (result.error) throw new Error(result.error.code === "57014" ? "quest_controller_statement_cancelled" : "quest_controller_transition_unverified");
     return result.data as Record<string, unknown> | null;
   };
   return {

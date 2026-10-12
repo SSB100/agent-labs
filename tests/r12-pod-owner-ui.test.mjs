@@ -126,6 +126,40 @@ test('resume rejects an unconfirmed or mismatched saved setup without starting a
   }
 });
 
+test('saved running controller state does not claim a live background worker', () => {
+  const f = fixture(), h = workspace(f, { selected: { ...f.receipt, activated: true, confirmed: true },
+    status: { state: 'running', reason: 'scheduled', activeWindow: true, receiptUntil: null,
+      phases: [{ phase: 'plan', status: 'reserved', reason: null }],
+      cost: { knownMicrousd: '0', heldMicrousd: '35411', hasUnknown: false } } });
+  assert.equal(text(elements(h.render(), e => e.type === 'h3')[0]), 'Saved progress');
+  assert.match(text(h.render()), /Last saved controller state: running/);
+  assert.match(text(h.render()), /does not verify that the background worker is still running/);
+  assert.match(text(h.render()), /Held: USD 0.035411/);
+  assert.equal(h.calls.length, 0);
+  h.unmount();
+});
+
+test('controller timeout diagnostics never disclose database details or authority arguments', async () => {
+  for (const [code, expected] of [['57014', 'quest_controller_statement_cancelled'], ['P0001', 'quest_controller_transition_unverified']]) {
+    const controller = source('lib/quest-controller-runtime', { './supabase/runtime': {
+      createRuntimeClient: () => ({ rpc: async () => ({ data: null, error: { code, message: 'inert-sensitive-database-detail', details: 'inert-authority-argument' } }) }) } });
+    const store = controller.createQuestControllerStore(id(1), id(2), { controllerKey: 'inert-controller-key', admissionKey: 'inert-admission-key' });
+    await assert.rejects(store.command('claim', { seconds: 60 }), error => error.message === expected);
+  }
+});
+
+test('durable step exposes only the allowlisted timeout reason and never retries a failed effect', async () => {
+  class FatalError extends Error {}
+  for (const [input, prefix] of [['quest_controller_statement_cancelled', 'Database statement was cancelled or timed out. '], ['inert-sensitive-database-detail', '']]) {
+    let calls = 0;
+    const runtime = source('workflows/pod-research-runtime-steps', { workflow: { FatalError },
+      '../products/discovery-r12-server': { continuePodResearchRuntime: async () => { calls++; throw Error(input); } } });
+    await assert.rejects(runtime.executePodResearchStep({ businessId: id(1), scopeId: id(2) }), error =>
+      error instanceof FatalError && error.message === `${prefix}Research paused. Reconcile the existing attempt and cost before continuing; no replacement call was started.`);
+    assert.equal(calls, 1); assert.equal(runtime.executePodResearchStep.maxRetries, 0);
+  }
+});
+
 test('Stop invokes only exact saved setup and retains unknown held costs with receipt-only recovery', async () => {
   const f = fixture(), a = actionHarness(f), receipt = { ...f.receipt, confirmed: true, activated: true };
   const status = { state: 'waiting', reason: 'receipt_pending', activeWindow: true, receiptUntil: null, phases: PHASES.map(phase => ({ phase, status: 'pending', reason: null })), cost: { knownMicrousd: '100000', heldMicrousd: '200000', hasUnknown: true } };

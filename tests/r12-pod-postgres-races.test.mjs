@@ -10,6 +10,7 @@ import {fileURLToPath} from 'node:url';
 import {r04SqlBootstrap} from './helpers/r04-sql-bootstrap.mjs';
 import {sessionBootstrap} from './helpers/r10-sql-fixture.mjs';
 import {validateOwnerInitialRaceEnvironment,orderedRace,asRole} from './helpers/r12-owner-initial-postgres-races.mjs';
+import {exercisePodDispatchProfile} from './helpers/r12-pod-dispatch-profile.mjs';
 import {podSqlFixture,podOne,podActivate,podQuoteFixture,podHash,podPlannerPreflight,podRpc} from './helpers/r12-pod-sql-fixture.mjs';
 
 const root=fileURLToPath(new URL('../',import.meta.url));
@@ -61,7 +62,7 @@ const expectedCounts=activated=>({activations:activated,scopes:activated,authori
 
 const requested=process.env.R12_REQUIRE_POSTGRES==='1';
 test('Native PostgreSQL serializes POD confirmation, Stop and template revocation with observed lock waits',{
- skip:requested?false:'R12_REQUIRE_POSTGRES=1 not set; native PostgreSQL races unqualified, with no PGlite fallback',timeout:120000,
+ skip:requested?false:'R12_REQUIRE_POSTGRES=1 not set; native PostgreSQL races unqualified, with no PGlite fallback',timeout:240000,
 },async()=>{
  const target=validateOwnerInitialRaceEnvironment(process.env),require=createRequire(path.resolve(target.host,'package.json'));
  assert.equal(require('pg/package.json').version,'8.16.3','Use the existing pinned native SQL host');
@@ -164,6 +165,8 @@ test('Native PostgreSQL serializes POD confirmation, Stop and template revocatio
   assert.deepEqual(await passState(db,budget.businessId),{passes:1,outstanding:'0',shared_outstanding:'0',issued:'0',markers:0},
    'Releasing a competing hold cannot strand a new pass on an already terminal head');
 
+  const profile=await exercisePodDispatchProfile(db,{native:true});
+  assert.equal(profile.nativeDeadlineQualified,true);assert.equal(profile.passed,true);
   assert.equal(httpCalls,0);assert.equal(races.length,7);assert.ok(races.every(race=>race.observedLockWait));
   console.log('POD native PostgreSQL race qualification:',JSON.stringify({version:'r12.pod-postgres-races.1',engine:'postgresql',
    passed:true,providerCalls:0,transportHttpCalls:httpCalls,races}));
