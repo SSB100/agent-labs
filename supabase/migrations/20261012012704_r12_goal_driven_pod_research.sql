@@ -70,7 +70,7 @@ end $$;
 create function private.r12_pod_domains(v jsonb,policy jsonb) returns void language plpgsql immutable set search_path='' as $$
 declare d text;begin
  perform private.r04_strings(v,6);
- if jsonb_array_length(v)<1 or v is distinct from (select jsonb_agg(x order by x) from (select distinct jsonb_array_elements_text(v)x)q) then raise exception 'r12_pod_domains_invalid';end if;
+ if jsonb_array_length(v)<1 or v is distinct from (select jsonb_agg(x order by x collate "C") from (select distinct jsonb_array_elements_text(v)x)q) then raise exception 'r12_pod_domains_invalid';end if;
  for d in select jsonb_array_elements_text(v) loop
  if d !~ '^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$' or length(d)>200 or d ~ '(^|\.)(local|internal|localhost|invalid|test|example|onion)$'
  or exists(select 1 from jsonb_array_elements_text(policy->'excludedDomains')e where d=e or d like '%.'||e or e like '%.'||d)
@@ -369,6 +369,10 @@ declare dep private.r07_attempts;pin jsonb;d jsonb;v jsonb;h jsonb;t text;body j
  if length(v->>'comparisonRationale') not between 40 and 700 or length(v->>'query') not between 20 and 800 or v->>'query'<>btrim(v->>'query') or length(v->>'sourceChoiceRationale') not between 30 and 500
  or jsonb_typeof(v->'hypotheses') is distinct from 'array' or jsonb_array_length(v->'hypotheses') not between 1 and 3
  or v::text ~* '[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|https?://|localhost|127\.0\.0\.1|169\.254\.169\.254|([0-9][ -]?){12,19}' then raise exception 'r12_pod_planner_policy_rejected';end if;
+ -- Canonicalize the derived accepted plan exactly as TypeScript does. The raw
+ -- provider candidate remains immutable; invalid types/duplicates still fail.
+ perform private.r04_strings(v->'sourceDomains',6);
+ v:=jsonb_set(v,'{sourceDomains}',(select jsonb_agg(value order by value collate "C") from jsonb_array_elements_text(v->'sourceDomains')));
  perform private.r12_pod_domains(v->'sourceDomains',s.amendment->'sourcePolicy');
  for h in select value from jsonb_array_elements(v->'hypotheses') loop
  perform private.r04_keys(h,array['productType','niche','audience','hypothesis','contraryExplanation']);

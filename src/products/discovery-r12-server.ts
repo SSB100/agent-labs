@@ -63,7 +63,7 @@ async function continuePreparedDiscoveryR12(businessId:string,scopeId:string,row
   const extended=recovery&&['inputs','bind','send'].includes(operation);
   if(bounded)requestSignal.throwIfAborted();
   const query=client.rpc(extended?'r12_recovery_server':'r12_discovery_server',{p_business_id:businessId,...(extended?{p_scope_id:scopeId}:{}),p_attempt_id:attemptId,p_operation:operation,p_payload:payload,p_server_key:authority.controllerKey});
-  const response=bounded?await boundedRpc(query,requestSignal,extended?10000:10000):await query;
+  const response=bounded?await boundedRpc(query,requestSignal,extended||isPodResearchGoalScope(scope)?10000:5000):await query;
   if(response.error||!object(response.data))return fail();return response.data;
  };
  const effects:DiscoveryR12EffectStore={operation,settle:async(attemptId,settlement)=>{await controller.command('settle',{attemptId,settlement});},dispatchedAt:async attemptId=>{const data=await operation(attemptId,'load',{});if(typeof data.dispatchedAt!=='string'||!Number.isFinite(Date.parse(data.dispatchedAt)))return fail();return data.dispatchedAt;}};

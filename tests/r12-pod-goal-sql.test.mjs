@@ -16,6 +16,7 @@ test('NEW POD goal SQL uses new template authority and genuine R04/R05/R07 APIs'
   await t.test('exact five-phase R07 plan schedules genuine public-only planner input; Stop blocks new inputs',()=>exercisePodFirstInputs(db));
   await t.test('marked unknown R05 hold blocks prepare and survives Stop without provider transport',()=>exercisePodUnknownHold(db));
   await t.test('five real phase builders, serializers and SQL receipt boundaries reject deferred-domain substitution',()=>exercisePodRuntime(db));
+  await t.test('unsorted unique planner domains canonicalize identically across SQL and TypeScript without changing raw receipts',()=>exercisePodRuntime(db,{reverseSourceDomains:true}));
   await t.test('runtime read rejects wrong application capability and cross-Business scope substitution',()=>exercisePodRuntimeCapabilities(db));
   await t.test('Stop allows exact unmarked R07 cancellation with no paid liability',()=>exercisePodUnsentCancellation(db));
   await t.test('staged marked receipt settles after Stop and template revocation; fresh dispatch is refused',()=>exercisePodStoppedStagedReceipt(db));

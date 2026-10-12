@@ -125,7 +125,7 @@ export async function podRuntimeFixture(db,{afterStage=null}={}){
     if(init.method==='POST'){
      posted.push(phase);const body=JSON.parse(init.body);assert.deepEqual(body.provider.only,[phase==='review'?'amazon-bedrock/us':'azure/us']);assert.equal(body.provider.zdr,true);
      assert.equal((await podOne(db,'select count(*)::int n from private.r12_discovery_transport_claims tc join private.r12_discovery_wires w using(request_id) where w.scope_id=$1',[a.scope.id])).n,posted.length);
-     if(phase==='search1'){assert.equal(body.messages[1].content,output.plan.query);assert.deepEqual(body.tools[0].parameters.allowed_domains,output.plan.sourceDomains);}
+     if(phase==='search1'){assert.equal(body.messages[1].content,output.plan.query);assert.deepEqual(body.tools[0].parameters.allowed_domains,[...output.plan.sourceDomains].sort());}
      const message=phase==='search1'?{content:'Explicitly synthetic source material.',annotations:output.search1.annotations}:{content:JSON.stringify(output[phase])};
      return new Response(JSON.stringify({id,model,choices:[{finish_reason:'stop',message}],usage:{prompt_tokens:100,completion_tokens:50,total_tokens:150,cost:0.00001,...(phase==='search1'?{server_tool_use_details:{web_search_requests:1}}:{})}}),{status:200});
     }
@@ -152,7 +152,7 @@ async function assertPodDeferredSources(a){
  assert.equal(attempt.status,'reserved');assert.equal(snapshot.attempts.find(x=>x.stepKey==='plan').status,'completed');
  const check=async domains=>(await podOne(db,`select private.r12_pod_request_sources_match(jsonb_populate_record(null::private.r05_requests,to_jsonb(r)||jsonb_build_object('payload',jsonb_set(r.payload,'{sourceDomains}',$2::jsonb))),o,operation_scope) allowed from private.r05_requests r join private.r05_operations o on o.operation_key=r.payload->>'operationKey' join private.r05_policies p on p.id=r.policy_id cross join lateral jsonb_array_elements(p.payload->'operations') operation_scope where r.id=$1 and operation_scope->>'operationKey'=o.operation_key`,[attempt.requestId,domains])).allowed;
  const admissible=async domains=>(await podOne(db,`select private.r05_admissible(jsonb_populate_record(null::private.r05_requests,to_jsonb(r)||jsonb_build_object('payload',jsonb_set(r.payload,'{sourceDomains}',$2::jsonb)))) reason from private.r05_requests r where r.id=$1`,[attempt.requestId,domains])).reason;
- assert.equal(await check(a.output.plan.sourceDomains),true);assert.equal(await admissible(a.output.plan.sourceDomains),null);
+ assert.equal(await check([...a.output.plan.sourceDomains].sort()),true);assert.equal(await admissible([...a.output.plan.sourceDomains].sort()),null);
  for(const domains of [[],['etsy.com'],['ons.gov.uk'],['census.gov']]){assert.equal(await check(domains),false,'The declaration cannot substitute sources for the accepted plan');assert.equal(await admissible(domains),'wire_scope_or_quote_mismatch');}
  const raw=await a.inputs(attempt.id);assert.equal(raw.dependencies.length,1);assert.equal(raw.dependencies[0].response.outcome,'accepted');assert.equal(raw.dependencies[0].executingRelease.commitSha,a.executingRelease.commitSha);
  const context={planId:snapshot.planId,planHash:snapshot.planHash,plan:snapshot.plan,step:snapshot.plan.steps.find(x=>x.key==='search1'),attempt,knowledge:snapshot.knowledge};
@@ -160,8 +160,8 @@ async function assertPodDeferredSources(a){
  for(const mutate of [d=>d.candidate.output.sourceDomains=['ons.gov.uk'],d=>d.response.result.researchPlanHash='0'.repeat(64),d=>d.proof.proofHash='0'.repeat(64)]){const altered=structuredClone(raw);mutate(altered.dependencies[0]);assert.throws(()=>rt.buildDiscoveryR12PhaseRequest(context,rt.readDiscoveryR12PhaseInputs(context,altered)));}
  return true;
 }
-export async function exercisePodRuntime(db){
- const a=await podRuntimeFixture(db);let complete=false,sourceChecks=false;
+export async function exercisePodRuntime(db,{reverseSourceDomains=false}={}){
+ const a=await podRuntimeFixture(db);if(reverseSourceDomains)a.output.plan.sourceDomains.reverse();let complete=false,sourceChecks=false;
  for(let transition=0;transition<30;transition++){
   const before=await a.store.read();if(!sourceChecks&&before.attempts.some(x=>x.stepKey==='search1'&&x.status==='reserved'))sourceChecks=await assertPodDeferredSources(a);
   const result=await a.tick();if(result.status==='completed'){complete=true;break;}assert.equal(result.status,'progress',JSON.stringify(result));
@@ -171,6 +171,8 @@ export async function exercisePodRuntime(db){
  assert.equal(final.head.dispatches,5);assert.equal(final.head.repairsUsed,0);assert.equal(final.head.pivotsUsed,0);
  const raw=await podRpc(db,'authenticated',a.f.ownerId,'r12_discovery_result_read',[a.f.businessId,a.scope.id]);
  assert.equal(raw.version,'r12.pod-saved-result.1');
+ assert.deepEqual(raw.inputs.dependencies[0].candidate.output.sourceDomains,a.output.plan.sourceDomains,'Raw provider candidate keeps its original domain ordering');
+ for(const invalid of [['census.gov','census.gov'],['census.gov',5],['etsy.com']])await assert.rejects(db.query('select private.r12_pod_domains($1,$2)',[invalid,a.scope.sourcePolicy]));
  const podRuntime=podSource('products/discovery-r12-pod-runtime'),result=podRuntime.reconstructPodResearchResult(raw.context,podRuntime.readPodResearchPhaseInputs(raw.context,raw.inputs),raw.current);
  assert.equal(result.review.outcome,'INSUFFICIENT_EVIDENCE');assert.equal(result.phaseReceipts.length,5);assert.equal(result.executionAuthorized,false);assert.equal(result.objective,POD_OBJECTIVE);
  assert.equal((await a.f.read()).finance.committedMicrounits,'50');assert.equal((await a.f.read()).finance.hasUnknown,false);

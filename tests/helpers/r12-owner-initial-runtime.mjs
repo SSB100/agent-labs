@@ -97,7 +97,7 @@ export async function exerciseOwnerInitialRuntime(db, { legacy = null, onComplet
     './discovery-v2': core('products/discovery-v2'), './discovery-r12-runtime': runtime, './discovery-r12-adapter': adapter,
     './discovery-r12-wire': core('products/discovery-r12-wire'), './discovery-r12-focused-successor': core('products/discovery-r12-focused-successor'),'./discovery-r12-owner-episode': core('products/discovery-r12-owner-episode'),
     './discovery-r12-review-preparation-contract': core('products/discovery-r12-review-preparation-contract'),
-    './discovery-r12-server-dependencies': { discoveryR12ServerDependencies: () => ({
+    './discovery-r12-pod-release':core('products/discovery-r12-pod-release'),'./discovery-r12-pod-goal':core('products/discovery-r12-pod-goal'),'./discovery-r12-pod-runtime':core('products/discovery-r12-pod-runtime'),'./discovery-r12-server-dependencies': { discoveryR12ServerDependencies: () => ({
       createController: (businessId, goalId, keys) => { assert.equal(businessId, f.businessId); assert.equal(goalId, f.goalId); assert.deepEqual(keys, { controllerKey: controller, admissionKey: admission }); return store; },
       createClient: () => ({ rpc: (name, a) => rpc(name, [a.p_business_id, a.p_attempt_id, a.p_operation, a.p_payload, a.p_server_key]) }),
       quote: async () => r12QuoteFixture(),
