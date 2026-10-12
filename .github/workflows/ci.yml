@@ -833,9 +833,56 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  pod-fresh-diagnostic:
+    name: POD fresh backend diagnostic (not release qualification)
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft == true && github.head_ref == 'codex/r12-pod-fresh-diagnostic-20261012'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: public.ecr.aws/docker/library/postgres@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3
+        env:
+          POSTGRES_USER: r12_test
+          POSTGRES_DB: r12_test
+          POSTGRES_PASSWORD: r12-isolated-fixture
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U r12_test -d r12_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Install pinned isolated compiler and native client
+        run: |
+          npm install --no-audit --no-fund
+          npm install --prefix "$RUNNER_TEMP/r12-fresh-sql-host" --no-audit --no-fund --ignore-scripts pg@8.16.3
+          npm run pretest
+      - name: First candidate dispatch on fresh PostgreSQL backends
+        env:
+          R12_POD_FRESH_BACKEND: "1"
+          R12_SQL_TEST_HOST: ${{ runner.temp }}/r12-fresh-sql-host
+          R12_REQUIRE_POSTGRES: "1"
+          R12_POSTGRES_URL: postgresql://r12_test:r12-isolated-fixture@127.0.0.1:5432/r12_test
+        run: |
+          export R12_CI_POSTGRES_ADDRESS="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' '${{ job.services.postgres.id }}')"
+          node --test tests/r12-pod-fresh-backend-diagnostic.test.mjs
+      - name: Preserve diagnostic result even on timeout
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pod-fresh-backend-${{ github.sha }}
+          path: /tmp/r12-pod-fresh-backend.json
+          if-no-files-found: error
+          retention-days: 14
+
   r12-focused:
     name: R12 focused diagnostics (not release qualification)
-    if: (github.event_name == 'pull_request' && github.event.pull_request.draft == true && github.head_ref != 'codex/r12-etsy-owner-baselines-20261010') || (github.event_name == 'workflow_dispatch' && inputs.gate == 'focused')
+    if: (github.event_name == 'pull_request' && github.event.pull_request.draft == true && github.head_ref != 'codex/r12-etsy-owner-baselines-20261010' && github.head_ref != 'codex/r12-pod-fresh-diagnostic-20261012') || (github.event_name == 'workflow_dispatch' && inputs.gate == 'focused')
     runs-on: ubuntu-latest
     timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && inputs.diagnostic == 'owner-ui' && 10 || 20 }}
     services:
