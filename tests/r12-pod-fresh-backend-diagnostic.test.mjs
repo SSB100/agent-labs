@@ -30,6 +30,10 @@ test('Current POD dispatch is the first application call on each fresh native ba
   assert.equal((await podOne(setup,"select count(*)::int n from pg_tables where schemaname in ('public','private')")).n,0,'Fresh isolated service database required');
   await setup.exec(r04SqlBootstrap+sessionBootstrap);
   for(const file of readdirSync(root+'/supabase/migrations').filter(f=>f.endsWith('.sql')).sort())await setup.exec(readFileSync(root+'/supabase/migrations/'+file,'utf8'));
+  assert.equal((await podOne(setup,"select current_setting('server_version_num') version")).version,'170006','Diagnostic must match live PostgreSQL17.6');
+  const signature='private.r12_pod_bounded_source(uuid,text,bigint)';
+  const original=await podOne(setup,"select pg_get_functiondef(p.oid) definition,p.prosrc body,p.oid,p.proowner,p.proacl,p.provolatile,p.prosecdef,p.proisstrict,p.proleakproof,p.proparallel,p.procost,p.prorows,p.proconfig from pg_proc p where p.oid=$1::regprocedure",[signature]);
+  const cached=(generic=false)=>`CREATE OR REPLACE FUNCTION private.r12_pod_bounded_source(b uuid,source text,p_held bigint) RETURNS boolean LANGUAGE plpgsql STABLE SECURITY INVOKER SET search_path='' ${generic?"SET plan_cache_mode='force_generic_plan'":''} AS $diagnostic$ BEGIN RETURN (${original.body.trim().replace(/;$/, '')}); END $diagnostic$`;
   const a=await preparePodDispatchProfile(setup,{seedHistory:seedLegacyShape,additionalUnsent:1});report.legacyShape=a.legacyShape;
   const claim=await a.command('claim',{seconds:120}),attempt=a.attempt;
   const fingerprint=db=>podOne(db,`select
@@ -48,6 +52,27 @@ test('Current POD dispatch is the first application call on each fresh native ba
   assert.deepEqual(report.shape,{requests:31,markers:28,settlements:44,pins_bytes:27731,source_policy_bytes:919});
   await setup.end();report.setupConnectionClosed=true;
   const backendPids=new Set([report.setupPid]);
+  const counters=async db=>Object.fromEntries((await db.query("select schemaname||'.'||funcname name,calls,total_time total_ms,self_time self_ms from pg_stat_xact_user_functions where schemaname in ('private','public')")).rows.map(r=>[r.name,r]));
+  const controls=await connect('pod-isolated-variant-control');
+  try{for(const [variant,definition] of [['current_sql',original.definition],['cached_auto',cached()],['cached_generic',cached(true)]]){
+   await controls.exec(definition);
+   const attributes=await podOne(controls,"select p.oid,p.proowner,p.proacl,p.provolatile,p.prosecdef,p.proisstrict,p.proleakproof,p.proparallel,p.procost,p.prorows,p.proconfig from pg_proc p where p.oid=$1::regprocedure",[signature]);
+   const {body,definition:originalDefinition,...expected}=original;void body;void originalDefinition;
+   assert.deepEqual(attributes,{...expected,proconfig:variant==='cached_generic'?[...expected.proconfig,'plan_cache_mode=force_generic_plan']:expected.proconfig},'An isolated plan-cache experiment preserves function identity, actor, ACL and all other attributes');
+   const held=await podOne(controls,`select r.source_key,o.route_hash,o.maximum_microunits from private.r12_direct_browser_operations o join private.r05_requests r on r.id=o.request_id where r.business_id=$1`,[a.f.businessId]);
+   const proof=(b,source,amount)=>podOne(controls,'select private.r12_pod_bounded_source($1,$2,$3) value',[b,source,amount]);
+   const good=[a.f.businessId,held.source_key,held.maximum_microunits];
+   const cases=[good,[randomUUID(),good[1],good[2]],[good[0],'inert-missing-proof',good[2]],[good[0],good[1],Number(good[2])-1],[null,good[1],good[2]],[good[0],null,good[2]],[good[0],good[1],null]];
+   for(const [index,args] of cases.entries())assert.equal((await proof(...args)).value,index===0);
+   for(let n=0;n<6;n++)assert.equal((await proof(...good)).value,true);
+   await controls.exec('begin');try{
+    await controls.query('insert into private.r12_direct_browser_route_revocations(route_hash) values($1)',[held.route_hash]);
+    assert.equal((await proof(...good)).value,false,'A warmed plan must observe a later revocation');
+    const exposure=await podOne(controls,'select held::text held,unknown from private.r05_exposure($1) where source_key=$2',good.slice(0,2));
+    assert.deepEqual(exposure,{held:String(good[2]),unknown:true},'Revocation must preserve the original full unknown hold');
+   }finally{await controls.exec('rollback');}
+   assert.equal((await proof(...good)).value,true);
+
   for(let backend=0;backend<2;backend++){
    const db=await connect('pod-fresh-candidate-'+backend);
    assert.equal(backendPids.has(db.processID),false,'Each candidate trial pair requires a distinct backend');backendPids.add(db.processID);
@@ -57,7 +82,8 @@ test('Current POD dispatch is the first application call on each fresh native ba
    // No original implementation trial, claim, validation or application read is
    // executed on this connection before the first measured candidate dispatch.
    for(const warmth of ['fresh_backend','same_backend_warm']){
-    const trial={backend,pid:db.processID,warmth};report.trials.push(trial);
+    const trial={variant,backend,pid:db.processID,warmth};report.trials.push(trial);
+    const before=await counters(db);
     await db.exec("begin;set local track_functions='all';set local statement_timeout='3s';set local lock_timeout='500ms';set local role anon;savepoint dispatch_trial");
     assert.deepEqual(await podOne(db,"select current_user actor,current_setting('statement_timeout') deadline"),{actor:'anon',deadline:'3s'});
     const started=performance.now();
@@ -65,12 +91,15 @@ test('Current POD dispatch is the first application call on each fresh native ba
      [a.f.businessId,a.f.goalId,'dispatch',{attemptId:attempt.id,wireHash:attempt.wireHash},randomUUID(),a.controller,a.lease,claim.epoch,a.admission])).result;}
     catch(error){trial.error=error.message;trial.sqlState=error.code;trial.context=error.where;}
     finally{trial.elapsedMs=Math.round(performance.now()-started);await db.exec('rollback to savepoint dispatch_trial;reset role');}
-    trial.functions=(await db.query("select schemaname||'.'||funcname name,calls,total_time total_ms,self_time self_ms from pg_stat_xact_user_functions where schemaname in ('private','public') and calls>0 order by self_time desc")).rows;
+    trial.functions=Object.entries(await counters(db)).map(([name,r])=>({name,calls:Number(r.calls)-Number(before[name]?.calls??0),total_ms:Number(r.total_ms)-Number(before[name]?.total_ms??0),self_ms:Number(r.self_ms)-Number(before[name]?.self_ms??0)})).filter(r=>r.calls>0).sort((a,b)=>b.self_ms-a.self_ms);
     await db.exec('rollback');assert.deepEqual(await fingerprint(db),initial,'Every dispatch trial restores the complete financial/marker/attempt fingerprint');
     trial.rollbackVerified=true;
    }
    await db.end();
   }
+  }
+  }finally{await controls.exec(original.definition);}
+  assert.equal((await podOne(controls,'select pg_get_functiondef($1::regprocedure) definition',[signature])).definition,original.definition);
   // Positive native deadline control, separate from every measured backend.
   const control=await connect('pod-fresh-deadline-control');await control.exec("set statement_timeout='3s'");
   await assert.rejects(control.query('select pg_sleep(3.2)'),error=>error.code==='57014');report.nativeDeadlineEnforced=true;

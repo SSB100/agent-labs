@@ -31,3 +31,24 @@ across four runs, including a receipt-null item with a known attestation.
 The report records actual database version/settings. Shared/OS buffers are not
 claimed cold, and a direct native RPC is not a PostgREST HTTP replay. This test
 can diagnose a gap; it cannot authorize another live run or qualify a release.
+
+## First diagnostic result and narrowed comparison
+
+Head8ce24c17 / run38237463113 completed the focused test successfully.
+The hash-verified artifact reports PostgreSQL17.11, two fresh dispatches669/670ms
+and warm repeats625/630ms. Thus this did not reproduce live17.6's timeout.
+The bounded-liability proof consumed about410ms across9calls in each first
+dispatch. Live read-only profiling measured roughly109ms/call, and the exact
+body's EXPLAIN showed96.62ms planning versus5.034ms execution. This identifies
+a planning-cost hotspot, not a complete explanation of the live failure.
+
+The next isolated comparison explicitly requires PostgreSQL17.6 and compares
+the unchanged SQL function with identical RETURN EXISTS predicates in a
+PL/pgSQL function, using automatic versus function-local generic plan selection.
+Each variant is measured on two new backends. Identity, owner, ACL,
+volatility, invoker/strict/leakproof/parallel flags, cost/rows and search path
+are checked unchanged. The explicit generic variant's function-local plan
+mode also applies to nested planning while the function executes; a gain
+cannot be attributed solely to its outer query. Null/wrong-source/insufficient-hold and warmed-plan revocation
+cases preserve full unknown exposure. Definitions are restored afterward.
+No production migration is proposed or installed by this diagnostic.

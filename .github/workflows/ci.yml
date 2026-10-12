@@ -840,7 +840,7 @@ jobs:
     timeout-minutes: 10
     services:
       postgres:
-        image: public.ecr.aws/docker/library/postgres@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3
+        image: public.ecr.aws/docker/library/postgres:17.6
         env:
           POSTGRES_USER: r12_test
           POSTGRES_DB: r12_test
