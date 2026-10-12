@@ -1,5 +1,9 @@
+import { validatePodExecutingRelease, type PodExecutingRelease } from "./discovery-r12-pod-release";
+import { isPodResearchGoalScope, validatePodResearchCitationUrl } from "./discovery-r12-pod-goal";
+import { validatePodQuestPlan } from "./discovery-r12-pod-runtime";
 import type { AdaptiveFundingProof } from './discovery-r12-adaptive-funding-proof';
 import { createHash } from "node:crypto";
+import type { JsonObject } from "../core/contracts";
 import type { QuestAdapter, QuestAdapterContext, QuestEffectResponse, QuestPreparedCall, QuestSettlement } from "../core/quest-controller";
 import { OpenRouterAdapter, type OpenRouterConfig } from "../models/openrouter";
 import { ModelProviderError, type ModelProviderResponse, type StructuredModelRequest, type WebSearchModelRequest } from "../models/types";
@@ -22,6 +26,7 @@ import { inspectAdaptiveResearchWire, routeAdaptiveResearchRequest } from "./dis
 
 type Request = StructuredModelRequest | WebSearchModelRequest;
 type WireBinding = { version: "r12.discovery-wire.1" | "r12.adaptive-wire.1" | "r12.adaptive-wire.2"; scopeId: string; scopeHash: string; attemptId: string; requestId: string; phase: DiscoveryR12Phase;
+  executingRelease?: PodExecutingRelease;
   actionHash?: string; actionOrdinal?: number;
   requestJson: string; requestHash: string; wireBody: string; wireHash: string; quote: DiscoveryR12ExecutionQuote | AdaptiveResearchQuote; dependencyPins: QuestAdapterContext["attempt"]["dependencyPins"] };
 export type DiscoveryR12EffectStore = {
@@ -49,6 +54,7 @@ export function createDiscoveryR12QuestAdapter(options: {
   dataClasses: string[]; store: DiscoveryR12EffectStore;
   request(context: QuestAdapterContext): Promise<Request>;
   quote(): Promise<DiscoveryR12ExecutionQuote | AdaptiveResearchQuote>;
+  executingRelease?: PodExecutingRelease;
   adaptivePreview?: AdaptiveResearchPreview;
   adaptiveFundingProof?: AdaptiveFundingProof|null;
   project(qualified: ReturnType<typeof qualifyDiscoveryR12Candidate>, context: QuestAdapterContext, request: Request): Promise<Omit<QuestEffectResponse, "settlement">>;
@@ -69,8 +75,9 @@ export function createDiscoveryR12QuestAdapter(options: {
       validateAdaptiveResearchPlan(ctx.plan,options.adaptivePreview,{id:scope.id,hash:scopeHash},Date.parse(scope.createdAt));
       if (!/^[a-f0-9]{64}$/.test(ctx.attempt.adaptiveActionHash ?? "") || !Number.isSafeInteger(ctx.attempt.adaptiveActionOrdinal)) return fail("adaptive_action");
     }
+    if (isPodResearchGoalScope(scope)) validatePodQuestPlan(ctx, scope);
     if (isDiscoveryOwnerEpisodeScope(scope)) validateOwnerEpisodePlan(ctx.plan, scope);
-    if (ctx.plan.format !== (adaptive ? (etsy?"r12.discovery-adaptive.2":"r12.discovery-adaptive.1") : isDiscoveryOwnerEpisodeScope(scope) ? "r12.discovery-episode.1" : isDiscoveryFocusedPilot(scope) ? "r12.discovery-pilot.1" : isDiscoveryReviewContinuation(scope) ? "r12.discovery-review.1" : isDiscoveryEvidenceContinuation(scope) ? "r12.discovery-evidence.1" : "r12.discovery.1") || (isDiscoveryReviewContinuation(scope) && phase !== "review") || ((isDiscoveryEvidenceContinuation(scope) || isDiscoveryFocusedPilot(scope)) && !["strategy", "review"].includes(phase)) || ctx.plan.discoveryScopeId !== scope.id || ctx.plan.discoveryScopeHash !== scopeHash || ctx.plan.businessId !== scope.businessId || ctx.plan.goalId !== scope.goalId || ctx.step.key !== phase ||
+    if (ctx.plan.format !== (isPodResearchGoalScope(scope) ? "r12.pod-research.1" : adaptive ? (etsy?"r12.discovery-adaptive.2":"r12.discovery-adaptive.1") : isDiscoveryOwnerEpisodeScope(scope) ? "r12.discovery-episode.1" : isDiscoveryFocusedPilot(scope) ? "r12.discovery-pilot.1" : isDiscoveryReviewContinuation(scope) ? "r12.discovery-review.1" : isDiscoveryEvidenceContinuation(scope) ? "r12.discovery-evidence.1" : "r12.discovery.1") || (isDiscoveryReviewContinuation(scope) && phase !== "review") || ((isDiscoveryEvidenceContinuation(scope) || isDiscoveryFocusedPilot(scope)) && !["strategy", "review"].includes(phase)) || ctx.plan.discoveryScopeId !== scope.id || ctx.plan.discoveryScopeHash !== scopeHash || ctx.plan.businessId !== scope.businessId || ctx.plan.goalId !== scope.goalId || ctx.step.key !== phase ||
       ctx.step.adapter !== `r12.discovery.${scope.id}.${phase}` || ctx.step.operationKey !== `research.r12.${scope.id}.${phase}` || ctx.step.qualificationHash !== identity.qualificationHash || ctx.step.workflowDefinitionId !== identity.workflowDefinitionId || ctx.step.workerDefinitionId !== identity.workerDefinitionId) return fail("context");
   }
   function descriptor(ctx: QuestAdapterContext, request: Request, body: string, quote?: DiscoveryR12ExecutionQuote | AdaptiveResearchQuote): QuestPreparedCall {
@@ -78,18 +85,19 @@ export function createDiscoveryR12QuestAdapter(options: {
     return { wire: { url: "https://openrouter.ai/api/v1/chat/completions", method: "POST", body }, descriptor: {
       workflowRunId: ctx.attempt.id, operationKey: ctx.step.operationKey, requestHash: discoveryV2Hash(request), idempotencyKey: `r07:${ctx.attempt.id}`,
       providerModelId: request.model.providerModelId, wireRequestHash: hash(body), wireRequestBytes: Buffer.byteLength(body), maximumOutputTokens: JSON.parse(body).max_tokens,
-      accounting: { kind: "r05" }, sourceDomains: [...(isDiscoveryEvidenceContinuation(scope) ? scope.executionSourceDomains : scope.allowedDomains)], dataClasses: [...options.dataClasses], accountId: null, accountRevision: null, currency: "USD", liabilityMicrounits: isAdaptiveQuote(quote) ? String(adaptiveResearchPhaseLimits(quote,adaptivePhase).maximumMicrousd) : ctx.step.maximumMicrounits,
+      accounting: { kind: "r05" }, sourceDomains: isPodResearchGoalScope(scope) ? ("query" in request ? [...request.allowedDomains] : structuredClone(request.requestMetadata.r12PodSourceDomains) as string[]) : [...(isDiscoveryEvidenceContinuation(scope) ? scope.executionSourceDomains : scope.allowedDomains)], dataClasses: [...options.dataClasses], accountId: null, accountRevision: null, currency: "USD", liabilityMicrounits: isAdaptiveQuote(quote) ? String(adaptiveResearchPhaseLimits(quote,adaptivePhase).maximumMicrousd) : ctx.step.maximumMicrounits,
     } };
   }
   async function load(ctx: QuestAdapterContext): Promise<{ binding: WireBinding | null; candidate?: unknown; proof?: unknown; receipt?: unknown; diagnostic?: unknown; observationSaved?: boolean }> {
     context(ctx);const saved = await options.store.operation(ctx.attempt.id, "load", {});
     if (!record(saved.binding)) return { ...saved, binding: null };
     const binding = saved.binding as WireBinding;
+    if (isPodResearchGoalScope(scope)) validatePodExecutingRelease(binding.executingRelease);
     if ((isAdaptiveQuote(binding.quote)) !== adaptive || adaptive && binding.quote.version!==expectedQuoteVersion || binding.version !== (adaptive ? (etsy?"r12.adaptive-wire.2":"r12.adaptive-wire.1") : "r12.discovery-wire.1") || adaptive && (binding.actionHash !== ctx.attempt.adaptiveActionHash || binding.actionOrdinal !== ctx.attempt.adaptiveActionOrdinal) || binding.scopeId !== scope.id || binding.scopeHash !== scopeHash || binding.attemptId !== ctx.attempt.id || binding.requestId !== ctx.attempt.requestId || binding.phase !== phase ||
       binding.requestHash !== discoveryV2Hash(JSON.parse(binding.requestJson)) || binding.wireHash !== hash(binding.wireBody) || binding.wireHash !== ctx.attempt.wireHash || discoveryV2Hash(binding.dependencyPins) !== discoveryV2Hash(ctx.attempt.dependencyPins)) return fail("stored_binding");
     const inspected = adaptive && isAdaptiveQuote(binding.quote) ?
       await inspectAdaptiveResearchWire(JSON.parse(binding.requestJson) as Request,adaptivePhase,binding.quote,Date.parse(binding.quote.verifiedAt)) :
-      await inspectDiscoveryR12Wire(JSON.parse(binding.requestJson) as Request, phase, isDiscoveryEvidenceContinuation(scope), isDiscoveryFocusedPilot(scope), isDiscoveryOwnerInitialScope(scope) || isDiscoveryOwnerEpisodeScope(scope));
+      await inspectDiscoveryR12Wire(JSON.parse(binding.requestJson) as Request, phase, isDiscoveryEvidenceContinuation(scope), isDiscoveryFocusedPilot(scope), isDiscoveryOwnerInitialScope(scope) || isDiscoveryOwnerEpisodeScope(scope), isPodResearchGoalScope(scope));
     if (inspected.wire.body !== binding.wireBody) return fail("stored_wire");
     return { ...saved, binding };
   }
@@ -131,7 +139,7 @@ export function createDiscoveryR12QuestAdapter(options: {
     await options.store.settle(ctx.attempt.id, { actualMicrounits, providerRequestId: id, receiptHash: discoveryV2Hash({ phase, providerRequestId: id, actualMicrounits }) });
   }
   function retainsResponse(binding: WireBinding): boolean {
-    if (adaptive) return true;
+    if (adaptive || isPodResearchGoalScope(scope)) return true;
     if (phase === "review") return true;
     if (phase !== "strategy" || !isDiscoveryFocusedPilot(scope)) return false;
     // The request came from the validated SQL/runtime join. SQL independently
@@ -162,11 +170,12 @@ export function createDiscoveryR12QuestAdapter(options: {
       const route = phase === "review" ? quote.reviewer : quote.luna;
       const ownerSchema = isDiscoveryOwnerInitialScope(scope) || isDiscoveryOwnerEpisodeScope(scope);
       const raw = await options.request(ctx);
-      const request = isAdaptiveQuote(quote) ? routeAdaptiveResearchRequest(raw,adaptivePhase,quote,now()) : routeDiscoveryR12Request(raw, phase, route, isDiscoveryFocusedPilot(scope), ownerSchema);
-      const wire = isAdaptiveQuote(quote) ? await inspectAdaptiveResearchWire(request,adaptivePhase,quote,now()) : await inspectDiscoveryR12Wire(request, phase, isDiscoveryEvidenceContinuation(scope), isDiscoveryFocusedPilot(scope), ownerSchema);
+      const request = isAdaptiveQuote(quote) ? routeAdaptiveResearchRequest(raw,adaptivePhase,quote,now()) : routeDiscoveryR12Request(raw, phase, route, isDiscoveryFocusedPilot(scope), ownerSchema, isPodResearchGoalScope(scope));
+      const wire = isAdaptiveQuote(quote) ? await inspectAdaptiveResearchWire(request,adaptivePhase,quote,now()) : await inspectDiscoveryR12Wire(request, phase, isDiscoveryEvidenceContinuation(scope), isDiscoveryFocusedPilot(scope), ownerSchema, isPodResearchGoalScope(scope));
       const call = descriptor(ctx, request, wire.wire.body,quote);
       if (ctx.attempt.requestId) {
         const binding: WireBinding = { version: adaptive ? (etsy?"r12.adaptive-wire.2":"r12.adaptive-wire.1") : "r12.discovery-wire.1", scopeId: scope.id, scopeHash, attemptId: ctx.attempt.id, requestId: ctx.attempt.requestId, phase,
+          ...(isPodResearchGoalScope(scope) ? { executingRelease: validatePodExecutingRelease(options.executingRelease) } : {}),
           ...(adaptive ? {actionHash:ctx.attempt.adaptiveActionHash,actionOrdinal:ctx.attempt.adaptiveActionOrdinal} : {}),
           requestJson: JSON.stringify(request), requestHash: wire.requestHash, wireBody: wire.wire.body, wireHash: wire.wireHash, quote, dependencyPins: structuredClone(ctx.attempt.dependencyPins) };
         await options.store.operation(ctx.attempt.id, "bind", { binding, bindingHash: discoveryV2Hash(binding) });
@@ -190,7 +199,7 @@ export function createDiscoveryR12QuestAdapter(options: {
           return { version: "r12.review-observation.1", contentState: observation.contentState, contentBytes: observation.contentBytes };
         } } : {}), admitDispatch: async wire => {
         if (wire.url !== call.wire.url || wire.method !== call.wire.method || wire.body !== call.wire.body) return fail();
-        const result = await options.store.operation(ctx.attempt.id, "send", { wireHash: saved.binding!.wireHash });
+        const result = await options.store.operation(ctx.attempt.id, "send", { wireHash: saved.binding!.wireHash, ...(isPodResearchGoalScope(scope) ? { executingRelease: validatePodExecutingRelease(options.executingRelease) } : {}) });
         if (result.shouldDispatch !== true) return fail();
       } });
       let response: ModelProviderResponse;
@@ -209,6 +218,14 @@ export function createDiscoveryR12QuestAdapter(options: {
         boundary = "candidate_binding";
         const bound = await candidateBinding(ctx, saved.binding);
         boundary = "response_schema";
+        if (isPodResearchGoalScope(scope) && phase === "search1" && "query" in bound.request) {
+          const selected = { sourceDomains: bound.request.allowedDomains };
+          for (const annotation of (response.output.annotations as JsonObject[] ?? [])) {
+            const citation = annotation.url_citation;
+            if (!record(citation) || typeof citation.url !== "string") return fail();
+            validatePodResearchCitationUrl(citation.url, selected, scope.sourcePolicy);
+          }
+        }
         const candidate = createDiscoveryR12Candidate(bound, response, new Date(now()).toISOString());
         boundary = "candidate_storage";
         await options.store.operation(ctx.attempt.id, "stage", { candidate, candidateHash: discoveryV2Hash(candidate) });
@@ -222,6 +239,16 @@ export function createDiscoveryR12QuestAdapter(options: {
       const pending = await options.store.operation(ctx.attempt.id, "load", {});
       throw new DiscoveryR12ReceiptPending(record(pending.receipt) ? pending.receipt : {});
     },
-    async reconcile(ctx) { const response = await reconcile(ctx);return response ? { status: "found", response } : { status: "unknown" }; },
+    async reconcile(ctx) {
+      const response = await reconcile(ctx);if (response) return {status:"found",response};
+      if (isPodResearchGoalScope(scope)) {
+        const saved=await options.store.operation(ctx.attempt.id,"load",{}),receipt=saved.receipt;
+        if(record(receipt)&&["awaiting_receipt","checking_receipt"].includes(String(receipt.status))&&
+          typeof receipt.nextCheckAt==="string"&&Number.isFinite(Date.parse(receipt.nextCheckAt))&&typeof receipt.receiptExpiresAt==="string"&&
+          Date.parse(receipt.nextCheckAt)<Date.parse(receipt.receiptExpiresAt)&&now()<Date.parse(receipt.receiptExpiresAt)&&Number(receipt.attempts)<3)
+          throw new DiscoveryR12ReceiptPending(receipt);
+      }
+      return {status:"unknown"};
+    },
   };
 }

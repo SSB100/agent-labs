@@ -1,3 +1,5 @@
+import type { PodExecutingRelease } from "./discovery-r12-pod-release";
+import { readPodResearchPhaseInputs, buildPodResearchRequest, projectPodResearchPhase, type PodResearchPhaseInputs } from "./discovery-r12-pod-runtime";
 import { bindValidatedOwnerResearchIntent, assertValidatedOwnerResearchIntent, type ValidatedOwnerResearchIntent } from "./discovery-r12-goal-intent";
 import { validateDiscoveryOwnerInitialScope, type DiscoveryOwnerInitialScope } from "./discovery-r12-goal-scope";
 import { isDiscoveryOwnerEpisodeScope, validateDiscoveryOwnerEpisodeScope, validateOwnerEpisodePlan, type DiscoveryOwnerEpisodeScope } from "./discovery-r12-owner-episode";
@@ -26,6 +28,7 @@ import { buildDiscoveryR12OwnerPlannerRequest } from "./discovery-r12-planner-pr
 export type DiscoveryR12CompletedPhase = {
   stepKey: DiscoveryR12Phase; attemptId: string; artifactId: string; responseHash: string; responseCanonicalHash: string;
   response: { outcome: "accepted"; result: JsonObject; checkedArtifacts: unknown; planHash: string; inputHash: string };
+  executingRelease?: PodExecutingRelease;
   binding: DiscoveryR12CandidateBinding; candidate: DiscoveryR12Candidate; proof: GenerationRouteProof;
 };
 type OwnerInitialResearchScope = {
@@ -41,7 +44,7 @@ export type DiscoveryR12LegacyPhaseInputs = {
   evidenceContinuation?: { envelope: DiscoveryEvidenceContinuation; sourceValidationAt: number; sourceCommittedMicrousd: number;
     sourceDependencies: DiscoveryR12CompletedPhase[]; predecessorReview: DiscoveryR12CompletedPhase; predecessorAmendment: DiscoveryReviewContinuation };
 };
-export type DiscoveryR12PhaseInputs = DiscoveryR12LegacyPhaseInputs | DiscoveryR12FocusedPilotInputs;
+export type DiscoveryR12PhaseInputs = DiscoveryR12LegacyPhaseInputs | DiscoveryR12FocusedPilotInputs | PodResearchPhaseInputs;
 const fail = (): never => { throw new Error("r12_discovery_inputs_unverified"); };
 const json = (value: unknown): JsonObject => structuredClone(value) as JsonObject;
 const routeReceipt = (proof: GenerationRouteProof) => ({ ...proof, providerResponses: proof.providerResponses.map(p => ({ ...p })) });
@@ -142,6 +145,7 @@ function ownInputs(ctx: QuestAdapterContext, input: DiscoveryR12LegacyPhaseInput
 }
 /** Validate the exact server read before using its saved records as evidence. */
 export function readDiscoveryR12PhaseInputs(ctx: QuestAdapterContext, raw: Record<string, unknown>): DiscoveryR12PhaseInputs {
+  if (ctx.plan.format === "r12.pod-research.1") return readPodResearchPhaseInputs(ctx, raw);
   if (ctx.plan.format === "r12.discovery-pilot.1") return readDiscoveryR12FocusedPilotInputs(ctx, raw, reconstructLegacyDiscoveryR12Result);
   if (raw.version === "r12.discovery-owner-initial-inputs.1" || raw.version === "r12.discovery-owner-episode-inputs.1") {
     const episode = raw.version === "r12.discovery-owner-episode-inputs.1";
@@ -267,7 +271,7 @@ function priorEvidenceDecision(state: DiscoveryR12LegacyPhaseInputs): JsonObject
     additionalUncertainties: review.additionalUncertainties, missingQuestions: review.missingQuestions });
 }
 export function buildDiscoveryR12PhaseRequest(ctx: QuestAdapterContext, input: DiscoveryR12PhaseInputs): StructuredModelRequest | WebSearchModelRequest {
-  if ("kind" in input) return buildDiscoveryR12FocusedPilotRequest(ctx, input);
+  if ("kind" in input) return input.kind === "pod_goal" ? buildPodResearchRequest(ctx, input) : buildDiscoveryR12FocusedPilotRequest(ctx, input);
   const state = ownInputs(ctx, input), phase = ctx.step.key as DiscoveryR12Phase;
   if (state.inputMode !== "dispatch" || !["scheduled", "reserved"].includes(ctx.attempt.status)) return fail();
   let request: StructuredModelRequest | WebSearchModelRequest;
@@ -297,7 +301,7 @@ export function buildDiscoveryR12PhaseRequest(ctx: QuestAdapterContext, input: D
   return request;
 }
 export function projectDiscoveryR12Phase(ctx: QuestAdapterContext, input: DiscoveryR12PhaseInputs, qualified: ReturnType<typeof qualifyDiscoveryR12Candidate>, request: StructuredModelRequest | WebSearchModelRequest): Omit<QuestEffectResponse, "settlement"> {
-  if ("kind" in input) return projectDiscoveryR12FocusedPilotPhase(ctx, input, qualified, request);
+  if ("kind" in input) return input.kind === "pod_goal" ? projectPodResearchPhase(ctx, input, qualified, request) : projectDiscoveryR12FocusedPilotPhase(ctx, input, qualified, request);
   const state = ownInputs(ctx, input), phase = ctx.step.key as DiscoveryR12Phase, current = qualified.candidate;
   if (state.inputMode !== "receipt" || phase !== current.phase || current.attemptId !== ctx.attempt.id || current.scopeId !== (state.continuation?.envelope.id ?? state.evidenceContinuation?.envelope.id ?? state.scope.amendment.id)) return fail();
   if ("messages" in request) {
@@ -363,7 +367,7 @@ export function reconstructDiscoveryR12Result(raw: Record<string, unknown>, busi
   if (ctx.plan.businessId !== businessId || ctx.plan.discoveryScopeId !== scopeId || ctx.attempt.status !== "completed" || ctx.step.key !== "review" || current.stepKey !== "review" || current.attemptId !== ctx.attempt.id ||
       current.responseHash !== ctx.attempt.responseHash || current.responseCanonicalHash !== discoveryV2Hash(current.response) || current.response.outcome !== "accepted" || current.response.planHash !== ctx.planHash || current.response.inputHash !== ctx.attempt.inputHash) return fail();
   const state = readDiscoveryR12PhaseInputs(ctx, raw.inputs as Record<string, unknown>), qualified = qualifyDiscoveryR12Candidate(current.candidate, current.binding, current.proof);
-  if (!("kind" in state)) return fail();
+  if (!("kind" in state) || state.kind !== "focused_pilot") return fail();
   const projected = projectDiscoveryR12FocusedPilotPhase(ctx, state, qualified, current.binding.request);
   if (current.response.result.candidateHash !== qualified.candidateHash || current.response.result.routeProofHash !== qualified.route.proofHash || current.response.result.outputHash !== discoveryV2Hash(current.candidate.output) ||
       Object.entries(projected.result).some(([key, value]) => discoveryV2Hash(current.response.result[key]) !== discoveryV2Hash(value))) return fail();

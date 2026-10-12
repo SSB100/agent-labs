@@ -1,3 +1,4 @@
+import { podResearchSchema } from "./discovery-r12-pod-analysis";
 import { createHash } from "node:crypto";
 import { OpenRouterAdapter } from "../models/openrouter";
 import type { StructuredModelRequest, WebSearchModelRequest } from "../models/types";
@@ -19,9 +20,9 @@ const fail = (): never => { throw new Error("r12_discovery_wire_unavailable"); }
 
 /** Applies only explicitly supplied endpoint/price controls. It makes no catalog
  * lookup and cannot turn this proposal into a qualified provider or source. */
-export function routeDiscoveryR12Request(request: StructuredModelRequest | WebSearchModelRequest, phase: DiscoveryR12Phase, route: DiscoveryR12Route, focusedPilot = false, ownerInitial = false): StructuredModelRequest | WebSearchModelRequest {
+export function routeDiscoveryR12Request(request: StructuredModelRequest | WebSearchModelRequest, phase: DiscoveryR12Phase, route: DiscoveryR12Route, focusedPilot = false, ownerInitial = false, podGoal = false): StructuredModelRequest | WebSearchModelRequest {
   const owned = structuredClone(request), selected = structuredClone(route);
-  if (typeof ownerInitial !== "boolean" || ownerInitial && focusedPilot) return fail();
+  if (typeof podGoal !== "boolean" || podGoal && (ownerInitial || focusedPilot) || typeof ownerInitial !== "boolean" || ownerInitial && focusedPilot) return fail();
   if (focusedPilot && phase !== "strategy" && phase !== "review") return fail();
   if (!DISCOVERY_R12_PHASES.includes(phase) || owned.model.provider !== "openrouter" || owned.model.providerModelId !== discoveryV2Model(discoveryR12Call(phase)) ||
       selected.modelId !== owned.model.providerModelId || typeof selected.endpoint !== "string" || !/^[a-z0-9][a-z0-9-]{1,59}(?:\/[a-z0-9][a-z0-9-]{0,59})?$/.test(selected.endpoint) ||
@@ -32,8 +33,9 @@ export function routeDiscoveryR12Request(request: StructuredModelRequest | WebSe
   } else if (!("messages" in owned) || owned.messages.some(message => message.images?.length)) return fail();
   if (phase !== "search1") {
     if (!("outputSchema" in owned)) return fail();
-    owned.outputSchema = focusedPilot && phase === "strategy" ? focusedPilotStrategySchema() : ownerInitial ? discoveryR12OwnerInitialStaticSchema(phase) : discoveryR12StaticSchema(phase);
+    owned.outputSchema = podGoal ? podResearchSchema(phase) : focusedPilot && phase === "strategy" ? focusedPilotStrategySchema() : ownerInitial ? discoveryR12OwnerInitialStaticSchema(phase) : discoveryR12StaticSchema(phase);
     owned.schemaName = { plan: "geographic_discovery_plan_v2", select1: "discovery_evidence_selection_v2", strategy: "product_discovery_v2_strategy", review: "product_discovery_v2_review" }[phase];
+    if (podGoal) owned.schemaName = `pod_research_${phase}_v1`;
     if (ownerInitial && phase === "strategy") owned.schemaName = "product_discovery_r12_owner_initial_strategy";
     if (phase === "select1") owned.reasoning = { effort: "none" };
     else if (owned.reasoning !== undefined) return fail();
@@ -44,12 +46,12 @@ export function routeDiscoveryR12Request(request: StructuredModelRequest | WebSe
 
 /** Runs the real adapter serializer up to a deliberately denied admission.
  * No credential lookup, network transport or authority mutation can occur. */
-export async function inspectDiscoveryR12Wire(request: StructuredModelRequest | WebSearchModelRequest, phase: DiscoveryR12Phase, evidenceContinuation = false, focusedPilot = false, ownerInitial = false): Promise<DiscoveryR12Wire> {
+export async function inspectDiscoveryR12Wire(request: StructuredModelRequest | WebSearchModelRequest, phase: DiscoveryR12Phase, evidenceContinuation = false, focusedPilot = false, ownerInitial = false, podGoal = false): Promise<DiscoveryR12Wire> {
   const owned = structuredClone(request);
-  if (typeof ownerInitial !== "boolean" || ownerInitial && (focusedPilot || evidenceContinuation)) return fail();
+  if (typeof podGoal !== "boolean" || podGoal && (ownerInitial || focusedPilot || evidenceContinuation) || typeof ownerInitial !== "boolean" || ownerInitial && (focusedPilot || evidenceContinuation)) return fail();
   if (focusedPilot && (evidenceContinuation || phase !== "strategy" && phase !== "review")) return fail();
   if (!DISCOVERY_R12_PHASES.includes(phase) || !owned.providerOnly || owned.providerOnly.length !== 1 || owned.providerDataCollection !== "deny" || owned.providerZdr !== true || owned.requireReturnedModel !== true || !owned.providerPriceLimit) return fail();
-  if (discoveryV2Hash(routeDiscoveryR12Request(owned, phase, { modelId: owned.model.providerModelId, endpoint: owned.providerOnly[0], priceLimit: owned.providerPriceLimit }, focusedPilot, ownerInitial)) !== discoveryV2Hash(owned)) return fail();
+  if (discoveryV2Hash(routeDiscoveryR12Request(owned, phase, { modelId: owned.model.providerModelId, endpoint: owned.providerOnly[0], priceLimit: owned.providerPriceLimit }, focusedPilot, ownerInitial, podGoal)) !== discoveryV2Hash(owned)) return fail();
   const kind = phase === "select1" ? "select" : phase;
   if (evidenceContinuation && phase !== "strategy" && phase !== "review") return fail();
   const maximumRequestBytes = focusedPilot ? DISCOVERY_R12_PILOT_REQUEST_BYTES : evidenceContinuation ? DISCOVERY_R12_EVIDENCE_REQUEST_BYTES : kind === "search1" ? DISCOVERY_V2_BUDGET.maximumSearchRequestBytes : DISCOVERY_V2_BUDGET.phases[kind].maximumRequestBytes;

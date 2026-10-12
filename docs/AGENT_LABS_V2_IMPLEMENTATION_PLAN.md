@@ -320,3 +320,16 @@ These gates constrain tasks above; they are not a second queue.
 ### 10 October 2026 recovery implementation: explicit Etsy owner-observation mode
 
 The recovered R12 adaptive code is being qualified with a separately versioned Etsy-only `.2` lane: three actual paid inference roles, immutable owner capture intake/review/selection, exact disclosure, and no Exa or fabricated search/selection operation. Legacy five-phase records and original Goal/funding/lifetime history remain unchanged. Missing channel evidence pauses for a genuine owner source operation; no automatic source substitution is allowed. See [R12 Etsy owner-mode release review](R12_ETSY_OWNER_MODE_REVIEW.md) for the implementation boundary and exact-tree qualification requirements. This is not production activation, new spending permission, real demand evidence, or R12 closure.
+
+### 2026-10-12: general-goal POD research slice (implementation, not activated)
+
+The owner asks Agent Labs to research viable print-on-demand products for Etsy,
+without supplying a product, niche, country, audience or query shortlist. The
+focused design and release/live boundaries are in
+[`R12_GOAL_DRIVEN_PUBLIC_RESEARCH.md`](R12_GOAL_DRIVEN_PUBLIC_RESEARCH.md).
+The existing five-phase R07/R05 engine is reused with separately reviewed POD
+contracts, dynamic permitted-source selection, exact receipts and independent
+critical assessment. Owner flow is Business → public goal and budget → one
+permission review → background research → sourced result. Browser/Steel access
+is not required. Existing stopped grants, old expiry and held liability are not
+reused, transferred or extended. Isolated tests do not satisfy live acceptance.

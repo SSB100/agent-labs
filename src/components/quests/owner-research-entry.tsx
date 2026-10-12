@@ -8,7 +8,9 @@ export function OwnerResearchEntry({ businesses, businessesUnavailable, selected
   selectedBusinessId?: string;
 }) {
   return <section className="ownerResearchEntry" aria-label="Research a saved Quest">
-    <h2>Research a saved Quest</h2>
+    <h2>Research a product opportunity</h2>
+    <p><Link className="coreButton" href={selectedBusinessId ? `/dashboard/quests/research/pod?business=${selectedBusinessId}` : "/dashboard/quests/research/pod"}>Set a general print-on-demand research goal</Link></p>
+    <h3>Other saved research</h3>
     <p>Choose your Business and actual objective, then start with evidence. You can save genuine Etsy observations without connecting an Etsy account or starting a paid run. Any research run still needs an available reviewed setup, a fresh quote and your exact approval.</p>
     {businessesUnavailable ? <p role="alert">Business records are unavailable. Reload before choosing a Business.</p> : businesses.length ? <form action="/dashboard/quests/research" method="get">
       <label>Business<select name="business" required defaultValue={businesses.some(business => business.id === selectedBusinessId) ? selectedBusinessId : ""}>

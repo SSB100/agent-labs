@@ -1,3 +1,6 @@
+import { podExecutingRelease } from "./discovery-r12-pod-release";
+import { isPodResearchGoalScope, validatePodResearchGoalScope } from "./discovery-r12-pod-goal";
+import { validatePodQuestPlan } from "./discovery-r12-pod-runtime";
 import "server-only";
 import { createHash, createHmac, randomUUID } from "node:crypto";
 import type { OwnerUiContext } from "../lib/core-ui/data";
@@ -22,50 +25,56 @@ async function owned(context:OwnerUiContext,businessId:string,scopeId:string){
  if(!id(businessId)||!id(scopeId)||!id(context.userId)||!await verifyOwnerBusiness(context,businessId))return fail();
  const claims=await context.supabase.auth.getClaims();if(claims.error||claims.data?.claims?.sub!==context.userId)return fail();
 }
-function keys(context:OwnerUiContext,businessId:string,scopeId:string){
+function keysForOwner(ownerId:string,businessId:string,scopeId:string){
  const root=process.env.R05_ADMISSION_SERVER_KEY?.trim();
  if(process.env.VERCEL_ENV!=='production'||!root||root.length<32||root.length>200||!process.env.OPENROUTER_API_KEY?.trim())return fail();
- const derive=(role:string)=>createHmac('sha256',root).update(JSON.stringify({version:'r12.scoped-authority.1',role,businessId,ownerId:context.userId,scopeId})).digest('base64url');
+ const derive=(role:string)=>createHmac('sha256',root).update(JSON.stringify({version:'r12.scoped-authority.1',role,businessId,ownerId,scopeId})).digest('base64url');
  return{controllerKey:derive('controller'),admissionKey:derive('admission')};
 }
 /** Nonsecret preparation only. The operator must separately approve/register
  * exact expiring verifier hashes; this creates no persistent authority. */
 export async function prepareDiscoveryR12Authority(context:OwnerUiContext,businessId:string,scopeId:string){
- await owned(context,businessId,scopeId);const authority=keys(context,businessId,scopeId);
+ await owned(context,businessId,scopeId);const authority=keysForOwner(context.userId,businessId,scopeId);
  return{controllerKeyHash:sha(authority.controllerKey),admissionKeyHash:sha(authority.admissionKey),authorityCreated:false as const};
 }
 export async function continueDiscoveryR12(context:OwnerUiContext,businessId:string,scopeId:string):Promise<QuestTickResult>{
  const requestStarted=Date.now(),requestSignal=requestDeadline(270000);
- await awaitRequestDeadline(owned(context,businessId,scopeId),AbortSignal.any([requestSignal,AbortSignal.timeout(15000)]));const authority=keys(context,businessId,scopeId);
+ await awaitRequestDeadline(owned(context,businessId,scopeId),AbortSignal.any([requestSignal,AbortSignal.timeout(15000)]));const authority=keysForOwner(context.userId,businessId,scopeId);
  const read=await boundedRpc(context.supabase.rpc('r12_discovery_owner_read',{p_business_id:businessId,p_scope_id:scopeId,p_activation:true}),requestSignal,10000);
  const row=read.data;if(read.error||!object(row)||row.businessId!==businessId||row.scopeId!==scopeId||!object(row.activation))return fail();
+ return continuePreparedDiscoveryR12(businessId,scopeId,row,authority,requestStarted,requestSignal,context.userId);
+}
+async function continuePreparedDiscoveryR12(businessId:string,scopeId:string,row:Record<string,unknown>,authority:{controllerKey:string;admissionKey:string},requestStarted:number,requestSignal:AbortSignal,ownerId:string):Promise<QuestTickResult>{
+ if(!object(row.activation))return fail();
  const activation=row.activation;
  if(activation.mode!=='qualification'||activation.controllerKeyHash!==sha(authority.controllerKey)||activation.admissionKeyHash!==sha(authority.admissionKey)||!Array.isArray(activation.operations)||!object(activation.scope))return fail();
  const scope=activation.scope as DiscoveryR12ExecutionScope,plan=compileQuestPlan(activation.plan);
  if(scope.id!==scopeId||scope.businessId!==businessId||scope.goalId!==row.goalId||plan.businessId!==businessId||plan.goalId!==scope.goalId||plan.discoveryScopeId!==scopeId||plan.discoveryScopeHash!==discoveryV2Hash(scope))return fail();
  // Historical scope validity permits bounded receipt recovery after dispatch
  // expiry. SQL separately checks current authority before every new send.
+ if(isPodResearchGoalScope(scope)){validatePodResearchGoalScope(scope,Date.parse(scope.createdAt));validatePodQuestPlan({plan},scope);}
  if(isDiscoveryOwnerEpisodeScope(scope)){validateDiscoveryOwnerEpisodeScope(scope,Date.parse(scope.createdAt));validateOwnerEpisodePlan(plan,scope);}
  if(row.focusedSuccessor!==undefined&&scope.version!=='r12.discovery-focused-pilot.1')return fail();
- const successor=row.focusedSuccessor===undefined?null:validateR12FocusedSuccessor(row.focusedSuccessor,{businessId,scopeId,goalId:scope.goalId,ownerId:context.userId,...(scope.version==='r12.discovery-focused-pilot.1'?{scope}:{})});
+ const successor=row.focusedSuccessor===undefined?null:validateR12FocusedSuccessor(row.focusedSuccessor,{businessId,scopeId,goalId:scope.goalId,ownerId,...(scope.version==='r12.discovery-focused-pilot.1'?{scope}:{})});
  const recovery=successor?.authorization.version==='r12.focused-pilot-unsent-recovery-authorization.1'||successor?.authorization.version==='r12.focused-pilot-terminal-qualification-authorization.1';
- const dependencies=discoveryR12ServerDependencies(),controller=dependencies.createController(businessId,scope.goalId,{...authority,...(recovery?{recoveryScopeId:scopeId,requestSignal}:{})}),client=dependencies.createClient();
+ const bounded=recovery||isPodResearchGoalScope(scope);
+ const dependencies=discoveryR12ServerDependencies(),controller=dependencies.createController(businessId,scope.goalId,{...authority,...(bounded?{requestSignal}:{}),...(recovery?{recoveryScopeId:scopeId}:{})}),client=dependencies.createClient();
  const operation:DiscoveryR12EffectStore['operation']=async(attemptId,operation,payload)=>{
   const extended=recovery&&['inputs','bind','send'].includes(operation);
-  if(recovery)requestSignal.throwIfAborted();
+  if(bounded)requestSignal.throwIfAborted();
   const query=client.rpc(extended?'r12_recovery_server':'r12_discovery_server',{p_business_id:businessId,...(extended?{p_scope_id:scopeId}:{}),p_attempt_id:attemptId,p_operation:operation,p_payload:payload,p_server_key:authority.controllerKey});
-  const response=recovery?await boundedRpc(query,requestSignal,extended?10000:5000):await query;
+  const response=bounded?await boundedRpc(query,requestSignal,extended?10000:10000):await query;
   if(response.error||!object(response.data))return fail();return response.data;
  };
  const effects:DiscoveryR12EffectStore={operation,settle:async(attemptId,settlement)=>{await controller.command('settle',{attemptId,settlement});},dispatchedAt:async attemptId=>{const data=await operation(attemptId,'load',{});if(typeof data.dispatchedAt!=='string'||!Number.isFinite(Date.parse(data.dispatchedAt)))return fail();return data.dispatchedAt;}};
  let quote:DiscoveryR12ExecutionQuote|null=null;
- const freshQuote=async()=>{if(!quote||Date.parse(quote.validUntil)<=Date.now())quote=await dependencies.quote({evidenceContinuation:plan.format==='r12.discovery-evidence.1',focusedPilot:plan.format==='r12.discovery-pilot.1',...(recovery?{fetch:deadlineFetch(requestSignal)}:{})});return quote;};
+ const freshQuote=async()=>{if(!quote||Date.parse(quote.validUntil)<=Date.now())quote=await dependencies.quote({evidenceContinuation:plan.format==='r12.discovery-evidence.1',focusedPilot:plan.format==='r12.discovery-pilot.1',...(bounded?{fetch:deadlineFetch(requestSignal)}:{})});return quote;};
  const adapters:Record<string,QuestAdapter>={};
  for(const step of plan.steps){
   if(!DISCOVERY_R12_PHASES.includes(step.key as DiscoveryR12Phase))return fail();
   const operationScope=activation.operations.find(value=>object(value)&&value.operationKey===step.operationKey);
   if(!object(operationScope)||!Array.isArray(operationScope.dataClasses)||operationScope.dataClasses.some(value=>typeof value!=='string'))return fail();
-  adapters[step.adapter]=dependencies.createAdapter({scope,phase:step.key as DiscoveryR12Phase,identity:{qualificationHash:step.qualificationHash,workflowDefinitionId:step.workflowDefinitionId,workerDefinitionId:step.workerDefinitionId,mode:'qualification'},dataClasses:operationScope.dataClasses as string[],store:effects,...(recovery?{fetcher:deadlineFetch(requestSignal)}:{}),
+  adapters[step.adapter]=dependencies.createAdapter({...(isPodResearchGoalScope(scope)?{executingRelease:podExecutingRelease()}:{}),scope,phase:step.key as DiscoveryR12Phase,identity:{qualificationHash:step.qualificationHash,workflowDefinitionId:step.workflowDefinitionId,workerDefinitionId:step.workerDefinitionId,mode:'qualification'},dataClasses:operationScope.dataClasses as string[],store:effects,...(bounded?{fetcher:deadlineFetch(requestSignal)}:{}),
    request:async ctx=>buildDiscoveryR12PhaseRequest(ctx,readDiscoveryR12PhaseInputs(ctx,await operation(ctx.attempt.id,'inputs',{}))),quote:freshQuote,
    project:async(qualified,ctx,request)=>projectDiscoveryR12Phase(ctx,readDiscoveryR12PhaseInputs(ctx,await operation(ctx.attempt.id,'inputs',{})),qualified,request)});
  }
@@ -73,7 +82,13 @@ export async function continueDiscoveryR12(context:OwnerUiContext,businessId:str
  if(saved&&saved.planHash!==activation.planHash)return fail();
  if(!saved){
   if(row.activeWindow!==true||plan.format==='r12.discovery-review.1'||plan.format==='r12.discovery-evidence.1'||plan.format==='r12.discovery-episode.1')return fail();
-  await controller.command('plan',{plan,expectedVersion:0,reason:scope.version==='r12.discovery-owner-initial.1'?'Owner-confirmed bounded original POD research':'Approved bounded nature-shirt discovery',evidenceHash:scope.independentReviewHash});
+  await controller.command('plan',{plan,expectedVersion:0,reason:isPodResearchGoalScope(scope)?'Owner-confirmed public POD product research':scope.version==='r12.discovery-owner-initial.1'?'Owner-confirmed bounded original POD research':'Approved bounded nature-shirt discovery',evidenceHash:isPodResearchGoalScope(scope)?scope.sourcePolicy.independentReviewHash:scope.independentReviewHash});
+ }
+ // A stopped/expired POD run may cancel only exact unmarked reservations.
+ // R07 cancel rechecks the marker atomically; a raced send remains uncertain.
+ if(isPodResearchGoalScope(scope)&&row.activeWindow!==true&&saved){
+  const unsent=saved.attempts.filter(a=>a.status==='scheduled'||a.status==='reserved');
+  if(unsent.length){const lease=await controller.command('claim',{seconds:60});for(const attempt of unsent)await controller.command('cancel',{attemptId:attempt.id,evidenceHash:sha(`pod-stopped-unsent:${scopeId}:${attempt.id}`)},Number(lease.epoch));}
  }
  const started=recovery?requestStarted:Date.now();
  // Existing Core takes one finite transition at a time. This request can make
@@ -84,12 +99,24 @@ export async function continueDiscoveryR12(context:OwnerUiContext,businessId:str
  // receipt20s total220s including one renewal/readback. Stop starts at40s,
  // leaving230s before the hard270s caller cancellation (300s host limit).
  // These are finite failure bounds, not a Production latency guarantee.
- const latestTransitionStartMs=recovery?40000:200000;
+ const latestTransitionStartMs=bounded?40000:200000;
  for(let transitions=0;transitions<24&&Date.now()-started<latestTransitionStartMs;transitions++){
-  try{if(recovery)requestSignal.throwIfAborted();const work=driveQuestOnce(controller,{adapters,reconcile:true});const result=recovery?await awaitRequestDeadline(work,requestSignal):await work;if(result.status!=='progress')return result;}
+  try{if(bounded)requestSignal.throwIfAborted();const work=driveQuestOnce(controller,{adapters,reconcile:true});const result=bounded?await awaitRequestDeadline(work,requestSignal):await work;if(result.status!=='progress')return result;}
   catch(error){if(error instanceof DiscoveryR12ReceiptPending){const wake=error.receipt.nextCheckAt;return{status:'waiting',reason:'receipt_pending',...(typeof wake==='string'?{wakeAt:wake}:{})};}throw error;}
  }
  return{status:'waiting',reason:'continue_saved_progress'};
+}
+/** The durable runner derives the same role-separated keys inside each step.
+ * Its public-only plan was already confirmed by the owner; SQL rechecks every
+ * new send and preserves bounded receipt reconciliation after Stop. */
+export async function continuePodResearchRuntime(businessId:string,scopeId:string){
+ if(!id(businessId)||!id(scopeId))return fail();
+ const {podApplicationCapability}=await import('./discovery-r12-pod-server-key');
+ const signal=requestDeadline(270000),started=Date.now(),client=discoveryR12ServerDependencies().createClient();
+ const read=await boundedRpc(client.rpc('r12_pod_runtime_read',{p_business_id:businessId,p_scope_id:scopeId,p_server_key:podApplicationCapability()}),signal,10000);
+ const row=read.data;if(read.error||!object(row)||row.businessId!==businessId||row.scopeId!==scopeId||!id(row.ownerId)||!object(row.activation)||!object(row.activation.scope)||row.activation.scope.version!=='r12.pod-research-goal.1')return fail();
+ const result=await continuePreparedDiscoveryR12(businessId,scopeId,row,keysForOwner(row.ownerId,businessId,scopeId),started,signal,row.ownerId);
+ return {...result,receiptUntil:String(row.receiptUntil)};
 }
 /** Stop is key-free and uses the already established owner financial control. */
 export async function stopDiscoveryR12(context:OwnerUiContext,businessId:string,scopeId:string,ownerInitial=false){

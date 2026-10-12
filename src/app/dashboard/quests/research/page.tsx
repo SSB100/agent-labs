@@ -54,7 +54,7 @@ export default async function OwnerResearchPage({ searchParams }: { searchParams
       <header><p className="coreEyebrow">A bounded episode for your actual objective</p><h1 id="owner-research-title">Research a saved Quest</h1><p>{business?.name ?? "Business unavailable"}</p></header>
       <nav aria-label="Research navigation"><Link href={`/dashboard?view=research&business=${businessId}`}>Back to research</Link><Link href={`/dashboard/quests?business=${businessId}${goalId ? `&quest=${goalId}` : ""}`}>Create or edit a Quest</Link>{goalId ? <Link href={base}>Choose another Quest</Link> : null}{exactGoal && !unavailable ? <Link href={`/dashboard/products/etsy-research?${new URLSearchParams({business:businessId,goal:exactGoal.id})}`}>Review an Etsy research test</Link> : null}</nav>
       {!businessError && business?.id === businessId ? <section className="ownerResearchEvidenceGuide" aria-label="Research evidence choices">
-        <h2>Start with your objective and evidence</h2>
+        <h2>Start with your objective</h2><p><Link className="coreButton" href={`/dashboard/quests/research/pod?business=${businessId}`}>Research print-on-demand opportunities from a general goal</Link></p>
         <p>No Etsy connection or saved browser session is required here. Your Agent Labs owner sign-in protects this Business. Research produces hypotheses; evidence must support any demand claim.</p>
         <ul>
           <li><strong>Genuine Etsy observations:</strong> save aggregate facts you actually saw, with dates, source and limitations. Private capture storage needs no research grant. The existing three-role research option requires an eligible closed research episode and a separately reviewed finite approval.</li>
