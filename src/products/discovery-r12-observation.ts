@@ -4,7 +4,7 @@ import { ModelProviderError } from "../models/types";
 import { JsonSchemaValidationError } from "../workers/schema-validator";
 
 export const R12_REVIEW_OBSERVATION_CONTENT_BYTES = 16_384;
-export const R12_REVIEW_DIAGNOSTIC_CODES = ["transport", "provider_envelope", "json_parse", "response_identity", "finish_reason", "response_time", "response_cost", "response_schema", "response_size", "observation_storage", "candidate_binding", "candidate_storage", "domain_validation"] as const;
+export const R12_REVIEW_DIAGNOSTIC_CODES = ["transport", "provider_envelope", "json_parse", "response_identity", "finish_reason", "response_time", "response_cost", "response_schema", "response_size", "observation_storage", "candidate_binding", "candidate_storage", "domain_validation", "next_consumer_capacity"] as const;
 export type R12ReviewDiagnosticCode = typeof R12_REVIEW_DIAGNOSTIC_CODES[number];
 type Identity = { scopeId: string; attemptId: string; requestId: string };
 export type R12ReviewObservation = Identity & {
@@ -43,12 +43,12 @@ function hasCredentialAssignment(content: string): boolean {
 /** Unqualified private evidence only. No headers, request context, provider
  * errors or arbitrary envelope fields survive this projection. A large or
  * credential-like completion is represented by its size/hash, never a prefix. */
-export function observeR12ReviewResponse(raw: unknown, identity: Identity, receivedAt: string): R12ReviewObservation {
+export function observeR12ReviewResponse(raw: unknown, identity: Identity, receivedAt: string,maximumContentBytes=R12_REVIEW_OBSERVATION_CONTENT_BYTES): R12ReviewObservation {
   const body = object(raw) ? raw : {}, first = Array.isArray(body.choices) && object(body.choices[0]) ? body.choices[0] : {};
   const message = object(first.message) ? first.message : {}, source = message.content;
   const content = typeof source === "string" ? source : Array.isArray(source) && source.every(part => typeof part === "string" || object(part) && typeof part.text === "string") ? source.map(part => typeof part === "string" ? part : (part as { text: string }).text).join("") : null;
   const bytes = content === null ? 0 : Buffer.byteLength(content, "utf8");
-  const contentState = content === null ? source === null || source === undefined ? "missing" : "unsupported" : bytes > R12_REVIEW_OBSERVATION_CONTENT_BYTES ? "oversized" : hasCredentialAssignment(content) || content.includes("\0") || Buffer.from(content, "utf8").toString("utf8") !== content ? "redacted" : "complete";
+  const contentState = content === null ? source === null || source === undefined ? "missing" : "unsupported" : bytes > maximumContentBytes ? "oversized" : hasCredentialAssignment(content) || content.includes("\0") || Buffer.from(content, "utf8").toString("utf8") !== content ? "redacted" : "complete";
   return { ...identity, version: "r12.review-observation.1", receivedAt,
     providerRequestId: safe(body.id, /^gen-[A-Za-z0-9_-]{1,296}$/), providerModelId: safe(body.model, /^[A-Za-z0-9][A-Za-z0-9_./:-]{0,159}$/),
     finishReason: safe(first.finish_reason, /^(stop|length|content_filter|tool_calls|error)$/), nativeFinishReason: safe(first.native_finish_reason, /^[a-z][a-z0-9_]{0,47}$/),
@@ -73,21 +73,24 @@ function schemaIssue(issue: { path: string; message: string }, schema: JsonObjec
   return { path, constraint, limit: null };
 }
 
-export function r12ReviewDiagnostic(error: unknown, fallback: R12ReviewDiagnosticCode, identity: Identity, schema: JsonObject, observationSaved: boolean, recordedAt: string): R12ReviewDiagnostic {
+export function r12ReviewDiagnostic(error: unknown, fallback: R12ReviewDiagnosticCode, identity: Identity, schema: JsonObject, observationSaved: boolean, recordedAt: string, maximumIssues: 12 | 16 = 12): R12ReviewDiagnostic {
   let code = fallback, httpStatus: number | null = null;
   if (error instanceof R12ReviewResponseError) code = error.code;
   if (error instanceof JsonSchemaValidationError) code = "response_schema";
+  if (error instanceof Error && error.message === "r12_pod_artifact_capacity_exceeded") code = "response_size";
+  if (error instanceof Error && error.message === "r12_pod_next_consumer_capacity_exceeded") code = "next_consumer_capacity";
   if (error instanceof ModelProviderError) {
-    code = error.details.validationGate === "response_model" ? "response_identity" : error.details.validationGate === "provider_envelope" ? "provider_envelope" : error.details.validationGate === "structured_output" ? "json_parse" : "transport";
+    code = error.details.validationGate === "response_model" ? "response_identity" : error.details.validationGate === "provider_envelope" ? "provider_envelope" : error.details.validationGate === "structured_output" ? "json_parse" : error.details.validationGate === "response_size" ? "response_size" : "transport";
+    if(code === "json_parse" && object(error.details.providerReceipt) && error.details.providerReceipt.finishReason === "length") code = "finish_reason";
     const status = error.details.httpStatus ?? error.details.status;
     if (typeof status === "number" && Number.isInteger(status) && status >= 100 && status <= 599) httpStatus = status;
   }
   return { ...identity, version: "r12.review-diagnostic.1", recordedAt, code, httpStatus, observationSaved,
-    issues: error instanceof JsonSchemaValidationError ? error.issues.slice(0, 12).map(issue => schemaIssue(issue, schema)) : [] };
+    issues: error instanceof JsonSchemaValidationError ? error.issues.slice(0, maximumIssues).map(issue => schemaIssue(issue, schema)) : [] };
 }
 
 export function r12ReviewDiagnosticSummary(code: R12ReviewDiagnosticCode): string {
-  return ({ transport: "The provider request failed.", provider_envelope: "The provider returned an invalid response envelope.", json_parse: "The response could not be read as the required JSON object.", response_identity: "The response identity did not match the approved review.", finish_reason: "The provider did not report a complete response.", response_time: "The response fell outside the approved time window.", response_cost: "The returned cost was invalid or exceeded the approved limit.", response_schema: "The response did not meet the required output constraints.", response_size: "The response exceeded the private output limit.", observation_storage: "The unqualified response could not be saved.", candidate_binding: "The response could not be bound to its saved dispatch.", candidate_storage: "The validated response could not be saved.", domain_validation: "The saved response did not pass the research evidence checks." })[code];
+  return ({ transport: "The provider request failed.", provider_envelope: "The provider returned an invalid response envelope.", json_parse: "The response could not be read as the required JSON object.", response_identity: "The response identity did not match the approved review.", finish_reason: "The provider did not report a complete response.", response_time: "The response fell outside the approved time window.", response_cost: "The returned cost was invalid or exceeded the approved limit.", response_schema: "The response did not meet the required output constraints.", response_size: "The response exceeded the private output limit.", observation_storage: "The unqualified response could not be saved.", candidate_binding: "The response could not be bound to its saved dispatch.", candidate_storage: "The validated response could not be saved.", domain_validation: "The saved response did not pass the research evidence checks.", next_consumer_capacity: "The response cannot fit the next research stage with its required evidence." })[code];
 }
 
 /** Owner projection contains metadata only; never accept a raw completion or
@@ -109,7 +112,7 @@ export function validateR12ReviewOwnerEvidence(observation: unknown, diagnostic:
   }
   if (rejected) {
     if (!object(diagnostic) || !keys(diagnostic, "recordedAt,code,httpStatus,observationSaved,issues") || !date(diagnostic.recordedAt) || !R12_REVIEW_DIAGNOSTIC_CODES.includes(diagnostic.code as R12ReviewDiagnosticCode) || diagnostic.observationSaved !== present ||
-      !(diagnostic.httpStatus === null || Number.isInteger(diagnostic.httpStatus) && Number(diagnostic.httpStatus) >= 100 && Number(diagnostic.httpStatus) <= 599) || !Array.isArray(diagnostic.issues) || diagnostic.issues.length > 12 || diagnostic.code !== "response_schema" && diagnostic.issues.length !== 0) return fail();
+      !(diagnostic.httpStatus === null || Number.isInteger(diagnostic.httpStatus) && Number(diagnostic.httpStatus) >= 100 && Number(diagnostic.httpStatus) <= 599) || !Array.isArray(diagnostic.issues) || diagnostic.issues.length > 16 || diagnostic.code !== "response_schema" && diagnostic.issues.length !== 0) return fail();
     for (const issue of diagnostic.issues) {
       if (!object(issue) || !keys(issue, "path,constraint,limit") || typeof issue.path !== "string" || issue.path.length > 180 || !/^\$(?:\.[A-Za-z][A-Za-z0-9_]*|\[[0-9]+\])*$/.test(issue.path) ||
         !["min_length", "max_length", "min_items", "max_items", "enum", "const", "unique_items", "pattern", "type", "shape"].includes(String(issue.constraint))) return fail();

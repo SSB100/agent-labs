@@ -1,3 +1,4 @@
+import { POD_THOROUGH_PROFILE, POD_THOROUGH_LIMITS } from "./discovery-r12-pod-profile";
 import { qualifyPublicResearchQuote, qualifiedTextPricing, quoteTextTokenCost, type PublicResearchCatalogSnapshot, type PublicResearchQuoteV2 } from "../research/qualification-quote";
 import { publicResearchHash } from "../research/qualification";
 import { DISCOVERY_V2_BUDGET } from "./discovery-v2-budget";
@@ -80,8 +81,27 @@ export function qualifyDiscoveryR12Quote(catalogs: DiscoveryR12Catalogs, now = D
 
 /** The existing catalog/route qualifier prices the larger public refinement
  * planner input. Five calls is one pass; the separately approved run is shared. */
-export function qualifyPodResearchQuote(catalogs: DiscoveryR12Catalogs, now = Date.now()) {
+export function qualifyPodResearchQuote(catalogs: DiscoveryR12Catalogs, now = Date.now(), thorough=false) {
  const original = qualifyDiscoveryR12Quote(catalogs, now);
+ if(thorough){
+  const limits=POD_THOROUGH_LIMITS, reviewer=reviewerEndpoint(catalogs.reviewerAlias.payload,"model");
+  const lunaPayload=catalogs.lunaAlias.payload as {data:{endpoints:Array<Record<string,unknown>>}};
+  const luna=lunaPayload.data.endpoints.find(e=>e.tag==="azure/us");
+  if(!luna)return fail();
+  for(const [phase,p] of Object.entries(limits.phases)){
+   const e=phase==="review"?{context_length:reviewer.contextLength,max_prompt_tokens:reviewer.maximumPromptTokens,max_completion_tokens:reviewer.maximumCompletionTokens}:luna;
+   const input=phase==="search1"?limits.searchInputTokenAllowance:p.maximumRequestBytes+limits.formattingTokenAllowance;
+   const output=phase==="search1"?limits.searchOutputTokenAllowance:p.outputTokens;
+   if(Number(e.context_length)<input+output||Number(e.max_completion_tokens)<output||e.max_prompt_tokens!=null&&Number(e.max_prompt_tokens)<input)return fail();
+  }
+  const ceilings=Object.fromEntries(Object.entries(limits.phases).map(([phase,p])=>[phase,
+   quoteTextTokenCost(phase==="review"?original.reviewer.tokenPricesUsd:original.luna.tokenPricesUsd,
+   phase==="search1"?limits.searchInputTokenAllowance:p.maximumRequestBytes+limits.formattingTokenAllowance,
+   phase==="search1"?limits.searchOutputTokenAllowance:p.outputTokens)+(phase==="search1"?limits.exaFastSearchFeeMicrousd:0)])) as Record<DiscoveryR12Phase,number>;
+  const {quoteHash:_hash,verifiedAt,validUntil,...base}=original;void _hash;
+  const body={...base,version:"r12.pod-quote.3" as const,profile:POD_THOROUGH_PROFILE,profileHash:publicResearchHash(limits),plannerRequestBytes:limits.phases.plan.maximumRequestBytes,ceilings,maximumMicrousd:Object.values(ceilings).reduce((a,b)=>a+b,0)};
+  return {...body,quoteHash:publicResearchHash(body),verifiedAt,validUntil};
+ }
  const {quoteHash:_hash,verifiedAt,validUntil,...base}=original; void _hash;
  const ceilings={...base.ceilings,plan:quoteTextTokenCost(base.luna.tokenPricesUsd,DISCOVERY_R12_POD_PLANNER_BYTES+DISCOVERY_V2_BUDGET.formattingTokenAllowance,DISCOVERY_V2_BUDGET.phases.plan.outputTokens)};
  const body={...base,version:"r12.pod-quote.2" as const,plannerRequestBytes:DISCOVERY_R12_POD_PLANNER_BYTES,ceilings,maximumMicrousd:Object.values(ceilings).reduce((a,b)=>a+b,0)};
@@ -160,8 +180,9 @@ export async function fetchDiscoveryR12Catalogs(options: { fetch?: typeof fetch;
   } catch { return fail(); }
 }
 
-export async function fetchDiscoveryR12Quote(options: { fetch?: typeof fetch; now?: () => number; evidenceContinuation?: boolean; focusedPilot?: boolean; podResearch?: boolean } = {}): Promise<DiscoveryR12ExecutionQuote> {
-  if (Number(!!options.evidenceContinuation)+Number(!!options.focusedPilot)+Number(!!options.podResearch)>1) return fail();
+export async function fetchDiscoveryR12Quote(options: { fetch?: typeof fetch; now?: () => number; evidenceContinuation?: boolean; focusedPilot?: boolean; podResearch?: boolean; podThorough?: boolean } = {}): Promise<DiscoveryR12ExecutionQuote> {
+  if (options.podThorough&&!options.podResearch)return fail();
+ if (Number(!!options.evidenceContinuation)+Number(!!options.focusedPilot)+Number(!!options.podResearch)>1) return fail();
   const catalogs=await fetchDiscoveryR12Catalogs(options),now=(options.now??Date.now)();
-  return options.podResearch?qualifyPodResearchQuote(catalogs,now):options.focusedPilot?qualifyDiscoveryR12PilotQuote(catalogs,now):options.evidenceContinuation?qualifyDiscoveryR12EvidenceQuote(catalogs,now):qualifyDiscoveryR12Quote(catalogs,now);
+  return options.podResearch?qualifyPodResearchQuote(catalogs,now,options.podThorough):options.focusedPilot?qualifyDiscoveryR12PilotQuote(catalogs,now):options.evidenceContinuation?qualifyDiscoveryR12EvidenceQuote(catalogs,now):qualifyDiscoveryR12Quote(catalogs,now);
 }

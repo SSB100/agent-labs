@@ -1,3 +1,4 @@
+import { POD_THOROUGH_GOAL_VERSION, POD_THOROUGH_LIMITS, isPodThoroughScope } from "./discovery-r12-pod-profile";
 import { isIP } from "node:net";
 import { containsCredentialLikeValue } from "../core/quest-intake";
 import { publicResearchHash } from "../research/qualification";
@@ -31,7 +32,7 @@ export type PodResearchPublicBrief = {
   fulfilmentContext: "printful_available" | "unspecified";
 };
 export type PodResearchGoalScope = {
-  version: typeof POD_GOAL_VERSION;
+  version: typeof POD_GOAL_VERSION | typeof POD_THOROUGH_GOAL_VERSION;
   id: string; businessId: string; businessRevision: number; businessHash: string; goalId: string; goalRevision: number; goalHash: string;
   setupId: string; setupHash: string; authorityRootId: string;
   publicBrief: PodResearchPublicBrief;
@@ -95,7 +96,7 @@ export function validatePodResearchSourcePolicy(raw: unknown, now = Date.now()):
 }
 export function validatePodResearchGoalScope(raw: unknown, now = Date.now()): PodResearchGoalScope {
   exact(raw, "version,id,businessId,businessRevision,businessHash,goalId,goalRevision,goalHash,setupId,setupHash,authorityRootId,publicBrief,sourcePolicy,sourcePolicyHash,approvalHash,maximumMicrousd,createdAt,expiresAt");
-  if (raw.version !== POD_GOAL_VERSION || ![raw.id, raw.businessId, raw.goalId, raw.setupId, raw.authorityRootId].every(uuid) ||
+  if (![POD_GOAL_VERSION,POD_THOROUGH_GOAL_VERSION].includes(String(raw.version) as typeof POD_GOAL_VERSION) || ![raw.id, raw.businessId, raw.goalId, raw.setupId, raw.authorityRootId].every(uuid) ||
       ![raw.businessHash, raw.goalHash, raw.setupHash, raw.sourcePolicyHash, raw.approvalHash].every(hash) || !Number.isSafeInteger(raw.goalRevision) || Number(raw.goalRevision) < 1 || !Number.isSafeInteger(raw.businessRevision) || Number(raw.businessRevision) < 1 ||
       !Number.isSafeInteger(raw.maximumMicrousd) || Number(raw.maximumMicrousd) < 1 || Number(raw.maximumMicrousd) > 10_000_000 ||
       stamp(raw.createdAt) > now || stamp(raw.expiresAt) <= now || stamp(raw.expiresAt) > stamp(raw.createdAt) + 30 * 60_000) fail();
@@ -104,9 +105,9 @@ export function validatePodResearchGoalScope(raw: unknown, now = Date.now()): Po
   if (publicResearchHash(policy) !== raw.sourcePolicyHash || stamp(raw.expiresAt) > stamp(policy.validUntil)) fail();
   return structuredClone(raw) as PodResearchGoalScope;
 }
-export function validatePodResearchDomains(raw: unknown, policy: PodResearchSourcePolicy): string[] {
+export function validatePodResearchDomains(raw: unknown, policy: PodResearchSourcePolicy, thorough = false): string[] {
   const domains = canonicalSourceDomains(raw);
-  if (domains.length > POD_GOAL_BOUNDS.maximumDomains || domains.some(d => isIP(d) || /(?:^|\.)(?:local|internal|localhost|invalid|test|example|onion)$/.test(d) ||
+  if (domains.length > (thorough ? POD_THOROUGH_LIMITS : POD_GOAL_BOUNDS).maximumDomains || domains.some(d => isIP(d) || /(?:^|\.)(?:local|internal|localhost|invalid|test|example|onion)$/.test(d) ||
       policy.excludedDomains.some(excluded => within(d, excluded) || within(excluded, d)))) fail();
   return domains;
 }
@@ -114,16 +115,17 @@ export function validatePodResearchDomains(raw: unknown, policy: PodResearchSour
  * domain choice is a search restriction, never a publisher-permission claim. */
 export function acceptPodResearchPlan(scope: PodResearchGoalScope, raw: unknown, now = Date.now()): PodResearchPlan {
   validatePodResearchGoalScope(scope, now);
+  const thorough = isPodThoroughScope(scope), bounds = thorough ? POD_THOROUGH_LIMITS : POD_GOAL_BOUNDS;
   exact(raw, "comparisonRationale,query,sourceDomains,sourceChoiceRationale,hypotheses");
-  if (!text(raw.comparisonRationale, 40, 700) || !text(raw.query, 20, POD_GOAL_BOUNDS.maximumQueryCharacters) || !text(raw.sourceChoiceRationale, 30, 500) ||
-      !Array.isArray(raw.hypotheses) || raw.hypotheses.length < 1 || raw.hypotheses.length > POD_GOAL_BOUNDS.maximumWorkingHypotheses) fail();
+  if (!text(raw.comparisonRationale, 40, thorough ? 8000 : 700) || !text(raw.query, 20, bounds.maximumQueryCharacters) || !text(raw.sourceChoiceRationale, 30, thorough ? 8000 : 500) ||
+      !Array.isArray(raw.hypotheses) || raw.hypotheses.length < 1 || raw.hypotheses.length > bounds.maximumWorkingHypotheses) fail();
   screenPodResearchPublicText(raw);
-  const sourceDomains = validatePodResearchDomains(raw.sourceDomains, scope.sourcePolicy);
-  validateResearchRequest({ query: raw.query, allowedDomains: sourceDomains });
+  const sourceDomains = validatePodResearchDomains(raw.sourceDomains, scope.sourcePolicy, thorough);
+  validateResearchRequest({ query: raw.query, allowedDomains: sourceDomains }, thorough ? {maximumQueryCharacters:4000,maximumDomains:16} : undefined);
   const identities = new Set<string>();
   for (const h of raw.hypotheses as unknown[]) {
     exact(h, "productType,niche,audience,hypothesis,contraryExplanation");
-    if (!text(h.productType, 3, 120) || !text(h.niche, 3, 160) || !text(h.audience, 3, 160) || !text(h.hypothesis, 20, 400) || !text(h.contraryExplanation, 20, 400)) fail();
+    if (!text(h.productType, 3, 120) || !text(h.niche, 3, 160) || !text(h.audience, 3, 160) || !text(h.hypothesis, 20, thorough ? 4800 : 400) || !text(h.contraryExplanation, 20, thorough ? 4800 : 400)) fail();
     const identity = [h.productType, h.niche, h.audience].map(v => String(v).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()).join("|");
     if (identities.has(identity)) fail(); identities.add(identity);
   }
@@ -145,4 +147,4 @@ export function validatePodResearchCitationUrl(raw: string, plan: Pick<PodResear
   return url.toString();
 }
 
-export const isPodResearchGoalScope = (scope: { version: string }): scope is PodResearchGoalScope => scope.version === POD_GOAL_VERSION;
+export const isPodResearchGoalScope = (scope: { version: string }): scope is PodResearchGoalScope => [POD_GOAL_VERSION,POD_THOROUGH_GOAL_VERSION].includes(scope.version as typeof POD_GOAL_VERSION);

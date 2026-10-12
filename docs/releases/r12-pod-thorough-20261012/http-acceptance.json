@@ -1,0 +1,47 @@
+{
+  "results": [
+    {
+      "name": "actual Next owner route, auth and release verifier render without authority or provider calls",
+      "status": "passed"
+    },
+    {
+      "name": "general goal and budget prepare an exact review; lost reply recovers the same immutable setup",
+      "status": "passed"
+    },
+    {
+      "name": "actual background Workflow refines a weak pass into a different-query useful second pass within one total cap",
+      "status": "passed"
+    },
+    {
+      "name": "saved sourced second-pass hypothesis retains caveats, reload and Stop without a third pass or repeat calls",
+      "status": "passed"
+    },
+    {
+      "name": "a malformed thorough review is counted, reconciled and followed by a new independent pass without owner reapproval",
+      "status": "passed"
+    },
+    {
+      "name": "legacy owner history still saves a rejected reviewer response and stops through the actual owner UI",
+      "status": "passed"
+    },
+    {
+      "name": "recovery review survives a lost reply and reload while preserving the failed pass and remaining allowance",
+      "status": "passed"
+    },
+    {
+      "name": "explicit recovery approval uses the actual Workflow for a fresh accepted pass while the old review stays rejected",
+      "status": "passed"
+    }
+  ],
+  "browser": "unrun: explicitly HTTP-only",
+  "workflowHost": "actual SDK local host; production workflow/plugin/generated routes unchanged",
+  "provider": "inert loopback only; no paid calls or live permission",
+  "leaseHandoff": {
+    "mode": "fenced-release",
+    "generationId": "gen-r12-pod-next-e83319c4-cb28-4842-b63f-02174953654d-0-plan",
+    "firstReceiptWakeMs": 1651,
+    "quietIntervalMs": 1200
+  },
+  "external": [],
+  "errors": []
+}

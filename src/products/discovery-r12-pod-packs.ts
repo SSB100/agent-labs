@@ -8,7 +8,7 @@ export const POD_RESEARCH_WORKFLOW_PACK = "workflow.pod-research";
 const description = "A bounded goal-driven public POD research pass, reusable within one owner-approved total budget and at most five passes: application-chosen query and permitted sources, exact-span evidence, critical assessment and independent review. Recommendations confer no commerce authority.";
 /** New immutable contracts reuse the existing worker/controller infrastructure.
  * Old geographic worker charters/qualifications are never relabeled as POD. */
-export function podResearchPackManifests(): PackManifest[] {
+export function podResearchPackManifests(thorough=false): PackManifest[] {
   const previous = discoveryV2PackManifests();
   const kinds = ["plan", "research", "strategy", "review"] as const;
   const workers = kinds.map(kind => {
@@ -23,7 +23,7 @@ export function podResearchPackManifests(): PackManifest[] {
       kind === "strategy" ? "Critically compare source-supported POD hypotheses, feasibility, alternatives and missing evidence. No fixed geographic or product-category requirement." :
       "Independently challenge every retained source and the proposed POD recommendation. Preserve uncertainty and downgrade when evidence is inadequate." };
     worker.manifest.knowledgeRequirements = [];
-    worker.manifest.outputSchema = podResearchSchema(kind === "research" ? "select1" : kind);
+    worker.manifest.outputSchema = podResearchSchema(kind === "research" ? "select1" : kind,thorough);
     worker.manifest.inputSchema = { type: "object" };
     worker.manifest.instructions = [description,
       "Only the new r12.pod-research.2 controller and exact reviewed source-policy template may execute this contract. Existing geographic or browser authority does not qualify it.",
@@ -41,10 +41,16 @@ export function podResearchPackManifests(): PackManifest[] {
   workflow.evals = [...workers[0].evals];
   const contract = workflow.workflows[0];
   contract.key = POD_RESEARCH_WORKFLOW_KEY; contract.name = workflow.name; contract.description = description;
-  contract.outputSchema = podResearchSchema("review");
+  contract.outputSchema = podResearchSchema("review",thorough);
   contract.stages = contract.stages.map(stage => ({ ...stage, workerKey: stage.workerKey.replace("product.discovery-v2", "product.pod-research"),
     knowledgeKeys: [], objective: stage.key === "plan" ? "Form the bounded public research plan from the general POD goal." : stage.key === "strategy" ? "Assess the actual evidence and narrow to a useful hypothesis or report insufficiency." : stage.key === "review" ? "Independently inspect full retained excerpts and challenge the recommendation." : "Collect and select bounded exact public-source evidence.",
     completionCriteria: { outputContract: `r12.pod-research.${stage.key}`, ...(stage.key === "review" ? { independentActualModel: true } : {}) } as JsonObject }));
   workflow.workflows = [contract];
+  if(thorough)for(const pack of [...workers,workflow]){
+    pack.version="2.0.0";
+    for(const flow of pack.workflows){flow.version="2.0.0";flow.stages=flow.stages.map(stage=>({...stage,workerVersion:"2.0.0"}));}
+    for(const worker of pack.workers){worker.manifest.version="2.0.0";worker.manifest.worker.version="2.0.0";worker.manifest.instructions.push("Versioned thorough POD profile: larger complete findings, disclosed context omissions, pass-qualified evidence history, automatic counted quality iteration and exact-receipt failed-review disposition.");}
+    pack.dependencies=pack.dependencies.map(d=>({...d,version:"2.0.0"}));
+  }
   return [...workers, workflow];
 }

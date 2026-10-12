@@ -18,24 +18,39 @@ export async function etsyJson(fetcher: typeof fetch, url: string, init: Request
   try { await requireTransportAdmission(admission?.admitDispatch, { provider: "etsy", operation: admission?.operation ?? "", method, endpoint: url }); }
   catch { throw new EtsyError("account_access_denied"); }
   const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), 15_000);
+  // Keep the existing whole-response deadline even when a transport or stream
+  // ignores abort after headers. Never wait for best-effort cancellation.
+  const deadline = new Promise<never>((_, reject) => {
+    controller.signal.addEventListener("abort", () => reject(new EtsyError("provider_timeout")), { once: true });
+  });
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined, complete = false;
   try {
-    const response = await fetcher(url, { ...init, redirect: "error", cache: "no-store", signal: controller.signal });
+    const response = await Promise.race([Promise.resolve().then(() => fetcher(url, { ...init, redirect: "error", cache: "no-store", signal: controller.signal })), deadline]);
     if (!response.ok) throw new EtsyError(response.status === 401 || response.status === 403 ? "account_access_denied" : response.status === 429 ? "rate_limited" : "provider_response_failed");
     requireEtsy(response.body && response.headers.get("content-type")?.includes("application/json"), "invalid_response");
-    const reader = response.body.getReader(); let size = 0; const chunks: Uint8Array[] = [];
-    try {
-      while (true) {
-        const chunk = await reader.read(); if (chunk.done) break;
-        size += chunk.value.byteLength;
-        if (size > 2_000_000) { await reader.cancel(); throw new EtsyError("response_too_large"); }
-        chunks.push(chunk.value);
-      }
-    } finally { reader.releaseLock(); }
-    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    reader = response.body.getReader();
+    const declaredLength = response.headers.get("content-length");
+    if (declaredLength !== null && /^\d+$/.test(declaredLength) && Number(declaredLength) > 2_000_000) throw new EtsyError("response_too_large");
+    let size = 0; const chunks: Uint8Array[] = [];
+    while (true) {
+      const chunk = await Promise.race([reader.read(), deadline]); if (chunk.done) break;
+      size += chunk.value.byteLength;
+      if (size > 2_000_000) throw new EtsyError("response_too_large");
+      chunks.push(chunk.value);
+    }
+    complete = true;
+    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks)));
   } catch (error) {
     if (error instanceof EtsyError) throw error;
     throw new EtsyError(controller.signal.aborted ? "provider_timeout" : "provider_response_failed");
-  } finally { clearTimeout(timeout); }
+  } finally {
+    clearTimeout(timeout);
+    if (!complete) controller.abort();
+    if (reader) {
+      if (!complete) { try { void reader.cancel().catch(() => {}); } catch { /* Best-effort cleanup cannot replace the bounded failure. */ } }
+      try { reader.releaseLock(); } catch { /* A pending read/cancel must not delay completion. */ }
+    }
+  }
 }
 export function formBody(input: Record<string, unknown>) {
   const result = new URLSearchParams();

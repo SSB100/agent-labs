@@ -44,9 +44,9 @@ test('actual workflow selects the same focused/full modes and requires every nam
  const {load}=createRequire(import.meta.url)('js-yaml');
  const workflow=load(readFileSync(new URL('../.github/workflows/ci.yml',import.meta.url),'utf8'));
  assert.ok(workflow.on.pull_request.types.includes('ready_for_review'));
- assert.deepEqual(workflow.on.push.branches,['main','codex/r12-steel-insights-wip-20261010','codex/r12-single-release-successor-20261011','codex/r12-stable-connections-20261011','codex/r12-login-free-research-entry-20261011','codex/r12-goal-driven-public-research-20261012','codex/r12-pod-counted-review-repair-20261012']);
+ assert.deepEqual(workflow.on.push.branches,['main','codex/r12-steel-insights-wip-20261010','codex/r12-single-release-successor-20261011','codex/r12-stable-connections-20261011','codex/r12-login-free-research-entry-20261011','codex/r12-goal-driven-public-research-20261012','codex/r12-pod-counted-review-repair-20261012','codex/r12-pod-thorough-capacity-20261012']);
  assert.equal(workflow.on.workflow_dispatch.inputs.gate.default,'release');
- const events=[['pull_request',{pull_request:{draft:true}}],['pull_request',{pull_request:{draft:false}}],['pull_request',{pull_request:{draft:true,head:{ref:'codex/r12-etsy-owner-baselines-20261010'}}}],['push',{ref:'refs/heads/main'}],['push',{ref:'refs/heads/codex/r12-steel-insights-wip-20261010'}],['push',{ref:'refs/heads/codex/r12-single-release-successor-20261011'}],['push',{ref:'refs/heads/codex/r12-stable-connections-20261011'}],['push',{ref:'refs/heads/codex/r12-login-free-research-entry-20261011'}],['push',{ref:'refs/heads/codex/r12-goal-driven-public-research-20261012'}],['push',{ref:'refs/heads/codex/r12-pod-counted-review-repair-20261012'}],['workflow_dispatch',{inputs:{gate:'focused'}}],['workflow_dispatch',{inputs:{gate:'focused',diagnostic:'owner-ui'}}],['workflow_dispatch',{inputs:{gate:'release'}}],['workflow_dispatch',{inputs:{gate:'release',diagnostic:'owner-ui'}}]];
+ const events=[['pull_request',{pull_request:{draft:true}}],['pull_request',{pull_request:{draft:false}}],['pull_request',{pull_request:{draft:true,head:{ref:'codex/r12-etsy-owner-baselines-20261010'}}}],['push',{ref:'refs/heads/main'}],['push',{ref:'refs/heads/codex/r12-steel-insights-wip-20261010'}],['push',{ref:'refs/heads/codex/r12-single-release-successor-20261011'}],['push',{ref:'refs/heads/codex/r12-stable-connections-20261011'}],['push',{ref:'refs/heads/codex/r12-login-free-research-entry-20261011'}],['push',{ref:'refs/heads/codex/r12-goal-driven-public-research-20261012'}],['push',{ref:'refs/heads/codex/r12-pod-counted-review-repair-20261012'}],['push',{ref:'refs/heads/codex/r12-pod-thorough-capacity-20261012'}],['workflow_dispatch',{inputs:{gate:'focused'}}],['workflow_dispatch',{inputs:{gate:'focused',diagnostic:'owner-ui'}}],['workflow_dispatch',{inputs:{gate:'release'}}],['workflow_dispatch',{inputs:{gate:'release',diagnostic:'owner-ui'}}]];
  for(const [eventName,event] of events){
   const mode=ciGateMode(eventName,event),github={event_name:eventName,event,head_ref:event.pull_request?.head?.ref},inputs=event.inputs??{};
   const selected=job=>new Function('github','inputs',`return (${workflow.jobs[job].if});`)(github,inputs);
@@ -141,4 +141,13 @@ test('single successor branch uses all normal release jobs without any branch de
  const workflow=load(readFileSync(new URL('../.github/workflows/direct-etsy-qualification.yml',import.meta.url),'utf8')),cases=workflow.jobs['native-direct'].strategy.matrix.include;
  for(const file of ['r12-steel-release-successor-sql.test.mjs','r12-steel-replacement-expired-quote.test.mjs'])assert.equal(cases.filter(x=>x.file===file&&x.pattern==='.').length,1);
  const races=cases.filter(x=>x.file==='r12-steel-release-successor-races.test.mjs');assert.equal(races.length,5);assert.equal(new Set(races.map(x=>x.pattern)).size,5);assert.ok(races.every(x=>x.pattern.startsWith('native ')));
+});
+
+test('thorough POD branch remains nondeploying and exact native failure/cold dispatch gate cannot skip',()=>{
+ const {load}=createRequire(import.meta.url)('js-yaml'),workflow=load(readFileSync(new URL('../.github/workflows/ci.yml',import.meta.url),'utf8'));
+ const vercel=JSON.parse(readFileSync(new URL('../vercel.json',import.meta.url),'utf8'));
+ assert.equal(vercel.git.deploymentEnabled['codex/r12-pod-thorough-capacity-20261012'],false);
+ const jobs=Object.values(workflow.jobs),step=jobs.flatMap(j=>j.steps??[]).find(s=>s.run?.includes('node --test tests/r12-pod-counted-failure-sql.test.mjs'));
+ assert.ok(step);assert.equal(step.env.R12_REQUIRE_POSTGRES,'1');assert.match(step.run,/node scripts\/reset-r12-ci-database\.mjs/);assert.match(step.run,/set -o pipefail/);
+ assert.ok(jobs.flatMap(j=>j.steps??[]).some(s=>s.run?.includes('tests/r12-pod-thorough-capacity-sql.test.mjs')));
 });

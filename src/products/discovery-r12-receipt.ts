@@ -1,3 +1,5 @@
+import {POD_THOROUGH_LIMITS,isPodThoroughRequest,assertPodArtifactBytes} from "./discovery-r12-pod-profile";
+import {normalizeThoroughPodSearch} from "./discovery-r12-pod-evidence";
 import type { JsonObject } from "../core/contracts";
 import type { ModelProviderResponse, StructuredModelRequest, WebSearchModelRequest } from "../models/types";
 import { normalizeReceiptSearchOutput } from "../research/qualification-pending";
@@ -30,7 +32,7 @@ function models(phase: DiscoveryR12Phase): readonly string[] {
 }
 function bind(binding: DiscoveryR12CandidateBinding) {
   if (!binding || ![binding.scopeId, binding.attemptId, binding.requestId].every(value => typeof value === "string" && UUID.test(value)) || !DISCOVERY_R12_PHASES.includes(binding.phase) ||
-      binding.request?.model.providerModelId !== discoveryV2Model(discoveryR12Call(binding.phase)) || !Number.isSafeInteger(binding.maximumMicrousd) || binding.maximumMicrousd <= 0 || binding.maximumMicrousd > 2_000_000 ||
+      binding.request?.model.providerModelId !== discoveryV2Model(discoveryR12Call(binding.phase)) || !Number.isSafeInteger(binding.maximumMicrousd) || binding.maximumMicrousd <= 0 || binding.maximumMicrousd > (isPodThoroughRequest(binding.request)?10_000_000:2_000_000) ||
       !Number.isFinite(Date.parse(binding.dispatchedAt)) || !Number.isFinite(Date.parse(binding.receiptExpiresAt)) || Date.parse(binding.receiptExpiresAt) <= Date.parse(binding.dispatchedAt) ||
       Date.parse(binding.receiptExpiresAt) - Date.parse(binding.dispatchedAt) > 60 * 60_000) return fail();
 }
@@ -38,10 +40,11 @@ function projectOutput(output: unknown, binding: DiscoveryR12CandidateBinding): 
   if (!record(output)) return fail("response_schema");
   if (binding.phase === "search1") {
     if (!("query" in binding.request) || !binding.request.excludedDomains) return fail();
-    return { annotations: normalizeReceiptSearchOutput(output.annotations, { allowedDomains: binding.request.allowedDomains, excludedDomains: [...binding.request.excludedDomains] }) };
+    return { annotations: (isPodThoroughRequest(binding.request)?normalizeThoroughPodSearch:normalizeReceiptSearchOutput)(output.annotations, { allowedDomains: binding.request.allowedDomains, excludedDomains: [...binding.request.excludedDomains] }) };
   }
   if (!("outputSchema" in binding.request)) return fail();
   assertJsonSchemaValue(binding.request.outputSchema, output, "R12 private response candidate");
+  if(isPodThoroughRequest(binding.request))assertPodArtifactBytes(output,binding.phase);
   return structuredClone(output) as JsonObject;
 }
 
@@ -62,7 +65,7 @@ export function createDiscoveryR12Candidate(binding: DiscoveryR12CandidateBindin
   const candidate: DiscoveryR12Candidate = { version: "r12.discovery-response.1", scopeId: binding.scopeId, attemptId: binding.attemptId, requestId: binding.requestId,
     phase: binding.phase, requestHash: discoveryV2Hash(binding.request), providerRequestId: response.providerRequestId, providerModelId: response.providerModelId,
     receivedAt: new Date(received).toISOString(), reportedMicrousd, output };
-  if (Buffer.byteLength(JSON.stringify(candidate), "utf8") > DISCOVERY_R12_OUTPUT_BYTES[binding.phase]) return fail("response_size");
+  if (Buffer.byteLength(JSON.stringify(candidate), "utf8") > (isPodThoroughRequest(binding.request)?POD_THOROUGH_LIMITS.phases[binding.phase].maximumArtifactBytes+2048:DISCOVERY_R12_OUTPUT_BYTES[binding.phase])) return fail("response_size");
   return candidate;
 }
 
@@ -74,7 +77,7 @@ export function validateDiscoveryR12Candidate(raw: unknown, binding: DiscoveryR1
       typeof raw.receivedAt !== "string" || !Number.isFinite(Date.parse(raw.receivedAt)) || new Date(raw.receivedAt).toISOString() !== raw.receivedAt ||
       Date.parse(raw.receivedAt) < Date.parse(binding.dispatchedAt) || Date.parse(raw.receivedAt) >= Date.parse(binding.receiptExpiresAt) ||
       !(raw.reportedMicrousd === null || Number.isSafeInteger(raw.reportedMicrousd) && Number(raw.reportedMicrousd) >= 0 && Number(raw.reportedMicrousd) <= binding.maximumMicrousd) ||
-      Buffer.byteLength(JSON.stringify(raw), "utf8") > DISCOVERY_R12_OUTPUT_BYTES[binding.phase]) return fail();
+      Buffer.byteLength(JSON.stringify(raw), "utf8") > (isPodThoroughRequest(binding.request)?POD_THOROUGH_LIMITS.phases[binding.phase].maximumArtifactBytes+2048:DISCOVERY_R12_OUTPUT_BYTES[binding.phase])) return fail();
   if (discoveryV2Hash(projectOutput(raw.output, binding)) !== discoveryV2Hash(raw.output)) return fail();
   return structuredClone(raw) as DiscoveryR12Candidate;
 }

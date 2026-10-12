@@ -5,6 +5,7 @@ import {confirmPodResearch,preparePodResearch,preparePodResearchRecovery,readPod
 import {podResearchRuntimeWorkflow} from "@/workflows/pod-research-runtime";
 import type {PodResearchEntry,PodResearchSetupAction} from "@/products/discovery-r12-pod-owner-contract";
 function message(error:unknown){const code=error instanceof Error?error.message:"";
+ if(/intent_deadline_exceeded/.test(code))return "The saved Goal deadline does not cover this recovery window. Review a new deadline for the same Goal before authorizing more research.";
  if(/unresolved_liability|unknown/.test(code))return "An earlier charge is still unresolved. New spending is blocked until its existing receipt is reconciled.";
  if(/quote_exceeds_budget/.test(code))return `The current maximum quote is $${(Number(code.split(":")[1])/1000000).toFixed(4)}. Increase your run limit explicitly if you want to review that amount.`;
  if(/business_not_ready/.test(code))return "Review your Business operating rules before starting research.";
@@ -12,7 +13,7 @@ function message(error:unknown){const code=error instanceof Error?error.message:
  if(/expired|window|stale|changed/.test(code))return "This review is no longer current. Reload its saved status, then prepare a fresh review if needed. Existing attempts are never restarted.";
  return "The result could not be verified. Reload this saved research before retrying. No completion or new permission has been assumed.";}
 export async function preparePodResearchAction(input:PodResearchEntry){try{return{ok:true as const,receipt:await preparePodResearch(await requireOwnerUiContext(),input)};}catch(error){return{ok:false as const,message:message(error)};}}
-export async function preparePodResearchRecoveryAction(input:PodResearchSetupAction){try{return{ok:true as const,receipt:await preparePodResearchRecovery(await requireOwnerUiContext(),input)};}catch(error){return{ok:false as const,message:message(error)};}}
+export async function preparePodResearchRecoveryAction(input:PodResearchSetupAction&{approveGoalDeadlineRevision:true}){try{return{ok:true as const,receipt:await preparePodResearchRecovery(await requireOwnerUiContext(),input)};}catch(error){return{ok:false as const,message:message(error)};}}
 export async function confirmPodResearchAction(input:PodResearchSetupAction){
  try{const context=await requireOwnerUiContext(),receipt=await confirmPodResearch(context,input);
   try{await start(podResearchRuntimeWorkflow,[{businessId:receipt.businessId,scopeId:receipt.scopeId}]);return{ok:true as const,receipt,runtimeStarted:true};}

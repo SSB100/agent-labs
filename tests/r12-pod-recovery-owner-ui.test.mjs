@@ -6,7 +6,7 @@ import { fixture, source, id, PHASES, workspace, elements, button, text, deferre
 
 const hash = source('products/discovery-v2-hash').discoveryV2Hash;
 const { parsePodReceipt, parsePodCatalog } = source('products/discovery-r12-pod-owner-contract');
-const inputFor = receipt => ({ businessId: receipt.businessId, setupId: receipt.setupId, setupHash: receipt.setupHash, submissionId: id(80) });
+const inputFor = receipt => ({ businessId: receipt.businessId, setupId: receipt.setupId, setupHash: receipt.setupHash, submissionId: id(80), approveGoalDeadlineRevision: true });
 const buttons = h => elements(h.render(), e => e.type === 'button').map(text);
 const approve = h => {
   const checkbox = elements(h.render(), e => e.type === 'input' && e.props.type === 'checkbox')[0];
@@ -47,6 +47,8 @@ test('stopped rejected reviewer offers an explicit recovery review without blind
   assert.match(view, /no accepted independent review yet/);
   assert.match(view, /Independent review: Response rejected; no accepted output/);
   assert.match(view, /Known cost: USD 0\.028912/);
+  assert.match(view, /saves a new deadline-only version of this same Goal/);
+  assert.match(view, /approve the new spending permission separately/);
   assert.deepEqual(buttons(h), ['Reconcile existing receipt', 'Review next-pass recovery']);
   assert.doesNotMatch(view, /Continue saved run|Last saved controller state|Research result/);
   assert.equal(h.calls.length, 0); assert.equal(h.intervals.size, 0);
@@ -59,6 +61,7 @@ test('review next-pass recovery shows original and carried-forward limits before
   const a = actionHarness(f, { server: {
     preparePodResearchRecovery: async (_context, input) => {
       assert.equal(input.setupId, predecessor.setupId); assert.equal(input.setupHash, predecessor.setupHash);
+      assert.equal(input.approveGoalDeadlineRevision, true);
       prepared = { ...structuredClone(successor), submissionId: input.submissionId };
       return prepared;
     },
@@ -190,6 +193,14 @@ test('recovery progress includes earlier spend and stopping cannot offer a reset
   assert.match(text(h.render()), /Remaining: at most 4 complete passes, 20 calls and 4 searches/);
   assert.deepEqual(buttons(h), ['Reconcile existing receipt']);
   assert.equal(h.calls.length, 0); assert.equal(h.intervals.size, 0); h.unmount();
+});
+
+test('recovery cannot append Goal intent without explicit deadline-only revision consent', async () => {
+  const { f, predecessor } = recoveryFixture(), s = serverHarness(f);
+  for (const consent of [undefined, false]) {
+    await assert.rejects(s.server.preparePodResearchRecovery(s.context, { ...inputFor(predecessor), approveGoalDeadlineRevision: consent }), /goal_deadline_revision_consent_required/);
+  }
+  assert.equal(s.calls.length, 0);
 });
 
 test('lost-response server replay returns the same saved successor without quote, new permission or Workflow', async () => {

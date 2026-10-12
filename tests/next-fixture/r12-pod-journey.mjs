@@ -4,7 +4,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { chromium } from 'playwright-core';
 import { captureOwnerJourneyFailure } from './r12-owner-initial-journey.mjs';
-import { assertPodLeaseQuiet, podNextRejectedReviewReady, podNextRecoveryResultReady } from './r12-pod-boundary.mjs';
+import { podNextRejectedReviewReady, podNextRecoveryResultReady } from './r12-pod-boundary.mjs';
 import { POD_OBJECTIVE, POD_PHASES, podInertOutputs } from '../helpers/r12-pod-sql-fixture.mjs';
 
 const waitUntil = async (check, description, timeout = 90000) => {
@@ -14,12 +14,12 @@ const waitUntil = async (check, description, timeout = 90000) => {
 };
 export async function runPodNextJourney({ origin, boundary, output, fixture, httpOnly = false }) {
   const results = [], external = [], errors = [];
-  let browser = null, page = null, receipt = null, failedReceipt = null, failedAudit = null, failedCallsStart = 0, leaseHandoff = null, browserStatus = httpOnly ? 'unrun: explicitly HTTP-only' : 'not started';
+  let browser = null, page = null, receipt = null, failedReceipt = null, failedAudit = null, failedCallsStart = 0, originalGoals = null, leaseHandoff = null, browserStatus = httpOnly ? 'unrun: explicitly HTTP-only' : 'not started';
   const current = () => boundary.state().r12;
   const expectedPhases = [0, 1].flatMap(ordinal => POD_PHASES.map(phase => ({ ordinal, phase })));
   const sentPhases = () => current().calls.map(({ ordinal, phase }) => ({ ordinal, phase }));
   const secondOutput = podInertOutputs({ passOrdinal: 1, useful: true });
-  const basePath = `/dashboard/quests/research/pod?business=${current().businessId}`;
+  let basePath = `/dashboard/quests/research/pod?business=${current().businessId}`;
   const selectedPath = () => `${basePath}&setup=${receipt.setupId}`;
   const report = () => writeFile(path.join(output, 'acceptance.json'), JSON.stringify({ results, browser: browserStatus, workflowHost: 'actual SDK local host; production workflow/plugin/generated routes unchanged', provider: 'inert loopback only; no paid calls or live permission', leaseHandoff, external, errors }, null, 2));
   const check = async (name, work) => {
@@ -70,48 +70,38 @@ export async function runPodNextJourney({ origin, boundary, output, fixture, htt
         assert.equal((await action('preparePodResearchAction', entry)).ok, false); const saved = await getSaved();
         const recovered = await action('preparePodResearchAction', entry); assert.equal(recovered.ok, true, recovered.message); receipt = recovered.receipt; assert.equal(receipt.setupId, saved.setupId);
       }
-      assert.equal(receipt.activated, false); assert.equal(receipt.confirmed, false); assert.equal((await getSaved()).setupId, receipt.setupId); assert.deepEqual(current().calls, []);
+      assert.equal(receipt.preview.profile, 'r12.pod-thorough.1'); assert.equal(receipt.preview.automaticFormatFailureContinuation, true); assert.equal(receipt.activated, false); assert.equal(receipt.confirmed, false); assert.equal((await getSaved()).setupId, receipt.setupId); assert.deepEqual(current().calls, []);
       const html = await read(selectedPath());
       for (const phrase of [POD_OBJECTIVE, 'Exa may retain queries', 'USD 10.000000', 'shared total ceiling for all five passes', 'Unused allowance carries between passes', 'Proposed cumulative cap', '30 minutes after approval', 'another 30 minutes']) assert.ok(html.includes(phrase), phrase);
       if (page) { const approve = page.getByRole('button', { name: 'Approve and research', exact: true }); assert.equal(await approve.isDisabled(), true); await page.reload(); assert.equal(await approve.isDisabled(), true); await page.screenshot({ path: path.join(output, 'pod-approval-desktop.png'), fullPage: true }); }
     });
     await check('actual background Workflow refines a weak pass into a different-query useful second pass within one total cap', async () => {
-      // This stage includes the real 60-second R07 lease handoff. Do not expire
-      // the lease in SQL, replace the Workflow clock or widen unrelated waits.
       const deadline = Date.now() + 180000, remaining = () => Math.max(1, deadline - Date.now());
       boundary.holdProvider();
-      if (page) { await page.getByRole('checkbox', { name: 'I approve this public brief, recipients, bounded source policy and maximum charge.', exact: true }).check(); await page.getByRole('button', { name: 'Approve and research', exact: true }).click(); await page.getByRole('button', { name: 'Continue saved run', exact: true }).waitFor(); }
-      else { const confirmed = await action('confirmPodResearchAction', input(), selectedPath()); assert.equal(confirmed.ok, true, confirmed.message); assert.equal(confirmed.runtimeStarted, true, 'The actual workflow/api.start boundary must succeed'); }
-      await waitUntil(() => current().calls.some(call => call.ordinal === 0 && call.phase === 'plan'), 'actual Workflow host dispatching the first inert phase', remaining());
-      assert.ok(boundary.logs.some(item => item.kind === 'actual-workflow-runtime-read'), 'No direct test invocation of the runtime may replace the Workflow host');
+      if (page) { await page.getByRole('checkbox', { name: 'I approve this public brief, recipients, bounded source policy and maximum charge.', exact: true }).check(); await page.getByRole('button', { name: 'Approve and research', exact: true }).click(); }
+      else { const confirmed = await action('confirmPodResearchAction', input(), selectedPath()); assert.equal(confirmed.ok, true, confirmed.message); assert.equal(confirmed.runtimeStarted, true); }
+      await waitUntil(() => boundary.logs.some(event => event.kind === 'inert-pod-receipt-held'), 'the real Workflow waking to reconcile the exact saved first generation', remaining());
+      const held = boundary.logs.find(event => event.kind === 'inert-pod-receipt-held'), firstPost = boundary.logs.find(event => event.kind === 'inert-pod-provider' && event.method === 'POST');
+      const release = boundary.logs.find(event => event.kind === 'actual-workflow-lease-release');
+      assert.ok(release && release.released === true && release.at < held.at, 'The paid phase persists then releases its own fenced lease before the next Workflow step');
+      assert.ok(held.at - firstPost.at < 30000, 'The scoped successor must not incur an artificial 60-second lease wait');
+      const beforeQuiet = { calls: current().calls.length, reads: boundary.logs.filter(event => event.kind === 'actual-workflow-runtime-read').length };
+      await new Promise(resolve => setTimeout(resolve, 1200));
+      assert.equal(current().calls.length, beforeQuiet.calls, 'A pending exact receipt cannot regenerate or start another paid phase');
+      assert.equal(boundary.logs.filter(event => event.kind === 'actual-workflow-runtime-read').length, beforeQuiet.reads, 'A held exact receipt does not spin up duplicate Workflow steps');
+      leaseHandoff = { mode: 'fenced-release', generationId: held.generationId, firstReceiptWakeMs: held.at - firstPost.at, quietIntervalMs: 1200 };
       if (page) await page.goto(origin + basePath);
       boundary.releaseProvider();
-      await waitUntil(() => {
-        assert.deepEqual(boundary.logs.filter(item => item.kind === 'actual-workflow-rpc-error'), [], 'Actual runtime RPC failures must not be hidden by a longer wait');
-        leaseHandoff = boundary.logs.find(item => item.kind === 'actual-workflow-controller-snapshot' && item.runtimeReadOrdinal >= 2 && Date.parse(item.leaseExpiresAt) > item.at) ?? null;
-        return leaseHandoff !== null;
-      }, 'a fresh actual Workflow step reading the saved controller and waiting on its prior live lease', remaining());
-      assert.ok(leaseHandoff.providerCalls > 0 && leaseHandoff.providerCalls < expectedPhases.length, 'The lease handoff must occur during the saved partial research, before completion');
-      const expiry = Date.parse(leaseHandoff.leaseExpiresAt);
-      assert.ok(expiry - leaseHandoff.at >= 1000, 'The fixture must observe a real live-lease interval');
-      await report();
-      await waitUntil(() => {
-        assertPodLeaseQuiet(boundary.logs, leaseHandoff);
-        if (Date.now() >= expiry) return true;
-        assert.equal(current().calls.length, leaseHandoff.providerCalls, 'No new provider send during the prior lease');
-        assert.equal(current().receipts.length, leaseHandoff.receipts, 'No replacement receipt work during the prior lease');
-        return false;
-      }, 'the real prior lease expiry with no new sends, claims or premature Workflow retry', remaining());
       await waitUntil(async () => {
         assert.deepEqual(boundary.logs.filter(item => item.kind === 'actual-workflow-rpc-error'), [], 'Actual runtime RPC failures must remain visible');
         const saved = (await boundary.result(receipt.scopeId)).data, summary = await boundary.passSummary(receipt.scopeId);
         return saved?.version === 'r12.pod-saved-result.2' && saved.context.attempt.adaptiveActionOrdinal === 1 && saved.current.candidate.output.outcome === 'HYPOTHESIS_TO_TEST' && summary.head?.state === 'completed';
-      }, 'actual Workflow completing its independently reviewed second pass after the real lease expiry and stopping early', remaining());
-      assertPodLeaseQuiet(boundary.logs, leaseHandoff);
-      const resumed = boundary.logs.find(item => item.kind === 'actual-workflow-runtime-read' && item.runtimeReadOrdinal > leaseHandoff.runtimeReadOrdinal);
-      assert.ok(resumed && resumed.at >= expiry, 'The actual Workflow host must resume in a later step after the prior lease expires');
-      const nextSend = boundary.logs.slice(boundary.logs.indexOf(leaseHandoff) + 1).find(item => item.kind === 'inert-pod-provider' && item.method === 'POST');
-      assert.ok(nextSend && nextSend.at >= expiry, 'The saved second pass may continue sending only after lease expiry');
+      }, 'actual Workflow independently reviewing the empty first pass, searching differently and stopping on the useful second pass', remaining());
+      assert.ok(boundary.logs.filter(event => event.kind === 'actual-workflow-lease-release' && event.released).length >= 10);
+      assert.equal(boundary.logs.filter(event => event.kind === 'actual-workflow-controller-snapshot' && Date.parse(event.leaseExpiresAt) > event.at).length, 0, 'Released thorough leases create no artificial 60-second handoff');
+      const firstReview = current().podReviewSnapshots.find(value => value.ordinal === 0);
+      assert.equal(firstReview.evidence.items.length, 0); assert.equal(firstReview.assessment.candidates.length, 0);
+      assert.equal(firstReview.output.outcome, 'INSUFFICIENT_EVIDENCE'); assert.match(firstReview.output.rationale, /漢字 🧪/); assert.ok(firstReview.output.rationale.length > 1000);
       assert.deepEqual(sentPhases(), expectedPhases); assert.deepEqual(current().receipts, expectedPhases);
       const searches = current().calls.filter(call => call.phase === 'search1'); assert.equal(searches.length, 2); assert.notEqual(searches[0].query, searches[1].query);
       assert.equal(searches[1].query, secondOutput.plan.query);
@@ -145,15 +135,42 @@ export async function runPodNextJourney({ origin, boundary, output, fixture, htt
       assert.equal((await getSaved()).preview.finance.runLimitMicrounits, '10000000');
       assert.deepEqual(external, []); assert.deepEqual(errors, []); assert.deepEqual(boundary.denied, []); assert.deepEqual(boundary.base.denied, []);
     });
-    await check('a second ordinary owner run saves a rejected reviewer response and stops through the actual owner UI', async () => {
+    await check('a malformed thorough review is counted, reconciled and followed by a new independent pass without owner reapproval', async () => {
+      const previousSetupId = receipt.setupId, start = current().calls.length; boundary.malformedNextReview();
+      if (page) {
+        await page.goto(origin + basePath); await page.getByRole('textbox', { name: 'Research goal', exact: true }).fill(POD_OBJECTIVE);
+        await page.getByRole('textbox', { name: 'Total limit for up to five research passes (USD)', exact: true }).fill('10.00');
+        await page.getByRole('button', { name: 'Review cost and permissions', exact: true }).click();
+        await waitUntil(() => current().ownerSetup?.setupId && current().ownerSetup.setupId !== previousSetupId, 'new thorough failure setup'); receipt = await getSaved(current().ownerSetup.setupId); await page.waitForURL(origin + selectedPath());
+        assert.equal(receipt.preview.profile, 'r12.pod-thorough.1');
+        await page.getByRole('checkbox', { name: 'I approve this public brief, recipients, bounded source policy and maximum charge.', exact: true }).check(); await page.getByRole('button', { name: 'Approve and research', exact: true }).click();
+      } else {
+        const prepared = await action('preparePodResearchAction', { businessId: current().businessId, publicBrief: { objective: POD_OBJECTIVE, publicConstraints: [], fulfilmentContext: 'unspecified' }, maximumMicrounits: '10000000', deadlineAt: new Date(Date.now() + 3600000).toISOString(), submissionId: randomUUID() }); assert.equal(prepared.ok, true, prepared.message); receipt = prepared.receipt;
+        const confirmed = await action('confirmPodResearchAction', input(), selectedPath()); assert.equal(confirmed.ok, true, confirmed.message);
+      }
+      await waitUntil(async () => { const saved = await boundary.result(receipt.scopeId), summary = await boundary.passSummary(receipt.scopeId); return podNextRecoveryResultReady(saved, summary); }, 'same-grant malformed-output recovery reaching a new independent useful review', 180000);
+      const summary = await boundary.passSummary(receipt.scopeId), saved = (await boundary.result(receipt.scopeId)).data;
+      assert.deepEqual(summary.closures.map(({ ordinal, outcome }) => ({ ordinal, outcome })), [{ ordinal: 0, outcome: 'FAILED_OUTPUT' }, { ordinal: 1, outcome: 'HYPOTHESIS_TO_TEST' }]);
+      assert.deepEqual(sentPhases().slice(start), expectedPhases); assert.equal(summary.failures.length, 1); assert.equal(summary.failures[0].phase, 'review'); assert.equal(summary.failures[0].failure_kind, 'json_parse');
+      assert.equal(saved.inputs.pass.history.reviewAccepted, false); assert.equal(saved.inputs.pass.history.version, 'r12.pod-failed-pass-history.3');
+      assert.equal(summary.closures.reduce((sum, pass) => sum + Number(pass.committed_microunits), 0), 100);
+      if (page) {
+        await page.goto(origin + selectedPath()); await page.getByRole('heading', { name: 'A hypothesis worth testing', exact: true }).waitFor();
+        assert.equal(await page.getByRole('button', { name: 'Review next-pass recovery', exact: true }).count(), 0);
+        await page.screenshot({ path: path.join(output, 'pod-counted-failure-result.png'), fullPage: true });
+        await page.getByRole('button', { name: 'Stop research', exact: true }).click(); await waitUntil(async () => (await getSaved()).stopped, 'Stop after counted recovery');
+      } else { const stopped = await action('stopPodResearchAction', input(), selectedPath()); assert.equal(stopped.ok, true, stopped.message); }
+      assert.deepEqual(sentPhases().slice(start), expectedPhases); assert.deepEqual(boundary.logs.filter(event => event.kind === 'actual-workflow-rpc-error'), []);
+    });
+    await check('legacy owner history still saves a rejected reviewer response and stops through the actual owner UI', async () => {
       const previousSetupId = receipt.setupId; failedCallsStart = current().calls.length;
-      boundary.rejectNextReview();
+      await boundary.useLegacyTemplate(); basePath = `/dashboard/quests/research/pod?business=${current().businessId}`; boundary.rejectNextReview();
       if (page) {
         await page.goto(origin + basePath);
         await page.getByRole('textbox', { name: 'Research goal', exact: true }).fill(POD_OBJECTIVE);
         await page.getByRole('textbox', { name: 'Total limit for up to five research passes (USD)', exact: true }).fill('10.00');
         await page.getByRole('button', { name: 'Review cost and permissions', exact: true }).click();
-        await waitUntil(() => current().ownerSetup.setupId !== previousSetupId, 'a distinct second ordinary setup');
+        await waitUntil(() => current().ownerSetup?.setupId && current().ownerSetup.setupId !== previousSetupId, 'a distinct second ordinary setup');
         receipt = await getSaved(current().ownerSetup.setupId); await page.waitForURL(origin + selectedPath());
         await page.getByRole('checkbox', { name: 'I approve this public brief, recipients, bounded source policy and maximum charge.', exact: true }).check();
         await page.getByRole('button', { name: 'Approve and research', exact: true }).click();
@@ -187,7 +204,7 @@ export async function runPodNextJourney({ origin, boundary, output, fixture, htt
       assert.equal(proof.data.history.reviewAccepted, false); assert.equal(proof.data.inputs.dependencies.length, 4);
     });
     await check('recovery review survives a lost reply and reload while preserving the failed pass and remaining allowance', async () => {
-      const callsBefore = current().calls.length; boundary.losePrepareReply();
+      const callsBefore = current().calls.length; originalGoals = await boundary.goalVersions(failedReceipt.goalId); await boundary.prepareThoroughRecoveryTemplate(); boundary.losePrepareReply();
       if (page) {
         await page.getByRole('button', { name: 'Review next-pass recovery', exact: true }).click();
         await page.getByRole('status').filter({ hasText: 'The result could not be verified.' }).waitFor();
@@ -195,12 +212,16 @@ export async function runPodNextJourney({ origin, boundary, output, fixture, htt
         await page.reload(); await page.getByRole('button', { name: 'Review next-pass recovery', exact: true }).click();
         receipt = await getSaved(savedProposalId); await page.waitForURL(origin + selectedPath());
       } else {
-        const recoveryInput = input(); assert.equal((await action('preparePodResearchRecoveryAction', recoveryInput, selectedPath())).ok, false);
+        const recoveryInput = { ...input(), approveGoalDeadlineRevision: true }; assert.equal((await action('preparePodResearchRecoveryAction', recoveryInput, selectedPath())).ok, false);
         const savedProposalId = current().ownerSetup.setupId;
         const recovered = await action('preparePodResearchRecoveryAction', recoveryInput, selectedPath()); assert.equal(recovered.ok, true, recovered.message);
         receipt = recovered.receipt; assert.equal(receipt.setupId, savedProposalId);
       }
-      assert.equal((await boundary.catalog()).data.setups.length, 3, 'The lost response and retry must create only one successor proposal');
+      assert.equal((await boundary.catalog()).data.setups.length, 2, 'The lost response and retry must create only one successor proposal');
+      assert.equal(receipt.preview.profile, 'r12.pod-thorough.1');
+      const revisedGoals = await boundary.goalVersions(failedReceipt.goalId); assert.deepEqual(revisedGoals.slice(0, originalGoals.length), originalGoals); assert.equal(revisedGoals.length, originalGoals.length + 2);
+      const withoutDeadline = value => { const copy = structuredClone(value); delete copy.parsed.deadline; return copy; }; for (const goal of revisedGoals.slice(originalGoals.length)) assert.deepEqual(withoutDeadline(goal.content), withoutDeadline(originalGoals.at(-1).content));
+      assert.equal(receipt.preview.goalRevision, originalGoals.at(-1).revision + 2); assert.equal(revisedGoals.at(-1).preference, 'ready');
       assert.equal(receipt.goalId, failedReceipt.goalId); assert.equal(receipt.confirmed, false); assert.equal(receipt.activated, false);
       assert.equal(receipt.preview.recovery.proof.predecessorSetupId, failedReceipt.setupId);
       assert.equal(receipt.preview.recovery.originalReviewAccepted, false);
@@ -231,7 +252,7 @@ export async function runPodNextJourney({ origin, boundary, output, fixture, htt
       }, 'the real background Workflow completing a fresh independently accepted recovery pass', 180000);
       assert.ok(boundary.logs.filter(event => event.kind === 'actual-workflow-runtime-read').length > runtimeReadsBefore);
       assert.deepEqual(sentPhases().slice(failedCallsStart), expectedPhases, 'Exactly one failed pass and one fresh pass are charged; the rejected reviewer is never resent');
-      assert.equal(current().receipts.length, 19, 'The rejected response is settled but never turns into a route-qualified candidate');
+      assert.equal(current().receipts.length, 29, 'The rejected response is settled but never turns into a route-qualified candidate');
       const saved = (await boundary.result(receipt.scopeId)).data;
       assert.equal(saved.context.attempt.adaptiveActionOrdinal, 1); assert.equal(saved.inputs.pass.history.kind, 'failed_pass_context');
       assert.equal(saved.inputs.pass.history.reviewAccepted, false); assert.equal(saved.inputs.pass.history.untrustedCritique.outcome, 'INSUFFICIENT_EVIDENCE');
@@ -247,7 +268,7 @@ export async function runPodNextJourney({ origin, boundary, output, fixture, htt
         await page.reload(); await page.getByRole('heading', { name: 'A hypothesis worth testing', exact: true }).waitFor();
         await page.screenshot({ path: path.join(output, 'pod-recovery-result.png'), fullPage: true });
       }
-      assert.equal(current().calls.length, 20); assert.deepEqual(external, []); assert.deepEqual(errors, []);
+      assert.equal(current().calls.length, 30); assert.deepEqual(external, []); assert.deepEqual(errors, []);
       assert.deepEqual(boundary.denied, []); assert.deepEqual(boundary.base.denied, []);
     });
   } finally { boundary.releaseProvider(); await browser?.close(); await report(); }

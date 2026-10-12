@@ -5,11 +5,11 @@ import type { EvidencePack, ResearchCollection, ResearchProviderResult, Research
 const hash=(value:string)=>createHash("sha256").update(value).digest("hex");
 const normalize=(value:string)=>value.replace(/\s+/g," ").trim();
 function record(v:unknown): v is Record<string,unknown> { return !!v&&typeof v==="object"&&!Array.isArray(v); }
-export function validateResearchRequest(value: unknown): asserts value is ResearchRequest {
-  if (!record(value)||Object.keys(value).sort().join(",")!=="allowedDomains,query"||typeof value.query!=="string"||value.query.trim().length<5||value.query.length>800||
-    !Array.isArray(value.allowedDomains)||value.allowedDomains.length<1||value.allowedDomains.length>6||new Set(value.allowedDomains).size!==value.allowedDomains.length||
+export function validateResearchRequest(value: unknown, limits={maximumQueryCharacters:800,maximumDomains:6}): asserts value is ResearchRequest {
+  if (!record(value)||Object.keys(value).sort().join(",")!=="allowedDomains,query"||typeof value.query!=="string"||value.query.trim().length<5||value.query.length>limits.maximumQueryCharacters||
+    !Array.isArray(value.allowedDomains)||value.allowedDomains.length<1||value.allowedDomains.length>limits.maximumDomains||new Set(value.allowedDomains).size!==value.allowedDomains.length||
     value.allowedDomains.some(d=>typeof d!=="string"||d.length>200||! /^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/.test(d)||d.endsWith(".local")||d.endsWith(".internal"))) {
-    throw new Error("Research needs a bounded question and 1 to 6 public source domains.");
+    throw new Error(`Research needs a bounded question and 1 to ${limits.maximumDomains} public source domains.`);
   }
 }
 export function canonicalResearchUrl(raw:string, domains:readonly string[]) {

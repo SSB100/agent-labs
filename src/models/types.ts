@@ -126,6 +126,8 @@ export type InferencePrivacyControls = {
   providerZdr?: true;
 };
 export type WebSearchModelRequest = InferencePrivacyControls & {
+  /** Only an exact reviewed POD scope may admit this larger source contract. */
+  researchProfile?: "r12.pod-thorough.1";
   model: ModelDefinition;
   query: string;
   allowedDomains: string[];

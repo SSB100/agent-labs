@@ -1,3 +1,4 @@
+import {isPodThoroughScope} from "./discovery-r12-pod-profile";
 import { podExecutingRelease } from "./discovery-r12-pod-release";
 import { isPodResearchGoalScope, validatePodResearchGoalScope } from "./discovery-r12-pod-goal";
 import { validatePodQuestPlan } from "./discovery-r12-pod-runtime";
@@ -62,9 +63,21 @@ async function continuePreparedDiscoveryR12(businessId:string,scopeId:string,row
  const bounded=recovery||isPodResearchGoalScope(scope);
  const dependencies=discoveryR12ServerDependencies(),baseController=dependencies.createController(businessId,scope.goalId,{...authority,...(bounded?{requestSignal}:{}),...(recovery?{recoveryScopeId:scopeId}:{})}),client=dependencies.createClient();
  const passOperation=async(operation:string,payload:Record<string,unknown>={})=>{const result=await boundedRpc(client.rpc('r12_pod_pass_server',{p_business_id:businessId,p_scope_id:scopeId,p_operation:operation,p_payload:payload,p_server_key:authority.controllerKey}),requestSignal,10000);if(result.error)return fail();return result.data;};
+ let ownedLeaseEpoch:number|null=null;
  const controller=isPodResearchGoalScope(scope)?{...baseController,command:async(operation:string,payload:Record<string,unknown>,epoch?:number)=>{
- if(operation!=='adaptive_complete_action')return baseController.command(operation,payload,epoch);const result=await passOperation('complete',payload);if(!object(result))return fail();return result;},
+ if(operation!=="adaptive_complete_action"){const result=await baseController.command(operation,payload,epoch);if(operation==="claim"&&Number.isSafeInteger(result.epoch))ownedLeaseEpoch=Number(result.epoch);return result;}
+ const result=await passOperation('complete',payload);if(!object(result))return fail();return result;},
  readAdaptiveAction:async()=>{const data=await passOperation('context');if(data===null)return null;if(!object(data))return fail();return data as unknown as import('../core/quest-controller').QuestAdaptiveActionProjection;}}:baseController;
+ // Release only after a fully awaited, normal transition chunk. On any
+ // ambiguous abort/error the old lease remains fenced until its natural expiry.
+ const finish=async(result:QuestTickResult):Promise<QuestTickResult>=>{
+  if(isPodThoroughScope(scope)&&ownedLeaseEpoch!==null&&!requestSignal.aborted){
+   try{const final=await controller.read();if(final&&final.planHash===activation.planHash&&final.head.epoch===ownedLeaseEpoch&&Date.parse(final.head.leaseExpiresAt)>Date.now())
+    await controller.command("release_lease",{planId:final.planId,planHash:final.planHash},ownedLeaseEpoch);
+   }catch{/* No retry or assumption of release; next invocation waits/reconciles. */}
+  }
+  return result;
+ };
  const operation:DiscoveryR12EffectStore['operation']=async(attemptId,operation,payload)=>{
   const extended=recovery&&['inputs','bind','send'].includes(operation);
   if(bounded)requestSignal.throwIfAborted();
@@ -74,7 +87,7 @@ async function continuePreparedDiscoveryR12(businessId:string,scopeId:string,row
  };
  const effects:DiscoveryR12EffectStore={operation,settle:async(attemptId,settlement)=>{await controller.command('settle',{attemptId,settlement});},dispatchedAt:async attemptId=>{const data=await operation(attemptId,'load',{});if(typeof data.dispatchedAt!=='string'||!Number.isFinite(Date.parse(data.dispatchedAt)))return fail();return data.dispatchedAt;}};
  let quote:DiscoveryR12ExecutionQuote|null=null;
- const freshQuote=async()=>{if(!quote||Date.parse(quote.validUntil)<=Date.now())quote=await dependencies.quote({evidenceContinuation:plan.format==='r12.discovery-evidence.1',focusedPilot:plan.format==='r12.discovery-pilot.1',podResearch:isPodResearchGoalScope(scope),...(bounded?{fetch:deadlineFetch(requestSignal)}:{})});return quote;};
+ const freshQuote=async()=>{if(!quote||Date.parse(quote.validUntil)<=Date.now())quote=await dependencies.quote({evidenceContinuation:plan.format==='r12.discovery-evidence.1',focusedPilot:plan.format==='r12.discovery-pilot.1',podResearch:isPodResearchGoalScope(scope),podThorough:isPodThoroughScope(scope),...(bounded?{fetch:deadlineFetch(requestSignal)}:{})});return quote;};
  const adapters:Record<string,QuestAdapter>={};
  for(const step of plan.steps){
   if(!DISCOVERY_R12_PHASES.includes(step.key as DiscoveryR12Phase))return fail();
@@ -99,21 +112,26 @@ async function continuePreparedDiscoveryR12(businessId:string,scopeId:string,row
   const unsent=saved.attempts.filter(a=>a.status==='scheduled'||a.status==='reserved');
   if(unsent.length){const lease=await controller.command('claim',{seconds:60});for(const attempt of unsent)await controller.command('cancel',{attemptId:attempt.id,evidenceHash:sha(`pod-stopped-unsent:${scopeId}:${attempt.id}`)},Number(lease.epoch));}
  }
- const started=recovery?requestStarted:Date.now();
+ const started=bounded?requestStarted:Date.now();
  // Existing Core takes one finite transition at a time. Each request has a
  // finite transition chunk; durable POD continuation preserves the run limits.
- // Stop starting transitions at 200s, leaving room for the bounded 45s model
+ // Stop starting transitions at 200s on legacy paths, leaving room for the 45s model
  // transport, 20s receipt and persistence within the 300s dashboard limit.
  // Recovery: 22 RPCs at their caller bounds, catalogs20s, model45s and
  // receipt20s total220s including one renewal/readback. Stop starts at40s,
  // leaving230s before the hard270s caller cancellation (300s host limit).
+ // Thorough POD uses at most one 120s generation per chunk, then persists
+ // accounting and releases its lease. The absolute 270s cancellation remains
+ // authoritative; it is not permission to replay an uncertain provider effect.
  // These are finite failure bounds, not a Production latency guarantee.
- const latestTransitionStartMs=bounded?40000:200000;
+ // Thorough reserved dispatch/persistence has a conservative 225s caller
+ // budget. Starting by absolute20s leaves25s before the hard270s deadline.
+ const latestTransitionStartMs=isPodThoroughScope(scope)?20000:bounded?40000:200000;
  for(let transitions=0;transitions<24&&Date.now()-started<latestTransitionStartMs;transitions++){
-  try{if(bounded)requestSignal.throwIfAborted();if(isPodResearchGoalScope(scope)&&'readAdaptiveAction' in controller&&!await controller.readAdaptiveAction!()){if(row.activeWindow!==true)return{status:'stopped',reason:'owner_stopped_or_expired'};const next=await passOperation('admit',{quote:await freshQuote()});if(!object(next))return fail();if(next.admitted!==true)return{status:next.completed===true?'completed':next.stopped===true?'stopped':'waiting',reason:typeof next.reason==='string'?next.reason:'pass_not_admitted'};}const work=driveQuestOnce(controller,{adapters,reconcile:true});const result=bounded?await awaitRequestDeadline(work,requestSignal):await work;if(result.status!=='progress')return result;}
-  catch(error){if(error instanceof DiscoveryR12ReceiptPending){const wake=error.receipt.nextCheckAt;return{status:'waiting',reason:'receipt_pending',...(typeof wake==='string'?{wakeAt:wake}:{})};}throw error;}
+  try{if(bounded)requestSignal.throwIfAborted();if(isPodResearchGoalScope(scope)&&'readAdaptiveAction' in controller&&!await controller.readAdaptiveAction!()){if(row.activeWindow!==true)return finish({status:'stopped',reason:'owner_stopped_or_expired'});const next=await passOperation('admit',{quote:await freshQuote()});if(!object(next))return fail();if(next.admitted!==true)return finish({status:next.completed===true?'completed':next.stopped===true?'stopped':'waiting',reason:typeof next.reason==='string'?next.reason:'pass_not_admitted',...(typeof next.wakeAt==='string'?{wakeAt:next.wakeAt}:{})});}const work=driveQuestOnce(controller,{adapters,reconcile:true});const result=bounded?await awaitRequestDeadline(work,requestSignal):await work;if(result.status!=='progress')return finish(result);}
+  catch(error){if(error instanceof DiscoveryR12ReceiptPending){const wake=error.receipt.nextCheckAt;return finish({status:'waiting',reason:'receipt_pending',...(typeof wake==='string'?{wakeAt:wake}:{})});}throw error;}
  }
- return{status:'waiting',reason:'continue_saved_progress'};
+ return finish({status:'waiting',reason:'continue_saved_progress'});
 }
 /** The durable runner derives the same role-separated keys inside each step.
  * Its public-only plan was already confirmed by the owner; SQL rechecks every
@@ -123,7 +141,7 @@ export async function continuePodResearchRuntime(businessId:string,scopeId:strin
  const {podApplicationCapability}=await import('./discovery-r12-pod-server-key');
  const signal=requestDeadline(270000),started=Date.now(),client=discoveryR12ServerDependencies().createClient();
  const read=await boundedRpc(client.rpc('r12_pod_runtime_read',{p_business_id:businessId,p_scope_id:scopeId,p_server_key:podApplicationCapability()}),signal,10000);
- const row=read.data;if(read.error||!object(row)||row.businessId!==businessId||row.scopeId!==scopeId||!id(row.ownerId)||!object(row.activation)||!object(row.activation.scope)||row.activation.scope.version!=='r12.pod-research-goal.2')return fail();
+ const row=read.data;if(read.error||!object(row)||row.businessId!==businessId||row.scopeId!==scopeId||!id(row.ownerId)||!object(row.activation)||!object(row.activation.scope)||!isPodResearchGoalScope(row.activation.scope as {version:string}))return fail();
  const result=await continuePreparedDiscoveryR12(businessId,scopeId,row,keysForOwner(row.ownerId,businessId,scopeId),started,signal,row.ownerId);
  return {...result,receiptUntil:String(row.receiptUntil)};
 }

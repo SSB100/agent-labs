@@ -19,21 +19,22 @@ test('POD Next runner preserves production actions and Workflow host while block
   const journey = readFileSync(new URL('./next-fixture/r12-pod-journey.mjs', import.meta.url), 'utf8');
   assert.match(journey, /actual-workflow-runtime-read/); assert.match(journey, /boundary\.result\(receipt\.scopeId\)/);
   assert.doesNotMatch(journey, /continuePodResearchRuntime\(/);
-  assert.match(journey, /const deadline = Date\.now\(\) \+ 180000/); assert.match(journey, /assertPodLeaseQuiet\(boundary\.logs, leaseHandoff\)/);
-  assert.match(journey, /current\(\)\.calls\.length, leaseHandoff\.providerCalls/); assert.match(journey, /resumed\.at >= expiry/);
+  assert.match(journey, /const deadline = Date\.now\(\) \+ 180000/);
+  assert.match(journey, /actual-workflow-lease-release/); assert.match(journey, /release\.at < held\.at/);
+  assert.match(journey, /current\(\)\.calls\.length, beforeQuiet\.calls/); assert.match(journey, /held\.at - firstPost\.at < 30000/);
   const boundary = readFileSync(new URL('./next-fixture/r12-pod-boundary.mjs', import.meta.url), 'utf8');
   assert.match(boundary, /leaseExpiresAt: data\?\.head\?\.leaseExpiresAt/);
   assert.doesNotMatch(boundary, /(?:update|set)\s+[^;\n]*lease_expires_at/i);
 });
 test('the existing Next journey adds failed-pass recovery after its ordinary two-pass path without replacing runtime authority', () => {
   const journey = readFileSync(new URL('./next-fixture/r12-pod-journey.mjs', import.meta.url), 'utf8');
-  const ordinary = journey.indexOf('actual background Workflow refines a weak pass'), recovery = journey.indexOf('a second ordinary owner run saves a rejected reviewer response');
+  const ordinary = journey.indexOf('actual background Workflow refines a weak pass'), recovery = journey.indexOf('legacy owner history still saves a rejected reviewer response');
   assert.ok(ordinary >= 0 && recovery > ordinary, 'Keep the original owner/Workflow refinement journey before the additional recovery run');
-  for (const required of ["boundary.rejectNextReview()", "name: 'Stop research'", "name: 'Review next-pass recovery'", "action('preparePodResearchRecoveryAction'", 'boundary.audit(failedReceipt.scopeId)', "saved.inputs.pass.history.kind, 'failed_pass_context'", "saved.inputs.pass.history.reviewAccepted, false", "current().calls.length, 20"]) assert.ok(journey.includes(required), required);
+  for (const required of ["boundary.rejectNextReview()", "name: 'Stop research'", "name: 'Review next-pass recovery'", "action('preparePodResearchRecoveryAction'", 'boundary.audit(failedReceipt.scopeId)', "saved.inputs.pass.history.kind, 'failed_pass_context'", "saved.inputs.pass.history.reviewAccepted, false", "current().calls.length, 30"]) assert.ok(journey.includes(required), required);
   assert.doesNotMatch(journey, /continuePodResearchRuntime\(|driveQuestOnce\(|podRuntimeFixture\(/);
   const boundary = readFileSync(new URL('./next-fixture/r12-pod-boundary.mjs', import.meta.url), 'utf8');
   for (const rpc of ['r12_pod_recovery_read', 'r12_pod_recovery_owner_server']) assert.ok(boundary.includes(rpc));
-  assert.match(boundary, /schemas: podSource\('products\/discovery-r12-pod-runtime'\)\.podResearchSchemaPins\(true\)/);
+  assert.match(boundary, /podThoroughSqlTemplate\(db,.*recovery: true/s);
   assert.doesNotMatch(boundary, /update\s+private\.r12_(?:discovery_response_observations|discovery_candidates|pod_templates)/i);
 });
 test('async owner confirmation polls successful null progress until the real rejected review exists', () => {

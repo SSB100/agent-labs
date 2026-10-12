@@ -1,3 +1,4 @@
+import {POD_THOROUGH_PROFILE} from "./discovery-r12-pod-profile";
 import "server-only";
 import {podApplicationCapability} from "./discovery-r12-pod-server-key";
 import {createHash} from "node:crypto";
@@ -26,7 +27,7 @@ export async function preparePodResearch(c:OwnerUiContext,entry:PodResearchEntry
  if(existing){if(discoveryV2Hash(existing.preview.publicBrief)!==discoveryV2Hash(brief)||existing.preview.finance.runLimitMicrounits!==entry.maximumMicrounits)podFail();return existing;}
  if(deadline<Date.now()+35*60000||deadline>Date.now()+90*60000)throw Error("r12_pod_review_window_expired");
  const catalog=recovered;if(!catalog.business?.ready)throw Error("r12_pod_business_not_ready");if(!catalog.template)throw Error("r12_pod_template_unavailable");if(catalog.finance.hasBlockingUnknown)throw Error("r12_pod_unresolved_liability");
- const quote=await discoveryR12ServerDependencies().quote({podResearch:true});if(quote.maximumMicrousd>Number(entry.maximumMicrounits))throw Error(`r12_pod_quote_exceeds_budget:${quote.maximumMicrousd}`);
+ const quote=await discoveryR12ServerDependencies().quote({podResearch:true,podThorough:catalog.template?.profile===POD_THOROUGH_PROFILE});if(quote.maximumMicrousd>Number(entry.maximumMicrounits))throw Error(`r12_pod_quote_exceeds_budget:${quote.maximumMicrousd}`);
  // R04 saves research intent without inventing a revenue/units target or country.
  const iso=new Date(deadline).toISOString();
  const content={title:brief.objective.slice(0,200),originalIntent:brief.objective,objective:brief.objective,parsed:{researchMode:"r12.pod-research-intent.1",target:null,budget:{amount:(Number(entry.maximumMicrounits)/1000000).toFixed(6),currency:"USD"},deadline:{date:iso.slice(0,10),time:iso.slice(11,19),timezone:"UTC"},geography:[],scope:"Public print-on-demand product research for Etsy; recommendations only.",stopConstraints:["Stop on owner request or permission expiry","Stop on unbounded liability, exhausted budget or unavailable permitted evidence","No listing, purchase, account access or commerce"]},ambiguities:[]};
@@ -42,9 +43,9 @@ export async function confirmPodResearch(c:OwnerUiContext,input:PodResearchSetup
  if(saved.activated)return saved;
  const recovery=saved.preview.recovery?await inspectPodRecovery(c,input.businessId,saved.preview.recovery.proof.predecessorSetupId):null;
  if(recovery&&(recovery.proofHash!==saved.preview.recovery!.proofHash||recovery.classificationHash!==saved.preview.recovery!.classificationHash))podFail();
- const quote=await discoveryR12ServerDependencies().quote({podResearch:true});
- const raw=buildPodPlannerRequest(saved.setupHash,saved.preview.sourcePolicyHash,saved.preview.publicBrief,saved.preview.sourcePolicy.excludedDomains,recovery?.history??null);
- const request=routeDiscoveryR12Request(raw,"plan",quote.luna,false,false,true),wire=await inspectDiscoveryR12Wire(request,"plan",false,false,false,true);
+ const quote=await discoveryR12ServerDependencies().quote({podResearch:true,podThorough:saved.preview.profile===POD_THOROUGH_PROFILE});
+ const raw=buildPodPlannerRequest(saved.setupHash,saved.preview.sourcePolicyHash,saved.preview.publicBrief,saved.preview.sourcePolicy.excludedDomains,recovery?.history??null,saved.preview.profile===POD_THOROUGH_PROFILE);
+ const request=routeDiscoveryR12Request(raw,"plan",quote.luna,false,false,true,saved.preview.profile===POD_THOROUGH_PROFILE),wire=await inspectDiscoveryR12Wire(request,"plan",false,false,false,true,saved.preview.profile===POD_THOROUGH_PROFILE);
  const hashes=await prepareDiscoveryR12Authority(c,input.businessId,saved.scopeId);
  return parsePodReceipt(await rpc(c,saved.preview.recovery?"r12_pod_recovery_owner_server":"r12_pod_owner_server",{p_business_id:input.businessId,p_operation:"confirm",p_payload:{setupId:input.setupId,setupHash:input.setupHash,submissionId:input.submissionId,controllerKeyHash:hashes.controllerKeyHash,admissionKeyHash:hashes.admissionKeyHash,quote,preflight:{setupHash:saved.setupHash,sourcePolicyHash:saved.preview.sourcePolicyHash,requestHash:wire.requestHash,wireHash:wire.wireHash,wireBytes:wire.wireBytes}},p_server_key:podApplicationCapability()}),input.businessId,input.setupId);
 }
@@ -68,7 +69,8 @@ async function inspectPodRecovery(c:OwnerUiContext,businessId:string,setupId:str
 }
 /** Proposal only. The successor keeps the Goal and original allowance; it does
  * not restart the revoked policy or create runtime keys before confirmation. */
-export async function preparePodResearchRecovery(c:OwnerUiContext,input:PodResearchSetupAction){
+export async function preparePodResearchRecovery(c:OwnerUiContext,input:PodResearchSetupAction&{approveGoalDeadlineRevision:true}){
+ if(input.approveGoalDeadlineRevision!==true)throw Error("r12_pod_goal_deadline_revision_consent_required");
  await owned(c,input.businessId);if(!podId(input.setupId)||!podId(input.submissionId))podFail();
  const recovered=await readPodResearch(c,input.businessId,null,input.submissionId),existing=recovered.setups.find(r=>r.submissionId===input.submissionId);
  if(existing){if(existing.preview.recovery?.proof.predecessorSetupId!==input.setupId)podFail();return existing;}
@@ -78,9 +80,9 @@ export async function preparePodResearchRecovery(c:OwnerUiContext,input:PodResea
  if(!podObject(template)||!podId(template.id)||typeof template.hash!=="string")throw Error("r12_pod_recovery_template_unavailable");
  if(!podObject(finance)||finance.hasBlockingUnknown!==false||!podMoney(finance.maximumMicrounits)||!podMoney(finance.committedMicrounits)||!podMoney(inspected.proof.remainingMaximumMicrounits))podFail();
  const amount=Math.min(Number(inspected.proof.remainingMaximumMicrounits),Number(finance.maximumMicrounits)-Number(finance.committedMicrounits));
- const quote=await discoveryR12ServerDependencies().quote({podResearch:true});if(amount<quote.maximumMicrousd)throw Error("r12_pod_recovery_remaining_budget_below_quote");
+ const quote=await discoveryR12ServerDependencies().quote({podResearch:true,podThorough:template.profile===POD_THOROUGH_PROFILE});if(amount<quote.maximumMicrousd)throw Error("r12_pod_recovery_remaining_budget_below_quote");
  // Price and serialize the actual bounded failed history before saving a proposal.
- const request=routeDiscoveryR12Request(buildPodPlannerRequest(predecessor.setupHash,predecessor.preview.sourcePolicyHash,predecessor.preview.publicBrief,predecessor.preview.sourcePolicy.excludedDomains,inspected.history),"plan",quote.luna,false,false,true);
- await inspectDiscoveryR12Wire(request,"plan",false,false,false,true);
- return parsePodReceipt(await rpc(c,"r12_pod_recovery_owner_server",{p_business_id:input.businessId,p_operation:"prepare",p_payload:{input:{businessId:input.businessId,goalId:predecessor.goalId,goalRevision:predecessor.preview.goalRevision,templateId:template.id,templateHash:template.hash,publicBrief:predecessor.preview.publicBrief,maximumMicrounits:String(amount),businessLifetimeLimitMicrounits:finance.maximumMicrounits,submissionId:input.submissionId,predecessorSetupId:input.setupId,proofHash:inspected.proofHash,historyHash:inspected.historyHash,classificationHash:inspected.classificationHash},quote},p_server_key:podApplicationCapability()}),input.businessId);
+ const request=routeDiscoveryR12Request(buildPodPlannerRequest(predecessor.setupHash,predecessor.preview.sourcePolicyHash,predecessor.preview.publicBrief,predecessor.preview.sourcePolicy.excludedDomains,inspected.history,template.profile===POD_THOROUGH_PROFILE),"plan",quote.luna,false,false,true,template.profile===POD_THOROUGH_PROFILE);
+ await inspectDiscoveryR12Wire(request,"plan",false,false,false,true,template.profile===POD_THOROUGH_PROFILE);
+ return parsePodReceipt(await rpc(c,"r12_pod_recovery_owner_server",{p_business_id:input.businessId,p_operation:"prepare",p_payload:{input:{businessId:input.businessId,goalId:predecessor.goalId,goalRevision:predecessor.preview.goalRevision,templateId:template.id,templateHash:template.hash,publicBrief:predecessor.preview.publicBrief,maximumMicrounits:String(amount),businessLifetimeLimitMicrounits:finance.maximumMicrounits,submissionId:input.submissionId,predecessorSetupId:input.setupId,proofHash:inspected.proofHash,historyHash:inspected.historyHash,classificationHash:inspected.classificationHash,approveGoalDeadlineRevision:true},quote},p_server_key:podApplicationCapability()}),input.businessId);
 }

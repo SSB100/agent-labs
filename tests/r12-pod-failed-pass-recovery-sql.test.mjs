@@ -201,41 +201,9 @@ async function recoveryPreflight(prepared,quote,history){
  return{setupHash:prepared.setupHash,sourcePolicyHash:prepared.preview.sourcePolicyHash,requestHash:inspected.requestHash,wireHash:inspected.wireHash,wireBytes:inspected.wireBytes};
 }
 
-async function recover(db,failed,{native=null,confirmationRace=null}={}){
- const {a,c,classified}=failed,template=await installRecoveryTemplate(db,a);
- const server=(operation,payload)=>podRpc(db,'authenticated',a.f.ownerId,'r12_pod_recovery_owner_server',[a.f.businessId,operation,payload,a.f.bootstrapKey]);
- const input={...a.f.input,...template,maximumMicrounits:c.proof.remainingMaximumMicrounits,submissionId:randomUUID(),predecessorSetupId:a.prepared.setupId,proofHash:c.proofHash,historyHash:c.historyHash,classificationHash:podHash(classified)};
- const quote=podQuoteFixture();
- await assert.rejects(server('prepare',{input:{...input,templateId:a.f.templateId,templateHash:a.f.input.templateHash,submissionId:randomUUID()},quote}),/recovery_template_required/);
- await assert.rejects(a.f.prepare({...template,submissionId:randomUUID()}),/recovery_requires_separate_approval/);
- await assert.rejects(server('prepare',{input:{...input,maximumMicrounits:'10000000',submissionId:randomUUID()},quote}),/budget_cannot_reset/);
- await assert.rejects(server('prepare',{input:{...input,proofHash:'0'.repeat(64),submissionId:randomUUID()},quote}),/predecessor_changed/);
- await assert.rejects(server('prepare',{input:{...input,classificationHash:'0'.repeat(64),submissionId:randomUUID()},quote}),/predecessor_changed/);
- const prepared=await server('prepare',{input,quote});
- const competing=await server('prepare',{input:{...input,submissionId:randomUUID()},quote});
- await assert.rejects(db.query("update private.r12_pod_setups set input=jsonb_set(input,'{classificationHash}',to_jsonb($1::text)) where id=$2",['0'.repeat(64),prepared.setupId]),/append_only/,'Persisted classification pin cannot be changed');
- assert.equal(prepared.activated,false);assert.equal(prepared.confirmed,false);assert.equal(prepared.goalId,a.f.goalId);
- assert.notEqual(prepared.policyId,a.prepared.policyId);assert.notEqual(prepared.setupId,a.prepared.setupId);
- assert.equal(prepared.preview.maximumCalls,25);assert.equal(prepared.preview.maximumPasses,5);
- assert.equal(prepared.preview.recovery.originalReviewAccepted,false);
- assert.equal((await podOne(db,'select count(*)::int n from private.r12_pod_recoveries where business_id=$1',[a.f.businessId])).n,0);
+async function recoveryActivation(db,failed,prepared,activated){
+ const {a,c}=failed;
  const controller='inert-pod-controller-'+prepared.scopeId,admission='inert-pod-admission-'+prepared.scopeId,lease='inert-pod-controller-lease-'+prepared.scopeId;
- const confirmation={setupId:prepared.setupId,setupHash:prepared.setupHash,submissionId:randomUUID(),controllerKeyHash:podSha(controller),admissionKeyHash:podSha(admission),quote,preflight:await recoveryPreflight(prepared,quote,c.history)};
- const competingConfirmation={...confirmation,setupId:competing.setupId,setupHash:competing.setupHash,submissionId:randomUUID(),controllerKeyHash:podSha('inert-competing-controller-'+competing.scopeId),admissionKeyHash:podSha('inert-competing-admission-'+competing.scopeId),preflight:await recoveryPreflight(competing,quote,c.history)};
- let activated;
- if(native&&confirmationRace){
-  const race=await orderedRace({...native,
-   first:client=>asRole(client,'authenticated','r12_pod_recovery_owner_server',[a.f.businessId,'confirm',confirmation,a.f.bootstrapKey],a.f.ownerId),
-   second:client=>asRole(client,'authenticated','r12_pod_recovery_owner_server',[a.f.businessId,'confirm',confirmationRace==='duplicate'?confirmation:competingConfirmation,a.f.bootstrapKey],a.f.ownerId)});
-  activated=race.first;
-  if(confirmationRace==='duplicate'){assert.equal(race.second.error,undefined,race.second.error?.message);assert.deepEqual(race.second.value,activated);}
-  else assert.match(race.second.error?.message??'',/stopped_failed_pass|predecessor_changed|already_used|head_changed/);
-  recordRace(native,confirmationRace==='duplicate'?'duplicate-recovery-confirm-one-successor':'competing-recovery-setups-one-successor',race);
- }else activated=await server('confirm',confirmation);
- assert.equal(activated.activated,true);assert.equal(activated.confirmed,true);
- assert.deepEqual(await server('confirm',confirmation),activated);
- assert.deepEqual(await server('confirm',{...confirmation,submissionId:randomUUID()}),activated);
- await assert.rejects(server('confirm',competingConfirmation),/stopped_failed_pass|predecessor_changed|already_used|head_changed/);
  const command=(operation,payload,epoch=null)=>podRpc(db,'anon',null,'r07_controller',[a.f.businessId,a.f.goalId,operation,payload,randomUUID(),controller,lease,epoch,admission]);
  const authority=await podOne(db,"select a.plan,p.payload->'operations' operations from private.r12_discovery_authorities a join private.r12_pod_setups s on s.scope_id=a.scope_id join private.r05_policies p on p.id=s.policy_id where a.scope_id=$1",[prepared.scopeId]);
  const pass=(operation,payload={})=>podRpc(db,'anon',null,'r12_pod_pass_server',[a.f.businessId,prepared.scopeId,operation,payload,controller]);
@@ -253,6 +221,50 @@ async function recover(db,failed,{native=null,confirmationRace=null}={}){
  assert.deepEqual(successor,{version:2,previous_plan_id:c.proof.predecessorPlanId});
  assert.deepEqual(await originalRecords(db,a),failed.records);
  return activation;
+}
+
+async function recover(db,failed,{native=null,confirmationRace=null}={}){
+ const {a,c,classified}=failed,template=await installRecoveryTemplate(db,a);
+ const server=(operation,payload)=>podRpc(db,'authenticated',a.f.ownerId,'r12_pod_recovery_owner_server',[a.f.businessId,operation,payload,a.f.bootstrapKey]);
+ const input={...a.f.input,...template,maximumMicrounits:c.proof.remainingMaximumMicrounits,submissionId:randomUUID(),predecessorSetupId:a.prepared.setupId,proofHash:c.proofHash,historyHash:c.historyHash,classificationHash:podHash(classified),approveGoalDeadlineRevision:true};
+ const quote=podQuoteFixture();
+ await assert.rejects(server('prepare',{input:{...input,approveGoalDeadlineRevision:false,submissionId:randomUUID()},quote}),/goal_deadline_revision_consent_required/);
+ await assert.rejects(server('prepare',{input:{...input,templateId:a.f.templateId,templateHash:a.f.input.templateHash,submissionId:randomUUID()},quote}),/recovery_template_required/);
+ await assert.rejects(a.f.prepare({...template,submissionId:randomUUID()}),/recovery_requires_separate_approval/);
+ await assert.rejects(server('prepare',{input:{...input,maximumMicrounits:'10000000',submissionId:randomUUID()},quote}),/budget_cannot_reset/);
+ await assert.rejects(server('prepare',{input:{...input,proofHash:'0'.repeat(64),submissionId:randomUUID()},quote}),/predecessor_changed/);
+ await assert.rejects(server('prepare',{input:{...input,classificationHash:'0'.repeat(64),submissionId:randomUUID()},quote}),/predecessor_changed/);
+ let prepared;
+ if(native&&confirmationRace==='competing'){
+  const race=await orderedRace({...native,
+   first:client=>asRole(client,'authenticated','r12_pod_recovery_owner_server',[a.f.businessId,'prepare',{input,quote},a.f.bootstrapKey],a.f.ownerId),
+   second:client=>asRole(client,'authenticated','r12_pod_recovery_owner_server',[a.f.businessId,'prepare',{input:{...input,submissionId:randomUUID()},quote},a.f.bootstrapKey],a.f.ownerId)});
+  prepared=race.first;assert.match(race.second.error?.message??'',/r12_pod_intent_changed/);
+  recordRace(native,'competing-recovery-prepare-stale-goal-rejected',race);
+ }else prepared=await server('prepare',{input,quote});
+ assert.deepEqual(await server('prepare',{input,quote}),prepared,'The original prepare submission replays after its own Goal revision');
+ await assert.rejects(server('prepare',{input:{...input,submissionId:randomUUID()},quote}),/r12_pod_intent_changed/,'A different submission cannot reuse stale original Goal consent');
+ await assert.rejects(db.query("update private.r12_pod_setups set input=jsonb_set(input,'{classificationHash}',to_jsonb($1::text)) where id=$2",['0'.repeat(64),prepared.setupId]),/append_only/,'Persisted classification pin cannot be changed');
+ assert.equal(prepared.activated,false);assert.equal(prepared.confirmed,false);assert.equal(prepared.goalId,a.f.goalId);
+ assert.notEqual(prepared.policyId,a.prepared.policyId);assert.notEqual(prepared.setupId,a.prepared.setupId);
+ assert.equal(prepared.preview.goalRevision,a.f.input.goalRevision+2);
+ assert.equal(prepared.preview.maximumCalls,25);assert.equal(prepared.preview.maximumPasses,5);
+ assert.equal(prepared.preview.recovery.originalReviewAccepted,false);
+ assert.equal((await podOne(db,'select count(*)::int n from private.r12_pod_recoveries where business_id=$1',[a.f.businessId])).n,0);
+ const controller='inert-pod-controller-'+prepared.scopeId,admission='inert-pod-admission-'+prepared.scopeId;
+ const confirmation={setupId:prepared.setupId,setupHash:prepared.setupHash,submissionId:randomUUID(),controllerKeyHash:podSha(controller),admissionKeyHash:podSha(admission),quote,preflight:await recoveryPreflight(prepared,quote,c.history)};
+ let activated;
+ if(native&&confirmationRace==='duplicate'){
+  const race=await orderedRace({...native,
+   first:client=>asRole(client,'authenticated','r12_pod_recovery_owner_server',[a.f.businessId,'confirm',confirmation,a.f.bootstrapKey],a.f.ownerId),
+   second:client=>asRole(client,'authenticated','r12_pod_recovery_owner_server',[a.f.businessId,'confirm',confirmation,a.f.bootstrapKey],a.f.ownerId)});
+  activated=race.first;assert.equal(race.second.error,undefined,race.second.error?.message);assert.deepEqual(race.second.value,activated);
+  recordRace(native,'duplicate-recovery-confirm-one-successor',race);
+ }else activated=await server('confirm',confirmation);
+ assert.equal(activated.activated,true);assert.equal(activated.confirmed,true);
+ assert.deepEqual(await server('confirm',confirmation),activated);
+ assert.deepEqual(await server('confirm',{...confirmation,submissionId:randomUUID()}),activated);
+ return recoveryActivation(db,failed,prepared,activated);
 }
 
 test('stopped rejected POD pass gets one explicitly approved same-Goal recovery without accounting reset',{skip:!nativeRequested&&!host,timeout:240000},async t=>{
@@ -409,4 +421,101 @@ test('stopped rejected POD pass gets one explicitly approved same-Goal recovery 
   if(native){assert.equal(native.races.length,3);assert.ok(native.coldDispatch);t.diagnostic('Native PostgreSQL observed-lock races: '+JSON.stringify(native.races));t.diagnostic('Disposable native fixture cold dispatch timing: '+JSON.stringify(native.coldDispatch));}
   else t.diagnostic('PGlite qualification only; native concurrent races remain unqualified in this run.');
  }finally{globalThis.fetch=originalFetch;await db.close();}
+});
+
+// This case alone uses PGlite's verified JS/WASM wall clock. Native race and
+// deadline timing tests above retain unmodified PostgreSQL server time.
+test('expired original Goal recovers through atomic deadline-only R04 revision',{skip:nativeRequested||!host,timeout:180000},async t=>{
+ const {db}=await openDatabase(),realNow=Date.now,originalFetch=globalThis.fetch;
+ let offset=0,httpCalls=0;Date.now=()=>realNow()+offset;
+ globalThis.fetch=async()=>{httpCalls++;throw Error('External HTTP forbidden in expired-Goal recovery qualification');};
+ const candidate='20261012200939_r12_pod_recovery_goal_deadline.sql';
+ try{
+  await db.exec(r04SqlBootstrap+sessionBootstrap);
+  for(const file of readdirSync(root+'/supabase/migrations').filter(f=>f.endsWith('.sql')&&f<candidate).sort())await db.exec(readFileSync(root+'/supabase/migrations/'+file,'utf8'));
+  const r05Before=(await podOne(db,"select pg_get_functiondef('private.r05_policy_validate(uuid,jsonb)'::regprocedure) definition")).definition;
+  const originalDeadline=new Date(Math.floor((Date.now()+3600000)/1000)*1000).toISOString();
+  // Set the genuine initial Goal deadline before its first save. No historical
+  // Goal, policy, attempt, timestamp, function or migration is rewritten.
+  const fixtureDb={exec:(...args)=>db.exec(...args),query:(sql,args)=>{
+   if(sql.includes('public.r04_quest_transition(')&&args?.[1]==='quest.save'&&args[2]?.goalId===null){
+    args=structuredClone(args);args[2].content.parsed.deadline={date:originalDeadline.slice(0,10),time:originalDeadline.slice(11,19),timezone:'UTC'};
+   }
+   return db.query(sql,args);
+  }};
+  const failed=await rejectedPass(fixtureDb),{a}=failed,template=await installRecoveryTemplate(db,a);
+  const goalRows=async()=>(await db.query('select to_jsonb(v) row from private.r04_goal_versions v where goal_id=$1 and business_id=$2 order by revision',[a.f.goalId,a.f.businessId])).rows.map(x=>x.row);
+  const originalGoals=await goalRows();assert.deepEqual(originalGoals.map(g=>[g.revision,g.preference]),[[1,'draft'],[2,'ready']]);
+  assert.equal(originalGoals[1].content.parsed.deadline.date+'T'+originalGoals[1].content.parsed.deadline.time+'.000Z',originalDeadline);
+  const sqlBefore=(await podOne(db,'select extract(epoch from clock_timestamp())::double precision*1000 ms')).ms;
+  offset=3600000+5000;
+  const sqlAfter=(await podOne(db,'select extract(epoch from clock_timestamp())::double precision*1000 ms')).ms;
+  assert.ok(sqlAfter-sqlBefore>=3600000);assert.ok(Math.abs(sqlAfter-Date.now())<1000,'Both application and unmodified SQL clock advance together');
+  assert.ok(sqlAfter>Date.parse(originalDeadline));assert.ok(sqlAfter+35*60000<Date.parse(a.f.sourcePolicy.validUntil));
+  assert.deepEqual(await goalRows(),originalGoals,'Clock advance leaves original Goal revision 2 byte-identical');
+  const c=await podRpc(db,'authenticated',a.f.ownerId,'r12_pod_recovery_read',[a.f.businessId,a.prepared.setupId]);
+  assert.equal(c.proofHash,failed.c.proofHash);assert.equal(c.classificationHash,podHash(failed.classified));
+  const input={...a.f.input,...template,maximumMicrounits:c.proof.remainingMaximumMicrounits,submissionId:randomUUID(),predecessorSetupId:a.prepared.setupId,proofHash:c.proofHash,historyHash:c.historyHash,classificationHash:c.classificationHash};
+  const quote=podQuoteFixture(),server=(operation,payload)=>podRpc(db,'authenticated',a.f.ownerId,'r12_pod_recovery_owner_server',[a.f.businessId,operation,payload,a.f.bootstrapKey]);
+  const state=async()=>({goals:await goalRows(),original:await originalRecords(db,a),rows:await podOne(db,`select
+   (select to_jsonb(g) from private.r04_goal_state g where goal_id=$1) goal_state,
+   (select to_jsonb(g) from public.goals g where id=$1) public_goal,
+   (select count(*)::int from private.r04_submissions where business_id=$2) r04_submissions,
+   (select count(*)::int from private.r12_pod_submissions where business_id=$2) pod_submissions,
+   (select count(*)::int from private.r05_policies where business_id=$2) policies,
+   (select count(*)::int from private.r12_pod_setups where business_id=$2) setups,
+   (select count(*)::int from private.r12_pod_operation_sources where business_id=$2) operation_sources,
+   (select count(*)::int from private.r12_discovery_scopes where business_id=$2) scopes,
+   (select count(*)::int from private.r12_pod_recoveries where business_id=$2) recoveries,
+   (select count(*)::int from private.r05_cap_versions where business_id=$2) cap_revisions,
+   private.r12_pod_finance($2) finance`,[a.f.goalId,a.f.businessId])});
+  const baseline=await state();
+  await assert.rejects(server('prepare',{input,quote}),/r05_intent_deadline_exceeded/,'The unchanged original RPC reproduces the live expired-Goal failure');
+  assert.deepEqual(await state(),baseline,'The original failed proposal creates no setup, Goal revision, grant or cost');
+  await db.exec(readFileSync(root+'/supabase/migrations/'+candidate,'utf8'));
+  assert.equal((await podOne(db,"select pg_get_functiondef('private.r05_policy_validate(uuid,jsonb)'::regprocedure) definition")).definition,r05Before,'R05 deadline validation is unchanged');
+  await assert.rejects(server('prepare',{input,quote}),/r04_invalid_fields|goal_deadline_revision_consent_required/,'Old clients cannot silently revise the Goal deadline');
+  await assert.rejects(server('prepare',{input:{...input,approveGoalDeadlineRevision:false},quote}),/goal_deadline_revision_consent_required/);
+  const payload={input:{...input,approveGoalDeadlineRevision:true},quote};
+  // Fault after the real R04 save+ready transitions and R05 validation. The
+  // trigger only raises on this inert Business; no existing guard is weakened.
+  await db.exec(`create function pg_temp.inert_pod_deadline_policy_failure() returns trigger language plpgsql as $$ begin
+   if new.business_id='${a.f.businessId}'::uuid then
+    if new.goal_revision<>4 or (select revision from private.r04_goal_state where goal_id='${a.f.goalId}'::uuid)<>4 then raise exception 'inert_deadline_proposal_wrong_revision';end if;
+    raise exception 'inert_deadline_policy_proposal_failure';
+   end if;return new;end $$;
+   create trigger inert_pod_deadline_policy_failure before insert on private.r05_policies for each row execute function pg_temp.inert_pod_deadline_policy_failure();`);
+  try{
+   await assert.rejects(server('prepare',payload),/inert_deadline_policy_proposal_failure/);
+   assert.deepEqual(await state(),baseline,'Proposal failure atomically rolls back both Goal revisions, R04 submissions and all setup/policy records');
+  }finally{await db.exec('drop trigger inert_pod_deadline_policy_failure on private.r05_policies;drop function pg_temp.inert_pod_deadline_policy_failure();');}
+  const prepared=await server('prepare',payload),afterPrepare=await state();
+  assert.equal(prepared.activated,false);assert.equal(prepared.confirmed,false);assert.equal(prepared.goalId,a.f.goalId);assert.equal(prepared.preview.goalRevision,4);
+  assert.deepEqual(afterPrepare.goals.slice(0,2),originalGoals);
+  assert.deepEqual(afterPrepare.goals.slice(2).map(g=>[g.revision,g.preference]),[[3,'draft'],[4,'ready']]);
+  const withoutDeadline=content=>{const copy=structuredClone(content);delete copy.parsed.deadline;return copy;};
+  for(const goal of afterPrepare.goals.slice(2))assert.deepEqual(withoutDeadline(goal.content),withoutDeadline(originalGoals[1].content),'Only parsed.deadline changes');
+  assert.deepEqual(afterPrepare.goals[2].content,afterPrepare.goals[3].content);
+  const bound=await podOne(db,`select s.input,s.preview,s.cutoff::text cutoff,p.goal_revision,p.payload,
+   ((g.content->'parsed'->'deadline'->>'date')||' '||(g.content->'parsed'->'deadline'->>'time'))::timestamp at time zone (g.content->'parsed'->'deadline'->>'timezone')=s.cutoff deadline_matches_cutoff
+   from private.r12_pod_setups s join private.r05_policies p on p.id=s.policy_id join private.r04_goal_versions g on g.goal_id=s.goal_id and g.business_id=s.business_id and g.revision=4 where s.id=$1`,[prepared.setupId]);
+  assert.equal(bound.input.goalRevision,4);assert.equal(bound.goal_revision,4);assert.equal(bound.payload.goalRevision,4);assert.equal(bound.preview.goalRevision,4);
+  assert.equal(bound.deadline_matches_cutoff,true);assert.equal(Date.parse(bound.payload.expiresAt),Date.parse(bound.cutoff));assert.equal(new Date(bound.cutoff).getUTCMilliseconds(),0);
+  assert.equal(afterPrepare.goals[3].content.parsed.deadline.timezone,'UTC');
+  assert.ok(Date.parse(bound.cutoff)>Date.now()+30*60000);assert.ok(Date.parse(bound.cutoff)<=Date.now()+35*60000);
+  assert.equal(afterPrepare.rows.recoveries,0);assert.equal(afterPrepare.rows.cap_revisions,baseline.rows.cap_revisions);assert.equal(afterPrepare.rows.scopes,baseline.rows.scopes);
+  assert.deepEqual(afterPrepare.rows.finance,baseline.rows.finance);assert.deepEqual(afterPrepare.original,baseline.original);
+  assert.deepEqual(await server('prepare',payload),prepared);assert.deepEqual(await state(),afterPrepare,'Duplicate prepare does not append another Goal revision');
+  await assert.rejects(server('prepare',{...payload,input:{...payload.input,submissionId:randomUUID()}}),/r12_pod_intent_changed/);
+  await assert.rejects(server('prepare',{...payload,input:{...payload.input,goalRevision:4,submissionId:randomUUID()}}),/r12_pod_recovery_prior_goal_changed/,'A new submission cannot treat the revised Goal as original consent');
+  const confirmation={setupId:prepared.setupId,setupHash:prepared.setupHash,submissionId:randomUUID(),controllerKeyHash:podSha('inert-pod-controller-'+prepared.scopeId),admissionKeyHash:podSha('inert-pod-admission-'+prepared.scopeId),quote,preflight:await recoveryPreflight(prepared,quote,c.history)};
+  const activated=await server('confirm',confirmation);assert.equal(activated.activated,true);
+  const activation=await recoveryActivation(db,failed,prepared,activated),run=await podRuntimeFixture(db,{activation,usefulPass:1});
+  let complete=false;for(let i=0;i<30;i++){const tick=await run.tick();if(tick.status==='completed'){complete=true;break;}assert.equal(tick.status,'progress',JSON.stringify(tick));}
+  assert.equal(complete,true);assert.deepEqual(run.posted,POD_PHASES);assert.deepEqual(run.got,POD_PHASES);
+  assert.equal(run.scope.goalRevision,4);assert.equal((await run.store.read()).head.dispatches,10);assert.equal((await run.f.read()).finance.committedMicrounits,'100');
+  assert.deepEqual(await originalRecords(db,a),failed.records);assert.deepEqual((await goalRows()).slice(0,2),originalGoals);assert.equal((await goalRows()).length,4);
+  assert.equal(httpCalls,0);
+  t.diagnostic('Unmodified PGlite SQL clock advanced beyond genuine revision-2 Goal expiry; original RPC rejected, candidate appended only deadline save+ready, proposal fault rolled back completely, replay stayed singular, and full recovery completed. Native wall clock is not simulated.');
+ }finally{Date.now=realNow;globalThis.fetch=originalFetch;await db.close();}
 });

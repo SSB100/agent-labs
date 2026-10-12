@@ -14,7 +14,7 @@ import {R12_INERT_ROOT} from './r12-sql.mjs';
 // quote/provider dependencies and realtime/auth plumbing use the existing inert
 // loopback boundary. No production environment values are inherited.
 assert.ok(process.env.R12_SQL_TEST_HOST,'Set R12_SQL_TEST_HOST to installed isolated PGlite tooling');
-const root=process.cwd(),output=path.join(root,'test-results/r12-pod-next');await mkdir(output,{recursive:true});
+const root=process.cwd(),httpOnly=process.argv.includes('--http-only'),output=path.join(root,'test-results',httpOnly?'r12-pod-next-http':'r12-pod-next');await mkdir(output,{recursive:true});
 const temporaryRoot=process.platform==='win32'?path.resolve(root,'work/next-fixtures'):path.resolve(tmpdir());await mkdir(temporaryRoot,{recursive:true});
 const fixture=await mkdtemp(path.join(temporaryRoot,'agent-labs-pod-next-'));
 assert.ok(path.dirname(fixture)===temporaryRoot&&path.basename(fixture).startsWith('agent-labs-pod-next-'));
@@ -35,14 +35,15 @@ try {
   await writeFile(path.join(fixture,'src/lib/supabase/client.ts'),clientType+`\nexport function createClient() { const channel = { on(){return channel}, subscribe(){return channel} }; return { channel(){return channel}, removeChannel(){return Promise.resolve('ok')} } as unknown as ReturnType<typeof productionClientType>; }\n`);
   await writeFile(path.join(fixture,'src/lib/supabase/proxy.ts'),`import { NextResponse, type NextRequest } from 'next/server';\nexport function updateSupabaseSession(_request:NextRequest, requestHeaders:Headers) { return NextResponse.next({request:{headers:requestHeaders}}); }\n`);
   await cp(path.join(root,'tests/next-fixture/r12-dependencies.ts'),path.join(fixture,'src/products/discovery-r12-server-dependencies.ts'));
-  await writeFile(path.join(output,'isolation.json'),JSON.stringify({copiedProductionSource:true,sql:'fresh PGlite with all actual migrations',provider:'synthetic pass-bound responses and receipts: first weak, second useful',network:'loopback only',credentials:'inert test placeholders only',substitutions:['Supabase auth/query transport and realtime plumbing','discovery-r12-server-dependencies.ts: quote/provider transport only'],workflow:'actual workflow/api, plugin and generated local-host routes unchanged',leaseHandoff:'actual saved R07 lease expiry and Workflow sleep; no database expiry or clock substitution; background stage bounded at 180 seconds',purpose:'Technical USD10/five-pass POD owner/background qualification, no business evidence'},null,2));
+  const runtimeVersions={node:process.version,nextConfigured:JSON.parse(await readFile(path.join(root,'package.json'),'utf8')).dependencies.next,nextInstalled:JSON.parse(await readFile(path.join(root,'node_modules/next/package.json'),'utf8')).version,workflowInstalled:JSON.parse(await readFile(path.join(root,'node_modules/workflow/package.json'),'utf8')).version};
+  await writeFile(path.join(output,'isolation.json'),JSON.stringify({runtimeVersions,copiedProductionSource:true,sql:'fresh PGlite with all actual migrations',provider:'synthetic .3 thorough responses: zero evidence and long Unicode, useful refinement, counted malformed review; legacy .2 to .3 recovery',network:'loopback only',credentials:'inert test placeholders only',substitutions:['Supabase auth/query transport and realtime plumbing','discovery-r12-server-dependencies.ts: quote/provider transport only'],workflow:'actual workflow/api, plugin and generated local-host routes unchanged',leaseHandoff:'actual scoped fenced release and exact receipt wake; no artificial 60-second wait, no database expiry or clock substitution; background stage bounded at 180 seconds',purpose:'Technical USD10/five-pass POD owner/background qualification, no business evidence'},null,2));
   console.log('Building isolated production Next POD owner and actual Workflow host.');await completion(start(['build','--webpack'],'build.log'));
   const probe=createServer();await new Promise(resolve=>probe.listen(0,'127.0.0.1',resolve));const port=probe.address().port;await new Promise(resolve=>probe.close(resolve));
   const origin=`http://localhost:${port}`;
   start(['start','-p',String(port),'-H','127.0.0.1'],'server.log',{...POD_INERT_RELEASE,WORKFLOW_LOCAL_BASE_URL:origin,PORT:String(port),R05_ADMISSION_SERVER_KEY:R12_INERT_ROOT,OPENROUTER_API_KEY:'inert-r12-provider-placeholder'});
   let ready=false;
   for(let i=0;i<120;i++){try{if((await fetch(origin+'/login',{redirect:'manual'})).status<500){ready=true;break;}}catch{}await new Promise(resolve=>setTimeout(resolve,250));}assert.ok(ready,'Next owner fixture did not start');
-  await runPodNextJourney({origin,boundary,output,fixture,httpOnly:process.argv.includes('--http-only')});
+  await runPodNextJourney({origin,boundary,output,fixture,httpOnly});
 } finally {
   const stopped=await Promise.allSettled(processes.map(child=>new Promise((resolve,reject)=>{if(child.exitCode!==null||child.signalCode!==null)return resolve();const timer=setTimeout(()=>{child.kill('SIGKILL');reject(Error('Next did not stop; source retained'));},10000);child.once('exit',()=>{clearTimeout(timer);resolve();});child.kill('SIGTERM');})));
   await boundary.close();await writeFile(path.join(output,'boundary.json'),JSON.stringify({reads:boundary.base.log,effects:boundary.base.effects,pod:boundary.logs,denied:[...boundary.base.denied,...boundary.denied]},null,2));

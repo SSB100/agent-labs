@@ -1,3 +1,5 @@
+import {validatePodFailedEffect,podFailedReceiptExpectation} from "./discovery-r12-pod-failed-effect";
+import {isPodThoroughScope,POD_THOROUGH_LIMITS} from "./discovery-r12-pod-profile";
 import { validatePodExecutingRelease, type PodExecutingRelease } from "./discovery-r12-pod-release";
 import { isPodResearchGoalScope, validatePodResearchCitationUrl } from "./discovery-r12-pod-goal";
 import { validatePodQuestPlan } from "./discovery-r12-pod-runtime";
@@ -8,7 +10,7 @@ import type { JsonObject } from "../core/contracts";
 import type { QuestAdapter, QuestAdapterContext, QuestEffectResponse, QuestPreparedCall, QuestSettlement } from "../core/quest-controller";
 import { OpenRouterAdapter, type OpenRouterConfig } from "../models/openrouter";
 import { ModelProviderError, type ModelProviderResponse, type StructuredModelRequest, type WebSearchModelRequest } from "../models/types";
-import { fetchGenerationRouteProofOnce, GenerationRouteProofError, type GenerationRouteProof } from "../research/generation-route";
+import { fetchGenerationRouteProofOnce, validateGenerationRouteProof, GenerationRouteProofError, type GenerationRouteProof } from "../research/generation-route";
 import { discoveryV2Hash } from "./discovery-v2";
 import { createDiscoveryR12Candidate, discoveryR12ReceiptExpectation, qualifyDiscoveryR12Candidate, validateDiscoveryR12Candidate, type DiscoveryR12CandidateBinding } from "./discovery-r12-receipt";
 import { inspectDiscoveryR12Wire, routeDiscoveryR12Request, type DiscoveryR12Phase } from "./discovery-r12-wire";
@@ -31,7 +33,7 @@ type WireBinding = { version: "r12.discovery-wire.1" | "r12.adaptive-wire.1" | "
   actionHash?: string; actionOrdinal?: number;
   requestJson: string; requestHash: string; wireBody: string; wireHash: string; quote: DiscoveryR12ExecutionQuote | AdaptiveResearchQuote; dependencyPins: QuestAdapterContext["attempt"]["dependencyPins"] };
 export type DiscoveryR12EffectStore = {
-  operation(attemptId: string, operation: "inputs" | "load" | "bind" | "send" | "observe" | "diagnose" | "stage" | "claim" | "record", payload: Record<string, unknown>): Promise<Record<string, unknown>>;
+  operation(attemptId: string, operation: "inputs" | "load" | "bind" | "send" | "observe" | "diagnose" | "stage" | "claim" | "record" | "failure_stage" | "failure_claim" | "failure_record", payload: Record<string, unknown>): Promise<Record<string, unknown>>;
   settle(attemptId: string, settlement: QuestSettlement): Promise<void>;
   /** Reads the committed R07/R05 marker timestamp, not the process clock. */
   dispatchedAt(attemptId: string): Promise<string>;
@@ -90,7 +92,7 @@ export function createDiscoveryR12QuestAdapter(options: {
       accounting: { kind: "r05" }, sourceDomains: isPodResearchGoalScope(scope) ? ("query" in request ? [...request.allowedDomains] : structuredClone(request.requestMetadata.r12PodSourceDomains) as string[]) : [...(isDiscoveryEvidenceContinuation(scope) ? scope.executionSourceDomains : scope.allowedDomains)], dataClasses: [...options.dataClasses], accountId: null, accountRevision: null, currency: "USD", liabilityMicrounits: isAdaptiveQuote(quote) ? String(adaptiveResearchPhaseLimits(quote,adaptivePhase).maximumMicrousd) : ctx.step.maximumMicrounits,
     } };
   }
-  async function load(ctx: QuestAdapterContext): Promise<{ binding: WireBinding | null; candidate?: unknown; proof?: unknown; receipt?: unknown; diagnostic?: unknown; observationSaved?: boolean }> {
+  async function load(ctx: QuestAdapterContext): Promise<{ binding: WireBinding | null; candidate?: unknown; proof?: unknown; receipt?: unknown; diagnostic?: unknown; observationSaved?: boolean; failedEffect?: unknown }> {
     context(ctx);const saved = await options.store.operation(ctx.attempt.id, "load", {});
     if (!record(saved.binding)) return { ...saved, binding: null };
     const binding = saved.binding as WireBinding;
@@ -99,7 +101,7 @@ export function createDiscoveryR12QuestAdapter(options: {
       binding.requestHash !== discoveryV2Hash(JSON.parse(binding.requestJson)) || binding.wireHash !== hash(binding.wireBody) || binding.wireHash !== ctx.attempt.wireHash || discoveryV2Hash(binding.dependencyPins) !== discoveryV2Hash(ctx.attempt.dependencyPins)) return fail("stored_binding");
     const inspected = adaptive && isAdaptiveQuote(binding.quote) ?
       await inspectAdaptiveResearchWire(JSON.parse(binding.requestJson) as Request,adaptivePhase,binding.quote,Date.parse(binding.quote.verifiedAt)) :
-      await inspectDiscoveryR12Wire(JSON.parse(binding.requestJson) as Request, phase, isDiscoveryEvidenceContinuation(scope), isDiscoveryFocusedPilot(scope), isDiscoveryOwnerInitialScope(scope) || isDiscoveryOwnerEpisodeScope(scope), isPodResearchGoalScope(scope));
+      await inspectDiscoveryR12Wire(JSON.parse(binding.requestJson) as Request, phase, isDiscoveryEvidenceContinuation(scope), isDiscoveryFocusedPilot(scope), isDiscoveryOwnerInitialScope(scope) || isDiscoveryOwnerEpisodeScope(scope), isPodResearchGoalScope(scope),isPodThoroughScope(scope));
     if (inspected.wire.body !== binding.wireBody) return fail("stored_wire");
     return { ...saved, binding };
   }
@@ -109,7 +111,9 @@ export function createDiscoveryR12QuestAdapter(options: {
       receiptExpiresAt: new Date(Math.min(Date.parse(ctx.plan.expiresAt) + 30 * 60_000, Date.parse(dispatchedAt) + 60 * 60_000)).toISOString() };
   }
   async function reconcile(ctx: QuestAdapterContext): Promise<QuestEffectResponse | null> {
-    const saved = await load(ctx);if (!saved.binding || saved.diagnostic || !saved.candidate || !record(saved.receipt) || ["stopped", "expired", "terminal", "exhausted"].includes(String(saved.receipt.status))) return null;
+    const saved = await load(ctx);
+    if(isPodThoroughScope(scope)&&saved.binding&&saved.failedEffect)return reconcileFailed(ctx,saved.binding,saved.failedEffect);
+    if (!saved.binding || saved.diagnostic || !saved.candidate || !record(saved.receipt) || ["stopped", "expired", "terminal", "exhausted"].includes(String(saved.receipt.status))) return null;
     const bound = await candidateBinding(ctx, saved.binding), candidate = validateDiscoveryR12Candidate(saved.candidate, bound), candidateHash = discoveryV2Hash(candidate);
     let proof: unknown = saved.proof;
     if (!proof) {
@@ -127,7 +131,12 @@ export function createDiscoveryR12QuestAdapter(options: {
     const qualified = qualifyDiscoveryR12Candidate(candidate, bound, proof as GenerationRouteProof);
     let projected;
     try { projected = await options.project(qualified, ctx, JSON.parse(saved.binding.requestJson) as Request); }
-    catch (error) { await diagnose(ctx, saved.binding, error, "domain_validation", saved.observationSaved === true); throw error; }
+    catch (error) {
+      const diagnostic=await diagnose(ctx,saved.binding,error,"domain_validation",saved.observationSaved===true);
+      if(diagnostic&&await stageFailed(ctx,saved.binding,{providerRequestId:candidate.providerRequestId,providerModelId:candidate.providerModelId},diagnostic.code,candidate.reportedMicrousd!))
+        throw new DiscoveryR12ReceiptPending({status:"awaiting_receipt",nextCheckAt:new Date(now()).toISOString()});
+      throw error;
+    }
     return { ...projected, result: { ...projected.result, outputHash: discoveryV2Hash(qualified.candidate.output), candidateHash, routeProofHash: qualified.route.proofHash },
       settlement: { actualMicrounits: String(candidate.reportedMicrousd), providerRequestId: candidate.providerRequestId, receiptHash: candidateHash } };
   }
@@ -152,9 +161,39 @@ export function createDiscoveryR12QuestAdapter(options: {
   async function diagnose(ctx: QuestAdapterContext, binding: WireBinding, error: unknown, fallback: R12ReviewDiagnosticCode, observationSaved: boolean) {
     if (!retainsResponse(binding)) return;
     const request = JSON.parse(binding.requestJson) as Request;
-    const diagnostic = r12ReviewDiagnostic(error, fallback, { scopeId: scope.id, attemptId: ctx.attempt.id, requestId: binding.requestId }, "messages" in request ? request.outputSchema : {type:"object"}, observationSaved, new Date(now()).toISOString());
-    try { await options.store.operation(ctx.attempt.id, "diagnose", { diagnostic, diagnosticHash: discoveryV2Hash(diagnostic) }); }
+    const diagnostic = r12ReviewDiagnostic(error, fallback, { scopeId: scope.id, attemptId: ctx.attempt.id, requestId: binding.requestId }, "messages" in request ? request.outputSchema : {type:"object"}, observationSaved, new Date(now()).toISOString(), isPodThoroughScope(scope) ? 16 : 12);
+    try { await options.store.operation(ctx.attempt.id, "diagnose", { diagnostic, diagnosticHash: discoveryV2Hash(diagnostic) }); return diagnostic; }
     catch { console.warn("r12_review_diagnostic_unavailable", { attemptId: ctx.attempt.id, code: diagnostic.code, observationSaved }); }
+  }
+  async function stageFailed(ctx:QuestAdapterContext,binding:WireBinding,receipt:unknown,code:R12ReviewDiagnosticCode,exactMicrounits?:number):Promise<boolean> {
+    if(!isPodThoroughScope(scope)||!["json_parse","response_schema","response_size","finish_reason","next_consumer_capacity"].includes(code)||!record(receipt))return false;
+    const amount=record(receipt.usage)?receipt.usage.reportedCostUsd:null;
+    const actual=exactMicrounits??(typeof amount==="number"&&Number.isFinite(amount)&&amount>=0?Math.ceil(amount*1e6):NaN);
+    if(typeof receipt.providerRequestId!=="string"||typeof receipt.providerModelId!=="string"||!Number.isSafeInteger(actual)||actual<0)return false;
+    const actualMicrounits=String(actual);
+    const staged=await options.store.operation(ctx.attempt.id,"failure_stage",{received:{providerRequestId:receipt.providerRequestId,providerModelId:receipt.providerModelId,actualMicrounits}});
+    if(staged.staged!==true)return false;
+    failedSubject(ctx,binding,staged);return true;
+  }
+  function failedSubject(ctx:QuestAdapterContext,binding:WireBinding,raw:unknown){
+    return validatePodFailedEffect(raw,{scopeId:scope.id,scopeHash,planId:ctx.planId,planHash:ctx.planHash,actionOrdinal:ctx.attempt.adaptiveActionOrdinal!,actionHash:ctx.attempt.adaptiveActionHash!,attemptId:ctx.attempt.id,requestId:binding.requestId,phase,bindingHash:discoveryV2Hash(binding),wireHash:binding.wireHash,requestHash:binding.requestHash},Number(ctx.step.maximumMicrounits));
+  }
+  async function reconcileFailed(ctx:QuestAdapterContext,binding:WireBinding,raw:unknown):Promise<QuestEffectResponse|null>{
+    const saved=failedSubject(ctx,binding,raw),s=saved.subject,settlement={actualMicrounits:s.actualMicrounits,providerRequestId:s.providerRequestId,receiptHash:discoveryV2Hash({phase,providerRequestId:s.providerRequestId,actualMicrounits:s.actualMicrounits})};
+    // This retries only the exact saved accounting projection, never a generation.
+    // SQL requires matching durable R05 settlement before failure terminalization.
+    await options.store.settle(ctx.attempt.id,settlement);
+    if(["expired","terminal","exhausted","stopped"].includes(String(saved.receipt.status)))return null;
+    let proof=saved.proof;
+    if(!proof){
+      const claim=await options.store.operation(ctx.attempt.id,"failure_claim",{subjectHash:saved.subjectHash});
+      if(claim.claimed!==true||typeof claim.claimId!=="string")return null;
+      try {proof=await fetchGenerationRouteProofOnce({...podFailedReceiptExpectation(s),config:options.config,fetcher:options.fetcher,now});}
+      catch(error){if(!(error instanceof GenerationRouteProofError))throw error;await options.store.operation(ctx.attempt.id,"failure_record",{subjectHash:saved.subjectHash,claimId:claim.claimId,proof:null,diagnostic:{code:error.code,httpStatus:error.httpStatus},retryAfterAt:error.retryAfterAt});return null;}
+      await options.store.operation(ctx.attempt.id,"failure_record",{subjectHash:saved.subjectHash,claimId:claim.claimId,proof,diagnostic:null,retryAfterAt:null});
+    }
+    const verified=validateGenerationRouteProof(proof as GenerationRouteProof,podFailedReceiptExpectation(s));
+    return {outcome:"failed",result:{verdict:"reject",failureSubjectHash:saved.subjectHash,routeProofHash:verified.proofHash,diagnosticHash:s.diagnosticHash},checkedArtifacts:phase==="review"?structuredClone(ctx.attempt.dependencyPins):[],settlement};
   }
   async function settleAfterFailure(ctx: QuestAdapterContext, response: ModelProviderResponse | null, error: unknown) {
     // Observation/storage/readback failures cannot suppress an already observed
@@ -167,13 +206,14 @@ export function createDiscoveryR12QuestAdapter(options: {
       context(ctx);
       if (ctx.attempt.requestId) { const saved = await load(ctx);if (saved.binding) return descriptor(ctx, JSON.parse(saved.binding.requestJson) as Request, saved.binding.wireBody,saved.binding.quote); }
       const quote = await options.quote();
+      if(isPodResearchGoalScope(scope)&&(quote.version==="r12.pod-quote.3")!==isPodThoroughScope(scope))return fail("quote_kind");
       if ((isAdaptiveQuote(quote)) !== adaptive || adaptive && quote.version!==expectedQuoteVersion || Date.parse(quote.validUntil) <= now()) return fail("quote_freshness");
       if (!isAdaptiveQuote(quote) && ((quote.version === "r12.discovery-pilot-quote.1") !== isDiscoveryFocusedPilot(scope) || (quote.version === "r12.discovery-evidence-quote.1") !== isDiscoveryEvidenceContinuation(scope) || discoveryR12PhaseCeiling(quote, phase) > Number(ctx.step.maximumMicrounits))) return fail();
       const route = phase === "review" ? quote.reviewer : quote.luna;
       const ownerSchema = isDiscoveryOwnerInitialScope(scope) || isDiscoveryOwnerEpisodeScope(scope);
       const raw = await options.request(ctx);
-      const request = isAdaptiveQuote(quote) ? routeAdaptiveResearchRequest(raw,adaptivePhase,quote,now()) : routeDiscoveryR12Request(raw, phase, route, isDiscoveryFocusedPilot(scope), ownerSchema, isPodResearchGoalScope(scope));
-      const wire = isAdaptiveQuote(quote) ? await inspectAdaptiveResearchWire(request,adaptivePhase,quote,now()) : await inspectDiscoveryR12Wire(request, phase, isDiscoveryEvidenceContinuation(scope), isDiscoveryFocusedPilot(scope), ownerSchema, isPodResearchGoalScope(scope));
+      const request = isAdaptiveQuote(quote) ? routeAdaptiveResearchRequest(raw,adaptivePhase,quote,now()) : routeDiscoveryR12Request(raw, phase, route, isDiscoveryFocusedPilot(scope), ownerSchema, isPodResearchGoalScope(scope),isPodThoroughScope(scope));
+      const wire = isAdaptiveQuote(quote) ? await inspectAdaptiveResearchWire(request,adaptivePhase,quote,now()) : await inspectDiscoveryR12Wire(request, phase, isDiscoveryEvidenceContinuation(scope), isDiscoveryFocusedPilot(scope), ownerSchema, isPodResearchGoalScope(scope),isPodThoroughScope(scope));
       const call = descriptor(ctx, request, wire.wire.body,quote);
       if (ctx.attempt.requestId) {
         const binding: WireBinding = { version: adaptive ? (etsy?"r12.adaptive-wire.2":"r12.adaptive-wire.1") : "r12.discovery-wire.1", scopeId: scope.id, scopeHash, attemptId: ctx.attempt.id, requestId: ctx.attempt.requestId, phase,
@@ -194,8 +234,9 @@ export function createDiscoveryR12QuestAdapter(options: {
         observationSaved = true;
       };
       const adapter = new OpenRouterAdapter({ config: options.config, fetcher: options.fetcher,
+        ...(isPodThoroughScope(scope)?{timeoutMs:POD_THOROUGH_LIMITS.responseTimeoutMs,maximumResponseBytes:POD_THOROUGH_LIMITS.maximumResponseBytes}:{}),
         ...(retainsResponse(saved.binding) ? { observeResponse: (body: unknown) => {
-          observation ??= observeR12ReviewResponse(body, identity, new Date(now()).toISOString());
+          observation ??= observeR12ReviewResponse(body, identity, new Date(now()).toISOString(),isPodThoroughScope(scope)?POD_THOROUGH_LIMITS.maximumRejectedContentBytes:undefined);
           // Raw text stays in this private closure, never in provider error
           // metadata, general logs, or a qualified response candidate.
           return { version: "r12.review-observation.1", contentState: observation.contentState, contentBytes: observation.contentBytes };
@@ -208,8 +249,11 @@ export function createDiscoveryR12QuestAdapter(options: {
       try { response = phase === "search1" ? await adapter.invokeWebSearch(JSON.parse(saved.binding.requestJson) as WebSearchModelRequest) : await adapter.invokeStructured(JSON.parse(saved.binding.requestJson) as StructuredModelRequest); }
       catch (error) {
         try { await saveObservation(); } catch { /* The original error remains primary. */ }
-        await settleAfterFailure(ctx, null, error);
-        await diagnose(ctx, saved.binding, error, "transport", observationSaved);
+        const diagnostic=await diagnose(ctx,saved.binding,error,"transport",observationSaved);
+        let staged=false;
+        try {staged=!!diagnostic&&await stageFailed(ctx,saved.binding,error instanceof ModelProviderError?error.details.providerReceipt:null,diagnostic.code);}
+        finally {await settleAfterFailure(ctx,null,error);}
+        if(staged)throw new DiscoveryR12ReceiptPending({status:"awaiting_receipt",nextCheckAt:new Date(now()).toISOString()});
         throw error;
       }
       // Save unqualified review content before local checks can discard it.
@@ -219,7 +263,7 @@ export function createDiscoveryR12QuestAdapter(options: {
         await saveObservation();
         boundary = "candidate_binding";
         const bound = await candidateBinding(ctx, saved.binding);
-        boundary = "response_schema";
+        boundary = "domain_validation";
         if (isPodResearchGoalScope(scope) && phase === "search1" && "query" in bound.request) {
           const selected = { sourceDomains: bound.request.allowedDomains };
           for (const annotation of (response.output.annotations as JsonObject[] ?? [])) {
@@ -228,15 +272,23 @@ export function createDiscoveryR12QuestAdapter(options: {
             validatePodResearchCitationUrl(citation.url, selected, scope.sourcePolicy);
           }
         }
+        boundary = "response_schema";
         const candidate = createDiscoveryR12Candidate(bound, response, new Date(now()).toISOString());
         boundary = "candidate_storage";
         await options.store.operation(ctx.attempt.id, "stage", { candidate, candidateHash: discoveryV2Hash(candidate) });
       } catch (error) {
-        await settleAfterFailure(ctx, response, error);
-        await diagnose(ctx, saved.binding, error, boundary, observationSaved);
+        const diagnostic=await diagnose(ctx,saved.binding,error,boundary,observationSaved);
+        let staged=false;
+        try {staged=!!diagnostic&&await stageFailed(ctx,saved.binding,response,diagnostic.code);}
+        finally {await settleAfterFailure(ctx,response,error);}
+        if(staged)throw new DiscoveryR12ReceiptPending({status:"awaiting_receipt",nextCheckAt:new Date(now()).toISOString()});
         throw error;
       }
       await settle(ctx, response);
+      // A long generation may outlive its dispatch lease. Persist first, then
+      // let the next durable step claim a fresh lease and reconcile this exact
+      // generation. Never renew access or replay the POST to save its response.
+      if(isPodThoroughScope(scope))throw new DiscoveryR12ReceiptPending({status:"awaiting_receipt",nextCheckAt:new Date(now()).toISOString()});
       const result = await reconcile(ctx);if (result) return result;
       const pending = await options.store.operation(ctx.attempt.id, "load", {});
       throw new DiscoveryR12ReceiptPending(record(pending.receipt) ? pending.receipt : {});
@@ -244,10 +296,10 @@ export function createDiscoveryR12QuestAdapter(options: {
     async reconcile(ctx) {
       const response = await reconcile(ctx);if (response) return {status:"found",response};
       if (isPodResearchGoalScope(scope)) {
-        const saved=await options.store.operation(ctx.attempt.id,"load",{}),receipt=saved.receipt;
+        const saved=await options.store.operation(ctx.attempt.id,"load",{}),receipt=record(saved.failedEffect)?saved.failedEffect.receipt:saved.receipt;
         if(record(receipt)&&["awaiting_receipt","checking_receipt"].includes(String(receipt.status))&&
           typeof receipt.nextCheckAt==="string"&&Number.isFinite(Date.parse(receipt.nextCheckAt))&&typeof receipt.receiptExpiresAt==="string"&&
-          Date.parse(receipt.nextCheckAt)<Date.parse(receipt.receiptExpiresAt)&&now()<Date.parse(receipt.receiptExpiresAt)&&Number(receipt.attempts)<3)
+          Date.parse(receipt.nextCheckAt)<Date.parse(receipt.receiptExpiresAt)&&now()<Date.parse(receipt.receiptExpiresAt)&&(Number(receipt.attempts)<3||isPodThoroughScope(scope)&&receipt.status==="checking_receipt"&&Number(receipt.attempts)===3))
           throw new DiscoveryR12ReceiptPending(receipt);
       }
       return {status:"unknown"};

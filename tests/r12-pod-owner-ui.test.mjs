@@ -422,7 +422,7 @@ test('unverifiable saved progress or result is visible without hiding Stop or as
 test('owner-verified release GET exposes only nonsecret hashes and exact release pins without creating authority', async () => {
   const h = releaseRouteHarness(), response = await h.get(), body = await response.json();
   assert.equal(response.status, 200); assert.equal(response.headers.get('cache-control'), 'no-store');
-  assert.deepEqual(Object.keys(body).sort(), ['applicationCapabilityHash', 'authorityCreated', 'businessId', 'executingRelease', 'packs', 'recoverySchemas', 'schemas', 'version']);
+  assert.deepEqual(Object.keys(body).sort(), ['applicationCapabilityHash', 'authorityCreated', 'businessId', 'executingRelease', 'packs', 'recoverySchemas', 'schemas', 'thorough', 'version']);
   assert.equal(body.version, 'r12.pod-application-verifier.1'); assert.equal(body.businessId, id(1)); assert.equal(body.authorityCreated, false);
   const rawCapability = createHmac('sha256', h.fixtureEnv.R05_ADMISSION_SERVER_KEY).update('r12.pod-owner-application.1').digest('base64url');
   assert.equal(body.applicationCapabilityHash, createHash('sha256').update(rawCapability).digest('hex'));
@@ -430,7 +430,7 @@ test('owner-verified release GET exposes only nonsecret hashes and exact release
   assert.deepEqual(body.schemas, h.expectedSchemas()); assert.deepEqual(body.recoverySchemas, h.expectedRecoverySchemas()); assert.deepEqual(body.packs, h.expectedPacks());
   assert.ok(body.packs.length > 0); for (const pack of body.packs) { assert.deepEqual(Object.keys(pack).sort(), ['manifestHash', 'packKey', 'version']); assert.match(pack.manifestHash, /^[a-f0-9]{64}$/); }
   const serialized = JSON.stringify(body); assert.equal(serialized.includes(h.fixtureEnv.R05_ADMISSION_SERVER_KEY), false); assert.equal(serialized.includes(rawCapability), false);
-  assert.deepEqual(h.calls, [['createClient'], ['getClaims'], ['from', 'businesses'], ['select', 'id'], ['eq', 'id', id(1)], ['eq', 'owner_user_id', id(90)], ['maybeSingle'], ['capability'], ['release'], ['schemas'], ['schemas', true], ['packs']]);
+  assert.deepEqual(h.calls, [['createClient'], ['getClaims'], ['from', 'businesses'], ['select', 'id'], ['eq', 'id', id(1)], ['eq', 'owner_user_id', id(90)], ['maybeSingle'], ['capability'], ['release'], ['schemas'], ['schemas', true], ['packs'], ['thoroughSchemas', false], ['thoroughSchemas', true], ['thoroughPacks']]);
 });
 
 test('release GET denies malformed Business, absent authentication and unverified ownership before exposing metadata', async () => {
@@ -443,7 +443,7 @@ test('release GET denies malformed Business, absent authentication and unverifie
   ]) {
     const h = releaseRouteHarness(options), response = await h.get(businessId), body = await response.json();
     assert.equal(response.status, 403); assert.equal(response.headers.get('cache-control'), 'no-store'); assert.deepEqual(body, { available: false });
-    assert.equal(h.calls.some(([name]) => ['capability', 'release', 'schemas', 'packs'].includes(name)), false, 'No verifier or source metadata is exposed before ownership is verified');
+    assert.equal(h.calls.some(([name]) => ['capability', 'release', 'schemas', 'packs', 'thoroughSchemas', 'thoroughPacks'].includes(name)), false, 'No verifier or source metadata is exposed before ownership is verified');
     if (options.owner === id(91)) assert.ok(h.calls.some(call => call[0] === 'eq' && call[1] === 'owner_user_id' && call[2] === id(91)), 'Ownership uses the authenticated principal, never the requested Business alone');
   }
 });
