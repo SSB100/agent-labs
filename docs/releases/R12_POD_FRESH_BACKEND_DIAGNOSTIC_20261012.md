@@ -71,3 +71,13 @@ is controlled headroom testing, not a replica of Production hardware.
 A held Business-row lock must time out without a marker; a genuine committed
 isolated ownerStop after warming must block further dispatch and retain holds.
 No broad qualification run, Production change or provider dispatch is added.
+
+The first HTTP harness run stopped after a successful670ms baseline because
+a separate context RPC observed a different PID. Pool size does not establish
+session affinity. The corrected harness identifies the actual dispatch via a
+test-only pre-request response header and transaction-local correlation tag;
+timeouts are observed through that exact tag. Repeats are labelled warm only
+when their executing PID matches a prior dispatch. The application RPC body is
+unchanged. A known native backend supplies the strict warmed-Stop assertion,
+with a separate genuine HTTP Stop check. This correction does not count a
+harness failure as an application failure or a successful performance proof.
