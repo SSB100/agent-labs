@@ -3,6 +3,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createHash, createHmac } from 'node:crypto';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
 import { seedPodNextDatabase, podNextProvider, assertPodLeaseQuiet, podSafeRpcError } from './next-fixture/r12-pod-boundary.mjs';
 import { R12_INERT_ROOT } from './next-fixture/r12-sql.mjs';
 import { podRpc, podQuoteFixture, podInertOutputs, POD_PHASES } from './helpers/r12-pod-sql-fixture.mjs';
@@ -12,7 +15,7 @@ test('POD Next runner preserves production actions and Workflow host while block
   assert.match(runner, /WORKFLOW_TARGET_WORLD:'local'/); assert.match(runner, /WORKFLOW_LOCAL_BASE_URL:origin/);
   assert.match(runner, /block-network\.mjs/); assert.match(runner, /runPodNextJourney/);
   const edited = [...runner.matchAll(/writeFile\(path\.join\(fixture,'([^']+)'\)/g)].map(match => match[1]).sort();
-  assert.deepEqual(edited, ['next.config.ts', 'src/lib/supabase/client.ts', 'src/lib/supabase/inert-transport.d.mts', 'src/lib/supabase/proxy.ts', 'src/lib/supabase/server.ts', 'src/products/discovery-r12-server-dependencies.ts']);
+  assert.deepEqual(edited, ['next.config.ts', 'src/lib/supabase/client.ts', 'src/lib/supabase/inert-transport.d.mts', 'src/lib/supabase/proxy.ts', 'src/lib/supabase/server.ts']);
   const journey = readFileSync(new URL('./next-fixture/r12-pod-journey.mjs', import.meta.url), 'utf8');
   assert.match(journey, /actual-workflow-runtime-read/); assert.match(journey, /boundary\.result\(receipt\.scopeId\)/);
   assert.doesNotMatch(journey, /continuePodResearchRuntime\(/);
@@ -21,6 +24,31 @@ test('POD Next runner preserves production actions and Workflow host while block
   const boundary = readFileSync(new URL('./next-fixture/r12-pod-boundary.mjs', import.meta.url), 'utf8');
   assert.match(boundary, /leaseExpiresAt: data\?\.head\?\.leaseExpiresAt/);
   assert.doesNotMatch(boundary, /(?:update|set)\s+[^;\n]*lease_expires_at/i);
+});
+test('every Next runner uses the same unmodified R12 dependency fixture, including POD quote forwarding', () => {
+  for (const file of ['../scripts/verify-r03-next.mjs', '../scripts/verify-r12-owner-next.mjs', './next-fixture/r12-pod-runner.mjs']) {
+    const source = readFileSync(new URL(file, import.meta.url), 'utf8');
+    assert.match(source, /cp\(path\.join\(root,'tests\/next-fixture\/r12-dependencies\.ts'\),path\.join\(fixture,'src\/products\/discovery-r12-server-dependencies\.ts'\)\)/);
+    assert.doesNotMatch(source, /optionAnchor|bodyAnchor|podDependencies|originalDependencies/);
+  }
+  const loader = readFileSync(new URL('./helpers/r12-terminal-boundary-preflight.mjs', import.meta.url), 'utf8');
+  assert.match(loader, /return source\('tests\/next-fixture\/r12-dependencies\.ts'\)/);
+  const dependencies = readFileSync(new URL('./next-fixture/r12-dependencies.ts', import.meta.url), 'utf8');
+  assert.match(dependencies, /podResearch\?:boolean/); assert.match(dependencies, /podResearch:options\.podResearch/);
+});
+test('shared legacy Next dependency substitution semantically typechecks the actual POD owner and runtime callers without a host', { timeout: 60000 }, () => {
+  const root = fileURLToPath(new URL('../', import.meta.url)), target = path.join(root, 'src/products/discovery-r12-server-dependencies.ts');
+  const injected = readFileSync(new URL('./next-fixture/r12-dependencies.ts', import.meta.url), 'utf8');
+  const config = ts.readConfigFile(path.join(root, 'tsconfig.json'), ts.sys.readFile); assert.equal(config.error, undefined);
+  const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, root);
+  const options = { ...parsed.options, noEmit: true, incremental: false }, compiler = ts.createCompilerHost(options), getSourceFile = compiler.getSourceFile.bind(compiler);
+  // Exactly the legacy runner's one-file replacement, applied only to compiler
+  // input. Production source, real imports and strict compiler options remain.
+  compiler.getSourceFile = (file, languageVersion, onError, fresh) => path.resolve(file) === target ? ts.createSourceFile(file, injected, languageVersion, true) : getSourceFile(file, languageVersion, onError, fresh);
+  const program = ts.createProgram({ rootNames: ['next-env.d.ts', 'src/products/discovery-r12-pod-owner-server.ts', 'src/products/discovery-r12-server.ts'].map(file => path.join(root, file)), options, host: compiler });
+  const diagnostics = ts.getPreEmitDiagnostics(program);
+  assert.equal(diagnostics.length, 0, ts.formatDiagnosticsWithColorAndContext(diagnostics, { getCanonicalFileName: file => file, getCurrentDirectory: () => root, getNewLine: () => '\n' }));
+  assert.equal(program.getSourceFile(target)?.text, injected, 'The check must compile the copied test dependency, not the production implementation');
 });
 test('POD lease handoff observer rejects work or premature host retries until the real saved expiry', () => {
   const at = 100000, expiry = at + 60000;
