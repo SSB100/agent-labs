@@ -24,7 +24,8 @@
       "feat/r12-focused-pilot": false,
       "test/r12-owner-ui-diagnostic": false,
       "codex/r12-single-release-successor-20261011": false,
-      "codex/r12-stable-connections-20261011": false
+      "codex/r12-stable-connections-20261011": false,
+      "codex/r12-login-free-research-entry-20261011": false
     }
   },
   "buildCommand": "npm run deploy:build"

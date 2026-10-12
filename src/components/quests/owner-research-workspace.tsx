@@ -102,7 +102,7 @@ export function OwnerResearchWorkspace({ ownerId, catalog, selectedReceipt, obse
   }
 
   if (!goal) return <p role="alert">Select an exact saved Quest before preparing research.</p>;
-  return <div className="ownerResearchWorkspace" aria-busy={!!busy}>
+  return <div id="public-source-research" className="ownerResearchWorkspace" aria-busy={!!busy}>
     <h2>{goal.content.title}</h2><p>{goal.content.objective}</p><p>Quest version {goal.revision} · {goal.preference}. Your target remains an unverified objective.</p>
     {message ? <p role="status" tabIndex={-1} ref={messageRef} className="ownerResearchNotice">{message}</p> : null}
     {busy ? <p role="status">{busy === "prepare" ? "Preparing the exact packet and current quote…" : busy === "confirm" ? "Checking and saving this exact policy confirmation…" : "Closing this setup’s remaining authority…"} Keep this page open. Repeated clicks are blocked.</p> : null}

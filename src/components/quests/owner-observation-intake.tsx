@@ -48,6 +48,7 @@ export function OwnerObservationIntakeForm({businessId,grantId,disabled,selectio
   }
   return <section className="ownerObservationIntake" aria-label="Etsy owner observations">
     <h3>Actual Etsy observations</h3>
+    <p>No Etsy connection or research grant is needed to save your private observations. Your Agent Labs owner sign-in and this exact Business still apply. Saving evidence does not approve a paid run or share it with a model.</p>
     <p>Copy aggregate facts you can see in Etsy. Save exact displayed text, including weak or missing results. This records your capture and attribution; it does not independently verify Etsy, convert labels into percentages, infer buyer geography, or establish profit.</p>
     {message?<p role="status">{message}</p>:null}
     <fieldset disabled={disabled||busy||selectionLocked}><legend>Saved capture selection</legend>

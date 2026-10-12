@@ -19,3 +19,5 @@
 .ownerObservationIntake input[type=checkbox]{width:20px;min-height:20px;vertical-align:middle;margin-inline-end:8px}
 .ownerObservationIntake pre,.ownerObservationDisclosure pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:320px;overflow:auto;padding:12px;background:var(--console-panel-raised);font-size:12px}
 .ownerObservationIntake summary{cursor:pointer;min-height:44px;overflow-wrap:anywhere}
+
+.ownerResearchEvidenceGuide,.ownerResearchReadiness{min-inline-size:0;border:1px solid var(--console-border);border-radius:6px;padding:16px;margin-block:18px}.ownerResearchEvidenceGuide h2,.ownerResearchReadiness h3{margin-top:0}.ownerResearchEvidenceGuide ul,.ownerResearchReadiness ul{padding-inline-start:22px}.ownerResearchEvidenceGuide li,.ownerResearchReadiness li{margin-block:8px}.ownerResearchAdvanced{border-top:1px solid var(--console-border);padding-top:16px;margin-top:28px}.ownerResearchAdvanced>summary{cursor:pointer;min-height:44px;overflow-wrap:anywhere}.ownerResearchAdvanced .ownerResearchBootstrap{margin-top:8px}

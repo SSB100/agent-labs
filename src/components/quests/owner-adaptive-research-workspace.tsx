@@ -54,7 +54,7 @@ export function OwnerAdaptiveResearchWorkspace({ businessId:requestedBusinessId,
   function edit(change: () => void) { generation.current++; setReceipt(null); setConsentHash(null); setMessage(""); change(); }
   const intakeBusinessId=catalog?.businessId??requestedBusinessId;
   const intake=intakeBusinessId?<OwnerObservationIntakeForm key={intakeBusinessId} businessId={intakeBusinessId} grantId="" disabled={!!busy} selectionLocked={!!receipt} onBusyChange={value=>{observationPending.current=value;setObservationBusy(value);}} selection={ownerObservationRef} onSelect={value=>edit(()=>setOwnerObservationRef(value))}/>:null;
-  if (!catalog) return <section className="ownerResearchAdaptive" aria-label="Adaptive research"><h2>Adaptive research</h2><p>The exact adaptive catalog is unavailable. No adaptive preparation or action can be selected from this page.</p>{intake}</section>;
+  if (!catalog) return <section id="owner-observation-research" className="ownerResearchAdaptive" aria-label="Adaptive research"><h2>Research from your Etsy observations</h2>{intake}<p>The exact adaptive catalog is unavailable. No adaptive preparation or action can be selected from this page. You can still save private evidence; a research packet needs separately verified permission and funding.</p></section>;
   const { businessId, goalId, predecessorClosure: predecessor, funding, business } = catalog;
   const predecessorHash = catalog.predecessorClosureHash;
   const choices = catalog.grants.flatMap(grant => catalog.profiles.filter(item => item.profile.id === grant.profileId && item.profile.version==="r12.owner-research-profile.3").map(item => ({ grant, ...item })));
@@ -67,11 +67,25 @@ export function OwnerAdaptiveResearchWorkspace({ businessId:requestedBusinessId,
   const proposedBusiness = max(positive(business.currentLimitMicrounits), positive(business.committedMicrounits) + runMaximum);
   const proposedFunding = funding ? max(positive(funding.currentLimitMicrounits), positive(funding.committedMicrounits) + runMaximum) : BigInt(0);
   const actions = Math.min(actionCount, grant?.maximumActions ?? 10, 10);
-  const canPrepare = catalog.eligible && !!predecessor && !!catalog.predecessorClosureHash && catalog.imports.length === 5 && !!funding &&
-    grantReady && runMaximum > BigInt(0) && !business.hasUnknown && !funding.hasUnknown && funding.pendingMicrounits === "0" &&
-    Date.parse(catalog.deadline) > now && !!profile && Date.parse(profile.validUntil) > now &&
-    !!profile.marketSets.find(item => item.key === marketSetKey) && !!profile.topics.find(item => item.key === topicKey) &&
-    actions >= 1 && !catalog.activation && !!ownerObservationRef && !observationBusy;
+  // These are the existing preparation conditions, shared by the explanation and
+  // button. This projection is not authority; server admission remains unchanged.
+  const preparationChecks = [
+    { ready: catalog.eligible && !!predecessor && !!catalog.predecessorClosureHash && catalog.imports.length === 5,
+      missing: `This three-role option needs an eligible closed research episode with its retained findings. ${catalog.reason ?? "A new Quest can save evidence while research eligibility is reviewed."}` },
+    { ready: grantReady && !!profile && Date.parse(profile.validUntil) > now,
+      missing: choices.length ? "Choose a current reviewed research option with a finite approval for this exact Quest and predecessor." : "No current reviewed Etsy-observation option and finite approval are available. Saving private evidence remains available." },
+    { ready: !!funding && runMaximum > BigInt(0) && !business.hasUnknown && !funding.hasUnknown && funding.pendingMicrounits === "0",
+      missing: business.hasUnknown || funding?.hasUnknown || funding && funding.pendingMicrounits !== "0" ? "Pending or unknown liabilities block new adaptive research. Earlier costs remain cumulative." : "A verified funding binding and unused allocation are needed. Earlier allocations, including stopped work, stay counted." },
+    { ready: Date.parse(catalog.deadline) > now,
+      missing: "The research window must still be current. Review the original Quest and approved dates; this page cannot extend them." },
+    { ready: !!profile && !!profile.marketSets.find(item => item.key === marketSetKey) && !!profile.topics.find(item => item.key === topicKey) && actions >= 1,
+      missing: "Choose reviewed markets, topic and a bounded number of extra decisions below." },
+    { ready: !!ownerObservationRef && !observationBusy,
+      missing: observationBusy ? "Wait for the exact private capture to finish saving." : "Select genuine saved Etsy observations. Missing evidence is not replaced by a guess or an automatic collection." },
+    { ready: !catalog.activation,
+      missing: "An existing adaptive setup is recorded. Open its exact saved history below; a new selection cannot replace or restart it." },
+  ];
+  const canPrepare = preparationChecks.every(check => check.ready);
   const quoteExpired = !!receipt && Date.parse(receipt.quote.validUntil) <= now;
   const packetExpired = !!receipt && Date.parse(receipt.preview.expiresAt) <= now;
   const canConfirm = !!receipt && !receipt.confirmed && !receipt.activated && !receipt.stopped && !quoteExpired && !packetExpired && consentHash === receipt.setupHash && (!receipt.ownerObservationRef || disclosureHash===receipt.ownerObservationRef.manifestHash);
@@ -201,10 +215,10 @@ export function OwnerAdaptiveResearchWorkspace({ businessId:requestedBusinessId,
     finally {if(runAbort.current===signal)runAbort.current=null;runInFlight.current=false;if(mounted.current){setCheckingReceipts(false);if(!signal.signal.aborted)router.refresh();}}
   }
 
-  return <section className="ownerResearchAdaptive" aria-labelledby="owner-adaptive-title" aria-busy={!!busy}>
+  return <section id="owner-observation-research" className="ownerResearchAdaptive" aria-labelledby="owner-adaptive-title" aria-busy={!!busy}>
     <h2 id="owner-adaptive-title">Adaptive research from saved evidence</h2>
-    <p>This is an Etsy-only reviewed run on the original Quest. It carries the negative and unresolved history forward, with a US$10 total run ceiling and at most ten combined extra decisions. Each decision is separately admitted within the approved run and may need several paid calls.</p>
     {intake}
+    <p>New Etsy-observation research uses the existing three-role option to continue an eligible closed research episode on the original Quest. It carries negative and unresolved history forward, with a US$10 total run ceiling and at most ten combined extra decisions. Each decision is separately admitted within the approved run and may need several paid calls. Earlier saved packets retain their recorded format, roles and costs. Findings remain hypotheses unless their evidence supports a stronger claim.</p>
     {ownerSourcePaused ? <p role="status" aria-label="Saved research pause" className="ownerResearchNotice">{OWNER_SOURCE_PAUSE_MESSAGE}</p> : null}
     {message && !(ownerSourcePaused && message===OWNER_SOURCE_PAUSE_MESSAGE) ? <p role="status" tabIndex={-1} ref={messageRef} className="ownerResearchNotice">{message}</p> : null}
     {busy ? <p role="status">{busy==="prepare"?"Preparing a fresh quote and exact packet…":busy==="confirm"?"Checking this exact confirmation…":"Closing this setup’s remaining authority…"} Keep this page open.</p> : null}
@@ -212,10 +226,13 @@ export function OwnerAdaptiveResearchWorkspace({ businessId:requestedBusinessId,
     {checkingReceipts ? <p role="status">Only existing paid receipts are being checked. This stopped setup cannot start another research action.</p> : null}
     <div className="ownerResearchActions"><button type="button" disabled={!!busy} onClick={()=>{setConsentHash(null);router.refresh();}}>Reload saved adaptive state</button>
       {predecessor ? <Link href={ownerResearchScopeHref(businessId,goalId,predecessor.predecessorScopeId)}>View previous research and result</Link> : null}</div>
-    {!catalog.eligible ? <p className="ownerResearchNotice">Adaptive preparation is not currently eligible. {catalog.reason ?? "The exact predecessor and permissions have not been verified."} Saved history remains available below.</p> : null}
-    {catalog.eligible && !choices.length ? <p className="ownerResearchNotice">No separately reviewed Etsy-only profile is enrolled. Saved captures stay private until that mode and its exact quote are qualified.</p> : null}
-    {catalog.eligible && !catalog.grants.length ? <p className="ownerResearchNotice">No finite adaptive grant is enrolled for this Quest and closed predecessor. No preparation can start.</p> : null}
-    {funding && (funding.hasUnknown || funding.pendingMicrounits!=="0" || business.hasUnknown) ? <p role="alert">Pending or unknown liabilities block new adaptive research. Earlier costs remain cumulative.</p> : null}
+    {!receipt ? <section className="ownerResearchReadiness" aria-label="Observation research readiness">
+      <h3>Before preparing a research packet</h3>
+      <p role="status">{canPrepare ? "Your selection is ready for a fresh quote and exact packet review. No paid run is approved or started by preparation." : "You can save private observations now. Packet preparation waits for the checks below."}</p>
+      {canPrepare ? null : <ul>{preparationChecks.filter(check => !check.ready).map((check,index) => <li key={index}>{check.missing}</li>)}</ul>}
+      <p>The server rechecks ownership, evidence, permission and cost limits. Review the packet’s exact source disclosure, recipients and quote before deciding whether to approve it.</p>
+    </section> : null}
+    {receipt && funding && (funding.hasUnknown || funding.pendingMicrounits!=="0" || business.hasUnknown) ? <p role="alert">Pending or unknown liabilities block new adaptive research. Earlier costs remain cumulative.</p> : null}
     {catalog.eligible && !catalog.activation && funding && catalog.profiles.length>0 && catalog.grants.length>0 ? <form className="ownerResearchForm" onSubmit={event=>void prepare(event)}>
       <fieldset disabled={!!busy || !!receipt}><legend>Choose an exact reviewed adaptive scope</legend>
         <div className="ownerResearchField"><label htmlFor={`${fieldId}-grant`}>Reviewed profile and finite grant</label><select id={`${fieldId}-grant`} required value={choice} onChange={event=>edit(()=>{setChoice(event.target.value);setMarketSetKey("");setTopicKey("");})}><option value="" disabled>Choose an exact profile and grant</option>{choices.map(item=><option key={`${item.profile.id}:${item.grant.id}`} value={`${item.profile.id}:${item.grant.id}`}>{item.profile.title} · through {item.grant.expiresAt}</option>)}</select></div>
