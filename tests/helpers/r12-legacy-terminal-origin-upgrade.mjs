@@ -8,15 +8,14 @@ import {one,ownerInitialRuntimeRpc} from './r12-owner-initial-sql-fixture.mjs';
 import {r12QuoteFixture} from './r12-provider-fixture.mjs';
 import {discoveryV2Hash as hash} from '../../.core-tests/products/discovery-v2.js';
 import {validatePublicResearchOriginHistory,validatePublicResearchPredecessor} from '../../.core-tests/products/discovery-r12-public-origin.js';
+import {nestedMigrationSql} from './r12-nested-migration.mjs';
 export const legacyOriginBase='20261009185440_r12_owner_grant_root_extensions.sql';
 const stoppedMigration='20261010100100_r12_owner_stopped_before_reservation.sql';
 async function nestedMigration(db,file){
  const original=readFileSync('supabase/migrations/'+file,'utf8');
  // The enclosing authentic replay owns its transaction and savepoints. Remove
  // only standalone outer transaction statements, never a function/DO body.
- const sql=original.replace(/^begin;[ \t]*\r?\n/im,'').replace(/^commit;[ \t]*\r?\n?$/im,'');
- assert.equal((original.match(/^begin;[ \t]*$/gim)||[]).length,1,file);
- assert.equal((original.match(/^commit;[ \t]*$/gim)||[]).length,1,file);
+ const sql=nestedMigrationSql(original,file);
  try{await db.exec(sql);}catch(error){error.message=file+': '+error.message+' '+JSON.stringify({where:error.where,internalQuery:error.internalQuery});throw error;}
 }
 async function mutation(db,operation,check){

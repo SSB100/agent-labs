@@ -59,7 +59,7 @@ test('Current POD dispatch is the first application call on each fresh native ba
   const backendPids=new Set([report.setupPid]);
   const counters=async db=>Object.fromEntries((await db.query("select schemaname||'.'||funcname name,calls,total_time total_ms,self_time self_ms from pg_stat_xact_user_functions where schemaname in ('private','public')")).rows.map(r=>[r.name,r]));
   const controls=await connect('pod-isolated-variant-control');
-  try{if(process.env.R12_POD_HTTP_STRESS==='1'){report.http={};await exercisePodHttpStress({db:controls,a,claim,original:sqlDefinition,candidate:cached(true),fingerprint,initial,report:report.http});}
+  try{if(process.env.R12_POD_HTTP_STRESS==='1'){report.http={};await exercisePodHttpStress({db:controls,a,claim,original:sqlDefinition,candidate:original.definition,fingerprint,initial,report:report.http});}
   else for(const [variant,definition] of [['current_sql',sqlDefinition],['cached_auto',cached()],['cached_generic',cached(true)]]){
    await controls.exec(definition);
    const attributes=await podOne(controls,"select p.oid,p.proowner,p.proacl,p.provolatile,p.prosecdef,p.proisstrict,p.proleakproof,p.proparallel,p.procost,p.prorows,p.proconfig from pg_proc p where p.oid=$1::regprocedure",[signature]);
