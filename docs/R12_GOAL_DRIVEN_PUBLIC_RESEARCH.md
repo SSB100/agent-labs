@@ -17,13 +17,10 @@ claim may be supplied by a fixture, implementation code, or an outside assistant
 
 Reuse the existing five phases: plan → search1 → select1 → strategy → review,
 R07 scheduling, R05 atomic reservations/dispatch, exact generation receipts,
-source/evidence hashes, independent review, Stop and reconciliation. This is one
-bounded research episode, not an unrestricted agent loop. The app discovers
+source/evidence hashes, independent review, Stop and reconciliation. The owner approved one USD 10 total run and up to five research/refinement passes. Each pass is the existing five-phase pipeline; five phases are not five attempts. The app discovers
 product types, niches and audiences; neither country, season, theme, product
 shortlist nor final candidate count is an owner requirement. Internal working
-set limits are finite implementation bounds, not a preselected outcome. Keep the existing
-five-call/one-collection topology and current independently priced bounds for the
-first useful slice. Nothing here permits product execution or shop changes.
+set limits are finite implementation bounds, not a preselected outcome. Keep five calls and one collection per pass, at most 25 calls/five collections across the entire run. All passes share the same USD 10 ceiling, with no USD 2 partition or reset. Nothing here permits product execution or shop changes.
 
 Introduce a separately versioned POD research-goal scope and result. Historical
 POD/owner-capture/Steel contracts remain unchanged. Do not adapt the Insights-only
@@ -163,3 +160,15 @@ The real Next/Workflow browser fixture keeps production pages, actions, Workflow
 SDK/plugin/routes, controller and migrated SQL, substituting only loopback
 auth/data/provider transports. CI executes it in the normal required Next gate.
 Until that run passes, this is a pending acceptance test, not hosted evidence.
+
+## Version 2: five attempts inside one total cap
+
+POD .2 replaces the unactivated one-pass draft; no .1 Production authority exists or is reinterpreted. One immutable scope, one R05 policy, five reusable R07 children and three narrow pass-ledger records reuse the existing adaptive controller interface. Pass ordinals 0–4, exact predecessor review/history hashes, unique pass/phase admission and immutable closures survive restarts.
+
+A pass reserves the full quoted five-phase upper bound atomically. Each admitted R05 request converts exactly its own phase hold; paid/in-flight/unknown liability continues counting. Closure or Stop releases only an unissued remainder. Actual settled charges plus all remaining reservations must fit the shared owner limit and existing cumulative Business cap. A fresh compatible catalog read cannot silently increase the approved per-call ceiling.
+
+An insufficient reviewed pass supplies its prior query/source set, exact independent review and candidate labels to the next planner. This is explicitly untrusted derived public evidence, with source provenance and pass-specific evidence namespaces. The planner must choose a different query; the next pass assesses newly gathered actual sources. A reviewed worthwhile hypothesis stops early; five passes, insufficient remaining quoted capacity, expiry, revoked permission, unsafe liability or Stop cannot mint another attempt.
+
+The old Steel amount is not settled by this change. The new policy can proceed only when the existing exact termination/usage/tariff proof independently qualifies its full retained maximum. Unknown remains unknown. Missing proof, qualification revocation or any anomaly blocks new spending, including an anomaly accompanying a known above-bound actual charge. Old policies retain their stricter unknown-liability behavior. The old amount is displayed separately and still counts in total Business exposure; the new USD 10 run has no separate funding-root bypass.
+
+The existing Steel dashboard inspection found an unlabelled session cost and a rounded hourly CSV, not a final exact-session USD billing record. No settlement was made.

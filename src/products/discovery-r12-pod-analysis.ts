@@ -84,7 +84,7 @@ export function validatePodReview(raw: unknown, assessment: PodAssessment, pack:
 }
 export function podResearchResult(scope: PodResearchGoalScope, plan: PodResearchPlan, collection: ResearchCollection, pack: EvidencePack, assessment: PodAssessment, review: PodReview) {
   validatePodReview(review, assessment, pack);
-  return { version: "r12.pod-research-result.1" as const, businessId: scope.businessId, goalId: scope.goalId, scopeId: scope.id,
+  return { version: "r12.pod-research-result.2" as const, businessId: scope.businessId, goalId: scope.goalId, scopeId: scope.id,
     objective: scope.publicBrief.objective, submittedQuery: plan.query, queryProvenance: plan.queryProvenance,
     selectedDomains: plan.sourceDomains, sourceChoiceRationale: plan.sourceChoiceRationale, sourcePolicyHash: scope.sourcePolicyHash,
     collectionHash: publicResearchHash(collection), evidence: podEvidenceView(pack), assessment, review, executionAuthorized: false as const,

@@ -6,8 +6,8 @@ import { validateResearchRequest } from "../research/sources";
 
 /** A new scope, not an interpretation of any historical POD/Steel permission.
  * These pure checks never establish that a review or approval exists in storage. */
-export const POD_GOAL_VERSION = "r12.pod-research-goal.1" as const;
-export const POD_GOAL_BOUNDS = Object.freeze({ maximumCalls: 5, maximumCollections: 1,
+export const POD_GOAL_VERSION = "r12.pod-research-goal.2" as const;
+export const POD_GOAL_BOUNDS = Object.freeze({ maximumPasses: 5, maximumCalls: 25, maximumCollections: 5,
   maximumWorkingHypotheses: 3, maximumDomains: 6, maximumResults: 4,
   maximumExcerptCharacters: 1800, maximumQueryCharacters: 800 });
 export const POD_MANDATORY_EXCLUSIONS = ["etsy.com", "etsy.me", "etsystatic.com"] as const;
@@ -97,7 +97,7 @@ export function validatePodResearchGoalScope(raw: unknown, now = Date.now()): Po
   exact(raw, "version,id,businessId,businessRevision,businessHash,goalId,goalRevision,goalHash,setupId,setupHash,authorityRootId,publicBrief,sourcePolicy,sourcePolicyHash,approvalHash,maximumMicrousd,createdAt,expiresAt");
   if (raw.version !== POD_GOAL_VERSION || ![raw.id, raw.businessId, raw.goalId, raw.setupId, raw.authorityRootId].every(uuid) ||
       ![raw.businessHash, raw.goalHash, raw.setupHash, raw.sourcePolicyHash, raw.approvalHash].every(hash) || !Number.isSafeInteger(raw.goalRevision) || Number(raw.goalRevision) < 1 || !Number.isSafeInteger(raw.businessRevision) || Number(raw.businessRevision) < 1 ||
-      !Number.isSafeInteger(raw.maximumMicrousd) || Number(raw.maximumMicrousd) < 1 || Number(raw.maximumMicrousd) > 2_000_000 ||
+      !Number.isSafeInteger(raw.maximumMicrousd) || Number(raw.maximumMicrousd) < 1 || Number(raw.maximumMicrousd) > 10_000_000 ||
       stamp(raw.createdAt) > now || stamp(raw.expiresAt) <= now || stamp(raw.expiresAt) > stamp(raw.createdAt) + 30 * 60_000) fail();
   validatePodResearchPublicBrief(raw.publicBrief);
   const policy = validatePodResearchSourcePolicy(raw.sourcePolicy, now);

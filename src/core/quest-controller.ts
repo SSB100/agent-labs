@@ -113,7 +113,7 @@ export async function driveQuestOnce(store: QuestStore, options: {
   const plan = compileQuestPlan(initial.plan);
   // A static phase evaluation cannot project the latest adaptive action.
   // Trusted adaptive integration must validate the action ledger first.
-  const adaptiveFormat = plan.format === "r12.discovery-adaptive.1" || plan.format === "r12.discovery-adaptive.2";
+  const adaptiveFormat = plan.format === "r12.pod-research.2" || plan.format === "r12.discovery-adaptive.1" || plan.format === "r12.discovery-adaptive.2";
   if (adaptiveFormat && !store.readAdaptiveAction) return { status: "blocked", reason: "adaptive_action_runtime_required" };
   const claim = await store.command("claim", { seconds: 60 });
   const epoch = Number(claim.epoch);

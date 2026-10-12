@@ -28,7 +28,7 @@ function source(file) {
 const { publicResearchHash: hash } = source('research/qualification');
 const { buildPodResearchRequest, projectPodResearchPhase } = source('products/discovery-r12-pod-runtime');
 const { createDiscoveryR12QuestAdapter, DiscoveryR12ReceiptPending } = source('products/discovery-r12-adapter');
-const { qualifyDiscoveryR12Quote } = source('products/discovery-r12-quote');
+const { qualifyPodResearchQuote, qualifyDiscoveryR12Quote, DISCOVERY_R12_POD_PLANNER_BYTES } = source('products/discovery-r12-quote');
 const id = n => `12120000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const now = Date.parse('2026-10-12T01:00:00.000Z'), stamp = n => new Date(n).toISOString();
 const phases = ['plan', 'search1', 'select1', 'strategy', 'review'];
@@ -36,13 +36,13 @@ const release = (letter, deploymentId) => ({ version: 'r12.executing-release.1',
   environment: 'production', commitSha: letter.repeat(40), deploymentId });
 const oldRelease = release('a', 'dpl_inert_old'), newRelease = release('b', 'dpl_inert_new');
 
-function quoteFixture() {
+function quoteFixture(qualify = qualifyPodResearchQuote) {
   const saved = JSON.parse(readFileSync(new URL('fixtures/r12-provider-catalogs.json', import.meta.url), 'utf8'));
   const [luna, reviewer] = structuredClone(saved.endpoints);
   delete luna.canonicalModelId; delete reviewer.canonicalModelId;
   const base = 'https://openrouter.ai/api/v1';
   const snapshot = (url, payload) => ({ url, fetchedAt: stamp(now - 1000), payload });
-  return qualifyDiscoveryR12Quote({
+  return qualify({
     models: snapshot(`${base}/models`, { data: saved.endpoints.map(e => ({ id: e.model_id,
       canonical_slug: e.canonicalModelId, links: { details: `/api/v1/models/${e.canonicalModelId}/endpoints` } })) }),
     lunaAlias: snapshot(`${base}/models/${luna.model_id}/endpoints`, { data: { id: luna.model_id, endpoints: [luna] } }),
@@ -53,6 +53,22 @@ function quoteFixture() {
   }, now);
 }
 
+test('POD .2 quote prices the 24 KiB refinement planner while retaining per-pass call and collection bounds', () => {
+  const quote = quoteFixture(), original = quoteFixture(qualifyDiscoveryR12Quote);
+  assert.equal(quote.version, 'r12.pod-quote.2');
+  assert.equal(quote.plannerRequestBytes, 24576); assert.equal(quote.plannerRequestBytes, DISCOVERY_R12_POD_PLANNER_BYTES);
+  assert.equal(quote.maximumCalls, 5, 'The quote bounds one pass, not a fresh five-pass allowance');
+  assert.equal(quote.maximumCollections, 1);
+  assert.ok(quote.ceilings.plan > original.ceilings.plan);
+  for (const phase of phases.filter(p => p !== 'plan')) assert.equal(quote.ceilings[phase], original.ceilings[phase]);
+  assert.equal(quote.maximumMicrousd, Object.values(quote.ceilings).reduce((sum, n) => sum + n, 0));
+  assert.equal(quote.maximumMicrousd - original.maximumMicrousd, quote.ceilings.plan - original.ceilings.plan);
+  assert.deepEqual(quote.luna, original.luna); assert.deepEqual(quote.reviewer, original.reviewer);
+  assert.equal(quote.dispatchAuthorized, false); assert.equal(quote.proposalOnly, true);
+  const { quoteHash, verifiedAt, validUntil, ...body } = quote;
+  assert.equal(quoteHash, hash(body)); assert.equal(Date.parse(validUntil) - Date.parse(verifiedAt), 300000);
+});
+
 function scopeFixture() {
   const sourcePolicy = { version: 'r12.pod-source-policy.1', reviewId: id(9), method: 'openrouter_exa_factual_snippets',
     purpose: 'public_pod_market_research', excludedDomains: ['etsy.com', 'etsy.me', 'etsystatic.com'],
@@ -60,16 +76,16 @@ function scopeFixture() {
     recipients: { router: 'openrouter.ai', search: 'exa.ai', researcher: 'azure/us', reviewer: 'amazon-bedrock/us' },
     retention: { inference: 'no_training_zdr', search: 'query_retention_improvement_training_possible', application: 'bounded_attributed_audit_evidence' },
     validFrom: stamp(now - 60000), validUntil: stamp(now + 3600000) };
-  const scope = { version: 'r12.pod-research-goal.1', id: id(1), businessId: id(2), businessRevision: 1, businessHash: '4'.repeat(64),
+  const scope = { version: 'r12.pod-research-goal.2', id: id(1), businessId: id(2), businessRevision: 1, businessHash: '4'.repeat(64),
     goalId: id(3), goalRevision: 1, goalHash: '5'.repeat(64), setupId: id(4), setupHash: '6'.repeat(64), authorityRootId: id(2),
     publicBrief: { objective: 'Research viable print-on-demand products to sell on Etsy.', publicConstraints: [], fulfilmentContext: 'unspecified' },
-    sourcePolicy, sourcePolicyHash: hash(sourcePolicy), approvalHash: '7'.repeat(64), maximumMicrousd: 2000000,
+    sourcePolicy, sourcePolicyHash: hash(sourcePolicy), approvalHash: '7'.repeat(64), maximumMicrousd: 10000000,
     createdAt: stamp(now - 1000), expiresAt: stamp(now + 1500000) };
-  const plan = { format: 'r12.pod-research.1', discoveryScopeId: scope.id, discoveryScopeHash: hash(scope), businessId: scope.businessId,
+  const plan = { format: 'r12.pod-research.2', discoveryScopeId: scope.id, discoveryScopeHash: hash(scope), businessId: scope.businessId,
     goalId: scope.goalId, goalRevision: 1, goalHash: scope.goalHash, businessRevision: 1, businessHash: scope.businessHash,
     policyId: id(5), policyHash: '8'.repeat(64), authorityRootId: scope.businessId, plannerWorkerDefinitionId: id(6), currency: 'USD',
-    maximumMicrounits: '2000000', deadline: scope.expiresAt, expiresAt: scope.expiresAt, maximumRepairs: 0, maximumPivots: 0,
-    maximumChildren: 5, maximumDispatches: 5, requiredChecks: ['review'], finishCondition: 'all_required_outputs_verified',
+    maximumMicrounits: '10000000', deadline: scope.expiresAt, expiresAt: scope.expiresAt, maximumRepairs: 0, maximumPivots: 0,
+    maximumChildren: 5, maximumDispatches: 25, requiredChecks: ['review'], finishCondition: 'all_required_outputs_verified',
     stopConditions: ['no_permitted_work', 'deadline', 'repair_exhausted', 'owner_stopped'],
     steps: phases.map((key, i) => ({ key, kind: key === 'review' ? 'review' : key === 'search1' ? 'research' : 'work',
       objective: 'Research the approved general POD goal.', reason: 'Finite inert research phase.', adapter: `r12.discovery.${scope.id}.${key}`,
@@ -89,9 +105,9 @@ function scopeFixture() {
 function harness({ delayedReceipt = false, delayedReceiptReads = 0 } = {}) {
   const f = scopeFixture(), quote = quoteFixture();
   const ctx = { planId: id(10), planHash: hash(f.plan), plan: f.plan, step: f.plan.steps[0], knowledge: {},
-    attempt: { id: id(100), stepKey: 'plan', status: 'scheduled', attempt: 1, requestId: null,
+    attempt: { id: id(100), stepKey: 'plan', status: 'scheduled', attempt: 1, adaptiveActionHash: 'd'.repeat(64), adaptiveActionOrdinal: 0, requestId: null,
       inputHash: 'b'.repeat(64), dependencyPins: [], wireHash: null, responseHash: null } };
-  const inputs = { kind: 'pod_goal', scope: f.scope, validationAt: now, inputMode: 'dispatch',
+  const inputs = { pass: { ordinal: 0, actionHash: 'd'.repeat(64), history: null, historyHash: hash(null) }, kind: 'pod_goal', scope: f.scope, validationAt: now, inputMode: 'dispatch',
     committedBeforeAttemptMicrousd: 0, dependencies: [] };
   const state = { binding: null, candidate: null, proof: null, receipt: null, transportClaim: null,
     observation: null, observationSaved: false, diagnostic: null };
@@ -166,6 +182,8 @@ function harness({ delayedReceipt = false, delayedReceiptReads = 0 } = {}) {
 
 test('POD unsent bind from old deployment resumes with the current release at first-send admission', async () => {
   const h = harness(), prepared = await h.bind(), immutableBinding = structuredClone(h.state.binding);
+  assert.equal(h.state.binding.quote.version, 'r12.pod-quote.2');
+  assert.equal(h.state.binding.quote.plannerRequestBytes, 24576);
   const resumed = h.adapter(newRelease), call = await resumed.prepare(h.ctx);
   assert.deepEqual(call, prepared); assert.equal(h.binds.length, 1);
   const result = await resumed.dispatch(call, h.ctx);

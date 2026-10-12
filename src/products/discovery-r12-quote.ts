@@ -6,6 +6,7 @@ import type { DiscoveryR12Phase } from "./discovery-r12-wire";
 const BASE = "https://openrouter.ai/api/v1";
 export const DISCOVERY_R12_REVIEWER = { modelId: "anthropic/claude-haiku-4.5", canonicalModelId: "anthropic/claude-4.5-haiku-20251001", endpoint: "amazon-bedrock/us", providerName: "Amazon Bedrock" } as const;
 const FRESH_MS = 300_000;
+export const DISCOVERY_R12_POD_PLANNER_BYTES = 24576;
 export const DISCOVERY_R12_EVIDENCE_REQUEST_BYTES = 65_536;
 export const DISCOVERY_R12_PILOT_REQUEST_BYTES = 49_152;
 const fail = (): never => { throw new Error("r12_discovery_quote_unavailable"); };
@@ -40,7 +41,7 @@ function reviewerEndpoint(payload: unknown, kind: "model" | "zdr") {
 export type DiscoveryR12Quote = ReturnType<typeof qualifyDiscoveryR12Quote>;
 export type DiscoveryR12EvidenceQuote = ReturnType<typeof qualifyDiscoveryR12EvidenceQuote>;
 export type DiscoveryR12PilotQuote = ReturnType<typeof qualifyDiscoveryR12PilotQuote>;
-export type DiscoveryR12ExecutionQuote = DiscoveryR12Quote | DiscoveryR12EvidenceQuote | DiscoveryR12PilotQuote;
+export type DiscoveryR12ExecutionQuote = DiscoveryR12Quote | DiscoveryR12EvidenceQuote | DiscoveryR12PilotQuote | ReturnType<typeof qualifyPodResearchQuote>;
 
 /** Exact reviewed two-model proposal. It never authorizes a call, even if the
  * catalog snapshots and hashes were supplied by an owner or worker. */
@@ -75,6 +76,16 @@ export function qualifyDiscoveryR12Quote(catalogs: DiscoveryR12Catalogs, now = D
     proposalOnly: true, dispatchAuthorized: false };
   const verifiedAt = Math.min(...times);
   return { ...body, quoteHash: publicResearchHash(body), verifiedAt: new Date(verifiedAt).toISOString(), validUntil: new Date(verifiedAt + FRESH_MS).toISOString() };
+}
+
+/** The existing catalog/route qualifier prices the larger public refinement
+ * planner input. Five calls is one pass; the separately approved run is shared. */
+export function qualifyPodResearchQuote(catalogs: DiscoveryR12Catalogs, now = Date.now()) {
+ const original = qualifyDiscoveryR12Quote(catalogs, now);
+ const {quoteHash:_hash,verifiedAt,validUntil,...base}=original; void _hash;
+ const ceilings={...base.ceilings,plan:quoteTextTokenCost(base.luna.tokenPricesUsd,DISCOVERY_R12_POD_PLANNER_BYTES+DISCOVERY_V2_BUDGET.formattingTokenAllowance,DISCOVERY_V2_BUDGET.phases.plan.outputTokens)};
+ const body={...base,version:"r12.pod-quote.2" as const,plannerRequestBytes:DISCOVERY_R12_POD_PLANNER_BYTES,ceilings,maximumMicrousd:Object.values(ceilings).reduce((a,b)=>a+b,0)};
+ return {...body,quoteHash:publicResearchHash(body),verifiedAt,validUntil};
 }
 
 /** Separate two-call quote for the complete, lineage-preserving addendum input.
@@ -149,8 +160,8 @@ export async function fetchDiscoveryR12Catalogs(options: { fetch?: typeof fetch;
   } catch { return fail(); }
 }
 
-export async function fetchDiscoveryR12Quote(options: { fetch?: typeof fetch; now?: () => number; evidenceContinuation?: boolean; focusedPilot?: boolean } = {}): Promise<DiscoveryR12ExecutionQuote> {
-  if (options.evidenceContinuation && options.focusedPilot) return fail();
+export async function fetchDiscoveryR12Quote(options: { fetch?: typeof fetch; now?: () => number; evidenceContinuation?: boolean; focusedPilot?: boolean; podResearch?: boolean } = {}): Promise<DiscoveryR12ExecutionQuote> {
+  if (Number(!!options.evidenceContinuation)+Number(!!options.focusedPilot)+Number(!!options.podResearch)>1) return fail();
   const catalogs=await fetchDiscoveryR12Catalogs(options),now=(options.now??Date.now)();
-  return options.focusedPilot?qualifyDiscoveryR12PilotQuote(catalogs,now):options.evidenceContinuation?qualifyDiscoveryR12EvidenceQuote(catalogs,now):qualifyDiscoveryR12Quote(catalogs,now);
+  return options.podResearch?qualifyPodResearchQuote(catalogs,now):options.focusedPilot?qualifyDiscoveryR12PilotQuote(catalogs,now):options.evidenceContinuation?qualifyDiscoveryR12EvidenceQuote(catalogs,now):qualifyDiscoveryR12Quote(catalogs,now);
 }

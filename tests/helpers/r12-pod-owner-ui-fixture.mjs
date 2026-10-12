@@ -39,7 +39,7 @@ export function source(file, dependencies = {}, globals = {}, cache = new Map())
   return mod.exports;
 }
 const hash = source('products/discovery-v2-hash').discoveryV2Hash;
-export function fixture() {
+export function fixture({ finance: financeOverrides = {} } = {}) {
   const now = Date.now();
   const sourcePolicy = {
     version: 'r12.pod-source-policy.1', reviewId: id(9), method: 'openrouter_exa_factual_snippets', purpose: 'public_pod_market_research',
@@ -49,12 +49,12 @@ export function fixture() {
     validFrom: new Date(now - 60000).toISOString(), validUntil: new Date(now + 86400000).toISOString(),
   };
   const publicBrief = { objective: OBJECTIVE, publicConstraints: [], fulfilmentContext: 'unspecified' };
-  const finance = { authorityRootId: id(1), capRevision: 1, maximumMicrounits: '300000', committedMicrounits: '100000', hasUnknown: false, pendingMicrounits: '0', proposedBusinessLimitMicrounits: '600000', runLimitMicrounits: '1000000' };
+  const finance = { authorityRootId: id(1), capRevision: 1, maximumMicrounits: '300000', committedMicrounits: '100000', hasUnknown: false, hasBlockingUnknown: false, boundedPendingMicrounits: '0', pendingMicrounits: '0', proposedBusinessLimitMicrounits: '10100000', runLimitMicrounits: '10000000', ...financeOverrides };
   const quote = { version: 'inert-ui-quote', maximumMicrousd: 500000, verifiedAt: new Date(now - 1000).toISOString(), validUntil: new Date(now + 300000).toISOString(), ceilings: Object.fromEntries(PHASES.map(p => [p, 100000])), luna: { endpoint: 'azure/us' }, reviewer: { endpoint: 'amazon-bedrock/us' } };
-  const preview = { version: 'r12.pod-research-preview.1', businessId: id(1), goalId: id(2), goalRevision: 2, goalHash: 'a'.repeat(64), businessRevision: 1, businessHash: 'b'.repeat(64), publicBrief, templateId: id(3), templateHash: 'c'.repeat(64), sourcePolicy, sourcePolicyHash: hash(sourcePolicy), finance, quote, maximumCalls: 5, maximumCollections: 1, maximumRepairs: 0, dispatchMinutes: 30, receiptMinutes: 30, maximumReceiptChecks: 15, authorityCreated: false };
-  const receipt = { version: 'r12.pod-setup-receipt.1', businessId: id(1), goalId: id(2), setupId: id(4), scopeId: id(5), setupHash: hash(preview), policyId: id(6), policyHash: 'd'.repeat(64), submissionId: id(7), confirmed: false, activated: false, stopped: false, preview };
-  const catalog = { version: 'r12.pod-catalog.1', businessId: id(1), business: { revision: 1, hash: preview.businessHash, ready: true }, goal: null, finance, template: { id: id(3), hash: preview.templateHash, sourcePolicy, sourcePolicyHash: preview.sourcePolicyHash, validUntil: sourcePolicy.validUntil }, setups: [] };
-  const entry = { businessId: id(1), publicBrief: structuredClone(publicBrief), maximumMicrounits: '1000000', deadlineAt: new Date(now + 3600000).toISOString(), submissionId: receipt.submissionId };
+  const preview = { version: 'r12.pod-research-preview.2', businessId: id(1), goalId: id(2), goalRevision: 2, goalHash: 'a'.repeat(64), businessRevision: 1, businessHash: 'b'.repeat(64), publicBrief, templateId: id(3), templateHash: 'c'.repeat(64), sourcePolicy, sourcePolicyHash: hash(sourcePolicy), finance, quote, maximumPasses: 5, maximumCalls: 25, maximumCollections: 5, maximumRepairs: 0, dispatchMinutes: 30, receiptMinutes: 30, maximumReceiptChecks: 75, authorityCreated: false };
+  const receipt = { version: 'r12.pod-setup-receipt.2', businessId: id(1), goalId: id(2), setupId: id(4), scopeId: id(5), setupHash: hash(preview), policyId: id(6), policyHash: 'd'.repeat(64), submissionId: id(7), confirmed: false, activated: false, stopped: false, preview };
+  const catalog = { version: 'r12.pod-catalog.2', businessId: id(1), business: { revision: 1, hash: preview.businessHash, ready: true }, goal: null, finance, template: { id: id(3), hash: preview.templateHash, sourcePolicy, sourcePolicyHash: preview.sourcePolicyHash, validUntil: sourcePolicy.validUntil }, setups: [] };
+  const entry = { businessId: id(1), publicBrief: structuredClone(publicBrief), maximumMicrounits: finance.runLimitMicrounits, deadlineAt: new Date(now + 3600000).toISOString(), submissionId: receipt.submissionId };
   return { now, receipt, catalog, entry, quote };
 }
 export const elements = (tree, predicate) => !tree || typeof tree !== 'object' ? [] : [
@@ -101,7 +101,7 @@ export function workspace(f = fixture(), { selected = null, status = null, resul
   return { render, calls, navigation, states, storage, intervals,
     async settle() { while (jobs.length) await Promise.all(jobs.splice(0)); },
     event: name => listeners.get(name)?.(),
-    submit(fields = {}) { const form = elements(render(), e => e.type === 'form')[0]; assert.ok(form); form.props.onSubmit({ preventDefault() {}, currentTarget: { objective: OBJECTIVE, budget: '1.00', ...fields } }); },
+    submit(fields = {}) { const form = elements(render(), e => e.type === 'form')[0]; assert.ok(form); form.props.onSubmit({ preventDefault() {}, currentTarget: { objective: OBJECTIVE, budget: '10.00', ...fields } }); },
     unmount() { for (const effect of effects) effect.cleanup?.(); },
   };
 }

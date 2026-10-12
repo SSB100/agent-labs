@@ -54,7 +54,7 @@ export async function inspectDiscoveryR12Wire(request: StructuredModelRequest | 
   if (discoveryV2Hash(routeDiscoveryR12Request(owned, phase, { modelId: owned.model.providerModelId, endpoint: owned.providerOnly[0], priceLimit: owned.providerPriceLimit }, focusedPilot, ownerInitial, podGoal)) !== discoveryV2Hash(owned)) return fail();
   const kind = phase === "select1" ? "select" : phase;
   if (evidenceContinuation && phase !== "strategy" && phase !== "review") return fail();
-  const maximumRequestBytes = focusedPilot ? DISCOVERY_R12_PILOT_REQUEST_BYTES : evidenceContinuation ? DISCOVERY_R12_EVIDENCE_REQUEST_BYTES : kind === "search1" ? DISCOVERY_V2_BUDGET.maximumSearchRequestBytes : DISCOVERY_V2_BUDGET.phases[kind].maximumRequestBytes;
+  const maximumRequestBytes = podGoal && phase === "plan" ? 24576 : focusedPilot ? DISCOVERY_R12_PILOT_REQUEST_BYTES : evidenceContinuation ? DISCOVERY_R12_EVIDENCE_REQUEST_BYTES : kind === "search1" ? DISCOVERY_V2_BUDGET.maximumSearchRequestBytes : DISCOVERY_V2_BUDGET.phases[kind].maximumRequestBytes;
   const tokens = kind === "search1" ? 4000 : DISCOVERY_V2_BUDGET.phases[kind].outputTokens;
   if (Buffer.byteLength(JSON.stringify(owned), "utf8") > maximumRequestBytes) return fail();
   let captured: DiscoveryR12Wire | null = null;

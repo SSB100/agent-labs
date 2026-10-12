@@ -5,7 +5,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {r04SqlBootstrap} from './helpers/r04-sql-bootstrap.mjs';
 import {sessionBootstrap} from './helpers/r10-sql-fixture.mjs';
-import {exercisePodOwnerAdmission,exercisePodFirstInputs,exercisePodUnknownHold,exercisePodRuntime,exercisePodRuntimeCapabilities,exercisePodUnsentCancellation,exercisePodStoppedStagedReceipt} from './helpers/r12-pod-sql-fixture.mjs';
+import {exercisePodOwnerAdmission,exercisePodFirstInputs,exercisePodUnknownHold,exercisePodRuntime,exercisePodRuntimeCapabilities,exercisePodUnsentCancellation,exercisePodStoppedStagedReceipt,exercisePodPassHold,exercisePodMultipass,exercisePodRevokedController} from './helpers/r12-pod-sql-fixture.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url)),host=process.env.R12_SQL_TEST_HOST??process.env.R11_SQL_TEST_HOST;
 test('NEW POD goal SQL uses new template authority and genuine R04/R05/R07 APIs',{skip:!host,timeout:180000},async t=>{
  const require=createRequire(path.resolve(host,'package.json')),{PGlite}=require('@electric-sql/pglite'),{pgcrypto}=require('@electric-sql/pglite/contrib/pgcrypto'),db=new PGlite({extensions:{pgcrypto}});
@@ -20,5 +20,10 @@ test('NEW POD goal SQL uses new template authority and genuine R04/R05/R07 APIs'
   await t.test('runtime read rejects wrong application capability and cross-Business scope substitution',()=>exercisePodRuntimeCapabilities(db));
   await t.test('Stop allows exact unmarked R07 cancellation with no paid liability',()=>exercisePodUnsentCancellation(db));
   await t.test('staged marked receipt settles after Stop and template revocation; fresh dispatch is refused',()=>exercisePodStoppedStagedReceipt(db));
+  await t.test('full-pass quote hold converts exactly once per call and never resets on replay or Stop',()=>exercisePodPassHold(db));
+  await t.test('weak pass replans against actual prior review then stops on useful independent review',()=>exercisePodMultipass(db));
+  await t.test('five weak passes stop at the exact 25-call ceiling without budget or lineage reset',()=>exercisePodMultipass(db,{usefulPass:null}));
+  await t.test('remaining budget below the next whole-pass quote stops without a sixth call',()=>exercisePodMultipass(db,{usefulPass:null,budgetExhausted:true}));
+  await t.test('revoked controller capability cannot admit, read or complete a pass',()=>exercisePodRevokedController(db));
  }finally{await db.close();}
 });

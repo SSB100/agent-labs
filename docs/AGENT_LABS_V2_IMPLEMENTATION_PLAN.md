@@ -333,3 +333,11 @@ critical assessment. Owner flow is Business → public goal and budget → one
 permission review → background research → sourced result. Browser/Steel access
 is not required. Existing stopped grants, old expiry and held liability are not
 reused, transferred or extended. Isolated tests do not satisfy live acceptance.
+
+### 2026-10-12 approved POD run refinement
+
+The owner clarified the research limit as **USD 10 total and up to five attempts**, where an attempt is a research/refinement pass, not a single provider phase. Before any POD template/run activation, the unactivated draft is superseded by POD .2: one Business-funded R05 policy, one scope, the existing five-phase R07 pipeline reused through its adaptive-action interface, and a durable five-pass/25-call ceiling. Fresh quotes reserve complete-pass upper bounds; exact calls convert their own hold; actual and reserved liability count toward the same total. No USD 2-per-pass partition, new funding root, restart reset, stopped-grant mapping or expiry extension is permitted.
+
+Independently reviewed prior results guide new app-generated queries. Current-pass evidence remains separately cited and reviewed. Useful review stops early; exhausted passes/budget, Stop, expiry or unsafe liability stops further work. Qualified bounded old-browser liability may remain fully reserved without globally freezing the new run only when its original termination/usage/tariff proof resolves exactly. Missing proof, revoked qualification and anomalies still block. Actual unknown charges remain unknown and history stays immutable.
+
+Implementation and isolated tests are engineering evidence; exact Production migration/template approval and a fresh recipient/cost packet are still required before the first actual app-generated research run. This change does not reinstate the stopped Steel setup.

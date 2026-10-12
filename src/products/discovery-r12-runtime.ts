@@ -145,7 +145,7 @@ function ownInputs(ctx: QuestAdapterContext, input: DiscoveryR12LegacyPhaseInput
 }
 /** Validate the exact server read before using its saved records as evidence. */
 export function readDiscoveryR12PhaseInputs(ctx: QuestAdapterContext, raw: Record<string, unknown>): DiscoveryR12PhaseInputs {
-  if (ctx.plan.format === "r12.pod-research.1") return readPodResearchPhaseInputs(ctx, raw);
+  if (ctx.plan.format === "r12.pod-research.2") return readPodResearchPhaseInputs(ctx, raw);
   if (ctx.plan.format === "r12.discovery-pilot.1") return readDiscoveryR12FocusedPilotInputs(ctx, raw, reconstructLegacyDiscoveryR12Result);
   if (raw.version === "r12.discovery-owner-initial-inputs.1" || raw.version === "r12.discovery-owner-episode-inputs.1") {
     const episode = raw.version === "r12.discovery-owner-episode-inputs.1";

@@ -10,12 +10,37 @@ import {fileURLToPath} from 'node:url';
 import {r04SqlBootstrap} from './helpers/r04-sql-bootstrap.mjs';
 import {sessionBootstrap} from './helpers/r10-sql-fixture.mjs';
 import {validateOwnerInitialRaceEnvironment,orderedRace,asRole} from './helpers/r12-owner-initial-postgres-races.mjs';
-import {podSqlFixture,podOne} from './helpers/r12-pod-sql-fixture.mjs';
+import {podSqlFixture,podOne,podActivate,podQuoteFixture,podHash,podPlannerPreflight,podRpc} from './helpers/r12-pod-sql-fixture.mjs';
 
 const root=fileURLToPath(new URL('../',import.meta.url));
 const owner=(db,f,operation,payload)=>asRole(db,'authenticated','r12_pod_owner_server',
  [f.businessId,operation,payload,operation==='stop'?'':f.bootstrapKey],f.ownerId);
 const stopPayload=prepared=>({setupId:prepared.setupId,setupHash:prepared.setupHash,submissionId:randomUUID()});
+const pass=(db,a,operation,payload={})=>asRole(db,'anon','r12_pod_pass_server',
+ [a.f.businessId,a.prepared.scopeId,operation,payload,a.controller]);
+const passState=(db,businessId)=>podOne(db,`select
+ (select count(*)::int from private.r12_pod_passes p join private.r12_discovery_scopes s on s.id=p.scope_id where s.business_id=$1) passes,
+ private.r12_pod_outstanding_hold($1)::text outstanding,
+ private.r12_adaptive_outstanding_hold($1)::text shared_outstanding,
+ (select coalesce(sum(held),0)::text from private.r05_exposure($1)) issued,
+ (select count(*)::int from private.r05_markers where business_id=$1) markers`,[businessId]);
+
+// A conservative synthetic quote reaches the exact owner cap without a
+// provider call. Its existing routes, bytes, output bounds and hash stay valid.
+function fullBudgetQuote(){
+ const q=podQuoteFixture();q.ceilings={plan:2000000,search1:2000000,select1:2000000,strategy:2000000,review:2000000};q.maximumMicrousd=10000000;
+ const {quoteHash:_hash,verifiedAt:_verified,validUntil:_valid,...body}=q;void[_hash,_verified,_valid];q.quoteHash=podHash(body);return q;
+}
+async function activateOnBusiness(db,f,goalId,quote){
+ const prepared=await f.server('prepare',{input:{...f.input,goalId,submissionId:randomUUID()},quote});
+ Object.defineProperty(prepared,'_preflight',{value:{quote,receipt:await podPlannerPreflight(prepared,quote)}});
+ await f.server('confirm',f.confirmPayload(prepared));
+ const controller='inert-pod-controller-'+prepared.scopeId,admission='inert-pod-admission-'+prepared.scopeId;
+ const {plan}=await podOne(db,'select plan from private.r12_discovery_authorities where scope_id=$1',[prepared.scopeId]);
+ await podRpc(db,'anon',null,'r07_controller',[f.businessId,goalId,'plan',{
+  plan,expectedVersion:0,reason:'Inert native race pass admission',evidenceHash:'7'.repeat(64)},randomUUID(),controller,null,null,admission]);
+ return{f,prepared,controller,admission,plan};
+}
 async function authorityCounts(db,f,confirmation){
  return podOne(db,`select
   (select count(*)::int from private.r12_pod_activations where business_id=$1) activations,
@@ -92,7 +117,54 @@ test('Native PostgreSQL serializes POD confirmation, Stop and template revocatio
   assert.equal((await podOne(db,'select count(*)::int n from private.r12_pod_template_revocations where template_id=$1',[revoked.templateId])).n,1);
   record('template-revocation-before-confirm-creates-no-authority',revocationFirst);
 
-  assert.equal(httpCalls,0);assert.equal(races.length,3);assert.ok(races.every(race=>race.observedLockWait));
+  const duplicatePass=await podActivate(db),passQuote=podQuoteFixture();
+  const samePass=await orderedRace({observer:db,holder,waiter,
+   first:client=>pass(client,duplicatePass,'admit',{quote:passQuote}),
+   second:client=>pass(client,duplicatePass,'admit',{quote:passQuote})});
+  assert.equal(samePass.first.admitted,true);assert.equal(samePass.first.ordinal,0);
+  assert.equal(samePass.second.error,undefined,samePass.second.error?.message);
+  assert.equal(samePass.second.value.admitted,true);assert.equal(samePass.second.value.replayed,true);
+  assert.deepEqual(await passState(db,duplicatePass.f.businessId),{
+   passes:1,outstanding:String(passQuote.maximumMicrousd),shared_outstanding:String(passQuote.maximumMicrousd),issued:'0',markers:0});
+  record('concurrent-identical-pass-one-whole-pass-hold',samePass);
+
+  for(const stopWins of [true,false]){
+   const a=await podActivate(db),quote=podQuoteFixture(),stop=stopPayload(a.prepared);
+   const stopping=await orderedRace({observer:db,holder,waiter,
+    first:client=>stopWins?owner(client,a.f,'stop',stop):pass(client,a,'admit',{quote}),
+    second:client=>stopWins?pass(client,a,'admit',{quote}):owner(client,a.f,'stop',stop)});
+   if(stopWins){assert.equal(stopping.first.stopped,true);if(stopping.second.error)assert.match(stopping.second.error.message,/r12_pod_scope_stopped_or_changed|r12_pod_pass_gate_closed/);
+    else{assert.equal(stopping.second.value.admitted,false);assert.equal(stopping.second.value.stopped,true);}}
+   else{assert.equal(stopping.first.admitted,true);assert.equal(stopping.second.error,undefined);assert.equal(stopping.second.value.stopped,true);}
+   assert.deepEqual(await passState(db,a.f.businessId),{passes:stopWins?0:1,outstanding:'0',shared_outstanding:'0',issued:'0',markers:0});
+   record(stopWins?'stop-before-pass-no-hold':'pass-before-stop-unissued-hold-released',stopping);
+  }
+
+  // Two independently confirmed policies do not double the Business ceiling.
+  // Both qualify before either admission; the second backend must observe the
+  // first whole-pass hold after waiting for the same Business row.
+  const budget=await podSqlFixture(db),quote=fullBudgetQuote();
+  const firstPass=await activateOnBusiness(db,budget,budget.goalId,quote);
+  const secondGoal=await budget.rpc('r04_quest_transition',[budget.businessId,'quest.save',{
+   goalId:null,expectedRevision:0,content:{...structuredClone(budget.content),title:'Independent second POD research question'}},randomUUID()]);
+  await budget.rpc('r04_quest_transition',[budget.businessId,'quest.preference',{goalId:secondGoal.id,expectedRevision:1,preference:'ready'},randomUUID()]);
+  const secondPass=await activateOnBusiness(db,budget,secondGoal.id,quote);
+  const budgetRace=await orderedRace({observer:db,holder,waiter,
+   first:client=>pass(client,firstPass,'admit',{quote}),second:client=>pass(client,secondPass,'admit',{quote})});
+  assert.equal(budgetRace.first.admitted,true);assert.equal(budgetRace.second.error,undefined,budgetRace.second.error?.message);
+  assert.equal(budgetRace.second.value.admitted,false);assert.equal(budgetRace.second.value.reason,'remaining_budget_below_quoted_pass');
+  assert.deepEqual(await passState(db,budget.businessId),{passes:1,outstanding:'10000000',shared_outstanding:'10000000',issued:'0',markers:0});
+  assert.equal((await podOne(db,"select maximum_microunits::text cap from private.r05_cap_versions where business_id=$1 order by revision desc limit 1",[budget.businessId])).cap,'10000000');
+  record('two-policies-one-business-ten-dollar-total-hold',budgetRace);
+  await budget.server('stop',stopPayload(firstPass.prepared));
+  const terminalRetry=await podRpc(db,'anon',null,'r12_pod_pass_server',[
+   budget.businessId,secondPass.prepared.scopeId,'admit',{quote},secondPass.controller]);
+  assert.equal(terminalRetry.admitted,false);assert.equal(terminalRetry.completed,true);
+  assert.equal(terminalRetry.reason,'remaining_budget_below_quoted_pass');
+  assert.deepEqual(await passState(db,budget.businessId),{passes:1,outstanding:'0',shared_outstanding:'0',issued:'0',markers:0},
+   'Releasing a competing hold cannot strand a new pass on an already terminal head');
+
+  assert.equal(httpCalls,0);assert.equal(races.length,7);assert.ok(races.every(race=>race.observedLockWait));
   console.log('POD native PostgreSQL race qualification:',JSON.stringify({version:'r12.pod-postgres-races.1',engine:'postgresql',
    passed:true,providerCalls:0,transportHttpCalls:httpCalls,races}));
  }finally{

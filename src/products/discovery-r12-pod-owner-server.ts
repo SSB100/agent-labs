@@ -20,19 +20,19 @@ async function rpc(c:OwnerUiContext,name:string,args:Record<string,unknown>){con
 export async function readPodResearch(c:OwnerUiContext,businessId:string,setupId:string|null=null,submissionId:string|null=null){await owned(c,businessId);if(setupId!==null&&!podId(setupId))podFail();return parsePodCatalog(await rpc(c,"r12_pod_research_read",{p_business_id:businessId,p_goal_id:null,p_setup_id:setupId,p_submission_id:submissionId}),businessId);}
 export async function preparePodResearch(c:OwnerUiContext,entry:PodResearchEntry){
  await owned(c,entry.businessId);const brief=validatePodResearchPublicBrief(entry.publicBrief),deadline=Date.parse(entry.deadlineAt);
- if(!podId(entry.submissionId)||!podMoney(entry.maximumMicrounits)||Number(entry.maximumMicrounits)<=0||Number(entry.maximumMicrounits)>2000000||!Number.isFinite(deadline))podFail();
+ if(!podId(entry.submissionId)||!podMoney(entry.maximumMicrounits)||Number(entry.maximumMicrounits)<=0||Number(entry.maximumMicrounits)>10000000||!Number.isFinite(deadline))podFail();
  const recovered=await readPodResearch(c,entry.businessId,null,entry.submissionId);
  const existing=recovered.setups.find(r=>r.submissionId===entry.submissionId);
  if(existing){if(discoveryV2Hash(existing.preview.publicBrief)!==discoveryV2Hash(brief)||existing.preview.finance.runLimitMicrounits!==entry.maximumMicrounits)podFail();return existing;}
  if(deadline<Date.now()+35*60000||deadline>Date.now()+90*60000)throw Error("r12_pod_review_window_expired");
- const catalog=recovered;if(!catalog.business?.ready)throw Error("r12_pod_business_not_ready");if(!catalog.template)throw Error("r12_pod_template_unavailable");if(catalog.finance.hasUnknown)throw Error("r12_pod_unresolved_liability");
- const quote=await discoveryR12ServerDependencies().quote();if(quote.maximumMicrousd>Number(entry.maximumMicrounits))throw Error(`r12_pod_quote_exceeds_budget:${quote.maximumMicrousd}`);
+ const catalog=recovered;if(!catalog.business?.ready)throw Error("r12_pod_business_not_ready");if(!catalog.template)throw Error("r12_pod_template_unavailable");if(catalog.finance.hasBlockingUnknown)throw Error("r12_pod_unresolved_liability");
+ const quote=await discoveryR12ServerDependencies().quote({podResearch:true});if(quote.maximumMicrousd>Number(entry.maximumMicrounits))throw Error(`r12_pod_quote_exceeds_budget:${quote.maximumMicrousd}`);
  // R04 saves research intent without inventing a revenue/units target or country.
  const iso=new Date(deadline).toISOString();
- const content={title:brief.objective.slice(0,200),originalIntent:brief.objective,objective:brief.objective,parsed:{researchMode:"r12.pod-research-intent.1",target:null,budget:{amount:(Number(entry.maximumMicrounits)/1000000).toFixed(6),currency:"USD"},deadline:{date:iso.slice(0,10),time:iso.slice(11,19),timezone:"UTC"},geography:[],scope:"Public print-on-demand product research for Etsy; recommendations only.",stopConstraints:["Stop on owner request or permission expiry","Stop on unverified cost or unavailable permitted evidence","No listing, purchase, account access or commerce"]},ambiguities:[]};
+ const content={title:brief.objective.slice(0,200),originalIntent:brief.objective,objective:brief.objective,parsed:{researchMode:"r12.pod-research-intent.1",target:null,budget:{amount:(Number(entry.maximumMicrounits)/1000000).toFixed(6),currency:"USD"},deadline:{date:iso.slice(0,10),time:iso.slice(11,19),timezone:"UTC"},geography:[],scope:"Public print-on-demand product research for Etsy; recommendations only.",stopConstraints:["Stop on owner request or permission expiry","Stop on unbounded liability, exhausted budget or unavailable permitted evidence","No listing, purchase, account access or commerce"]},ambiguities:[]};
  const goal=await rpc(c,R04_RPC.transition,{p_business_id:entry.businessId,p_operation:"quest.save",p_payload:{goalId:null,expectedRevision:0,content},p_submission_id:submission(entry.submissionId,"goal")});if(!podId(goal.id))podFail();
  const ready=await rpc(c,R04_RPC.transition,{p_business_id:entry.businessId,p_operation:"quest.preference",p_payload:{goalId:goal.id,expectedRevision:1,preference:"ready"},p_submission_id:submission(entry.submissionId,"ready")});
- const maximum=Math.max(Number(catalog.finance.maximumMicrounits),Number(catalog.finance.committedMicrounits)+quote.maximumMicrousd).toString();
+ const maximum=Math.max(Number(catalog.finance.maximumMicrounits),Number(catalog.finance.committedMicrounits)+Number(entry.maximumMicrounits)).toString();
  const input={businessId:entry.businessId,goalId:goal.id,goalRevision:ready.revision,templateId:catalog.template.id,templateHash:catalog.template.hash,publicBrief:brief,maximumMicrounits:entry.maximumMicrounits,businessLifetimeLimitMicrounits:maximum,submissionId:entry.submissionId};
  return parsePodReceipt(await rpc(c,"r12_pod_owner_server",{p_business_id:entry.businessId,p_operation:"prepare",p_payload:{input,quote},p_server_key:podApplicationCapability()}),entry.businessId);
 }
@@ -40,7 +40,7 @@ export async function confirmPodResearch(c:OwnerUiContext,input:PodResearchSetup
  await owned(c,input.businessId);if(!podId(input.setupId)||!podId(input.submissionId))podFail();
  const catalog=await readPodResearch(c,input.businessId,input.setupId),saved=catalog.setups.find(r=>r.setupId===input.setupId&&r.setupHash===input.setupHash);if(!saved||saved.stopped)podFail();
  if(saved.activated)return saved;
- const quote=await discoveryR12ServerDependencies().quote();
+ const quote=await discoveryR12ServerDependencies().quote({podResearch:true});
  const raw=buildPodPlannerRequest(saved.setupHash,saved.preview.sourcePolicyHash,saved.preview.publicBrief,saved.preview.sourcePolicy.excludedDomains);
  const request=routeDiscoveryR12Request(raw,"plan",quote.luna,false,false,true),wire=await inspectDiscoveryR12Wire(request,"plan",false,false,false,true);
  const hashes=await prepareDiscoveryR12Authority(c,input.businessId,saved.scopeId);
@@ -49,7 +49,7 @@ export async function confirmPodResearch(c:OwnerUiContext,input:PodResearchSetup
 export async function stopPodResearch(c:OwnerUiContext,input:PodResearchSetupAction){await owned(c,input.businessId);return parsePodReceipt(await rpc(c,"r12_pod_owner_server",{p_business_id:input.businessId,p_operation:"stop",p_payload:{setupId:input.setupId,setupHash:input.setupHash,submissionId:input.submissionId},p_server_key:""}),input.businessId,input.setupId);}
 export async function readPodResearchResult(c:OwnerUiContext,businessId:string,scopeId:string){
  await owned(c,businessId);if(!podId(scopeId))podFail();const r=await c.supabase.rpc("r12_discovery_result_read",{p_business_id:businessId,p_scope_id:scopeId});if(r.error)throw Error(r.error.message);if(r.data===null)return null;
- const v=r.data;if(!podObject(v)||v.version!=="r12.pod-saved-result.1"||!podObject(v.context)||!podObject(v.inputs)||!podObject(v.current))podFail();
+ const v=r.data;if(!podObject(v)||v.version!=="r12.pod-saved-result.2"||!podObject(v.context)||!podObject(v.inputs)||!podObject(v.current))podFail();
  const ctx=v.context as unknown as QuestAdapterContext;if(ctx.plan.businessId!==businessId||ctx.plan.discoveryScopeId!==scopeId)podFail();
  const result=reconstructPodResearchResult(ctx,readPodResearchPhaseInputs(ctx,v.inputs as Record<string,unknown>),v.current as unknown as DiscoveryR12CompletedPhase);
  if(result.businessId!==businessId||result.scopeId!==scopeId)podFail();return result;

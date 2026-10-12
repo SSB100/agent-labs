@@ -44,16 +44,16 @@ function scopeFixture() {
     recipients: { router: 'openrouter.ai', search: 'exa.ai', researcher: 'azure/us', reviewer: 'amazon-bedrock/us' },
     retention: { inference: 'no_training_zdr', search: 'query_retention_improvement_training_possible', application: 'bounded_attributed_audit_evidence' },
     validFrom: stamp(now - 60000), validUntil: stamp(now + 3600000) };
-  const scope = { version: 'r12.pod-research-goal.1', id: id(1), businessId: id(2), businessRevision: 1, businessHash: '4'.repeat(64),
+  const scope = { version: 'r12.pod-research-goal.2', id: id(1), businessId: id(2), businessRevision: 1, businessHash: '4'.repeat(64),
     goalId: id(3), goalRevision: 1, goalHash: '5'.repeat(64), setupId: id(4), setupHash: '6'.repeat(64), authorityRootId: id(2),
     publicBrief: { objective: 'Research viable print-on-demand products to sell on Etsy.', publicConstraints: [], fulfilmentContext: 'unspecified' },
-    sourcePolicy, sourcePolicyHash: hash(sourcePolicy), approvalHash: '7'.repeat(64), maximumMicrousd: 2000000,
+    sourcePolicy, sourcePolicyHash: hash(sourcePolicy), approvalHash: '7'.repeat(64), maximumMicrousd: 10000000,
     createdAt: stamp(now - 1000), expiresAt: stamp(now + 1500000) };
-  const plan = { format: 'r12.pod-research.1', discoveryScopeId: scope.id, discoveryScopeHash: hash(scope), businessId: scope.businessId,
+  const plan = { format: 'r12.pod-research.2', discoveryScopeId: scope.id, discoveryScopeHash: hash(scope), businessId: scope.businessId,
     goalId: scope.goalId, goalRevision: 1, goalHash: scope.goalHash, businessRevision: 1, businessHash: scope.businessHash,
     policyId: id(5), policyHash: '8'.repeat(64), authorityRootId: scope.businessId, plannerWorkerDefinitionId: id(6), currency: 'USD',
-    maximumMicrounits: '2000000', deadline: scope.expiresAt, expiresAt: scope.expiresAt, maximumRepairs: 0, maximumPivots: 0,
-    maximumChildren: 5, maximumDispatches: 5, requiredChecks: ['review'], finishCondition: 'all_required_outputs_verified',
+    maximumMicrounits: '10000000', deadline: scope.expiresAt, expiresAt: scope.expiresAt, maximumRepairs: 0, maximumPivots: 0,
+    maximumChildren: 5, maximumDispatches: 25, requiredChecks: ['review'], finishCondition: 'all_required_outputs_verified',
     stopConditions: ['no_permitted_work', 'deadline', 'repair_exhausted', 'owner_stopped'],
     steps: phases.map((key, i) => ({ key, kind: key === 'review' ? 'review' : key === 'search1' ? 'research' : 'work',
       objective: 'Research the approved general POD goal.', reason: 'Finite inert research phase.', adapter: `r12.discovery.${scope.id}.${key}`,
@@ -74,12 +74,12 @@ function context(f, key, dependencies) {
   const ordinal = phases.indexOf(key);
   return { planId: id(10), planHash: hash(f.plan), plan: f.plan, step: f.plan.steps[ordinal],
     knowledge: { privateBusinessNotes: 'PRIVATE_BUSINESS_SENTINEL_MUST_STAY_LOCAL' },
-    attempt: { id: id(100 + ordinal), stepKey: key, status: 'scheduled', attempt: 1, requestId: id(120 + ordinal),
+    attempt: { id: id(100 + ordinal), stepKey: key, status: 'scheduled', attempt: 1, adaptiveActionHash: 'd'.repeat(64), adaptiveActionOrdinal: 0, requestId: id(120 + ordinal),
       inputHash: 'b'.repeat(64), dependencyPins: dependencies.map(d => ({ stepKey: d.stepKey, attemptId: d.attemptId, resultHash: d.responseHash })),
       wireHash: null, responseHash: null } };
 }
 function inputs(f, dependencies, inputMode = 'dispatch') {
-  return { kind: 'pod_goal', scope: f.scope, validationAt: now, inputMode,
+  return { pass: { ordinal: 0, actionHash: 'd'.repeat(64), history: null, historyHash: hash(null) }, kind: 'pod_goal', scope: f.scope, validationAt: now, inputMode,
     committedBeforeAttemptMicrousd: dependencies.length * 10, dependencies };
 }
 async function routedRequest(ctx, state) {

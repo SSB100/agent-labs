@@ -25,7 +25,7 @@ export type QuestStep = {
   maximumRepairs: number;
 };
 export type QuestPlan = {
-  format: "r12.pod-research.1" | "r07.1" | "r12.discovery.1" | "r12.discovery-review.1" | "r12.discovery-evidence.1" | "r12.discovery-pilot.1" | "r12.discovery-episode.1" | "r12.discovery-adaptive.1" | "r12.discovery-adaptive.2";
+  format: "r12.pod-research.2" | "r07.1" | "r12.discovery.1" | "r12.discovery-review.1" | "r12.discovery-evidence.1" | "r12.discovery-pilot.1" | "r12.discovery-episode.1" | "r12.discovery-adaptive.1" | "r12.discovery-adaptive.2";
   /** Exact approved discovery execution scope. It grants no dispatch. */
   discoveryScopeId?: string;
   discoveryScopeHash?: string;
@@ -85,8 +85,8 @@ export function compileQuestPlan(input: unknown): QuestPlan {
   const focusedPilot = p.format === "r12.discovery-pilot.1";
   const ownerEpisode = p.format === "r12.discovery-episode.1";
   const adaptiveOwnerCapture = p.format === "r12.discovery-adaptive.2";
-  const adaptiveDiscovery = p.format === "r12.discovery-adaptive.1" || adaptiveOwnerCapture;
-  const discovery = p.format === "r12.pod-research.1" || p.format === "r12.discovery.1" || reviewContinuation || evidenceContinuation || focusedPilot || ownerEpisode || adaptiveDiscovery;
+  const adaptiveDiscovery = p.format === "r12.pod-research.2" || p.format === "r12.discovery-adaptive.1" || adaptiveOwnerCapture;
+  const discovery = p.format === "r12.pod-research.2" || p.format === "r12.discovery.1" || reviewContinuation || evidenceContinuation || focusedPilot || ownerEpisode || adaptiveDiscovery;
   keys(p, ["format", "businessId", "goalId", "goalRevision", "goalHash", "businessRevision", "businessHash", "policyId", "policyHash", "authorityRootId", "plannerWorkerDefinitionId", "currency", "maximumMicrounits", "deadline", "expiresAt", "maximumRepairs", "maximumPivots", "maximumChildren", "maximumDispatches", "requiredChecks", "finishCondition", "stopConditions", "steps", ...(discovery ? ["discoveryScopeId", "discoveryScopeHash"] : [])]);
   for (const key of ["businessId", "goalId", "policyId", "authorityRootId", "plannerWorkerDefinitionId"]) if (!uuid(p[key])) fail("invalid_identity");
   for (const key of ["goalHash", "businessHash", "policyHash"]) if (!hash(p[key])) fail("invalid_pin");

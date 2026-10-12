@@ -58,7 +58,11 @@ async function continuePreparedDiscoveryR12(businessId:string,scopeId:string,row
  const successor=row.focusedSuccessor===undefined?null:validateR12FocusedSuccessor(row.focusedSuccessor,{businessId,scopeId,goalId:scope.goalId,ownerId,...(scope.version==='r12.discovery-focused-pilot.1'?{scope}:{})});
  const recovery=successor?.authorization.version==='r12.focused-pilot-unsent-recovery-authorization.1'||successor?.authorization.version==='r12.focused-pilot-terminal-qualification-authorization.1';
  const bounded=recovery||isPodResearchGoalScope(scope);
- const dependencies=discoveryR12ServerDependencies(),controller=dependencies.createController(businessId,scope.goalId,{...authority,...(bounded?{requestSignal}:{}),...(recovery?{recoveryScopeId:scopeId}:{})}),client=dependencies.createClient();
+ const dependencies=discoveryR12ServerDependencies(),baseController=dependencies.createController(businessId,scope.goalId,{...authority,...(bounded?{requestSignal}:{}),...(recovery?{recoveryScopeId:scopeId}:{})}),client=dependencies.createClient();
+ const passOperation=async(operation:string,payload:Record<string,unknown>={})=>{const result=await boundedRpc(client.rpc('r12_pod_pass_server',{p_business_id:businessId,p_scope_id:scopeId,p_operation:operation,p_payload:payload,p_server_key:authority.controllerKey}),requestSignal,10000);if(result.error)return fail();return result.data;};
+ const controller=isPodResearchGoalScope(scope)?{...baseController,command:async(operation:string,payload:Record<string,unknown>,epoch?:number)=>{
+ if(operation!=='adaptive_complete_action')return baseController.command(operation,payload,epoch);const result=await passOperation('complete',payload);if(!object(result))return fail();return result;},
+ readAdaptiveAction:async()=>{const data=await passOperation('context');if(data===null)return null;if(!object(data))return fail();return data as unknown as import('../core/quest-controller').QuestAdaptiveActionProjection;}}:baseController;
  const operation:DiscoveryR12EffectStore['operation']=async(attemptId,operation,payload)=>{
   const extended=recovery&&['inputs','bind','send'].includes(operation);
   if(bounded)requestSignal.throwIfAborted();
@@ -68,7 +72,7 @@ async function continuePreparedDiscoveryR12(businessId:string,scopeId:string,row
  };
  const effects:DiscoveryR12EffectStore={operation,settle:async(attemptId,settlement)=>{await controller.command('settle',{attemptId,settlement});},dispatchedAt:async attemptId=>{const data=await operation(attemptId,'load',{});if(typeof data.dispatchedAt!=='string'||!Number.isFinite(Date.parse(data.dispatchedAt)))return fail();return data.dispatchedAt;}};
  let quote:DiscoveryR12ExecutionQuote|null=null;
- const freshQuote=async()=>{if(!quote||Date.parse(quote.validUntil)<=Date.now())quote=await dependencies.quote({evidenceContinuation:plan.format==='r12.discovery-evidence.1',focusedPilot:plan.format==='r12.discovery-pilot.1',...(bounded?{fetch:deadlineFetch(requestSignal)}:{})});return quote;};
+ const freshQuote=async()=>{if(!quote||Date.parse(quote.validUntil)<=Date.now())quote=await dependencies.quote({evidenceContinuation:plan.format==='r12.discovery-evidence.1',focusedPilot:plan.format==='r12.discovery-pilot.1',podResearch:isPodResearchGoalScope(scope),...(bounded?{fetch:deadlineFetch(requestSignal)}:{})});return quote;};
  const adapters:Record<string,QuestAdapter>={};
  for(const step of plan.steps){
   if(!DISCOVERY_R12_PHASES.includes(step.key as DiscoveryR12Phase))return fail();
@@ -101,7 +105,7 @@ async function continuePreparedDiscoveryR12(businessId:string,scopeId:string,row
  // These are finite failure bounds, not a Production latency guarantee.
  const latestTransitionStartMs=bounded?40000:200000;
  for(let transitions=0;transitions<24&&Date.now()-started<latestTransitionStartMs;transitions++){
-  try{if(bounded)requestSignal.throwIfAborted();const work=driveQuestOnce(controller,{adapters,reconcile:true});const result=bounded?await awaitRequestDeadline(work,requestSignal):await work;if(result.status!=='progress')return result;}
+  try{if(bounded)requestSignal.throwIfAborted();if(isPodResearchGoalScope(scope)&&'readAdaptiveAction' in controller&&!await controller.readAdaptiveAction!()){if(row.activeWindow!==true)return{status:'stopped',reason:'owner_stopped_or_expired'};const next=await passOperation('admit',{quote:await freshQuote()});if(!object(next))return fail();if(next.admitted!==true)return{status:next.completed===true?'completed':next.stopped===true?'stopped':'waiting',reason:typeof next.reason==='string'?next.reason:'pass_not_admitted'};}const work=driveQuestOnce(controller,{adapters,reconcile:true});const result=bounded?await awaitRequestDeadline(work,requestSignal):await work;if(result.status!=='progress')return result;}
   catch(error){if(error instanceof DiscoveryR12ReceiptPending){const wake=error.receipt.nextCheckAt;return{status:'waiting',reason:'receipt_pending',...(typeof wake==='string'?{wakeAt:wake}:{})};}throw error;}
  }
  return{status:'waiting',reason:'continue_saved_progress'};
@@ -114,7 +118,7 @@ export async function continuePodResearchRuntime(businessId:string,scopeId:strin
  const {podApplicationCapability}=await import('./discovery-r12-pod-server-key');
  const signal=requestDeadline(270000),started=Date.now(),client=discoveryR12ServerDependencies().createClient();
  const read=await boundedRpc(client.rpc('r12_pod_runtime_read',{p_business_id:businessId,p_scope_id:scopeId,p_server_key:podApplicationCapability()}),signal,10000);
- const row=read.data;if(read.error||!object(row)||row.businessId!==businessId||row.scopeId!==scopeId||!id(row.ownerId)||!object(row.activation)||!object(row.activation.scope)||row.activation.scope.version!=='r12.pod-research-goal.1')return fail();
+ const row=read.data;if(read.error||!object(row)||row.businessId!==businessId||row.scopeId!==scopeId||!id(row.ownerId)||!object(row.activation)||!object(row.activation.scope)||row.activation.scope.version!=='r12.pod-research-goal.2')return fail();
  const result=await continuePreparedDiscoveryR12(businessId,scopeId,row,keysForOwner(row.ownerId,businessId,scopeId),started,signal,row.ownerId);
  return {...result,receiptUntil:String(row.receiptUntil)};
 }

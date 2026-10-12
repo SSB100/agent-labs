@@ -4,7 +4,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { chromium } from 'playwright-core';
 import { captureOwnerJourneyFailure } from './r12-owner-initial-journey.mjs';
-import { POD_OBJECTIVE, POD_PHASES } from '../helpers/r12-pod-sql-fixture.mjs';
+import { POD_OBJECTIVE, POD_PHASES, podInertOutputs } from '../helpers/r12-pod-sql-fixture.mjs';
 
 const waitUntil = async (check, description, timeout = 90000) => {
   const until = Date.now() + timeout;
@@ -15,6 +15,9 @@ export async function runPodNextJourney({ origin, boundary, output, fixture, htt
   const results = [], external = [], errors = [];
   let browser = null, page = null, receipt = null, browserStatus = httpOnly ? 'unrun: explicitly HTTP-only' : 'not started';
   const current = () => boundary.state().r12;
+  const expectedPhases = [0, 1].flatMap(ordinal => POD_PHASES.map(phase => ({ ordinal, phase })));
+  const sentPhases = () => current().calls.map(({ ordinal, phase }) => ({ ordinal, phase }));
+  const secondOutput = podInertOutputs({ passOrdinal: 1, useful: true });
   const basePath = `/dashboard/quests/research/pod?business=${current().businessId}`;
   const selectedPath = () => `${basePath}&setup=${receipt.setupId}`;
   const report = () => writeFile(path.join(output, 'acceptance.json'), JSON.stringify({ results, browser: browserStatus, workflowHost: 'actual SDK local host; production workflow/plugin/generated routes unchanged', provider: 'inert loopback only; no paid calls or live permission', external, errors }, null, 2));
@@ -57,45 +60,63 @@ export async function runPodNextJourney({ origin, boundary, output, fixture, htt
         await page.goto(origin + basePath); await page.getByRole('textbox', { name: 'Research goal', exact: true }).fill(POD_OBJECTIVE);
         const names = await page.locator('section[aria-label="Goal-driven POD research"] form input, section[aria-label="Goal-driven POD research"] form textarea, section[aria-label="Goal-driven POD research"] form select').evaluateAll(nodes => nodes.map(node => node.name).sort());
         assert.deepEqual(names, ['budget', 'objective', 'printful']);
-        await page.getByRole('textbox', { name: 'Maximum for this research pass (USD)', exact: true }).fill('1.00');
+        await page.getByRole('textbox', { name: 'Total limit for up to five research passes (USD)', exact: true }).fill('10.00');
         await page.getByRole('button', { name: 'Review cost and permissions', exact: true }).click();
         await page.getByRole('button', { name: 'Recover the same review', exact: true }).waitFor(); receipt = await getSaved();
         await page.getByRole('button', { name: 'Recover the same review', exact: true }).click(); await page.waitForURL(origin + selectedPath());
       } else {
-        const entry = { businessId: current().businessId, publicBrief: { objective: POD_OBJECTIVE, publicConstraints: [], fulfilmentContext: 'unspecified' }, maximumMicrounits: '1000000', deadlineAt: new Date(Date.now() + 3600000).toISOString(), submissionId: randomUUID() };
+        const entry = { businessId: current().businessId, publicBrief: { objective: POD_OBJECTIVE, publicConstraints: [], fulfilmentContext: 'unspecified' }, maximumMicrounits: '10000000', deadlineAt: new Date(Date.now() + 3600000).toISOString(), submissionId: randomUUID() };
         assert.equal((await action('preparePodResearchAction', entry)).ok, false); const saved = await getSaved();
         const recovered = await action('preparePodResearchAction', entry); assert.equal(recovered.ok, true, recovered.message); receipt = recovered.receipt; assert.equal(receipt.setupId, saved.setupId);
       }
       assert.equal(receipt.activated, false); assert.equal(receipt.confirmed, false); assert.equal((await getSaved()).setupId, receipt.setupId); assert.deepEqual(current().calls, []);
       const html = await read(selectedPath());
-      for (const phrase of [POD_OBJECTIVE, 'Exa may retain queries', 'USD 1.000000', 'Proposed cumulative cap', '30 minutes after approval', 'another 30 minutes']) assert.ok(html.includes(phrase), phrase);
+      for (const phrase of [POD_OBJECTIVE, 'Exa may retain queries', 'USD 10.000000', 'shared total ceiling for all five passes', 'Unused allowance carries between passes', 'Proposed cumulative cap', '30 minutes after approval', 'another 30 minutes']) assert.ok(html.includes(phrase), phrase);
       if (page) { const approve = page.getByRole('button', { name: 'Approve and research', exact: true }); assert.equal(await approve.isDisabled(), true); await page.reload(); assert.equal(await approve.isDisabled(), true); await page.screenshot({ path: path.join(output, 'pod-approval-desktop.png'), fullPage: true }); }
     });
-    await check('approval starts actual background Workflow; leaving the owner page cannot stop exact saved progress', async () => {
+    await check('actual background Workflow refines a weak pass into a different-query useful second pass within one total cap', async () => {
       boundary.holdProvider();
       if (page) { await page.getByRole('checkbox', { name: 'I approve this public brief, recipients, bounded source policy and maximum charge.', exact: true }).check(); await page.getByRole('button', { name: 'Approve and research', exact: true }).click(); await page.getByRole('button', { name: 'Continue saved run', exact: true }).waitFor(); }
       else { const confirmed = await action('confirmPodResearchAction', input(), selectedPath()); assert.equal(confirmed.ok, true, confirmed.message); assert.equal(confirmed.runtimeStarted, true, 'The actual workflow/api.start boundary must succeed'); }
-      await waitUntil(() => current().calls.includes('plan'), 'actual Workflow host dispatching the first inert phase');
+      await waitUntil(() => current().calls.some(call => call.ordinal === 0 && call.phase === 'plan'), 'actual Workflow host dispatching the first inert phase');
       assert.ok(boundary.logs.some(item => item.kind === 'actual-workflow-runtime-read'), 'No direct test invocation of the runtime may replace the Workflow host');
       if (page) await page.goto(origin + basePath);
       boundary.releaseProvider();
-      await waitUntil(async () => (await boundary.result(receipt.scopeId)).data?.version === 'r12.pod-saved-result.1', 'actual Workflow completion and durable five-phase result');
-      assert.deepEqual(current().calls, POD_PHASES); assert.deepEqual(current().receipts, POD_PHASES);
+      await waitUntil(async () => {
+        const saved = (await boundary.result(receipt.scopeId)).data, summary = await boundary.passSummary(receipt.scopeId);
+        return saved?.version === 'r12.pod-saved-result.2' && saved.context.attempt.adaptiveActionOrdinal === 1 && saved.current.candidate.output.outcome === 'HYPOTHESIS_TO_TEST' && summary.head?.state === 'completed';
+      }, 'actual Workflow completing its independently reviewed second pass and stopping early');
+      assert.deepEqual(sentPhases(), expectedPhases); assert.deepEqual(current().receipts, expectedPhases);
+      const searches = current().calls.filter(call => call.phase === 'search1'); assert.equal(searches.length, 2); assert.notEqual(searches[0].query, searches[1].query);
+      assert.equal(searches[1].query, secondOutput.plan.query);
+      const summary = await boundary.passSummary(receipt.scopeId);
+      assert.deepEqual(summary.passes, [{ ordinal: 0 }, { ordinal: 1 }]);
+      assert.deepEqual(summary.closures.map(({ ordinal, outcome }) => ({ ordinal, outcome })), [{ ordinal: 0, outcome: 'INSUFFICIENT_EVIDENCE' }, { ordinal: 1, outcome: 'HYPOTHESIS_TO_TEST' }]);
+      assert.equal(summary.head.reason, 'reviewed_hypothesis_ready');
+      assert.ok(summary.closures.reduce((sum, pass) => sum + Number(pass.committed_microunits), 0) <= 10000000);
+      const saved = (await boundary.result(receipt.scopeId)).data;
+      assert.equal(saved.inputs.pass.history.review.outcome, 'INSUFFICIENT_EVIDENCE'); assert.equal(saved.inputs.pass.history.previousPass, 0);
+      assert.equal(saved.inputs.pass.history.priorQueries[0].query, searches[0].query);
+      assert.equal(saved.context.plan.maximumDispatches, 25); assert.equal(saved.context.plan.maximumMicrounits, '10000000');
+      for (const operation of ['admit', 'context', 'complete']) assert.ok(boundary.logs.some(item => item.kind === 'actual-workflow-pass' && item.operation === operation));
       receipt = await getSaved(); assert.equal(receipt.activated, true);
     });
-    await check('exact saved sourced insufficient result survives reload and Stop without repeat provider calls', async () => {
-      if (page) { await page.goto(origin + selectedPath()); await page.getByRole('heading', { name: 'The evidence is not yet sufficient', exact: true }).waitFor(); }
+    await check('saved sourced second-pass hypothesis retains caveats, reload and Stop without a third pass or repeat calls', async () => {
+      if (page) { await page.goto(origin + selectedPath()); await page.getByRole('heading', { name: 'A hypothesis worth testing', exact: true }).waitFor(); }
       const html = await read(selectedPath());
-      for (const phrase of ['The evidence is not yet sufficient', 'Sources and quoted evidence', 'What remains unknown', 'Independent review', 'inert-sql-fixture', 'Research provenance']) assert.ok(html.includes(phrase), phrase);
+      for (const phrase of ['A hypothesis worth testing', 'Earlier passes remain saved as audit evidence', 'Sources and quoted evidence', 'What remains unknown', 'Independent review', 'inert-sql-fixture', 'Research provenance']) assert.ok(html.includes(phrase), phrase);
       if (page) {
-        assert.equal(await page.getByRole('link', { name: /E1: Inert public-source fixture/ }).getAttribute('href'), 'https://census.gov/inert-sql-fixture');
-        await page.reload(); await page.getByRole('heading', { name: 'The evidence is not yet sufficient', exact: true }).waitFor();
+        assert.equal(await page.getByRole('link', { name: /E1: Inert public-source fixture/ }).getAttribute('href'), secondOutput.search1.annotations[0].url_citation.url);
+        assert.match(await page.locator('main').innerText(), /Research pass 2 of 5/);
+        await page.reload(); await page.getByRole('heading', { name: 'A hypothesis worth testing', exact: true }).waitFor();
         for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }]) { await page.setViewportSize(viewport); const geometry = await page.evaluate(() => ({ viewport: document.documentElement.clientWidth, content: document.documentElement.scrollWidth })); assert.ok(geometry.content <= geometry.viewport + 1, 'POD result has no horizontal page overflow'); await page.screenshot({ path: path.join(output, `pod-result-${viewport.width}.png`), fullPage: true }); }
         await page.getByRole('button', { name: 'Stop research', exact: true }).click(); await waitUntil(async () => (await getSaved()).stopped, 'saved Stop');
         await page.getByRole('button', { name: 'Stop research', exact: true }).waitFor({ state: 'hidden' });
       } else { const stopped = await action('stopPodResearchAction', input(), selectedPath()); assert.equal(stopped.ok, true, stopped.message); assert.equal(stopped.receipt.stopped, true); }
-      assert.match(await read(selectedPath()), /The evidence is not yet sufficient/); assert.deepEqual(current().calls, POD_PHASES);
-      const saved = await boundary.result(receipt.scopeId); assert.equal(saved.error, null); assert.equal(saved.data.version, 'r12.pod-saved-result.1');
+      assert.match(await read(selectedPath()), /A hypothesis worth testing/); assert.deepEqual(sentPhases(), expectedPhases);
+      const saved = await boundary.result(receipt.scopeId); assert.equal(saved.error, null); assert.equal(saved.data.version, 'r12.pod-saved-result.2'); assert.equal(saved.data.current.candidate.output.outcome, 'HYPOTHESIS_TO_TEST');
+      assert.equal((await boundary.passSummary(receipt.scopeId)).passes.length, 2);
+      assert.equal((await getSaved()).preview.finance.runLimitMicrounits, '10000000');
       assert.deepEqual(external, []); assert.deepEqual(errors, []); assert.deepEqual(boundary.denied, []); assert.deepEqual(boundary.base.denied, []);
     });
   } finally { boundary.releaseProvider(); await browser?.close(); await report(); }

@@ -561,7 +561,7 @@ jobs:
           R12_SQL_TEST_HOST: ${{ runner.temp }}/r12-sql-host
         run: |
           set -o pipefail
-          node --test --test-concurrency=1 tests/r12-owner-initial-sql.test.mjs tests/r12-owner-initial-security.test.mjs tests/r12-owner-initial-runtime-sql.test.mjs tests/r12-owner-catalog-scale.test.mjs tests/r12-owner-episode-sql.test.mjs tests/r12-owner-planner-preflight-sql.test.mjs tests/r12-owner-stopped-before-reservation-sql.test.mjs tests/r12-pod-goal-sql.test.mjs 2>&1 | tee /tmp/r12-owner-lifecycle-ci.log
+          node --test --test-concurrency=1 tests/r12-owner-initial-sql.test.mjs tests/r12-owner-initial-security.test.mjs tests/r12-owner-initial-runtime-sql.test.mjs tests/r12-owner-catalog-scale.test.mjs tests/r12-owner-episode-sql.test.mjs tests/r12-owner-planner-preflight-sql.test.mjs tests/r12-owner-stopped-before-reservation-sql.test.mjs tests/r12-pod-goal-sql.test.mjs tests/r12-pod-bounded-liability-sql.test.mjs 2>&1 | tee /tmp/r12-owner-lifecycle-ci.log
 
       - name: Verify recovered adaptive and Etsy-only evidence admission
         env:
