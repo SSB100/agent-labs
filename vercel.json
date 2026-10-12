@@ -26,7 +26,9 @@
       "codex/r12-single-release-successor-20261011": false,
       "codex/r12-stable-connections-20261011": false,
       "codex/r12-login-free-research-entry-20261011": false,
-      "codex/r12-goal-driven-public-research-20261012": false
+      "codex/r12-goal-driven-public-research-20261012": false,
+      "codex/r12-pod-fresh-diagnostic-20261012": false,
+      "codex/r12-pod-bounded-query-plan-20261012": false
     }
   },
   "buildCommand": "npm run deploy:build"

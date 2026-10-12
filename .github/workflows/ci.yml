@@ -522,10 +522,10 @@ jobs:
   r12-sql:
     if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.gate == 'release') || (github.event_name == 'pull_request' && (github.event.pull_request.draft == false || github.head_ref == 'codex/r12-etsy-owner-baselines-20261010'))
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     services:
       postgres:
-        image: public.ecr.aws/docker/library/postgres@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3
+        image: public.ecr.aws/docker/library/postgres@sha256:00bc86618629af00d2937fdc5a5d63db3ff8450acf52f0636ec813c7f4902929
         env:
           POSTGRES_USER: r12_test
           POSTGRES_DB: r12_test
@@ -561,7 +561,7 @@ jobs:
           R12_SQL_TEST_HOST: ${{ runner.temp }}/r12-sql-host
         run: |
           set -o pipefail
-          node --test --test-concurrency=1 tests/r12-owner-initial-sql.test.mjs tests/r12-owner-initial-security.test.mjs tests/r12-owner-initial-runtime-sql.test.mjs tests/r12-owner-catalog-scale.test.mjs tests/r12-owner-episode-sql.test.mjs tests/r12-owner-planner-preflight-sql.test.mjs tests/r12-owner-stopped-before-reservation-sql.test.mjs tests/r12-pod-goal-sql.test.mjs tests/r12-pod-bounded-liability-sql.test.mjs tests/r12-pod-server-continuation-sql.test.mjs 2>&1 | tee /tmp/r12-owner-lifecycle-ci.log
+          node --test --test-concurrency=1 tests/r12-owner-initial-sql.test.mjs tests/r12-owner-initial-security.test.mjs tests/r12-owner-initial-runtime-sql.test.mjs tests/r12-owner-catalog-scale.test.mjs tests/r12-owner-episode-sql.test.mjs tests/r12-owner-planner-preflight-sql.test.mjs tests/r12-owner-stopped-before-reservation-sql.test.mjs tests/r12-pod-goal-sql.test.mjs tests/r12-pod-bounded-liability-sql.test.mjs tests/r12-pod-bounded-plan-sql.test.mjs tests/r12-pod-server-continuation-sql.test.mjs 2>&1 | tee /tmp/r12-owner-lifecycle-ci.log
 
       - name: Verify recovered adaptive and Etsy-only evidence admission
         env:
@@ -587,6 +587,20 @@ jobs:
           curl --fail --location --output "$RUNNER_TEMP/r12-postgrest/postgrest.tar.xz" https://github.com/PostgREST/postgrest/releases/download/v13.0.7/postgrest-v13.0.7-linux-static-x86-64.tar.xz
           printf '%s  %s\n' '4153f81ccc40e7b735edc89cd84b49da25ba27eb37d57c7f6a82c9005a0b762b' "$RUNNER_TEMP/r12-postgrest/postgrest.tar.xz" | sha256sum --check --strict
           tar -xJf "$RUNNER_TEMP/r12-postgrest/postgrest.tar.xz" -C "$RUNNER_TEMP/r12-postgrest"
+
+      - name: Verify POD bounded-proof HTTP headroom and Stop on PostgreSQL 17.6
+        env:
+          R12_SQL_TEST_HOST: ${{ runner.temp }}/r12-sql-host
+          R12_REQUIRE_POSTGRES: "1"
+          R12_POSTGRES_URL: postgresql://r12_test:r12-isolated-fixture@127.0.0.1:5432/r12_test
+          R12_POD_FRESH_BACKEND: "1"
+          R12_POD_HTTP_STRESS: "1"
+          R12_POD_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+          R12_POSTGREST_BINARY: ${{ runner.temp }}/r12-postgrest/postgrest
+        run: |
+          export R12_CI_POSTGRES_ADDRESS="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' '${{ job.services.postgres.id }}')"
+          node scripts/reset-r12-ci-database.mjs
+          node --test tests/r12-pod-fresh-backend-diagnostic.test.mjs
 
       - name: Verify recovery dispatch and send through real PostgREST HTTP
         env:
@@ -650,6 +664,7 @@ jobs:
         with:
           name: r12-recovery-http-${{ github.sha }}
           path: |
+            /tmp/r12-pod-fresh-backend.json
             /tmp/r12-scope-tests.log
             /tmp/r12-owner-lifecycle-ci.log
             /tmp/r12-http-ci-report.json
@@ -833,9 +848,65 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  pod-fresh-diagnostic:
+    name: POD fresh backend diagnostic (not release qualification)
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft == true && github.head_ref == 'codex/r12-pod-fresh-diagnostic-20261012'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: public.ecr.aws/docker/library/postgres:17.6
+        env:
+          POSTGRES_USER: r12_test
+          POSTGRES_DB: r12_test
+          POSTGRES_PASSWORD: r12-isolated-fixture
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U r12_test -d r12_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Install pinned isolated compiler and native client
+        run: |
+          npm install --no-audit --no-fund
+          npm install --prefix "$RUNNER_TEMP/r12-fresh-sql-host" --no-audit --no-fund --ignore-scripts pg@8.16.3
+          npm run pretest
+      - name: Install pinned official PostgREST
+        run: |
+          mkdir -p "$RUNNER_TEMP/r12-postgrest"
+          curl --fail --location --output "$RUNNER_TEMP/r12-postgrest/postgrest.tar.xz" https://github.com/PostgREST/postgrest/releases/download/v13.0.7/postgrest-v13.0.7-linux-static-x86-64.tar.xz
+          printf '%s  %s\n' '4153f81ccc40e7b735edc89cd84b49da25ba27eb37d57c7f6a82c9005a0b762b' "$RUNNER_TEMP/r12-postgrest/postgrest.tar.xz" | sha256sum --check --strict
+          tar -xJf "$RUNNER_TEMP/r12-postgrest/postgrest.tar.xz" -C "$RUNNER_TEMP/r12-postgrest"
+      - name: First candidate dispatch on fresh PostgreSQL backends
+        env:
+          R12_POD_FRESH_BACKEND: "1"
+          R12_POD_HTTP_STRESS: "1"
+          R12_POD_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+          R12_POSTGREST_BINARY: ${{ runner.temp }}/r12-postgrest/postgrest
+          R12_SQL_TEST_HOST: ${{ runner.temp }}/r12-fresh-sql-host
+          R12_REQUIRE_POSTGRES: "1"
+          R12_POSTGRES_URL: postgresql://r12_test:r12-isolated-fixture@127.0.0.1:5432/r12_test
+        run: |
+          export R12_CI_POSTGRES_ADDRESS="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' '${{ job.services.postgres.id }}')"
+          node --test tests/r12-pod-fresh-backend-diagnostic.test.mjs
+      - name: Preserve diagnostic result even on timeout
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pod-fresh-backend-${{ github.sha }}
+          path: /tmp/r12-pod-fresh-backend.json
+          if-no-files-found: error
+          retention-days: 14
+
   r12-focused:
     name: R12 focused diagnostics (not release qualification)
-    if: (github.event_name == 'pull_request' && github.event.pull_request.draft == true && github.head_ref != 'codex/r12-etsy-owner-baselines-20261010') || (github.event_name == 'workflow_dispatch' && inputs.gate == 'focused')
+    if: (github.event_name == 'pull_request' && github.event.pull_request.draft == true && github.head_ref != 'codex/r12-etsy-owner-baselines-20261010' && github.head_ref != 'codex/r12-pod-fresh-diagnostic-20261012' && github.head_ref != 'codex/r12-pod-bounded-query-plan-20261012') || (github.event_name == 'workflow_dispatch' && inputs.gate == 'focused')
     runs-on: ubuntu-latest
     timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && inputs.diagnostic == 'owner-ui' && 10 || 20 }}
     services:

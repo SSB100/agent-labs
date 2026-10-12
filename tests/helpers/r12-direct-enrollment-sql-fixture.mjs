@@ -78,10 +78,10 @@ export async function registerEnrollmentFixturePack(db,f){
  }
  return {packId,installationId,snapshot,snapshotHash:(await one(db,'select private.r04_hash($1) h',[snapshot])).h,workflowDefinitionId:fd.id,workflowHash:fd.hash,workers};
 }
-export async function enrollmentOriginFixture(db,{onReady=null,maximumScopes=1,maximumAllocation=406736}={}){
+export async function enrollmentOriginFixture(db,{onReady=null,maximumScopes=1,maximumAllocation=406736,beforeInitialFunding=null}={}){
  // The entire original experimental closure remains untouched. New direct
  // capability, knowledge, worker and workflow releases are registered later.
- return exerciseOwnerInitialRuntime(db,{fixtureOptions:{maximumScopes,maximumAllocation},onCompleted:async ctx=>{
+ return exerciseOwnerInitialRuntime(db,{fixtureOptions:{maximumScopes,maximumAllocation,beforeInitialFunding},onCompleted:async ctx=>{
   await ctx.server.stopDiscoveryR12(ctx.context,ctx.f.businessId,ctx.scope.id,true);
   const f=ctx.f;
   const historicIds=f.pins.snapshot.releases.map(r=>r.id);

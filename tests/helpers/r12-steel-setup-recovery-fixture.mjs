@@ -15,9 +15,9 @@ import {deriveDirectServerKey} from '../../.core-tests/products/discovery-r12-pu
 import {discoveryV2Hash as hash} from '../../.core-tests/products/discovery-v2-hash.js';
 export const RECOVERY_MIGRATION='20261011024924_r12_steel_setup_recovery.sql';
 export async function setupRecoveryDatabase({apply=true}={}){const db=await steelConfigDatabase();try{for(const name of ['20261010121400_r12_steel_existing_session_readback.sql','20261010215020_r12_legacy_terminal_origin.sql','20261010230616_r12_steel_readback_authorization.sql',...(apply?[RECOVERY_MIGRATION]:[])])await db.exec(readFileSync('supabase/migrations/'+name,'utf8'));return db;}catch(e){await db.close();throw e;}}
-export async function setupRecoveryFixture(db,{quoteValidForMs=null,setupScope={},configureEnrollment=null}={}){
+export async function setupRecoveryFixture(db,{quoteValidForMs=null,setupScope={},configureEnrollment=null,beforeInitialFunding=null}={}){
  Object.assign(process.env,{R05_ADMISSION_SERVER_KEY:ENROLLMENT_ROOT,VERCEL_ENV:'production',VERCEL_DEPLOYMENT_ID:INERT_STEEL_DEPLOYMENT.deploymentId,VERCEL_GIT_COMMIT_SHA:INERT_STEEL_DEPLOYMENT.releaseCommitSha});
- return enrollmentOriginFixture(db,{onReady:async original=>{
+ return enrollmentOriginFixture(db,{beforeInitialFunding,onReady:async original=>{
   configureInertEnrollmentSteel(original);if(configureEnrollment)configureEnrollment(original);const enrolled=await enrollReviewedDirectGrant(db,original),f={...enrolled.f,grantId:enrolled.grantId,bootstrapKey:enrolled.bootstrapKey};
   const server=(operation,payload)=>f.rpc('r12_owner_direct_server',[f.businessId,operation,payload,enrolled.bootstrapKey]);
   const context=await server('initial_quote_context',{grantId:enrolled.grantId});

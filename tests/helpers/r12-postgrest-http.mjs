@@ -21,23 +21,24 @@ export async function configureR12HttpRoles(db){
  return async()=>{await db.exec('revoke anon,authenticated from r12_test;alter role anon reset statement_timeout;alter role authenticated reset statement_timeout;alter role r12_test reset timezone;');assert.deepEqual(await snapshot(),before,'HTTP fixture restores API settings/membership before any subsequent isolated reset');};
 }
 const freePort=async()=>{const server=createServer();await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});const port=server.address().port;await new Promise((resolve,reject)=>server.close(error=>error?reject(error):resolve()));return port;};
-export async function startR12Postgrest({binary,databaseUrl}){
+export async function startR12Postgrest({binary,databaseUrl,pool=3,rollback=false,preRequest=null}){
+ assert.ok(pool===1||pool===3);assert.equal(typeof rollback,'boolean');assert.ok(preRequest===null||preRequest==='public.r12_pod_http_pre');
  validateR12HttpDatabase(databaseUrl);assert.equal(execFileSync(binary,['--version'],{encoding:'utf8'}).trim(),`PostgREST ${POSTGREST_VERSION}`,'Pinned official PostgREST required');
- const port=await freePort(),base=`http://127.0.0.1:${port}`;let log='';
- const child=spawn(binary,[],{env:{...process.env,PGRST_DB_URI:databaseUrl,PGRST_DB_SCHEMAS:'public',PGRST_DB_ANON_ROLE:'anon',PGRST_SERVER_HOST:'127.0.0.1',PGRST_SERVER_PORT:String(port),PGRST_DB_POOL:'3',PGRST_DB_POOL_ACQUISITION_TIMEOUT:'3',PGRST_DB_HOISTED_TX_SETTINGS:'statement_timeout,plan_filter.statement_cost_limit,default_transaction_isolation',PGRST_JWT_SECRET:'inert-r12-http-qualification-secret-only-0123456789',PGRST_LOG_LEVEL:'crit'},stdio:['ignore','pipe','pipe']});
+ const port=await freePort(),base=`http://127.0.0.1:${port}`;let adminPort=preRequest?await freePort():null;while(adminPort===port)adminPort=await freePort();let log='';
+ const child=spawn(binary,[],{env:{...process.env,PGRST_DB_URI:databaseUrl,PGRST_DB_SCHEMAS:'public',PGRST_DB_ANON_ROLE:'anon',PGRST_SERVER_HOST:'127.0.0.1',PGRST_SERVER_PORT:String(port),PGRST_DB_POOL:String(pool),PGRST_DB_TX_END:rollback?'rollback':'commit',...(preRequest?{PGRST_DB_PRE_REQUEST:preRequest,PGRST_ADMIN_SERVER_HOST:'127.0.0.1',PGRST_ADMIN_SERVER_PORT:String(adminPort)}:{}),PGRST_DB_POOL_ACQUISITION_TIMEOUT:'3',PGRST_DB_HOISTED_TX_SETTINGS:'statement_timeout,plan_filter.statement_cost_limit,default_transaction_isolation',PGRST_JWT_SECRET:'inert-r12-http-qualification-secret-only-0123456789',PGRST_LOG_LEVEL:'crit'},stdio:['ignore','pipe','pipe']});
  child.stdout.on('data',b=>{log=(log+b).slice(-10000);});child.stderr.on('data',b=>{log=(log+b).slice(-10000);});
  const close=async()=>{if(child.exitCode!==null)return;child.kill('SIGTERM');await Promise.race([new Promise(resolve=>child.once('exit',resolve)),delay(3000).then(()=>{if(child.exitCode===null)child.kill('SIGKILL');})]);};
- try{for(let i=0;i<100;i++){if(child.exitCode!==null)throw Error(`PostgREST exited: ${log}`);try{const r=await fetch(base,{signal:AbortSignal.timeout(500)});if(r.ok)return{base,close,version:POSTGREST_VERSION};}catch{}await delay(100);}throw Error(`PostgREST startup timeout: ${log}`);}catch(error){await close();throw error;}
+ try{for(let i=0;i<100;i++){if(child.exitCode!==null)throw Error(`PostgREST exited: ${log}`);try{const r=await fetch(adminPort?`http://127.0.0.1:${adminPort}/ready`:base,{signal:AbortSignal.timeout(500)});if(r.ok)return{base,close,version:POSTGREST_VERSION};}catch{}await delay(100);}throw Error(`PostgREST startup timeout: ${log}`);}catch(error){await close();throw error;}
 }
 export function r12HttpRpc(base,report=[]){
  const url=new URL(base);assert.equal(url.hostname,'127.0.0.1');assert.equal(url.protocol,'http:');
- return async(name,args,{timeoutMs=12000}={})=>{
+ return async(name,args,{timeoutMs=12000,headers={}}={})=>{
   assert.match(name,/^[a-z][a-z0-9_]+$/);const start=performance.now();
-  const response=await fetch(`${base}/rpc/${name}`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(args),signal:AbortSignal.timeout(timeoutMs)});
+  const response=await fetch(`${base}/rpc/${name}`,{method:'POST',headers:{'content-type':'application/json',...headers},body:JSON.stringify(args),signal:AbortSignal.timeout(timeoutMs)});
   const data=await response.json(),elapsedMs=Math.round(performance.now()-start);
   // Only nonsecret timings/statuses leave the harness. Never record RPC args.
   report.push({rpc:name,operation:args.p_operation??(name==='r12_recovery_dispatch'?'dispatch':null),elapsedMs,status:response.status,code:response.ok?null:data.code??null});
-  return{ok:response.ok,status:response.status,data,elapsedMs};
+  return{ok:response.ok,status:response.status,data,elapsedMs,headers:Object.fromEntries(response.headers)};
  };
 }
 export async function prepareCommittedR12Recovery({coldSequence=false,responseFixture=null,terminal=false}={}){
