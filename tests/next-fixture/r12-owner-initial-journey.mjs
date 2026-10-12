@@ -373,7 +373,8 @@ export async function runOwnerInitialJourney({origin,boundary,output}) {
       page.on('request',observe);
       try {
         await page.goto(`${origin}/dashboard/quests/research?business=${current().businessId}&quest=${goalId}`);
-        await page.getByRole('heading',{name:'Start with your objective and evidence',exact:true}).waitFor();
+        await page.getByRole('heading',{name:'Start with your objective',exact:true}).waitFor();
+        assert.equal(await page.getByRole('link',{name:'Research print-on-demand opportunities from a general goal',exact:true}).getAttribute('href'),`/dashboard/quests/research/pod?business=${current().businessId}`);
         assert.match(await text(),/No Etsy connection or saved browser session is required/);
         assert.match(await text(),/Agent Labs owner sign-in/);
         assert.match(await text(),/Research produces hypotheses/);
