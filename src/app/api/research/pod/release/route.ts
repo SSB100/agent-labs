@@ -17,6 +17,6 @@ export async function GET(request:Request){
  const business=await client.from("businesses").select("id").eq("id",businessId).eq("owner_user_id",owner).maybeSingle();
  if(business.error||business.data?.id!==businessId)return NextResponse.json({available:false},{status:403,headers:{"Cache-Control":"no-store"}});
  try{return NextResponse.json({version:"r12.pod-application-verifier.1",businessId,applicationCapabilityHash:createHash("sha256").update(podApplicationCapability()).digest("hex"),
-  executingRelease:podExecutingRelease(),schemas:podResearchSchemaPins(),packs:podResearchPackManifests().map(p=>({packKey:p.packKey,version:p.version,manifestHash:discoveryV2Hash(p)})),authorityCreated:false}, {headers:{"Cache-Control":"no-store"}});}
+  executingRelease:podExecutingRelease(),schemas:podResearchSchemaPins(),recoverySchemas:podResearchSchemaPins(true),packs:podResearchPackManifests().map(p=>({packKey:p.packKey,version:p.version,manifestHash:discoveryV2Hash(p)})),authorityCreated:false}, {headers:{"Cache-Control":"no-store"}});}
  catch{return NextResponse.json({available:false},{status:503,headers:{"Cache-Control":"no-store"}});}
 }

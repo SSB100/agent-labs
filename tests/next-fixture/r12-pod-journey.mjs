@@ -14,7 +14,7 @@ const waitUntil = async (check, description, timeout = 90000) => {
 };
 export async function runPodNextJourney({ origin, boundary, output, fixture, httpOnly = false }) {
   const results = [], external = [], errors = [];
-  let browser = null, page = null, receipt = null, leaseHandoff = null, browserStatus = httpOnly ? 'unrun: explicitly HTTP-only' : 'not started';
+  let browser = null, page = null, receipt = null, failedReceipt = null, failedAudit = null, failedCallsStart = 0, leaseHandoff = null, browserStatus = httpOnly ? 'unrun: explicitly HTTP-only' : 'not started';
   const current = () => boundary.state().r12;
   const expectedPhases = [0, 1].flatMap(ordinal => POD_PHASES.map(phase => ({ ordinal, phase })));
   const sentPhases = () => current().calls.map(({ ordinal, phase }) => ({ ordinal, phase }));
@@ -38,7 +38,7 @@ export async function runPodNextJourney({ origin, boundary, output, fixture, htt
     const result = values.find(v => v && typeof v === 'object' && typeof v.ok === 'boolean'); assert.ok(result, `${name} must expose its exact action outcome`); return result;
   }
   const input = () => ({ businessId: current().businessId, setupId: receipt.setupId, setupHash: receipt.setupHash, submissionId: randomUUID() });
-  const getSaved = async () => { const catalog = await boundary.catalog(); assert.equal(catalog.error, null); assert.equal(catalog.data.setups.length, 1); return catalog.data.setups[0]; };
+  const getSaved = async setupId => { const catalog = await boundary.catalog(setupId); assert.equal(catalog.error, null); assert.equal(catalog.data.setups.length, 1); return catalog.data.setups[0]; };
   try {
     await check('actual Next owner route, auth and release verifier render without authority or provider calls', async () => {
       assert.match(await read(basePath), /Research viable print-on-demand products to sell on Etsy/);
@@ -144,6 +144,112 @@ export async function runPodNextJourney({ origin, boundary, output, fixture, htt
       assert.equal((await boundary.passSummary(receipt.scopeId)).passes.length, 2);
       assert.equal((await getSaved()).preview.finance.runLimitMicrounits, '10000000');
       assert.deepEqual(external, []); assert.deepEqual(errors, []); assert.deepEqual(boundary.denied, []); assert.deepEqual(boundary.base.denied, []);
+    });
+    await check('a second ordinary owner run saves a rejected reviewer response and stops through the actual owner UI', async () => {
+      const previousSetupId = receipt.setupId; failedCallsStart = current().calls.length;
+      boundary.rejectNextReview();
+      if (page) {
+        await page.goto(origin + basePath);
+        await page.getByRole('textbox', { name: 'Research goal', exact: true }).fill(POD_OBJECTIVE);
+        await page.getByRole('textbox', { name: 'Total limit for up to five research passes (USD)', exact: true }).fill('10.00');
+        await page.getByRole('button', { name: 'Review cost and permissions', exact: true }).click();
+        await waitUntil(() => current().ownerSetup.setupId !== previousSetupId, 'a distinct second ordinary setup');
+        receipt = await getSaved(current().ownerSetup.setupId); await page.waitForURL(origin + selectedPath());
+        await page.getByRole('checkbox', { name: 'I approve this public brief, recipients, bounded source policy and maximum charge.', exact: true }).check();
+        await page.getByRole('button', { name: 'Approve and research', exact: true }).click();
+      } else {
+        const entry = { businessId: current().businessId, publicBrief: { objective: POD_OBJECTIVE, publicConstraints: [], fulfilmentContext: 'unspecified' }, maximumMicrounits: '10000000', deadlineAt: new Date(Date.now() + 3600000).toISOString(), submissionId: randomUUID() };
+        const prepared = await action('preparePodResearchAction', entry); assert.equal(prepared.ok, true, prepared.message); receipt = prepared.receipt;
+        const confirmed = await action('confirmPodResearchAction', input(), selectedPath()); assert.equal(confirmed.ok, true, confirmed.message); assert.equal(confirmed.runtimeStarted, true);
+      }
+      await waitUntil(async () => {
+        const status = await boundary.progress(receipt.scopeId); assert.equal(status.error, null);
+        return status.data.phases.some(phase => phase.phase === 'review' && phase.responseDiagnostic?.code === 'response_schema');
+      }, 'the actual Workflow preserving the synthetic length-rejected independent review');
+      assert.deepEqual(sentPhases().slice(failedCallsStart), POD_PHASES.map(phase => ({ ordinal: 0, phase })));
+      assert.equal((await boundary.result(receipt.scopeId)).data, null);
+      if (page) {
+        await page.goto(origin + selectedPath()); await page.getByRole('heading', { name: 'Reviewer response could not be validated', exact: true }).waitFor();
+        assert.equal(await page.getByRole('button', { name: 'Continue saved run', exact: true }).count(), 0);
+        await page.getByRole('button', { name: 'Stop research', exact: true }).click();
+        await waitUntil(async () => (await getSaved(receipt.setupId)).stopped, 'the failed pass stopped by its owner');
+        await page.getByRole('button', { name: 'Review next-pass recovery', exact: true }).waitFor();
+        await page.screenshot({ path: path.join(output, 'pod-rejected-stopped.png'), fullPage: true });
+      } else {
+        const stopped = await action('stopPodResearchAction', input(), selectedPath()); assert.equal(stopped.ok, true, stopped.message);
+      }
+      failedReceipt = await getSaved(receipt.setupId); assert.equal(failedReceipt.stopped, true);
+      failedAudit = await boundary.audit(failedReceipt.scopeId);
+      assert.equal(failedAudit.attempts.length, 5); assert.equal(failedAudit.attempts.filter(attempt => attempt.status === 'completed').length, 4);
+      const review = failedAudit.attempts.find(attempt => attempt.step_key === 'review'); assert.notEqual(review.status, 'completed'); assert.equal(review.response_hash, null);
+      const proof = await boundary.recovery(failedReceipt.setupId); assert.equal(proof.error, null);
+      assert.deepEqual([proof.data.proof.usedPasses, proof.data.proof.usedCalls, proof.data.proof.usedSearches], [1, 5, 1]);
+      assert.equal(proof.data.proof.spentMicrounits, '50'); assert.equal(proof.data.proof.remainingMaximumMicrounits, '9999950');
+      assert.equal(proof.data.history.reviewAccepted, false); assert.equal(proof.data.inputs.dependencies.length, 4);
+    });
+    await check('recovery review survives a lost reply and reload while preserving the failed pass and remaining allowance', async () => {
+      const callsBefore = current().calls.length; boundary.losePrepareReply();
+      if (page) {
+        await page.getByRole('button', { name: 'Review next-pass recovery', exact: true }).click();
+        await page.getByRole('status').filter({ hasText: 'The result could not be verified.' }).waitFor();
+        const savedProposalId = current().ownerSetup.setupId; assert.notEqual(savedProposalId, failedReceipt.setupId);
+        await page.reload(); await page.getByRole('button', { name: 'Review next-pass recovery', exact: true }).click();
+        receipt = await getSaved(savedProposalId); await page.waitForURL(origin + selectedPath());
+      } else {
+        const recoveryInput = input(); assert.equal((await action('preparePodResearchRecoveryAction', recoveryInput, selectedPath())).ok, false);
+        const savedProposalId = current().ownerSetup.setupId;
+        const recovered = await action('preparePodResearchRecoveryAction', recoveryInput, selectedPath()); assert.equal(recovered.ok, true, recovered.message);
+        receipt = recovered.receipt; assert.equal(receipt.setupId, savedProposalId);
+      }
+      assert.equal((await boundary.catalog()).data.setups.length, 3, 'The lost response and retry must create only one successor proposal');
+      assert.equal(receipt.goalId, failedReceipt.goalId); assert.equal(receipt.confirmed, false); assert.equal(receipt.activated, false);
+      assert.equal(receipt.preview.recovery.proof.predecessorSetupId, failedReceipt.setupId);
+      assert.equal(receipt.preview.recovery.originalReviewAccepted, false);
+      assert.equal(receipt.preview.finance.runLimitMicrounits, '9999950');
+      const html = await read(selectedPath());
+      for (const phrase of ['Original total ceiling:', 'USD 10.000000', 'Already spent:', 'USD 0.000050', 'USD 9.999950', 'fresh independent review is required', 'No paid formatting correction', 'earlier permission stays stopped', 'explicitly rejected, untrusted reviewer critique']) assert.ok(html.includes(phrase), phrase);
+      if (page) {
+        assert.match(await page.locator('main').innerText(), /Remaining: at most 4 complete passes, 20 calls and 4 searches/);
+        assert.equal(await page.getByRole('button', { name: 'Approve and research', exact: true }).isDisabled(), true);
+        await page.reload(); assert.equal(await page.getByRole('button', { name: 'Approve and research', exact: true }).isDisabled(), true);
+        await page.screenshot({ path: path.join(output, 'pod-recovery-approval.png'), fullPage: true });
+      }
+      assert.equal(current().calls.length, callsBefore); assert.equal((await getSaved(failedReceipt.setupId)).stopped, true);
+      assert.deepEqual(await boundary.audit(failedReceipt.scopeId), failedAudit);
+    });
+    await check('explicit recovery approval uses the actual Workflow for a fresh accepted pass while the old review stays rejected', async () => {
+      const runtimeReadsBefore = boundary.logs.filter(event => event.kind === 'actual-workflow-runtime-read').length;
+      if (page) {
+        await page.getByRole('checkbox', { name: 'I approve this public brief, recipients, bounded source policy and maximum charge.', exact: true }).check();
+        await page.getByRole('button', { name: 'Approve and research', exact: true }).click();
+      } else {
+        const confirmed = await action('confirmPodResearchAction', input(), selectedPath()); assert.equal(confirmed.ok, true, confirmed.message); assert.equal(confirmed.runtimeStarted, true);
+      }
+      await waitUntil(async () => {
+        assert.deepEqual(boundary.logs.filter(event => event.kind === 'actual-workflow-rpc-error'), [], 'Recovery runtime errors cannot be hidden by a longer wait');
+        const saved = await boundary.result(receipt.scopeId), summary = await boundary.passSummary(receipt.scopeId);
+        return saved.data?.current.candidate.output.outcome === 'HYPOTHESIS_TO_TEST' && summary.head?.state === 'completed';
+      }, 'the real background Workflow completing a fresh independently accepted recovery pass', 180000);
+      assert.ok(boundary.logs.filter(event => event.kind === 'actual-workflow-runtime-read').length > runtimeReadsBefore);
+      assert.deepEqual(sentPhases().slice(failedCallsStart), expectedPhases, 'Exactly one failed pass and one fresh pass are charged; the rejected reviewer is never resent');
+      assert.equal(current().receipts.length, 19, 'The rejected response is settled but never turns into a route-qualified candidate');
+      const saved = (await boundary.result(receipt.scopeId)).data;
+      assert.equal(saved.context.attempt.adaptiveActionOrdinal, 1); assert.equal(saved.inputs.pass.history.kind, 'failed_pass_context');
+      assert.equal(saved.inputs.pass.history.reviewAccepted, false); assert.equal(saved.inputs.pass.history.untrustedCritique.outcome, 'INSUFFICIENT_EVIDENCE');
+      assert.equal(saved.current.candidate.output.outcome, 'HYPOTHESIS_TO_TEST');
+      assert.deepEqual((await boundary.passSummary(receipt.scopeId)).passes, [{ ordinal: 1 }]);
+      assert.deepEqual((await boundary.passSummary(failedReceipt.scopeId)).closures, []);
+      assert.deepEqual(await boundary.audit(failedReceipt.scopeId), failedAudit);
+      assert.equal((await getSaved(failedReceipt.setupId)).stopped, true); assert.equal((await boundary.result(failedReceipt.scopeId)).data, null);
+      if (page) {
+        await page.goto(origin + selectedPath()); await page.getByRole('heading', { name: 'A hypothesis worth testing', exact: true }).waitFor();
+        assert.match(await page.locator('main').innerText(), /Research pass 2 of 5/);
+        assert.match(await page.locator('main').innerText(), /Total known cost across the original and recovery: USD 0\.000100/);
+        await page.reload(); await page.getByRole('heading', { name: 'A hypothesis worth testing', exact: true }).waitFor();
+        await page.screenshot({ path: path.join(output, 'pod-recovery-result.png'), fullPage: true });
+      }
+      assert.equal(current().calls.length, 20); assert.deepEqual(external, []); assert.deepEqual(errors, []);
+      assert.deepEqual(boundary.denied, []); assert.deepEqual(boundary.base.denied, []);
     });
   } finally { boundary.releaseProvider(); await browser?.close(); await report(); }
 }

@@ -1,6 +1,7 @@
 import { validatePodExecutingRelease, type PodExecutingRelease } from "./discovery-r12-pod-release";
 import { isPodResearchGoalScope, validatePodResearchCitationUrl } from "./discovery-r12-pod-goal";
 import { validatePodQuestPlan } from "./discovery-r12-pod-runtime";
+import type { PodRecoveryContext } from "./discovery-r12-pod-recovery";
 import type { AdaptiveFundingProof } from './discovery-r12-adaptive-funding-proof';
 import { createHash } from "node:crypto";
 import type { JsonObject } from "../core/contracts";
@@ -55,6 +56,7 @@ export function createDiscoveryR12QuestAdapter(options: {
   request(context: QuestAdapterContext): Promise<Request>;
   quote(): Promise<DiscoveryR12ExecutionQuote | AdaptiveResearchQuote>;
   executingRelease?: PodExecutingRelease;
+  podRecovery?: PodRecoveryContext|null;
   adaptivePreview?: AdaptiveResearchPreview;
   adaptiveFundingProof?: AdaptiveFundingProof|null;
   project(qualified: ReturnType<typeof qualifyDiscoveryR12Candidate>, context: QuestAdapterContext, request: Request): Promise<Omit<QuestEffectResponse, "settlement">>;
@@ -75,7 +77,7 @@ export function createDiscoveryR12QuestAdapter(options: {
       validateAdaptiveResearchPlan(ctx.plan,options.adaptivePreview,{id:scope.id,hash:scopeHash},Date.parse(scope.createdAt));
       if (!/^[a-f0-9]{64}$/.test(ctx.attempt.adaptiveActionHash ?? "") || !Number.isSafeInteger(ctx.attempt.adaptiveActionOrdinal)) return fail("adaptive_action");
     }
-    if (isPodResearchGoalScope(scope)) validatePodQuestPlan(ctx, scope);
+    if (isPodResearchGoalScope(scope)) validatePodQuestPlan(ctx, scope,options.podRecovery??null);
     if (isDiscoveryOwnerEpisodeScope(scope)) validateOwnerEpisodePlan(ctx.plan, scope);
     if (ctx.plan.format !== (isPodResearchGoalScope(scope) ? "r12.pod-research.2" : adaptive ? (etsy?"r12.discovery-adaptive.2":"r12.discovery-adaptive.1") : isDiscoveryOwnerEpisodeScope(scope) ? "r12.discovery-episode.1" : isDiscoveryFocusedPilot(scope) ? "r12.discovery-pilot.1" : isDiscoveryReviewContinuation(scope) ? "r12.discovery-review.1" : isDiscoveryEvidenceContinuation(scope) ? "r12.discovery-evidence.1" : "r12.discovery.1") || (isDiscoveryReviewContinuation(scope) && phase !== "review") || ((isDiscoveryEvidenceContinuation(scope) || isDiscoveryFocusedPilot(scope)) && !["strategy", "review"].includes(phase)) || ctx.plan.discoveryScopeId !== scope.id || ctx.plan.discoveryScopeHash !== scopeHash || ctx.plan.businessId !== scope.businessId || ctx.plan.goalId !== scope.goalId || ctx.step.key !== phase ||
       ctx.step.adapter !== `r12.discovery.${scope.id}.${phase}` || ctx.step.operationKey !== `research.r12.${scope.id}.${phase}` || ctx.step.qualificationHash !== identity.qualificationHash || ctx.step.workflowDefinitionId !== identity.workflowDefinitionId || ctx.step.workerDefinitionId !== identity.workerDefinitionId) return fail("context");

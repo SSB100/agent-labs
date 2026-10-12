@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
-import { createHash, createHmac } from 'node:crypto';
+import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,7 +12,7 @@ import { startFixtureBoundary } from './server.mjs';
 import { r12FixtureState, mirrorR12, R12_INERT_ROOT } from './r12-sql.mjs';
 import { r04SqlBootstrap } from '../helpers/r04-sql-bootstrap.mjs';
 import { sessionBootstrap } from '../helpers/r10-sql-fixture.mjs';
-import { podSqlFixture, podInertOutputs, podQuoteFixture, POD_PHASES } from '../helpers/r12-pod-sql-fixture.mjs';
+import { podSqlFixture, podInertOutputs, podQuoteFixture, podSource, podHash, POD_PHASES } from '../helpers/r12-pod-sql-fixture.mjs';
 const root = fileURLToPath(new URL('../../', import.meta.url));
 export const POD_INERT_RELEASE = { VERCEL_ENV: 'production', VERCEL_GIT_COMMIT_SHA: 'a'.repeat(40), VERCEL_DEPLOYMENT_ID: 'dpl_inert_pod_next' };
 // Only symbolic database errors are safe for persisted diagnostics. Never log
@@ -44,7 +44,25 @@ export async function seedPodNextDatabase(host) {
     return db.query(statement, args);
   } };
   const seeded = await podSqlFixture(seedDb);
+  const recoveryTemplateId = randomUUID(), recoveryPins = { ...seeded.pins, schemas: podSource('products/discovery-r12-pod-runtime').podResearchSchemaPins(true) };
+  const recoveryTemplateHash = podHash({ version: 'inert-pod-recovery-template-review.1', templateId: recoveryTemplateId, sourcePolicy: seeded.sourcePolicy, pins: recoveryPins });
+  // A second inert reviewed template is inserted once. The original template
+  // and accepted history remain unchanged; neither seed activates permission.
+  await db.query(`insert into private.r12_pod_templates(id,version,source_policy,source_policy_hash,pins,pins_hash,server_key_hash,reviewed_bundle_hash,valid_from,valid_until)
+    values($1,'r12.pod-template.3',$2,$3,$4,$5,$6,$7,$8,$9)`, [recoveryTemplateId, seeded.sourcePolicy, podHash(seeded.sourcePolicy), recoveryPins, podHash(recoveryPins), createHash('sha256').update(capability).digest('hex'), recoveryTemplateHash, seeded.sourcePolicy.validFrom, seeded.sourcePolicy.validUntil]);
   return { db, seeded };
+}
+export function podNextFailedReview() {
+  const review = podInertOutputs({ passOrdinal: 0 }).review;
+  for (const index of [1, 2, 3, 4, 5]) review.checks[index].rationale = 'The source does not establish relevant independent demand, competitive advantage, fulfilment reliability, delivered economics, or rights clearance. '.repeat(2);
+  review.nextTest = 'Seek independent aggregate public evidence under the approved source policy before recommending a product test. '.repeat(4);
+  return review;
+}
+export async function podNextAudit(db, scopeId) {
+  return {
+    attempts: (await db.query("select a.id,a.step_key,a.status,r.content_hash response_hash from private.r07_attempts a join private.r07_plans p on p.id=a.plan_id left join private.r07_responses r on r.attempt_id=a.id where p.content->>'discoveryScopeId'=$1 order by a.step_key", [scopeId])).rows,
+    observations: (await db.query('select o.request_id,o.kind,o.payload_hash from private.r12_discovery_response_observations o join private.r12_pod_pass_calls c on c.request_id=o.request_id where c.scope_id=$1 order by o.request_id,o.kind', [scopeId])).rows,
+  };
 }
 /** Deterministic provider-only double: one weak pass, then a different-query
  * hypothesis for testing. These synthetic responses establish no real demand. */
@@ -54,16 +72,27 @@ export function podNextProvider(state, input) {
   if (input.method === 'POST') {
     assert.equal(input.url, 'https://openrouter.ai/api/v1/chat/completions');
     const pass = r.podPass; assert.ok(pass && Number.isInteger(pass.ordinal) && pass.ordinal >= 0 && pass.ordinal < 2, 'Only the real admitted first or second pass can call this inert provider');
-    const ordinal = pass.ordinal, key = `${ordinal}:${phase}`, output = podInertOutputs({ passOrdinal: ordinal, useful: ordinal === 1 });
+    const ordinal = pass.ordinal, key = `${r.scopeId}:${ordinal}:${phase}`, output = podInertOutputs({ passOrdinal: ordinal, useful: ordinal === 1 });
     r.podGenerations ??= new Map(); assert.equal(r.podGenerations.has(key), false, 'A pass/phase must never regenerate');
     assert.deepEqual(input.body.provider.only, [phase === 'review' ? 'amazon-bedrock/us' : 'azure/us']); assert.equal(input.body.provider.zdr, true);
     if (phase === 'plan') {
       const payload = JSON.parse(input.body.messages[1].content);
       if (ordinal === 0) assert.equal(payload.refinement, null);
-      else { assert.equal(payload.refinement.previousPass, 0); assert.equal(payload.refinement.review.outcome, 'INSUFFICIENT_EVIDENCE'); assert.equal(payload.refinement.priorQueries.length, 1); assert.equal(payload.refinement.priorQueries[0].query, podInertOutputs({ passOrdinal: 0 }).plan.query); assert.notEqual(output.plan.query, payload.refinement.priorQueries[0].query); }
+      else {
+        assert.equal(payload.refinement.previousPass, 0);
+        if (payload.refinement.kind === 'failed_pass_context') {
+          assert.equal(payload.refinement.reviewAccepted, false); assert.equal(payload.refinement.failureKind, 'review_length_rejected');
+          assert.deepEqual(payload.refinement.untrustedCritique, podNextFailedReview());
+          assert.equal(payload.refinement.acceptedAssessment.recommendation.outcome, 'INSUFFICIENT_EVIDENCE');
+          assert.equal(payload.refinement.acceptedOutputHashes.length, 4); assert.equal(payload.refinement.review, undefined);
+          assert.match(input.body.messages[0].content, /INCOMPLETE pass, not an accepted independent review/);
+        } else assert.equal(payload.refinement.review.outcome, 'INSUFFICIENT_EVIDENCE');
+        assert.equal(payload.refinement.priorQueries.length, 1); assert.equal(payload.refinement.priorQueries[0].query, podInertOutputs({ passOrdinal: 0 }).plan.query); assert.notEqual(output.plan.query, payload.refinement.priorQueries[0].query);
+      }
     }
     if (phase === 'search1') { assert.equal(input.body.messages[1].content, output.plan.query); assert.deepEqual(input.body.tools[0].parameters.allowed_domains, output.plan.sourceDomains); }
     const model = phase === 'review' ? 'anthropic/claude-4.5-haiku-20251001' : 'openai/gpt-5.6-luna-20260709', id = `gen-r12-pod-next-${r.scopeId}-${ordinal}-${phase}`;
+    if (phase === 'review' && r.rejectNextReview) { assert.equal(ordinal, 0); output.review = podNextFailedReview(); r.rejectNextReview = false; }
     r.podGenerations.set(key, { id, model, ordinal, phase }); r.calls.push({ ordinal, phase, ...(phase === 'search1' ? { query: output.plan.query } : {}) });
     const message = phase === 'search1' ? { content: 'Explicitly synthetic bounded public source material.', annotations: output.search1.annotations } : { content: JSON.stringify(output[phase]) };
     return { status: 200, body: { id, model, choices: [{ finish_reason: 'stop', message }], usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150, cost: 0.00001, ...(phase === 'search1' ? { server_tool_use_details: { web_search_requests: 1 } } : {}) } } };
@@ -95,12 +124,12 @@ export async function startPodNextBoundary(host) {
       let body = ''; for await (const chunk of req) body += chunk;
       const input = body ? JSON.parse(body) : {};
       const send = (data, status = 200) => { res.statusCode = status; res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(data)); };
-      if (req.url === '/rpc' && ['r12_pod_research_read', 'r12_pod_owner_server'].includes(input.name)) {
+      if (req.url === '/rpc' && ['r12_pod_research_read', 'r12_pod_owner_server', 'r12_pod_recovery_read', 'r12_pod_recovery_owner_server'].includes(input.name)) {
         if (input.session === 'off') return send({ data: null, error: { code: '42501', message: 'Inert owner absent' } });
-        const keys = input.name === 'r12_pod_research_read' ? ['p_business_id', 'p_goal_id', 'p_setup_id', 'p_submission_id'] : ['p_business_id', 'p_operation', 'p_payload', 'p_server_key'];
+        const keys = input.name === 'r12_pod_research_read' ? ['p_business_id', 'p_goal_id', 'p_setup_id', 'p_submission_id'] : input.name === 'r12_pod_recovery_read' ? ['p_business_id', 'p_setup_id'] : ['p_business_id', 'p_operation', 'p_payload', 'p_server_key'];
         logs.push({ kind: 'pod-owner-rpc', name: input.name, operation: input.args.p_operation ?? 'read' });
         const result = await sql(input.name, input.args, keys, 'authenticated');
-        if (input.name === 'r12_pod_owner_server' && result.data) {
+        if (['r12_pod_owner_server', 'r12_pod_recovery_owner_server'].includes(input.name) && result.data) {
           Object.assign(state.r12, { ownerSetup: result.data, goalId: result.data.goalId, scopeId: result.data.scopeId });
           if (losePrepare && input.args.p_operation === 'prepare') { losePrepare = false; return send({ data: null, error: { message: 'Synthetic saved preparation response lost' } }); }
         }
@@ -147,6 +176,7 @@ export async function startPodNextBoundary(host) {
   return { origin: `http://127.0.0.1:${server.address().port}`, logs, denied, base, state: () => state,
     holdProvider() { held = true; }, releaseProvider() { held = false; for (const release of waiting.splice(0)) release(); },
     losePrepareReply() { losePrepare = true; },
+    rejectNextReview() { assert.equal(state.r12.rejectNextReview, undefined); state.r12.rejectNextReview = true; },
     catalog: setupId => sql('r12_pod_research_read', { p_business_id: seeded.businessId, p_setup_id: setupId ?? null }, ['p_business_id', 'p_goal_id', 'p_setup_id', 'p_submission_id'], 'authenticated'),
     passSummary: scopeId => exclusive(async () => ({
       passes: (await db.query('select ordinal from private.r12_pod_passes where scope_id=$1 order by ordinal', [scopeId])).rows,
@@ -154,6 +184,9 @@ export async function startPodNextBoundary(host) {
       head: (await db.query("select h.state,h.reason from private.r07_heads h join private.r07_plans p on p.id=h.plan_id where p.content->>'discoveryScopeId'=$1", [scopeId])).rows[0] ?? null,
     })),
     result: scopeId => sql('r12_discovery_result_read', { p_business_id: seeded.businessId, p_scope_id: scopeId }, ['p_business_id', 'p_scope_id'], 'authenticated'),
+    progress: scopeId => sql('r12_discovery_owner_read', { p_business_id: seeded.businessId, p_scope_id: scopeId, p_activation: false }, ['p_business_id', 'p_scope_id', 'p_activation'], 'authenticated'),
+    recovery: setupId => sql('r12_pod_recovery_read', { p_business_id: seeded.businessId, p_setup_id: setupId }, ['p_business_id', 'p_setup_id'], 'authenticated'),
+    audit: scopeId => exclusive(() => podNextAudit(db, scopeId)),
     async close() { held = false; for (const release of waiting.splice(0)) release(); await new Promise(resolve => server.close(resolve)); await base.close(); },
   };
 }

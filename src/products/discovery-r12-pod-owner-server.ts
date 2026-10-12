@@ -9,7 +9,7 @@ import {discoveryR12ServerDependencies} from "./discovery-r12-server-dependencie
 import {prepareDiscoveryR12Authority} from "./discovery-r12-server";
 import {validatePodResearchPublicBrief} from "./discovery-r12-pod-goal";
 import {discoveryV2Hash} from "./discovery-v2";
-import {buildPodPlannerRequest,readPodResearchPhaseInputs,reconstructPodResearchResult} from "./discovery-r12-pod-runtime";
+import {buildPodPlannerRequest,readPodResearchPhaseInputs,reconstructPodResearchResult,inspectPodFailedReview} from "./discovery-r12-pod-runtime";
 import {inspectDiscoveryR12Wire,routeDiscoveryR12Request} from "./discovery-r12-wire";
 import {podFail,podId,podMoney,podObject,parsePodCatalog,parsePodReceipt,type PodResearchEntry,type PodResearchSetupAction} from "./discovery-r12-pod-owner-contract";
 import type {QuestAdapterContext} from "../core/quest-controller";
@@ -40,11 +40,13 @@ export async function confirmPodResearch(c:OwnerUiContext,input:PodResearchSetup
  await owned(c,input.businessId);if(!podId(input.setupId)||!podId(input.submissionId))podFail();
  const catalog=await readPodResearch(c,input.businessId,input.setupId),saved=catalog.setups.find(r=>r.setupId===input.setupId&&r.setupHash===input.setupHash);if(!saved||saved.stopped)podFail();
  if(saved.activated)return saved;
+ const recovery=saved.preview.recovery?await inspectPodRecovery(c,input.businessId,saved.preview.recovery.proof.predecessorSetupId):null;
+ if(recovery&&(recovery.proofHash!==saved.preview.recovery!.proofHash||recovery.classificationHash!==saved.preview.recovery!.classificationHash))podFail();
  const quote=await discoveryR12ServerDependencies().quote({podResearch:true});
- const raw=buildPodPlannerRequest(saved.setupHash,saved.preview.sourcePolicyHash,saved.preview.publicBrief,saved.preview.sourcePolicy.excludedDomains);
+ const raw=buildPodPlannerRequest(saved.setupHash,saved.preview.sourcePolicyHash,saved.preview.publicBrief,saved.preview.sourcePolicy.excludedDomains,recovery?.history??null);
  const request=routeDiscoveryR12Request(raw,"plan",quote.luna,false,false,true),wire=await inspectDiscoveryR12Wire(request,"plan",false,false,false,true);
  const hashes=await prepareDiscoveryR12Authority(c,input.businessId,saved.scopeId);
- return parsePodReceipt(await rpc(c,"r12_pod_owner_server",{p_business_id:input.businessId,p_operation:"confirm",p_payload:{setupId:input.setupId,setupHash:input.setupHash,submissionId:input.submissionId,controllerKeyHash:hashes.controllerKeyHash,admissionKeyHash:hashes.admissionKeyHash,quote,preflight:{setupHash:saved.setupHash,sourcePolicyHash:saved.preview.sourcePolicyHash,requestHash:wire.requestHash,wireHash:wire.wireHash,wireBytes:wire.wireBytes}},p_server_key:podApplicationCapability()}),input.businessId,input.setupId);
+ return parsePodReceipt(await rpc(c,saved.preview.recovery?"r12_pod_recovery_owner_server":"r12_pod_owner_server",{p_business_id:input.businessId,p_operation:"confirm",p_payload:{setupId:input.setupId,setupHash:input.setupHash,submissionId:input.submissionId,controllerKeyHash:hashes.controllerKeyHash,admissionKeyHash:hashes.admissionKeyHash,quote,preflight:{setupHash:saved.setupHash,sourcePolicyHash:saved.preview.sourcePolicyHash,requestHash:wire.requestHash,wireHash:wire.wireHash,wireBytes:wire.wireBytes}},p_server_key:podApplicationCapability()}),input.businessId,input.setupId);
 }
 export async function stopPodResearch(c:OwnerUiContext,input:PodResearchSetupAction){await owned(c,input.businessId);return parsePodReceipt(await rpc(c,"r12_pod_owner_server",{p_business_id:input.businessId,p_operation:"stop",p_payload:{setupId:input.setupId,setupHash:input.setupHash,submissionId:input.submissionId},p_server_key:""}),input.businessId,input.setupId);}
 export async function readPodResearchResult(c:OwnerUiContext,businessId:string,scopeId:string){
@@ -53,4 +55,32 @@ export async function readPodResearchResult(c:OwnerUiContext,businessId:string,s
  const ctx=v.context as unknown as QuestAdapterContext;if(ctx.plan.businessId!==businessId||ctx.plan.discoveryScopeId!==scopeId)podFail();
  const result=reconstructPodResearchResult(ctx,readPodResearchPhaseInputs(ctx,v.inputs as Record<string,unknown>),v.current as unknown as DiscoveryR12CompletedPhase);
  if(result.businessId!==businessId||result.scopeId!==scopeId)podFail();return result;
+}
+
+async function inspectPodRecovery(c:OwnerUiContext,businessId:string,setupId:string){
+ const raw=await rpc(c,"r12_pod_recovery_read",{p_business_id:businessId,p_setup_id:setupId});
+ if(!podObject(raw.proof)||raw.proof.businessId!==businessId||raw.proof.predecessorSetupId!==setupId||raw.proofHash!==discoveryV2Hash(raw.proof)||
+ !podObject(raw.history)||raw.historyHash!==discoveryV2Hash(raw.history)||raw.proof.historyHash!==raw.historyHash||!podObject(raw.context)||!podObject(raw.inputs)||!podObject(raw.observation)||typeof raw.observation.content!=="string")podFail();
+ const ctx=raw.context as unknown as QuestAdapterContext;if(ctx.plan.businessId!==businessId||ctx.planId!==raw.proof.predecessorPlanId||ctx.attempt.id!==raw.proof.failedAttemptId)podFail();
+ const classification=inspectPodFailedReview(ctx,readPodResearchPhaseInputs(ctx,raw.inputs),JSON.parse(raw.observation.content));
+ if(raw.classificationHash!==discoveryV2Hash(classification))podFail();
+ return {proof:raw.proof,proofHash:raw.proofHash,historyHash:raw.historyHash,template:raw.template,finance:raw.finance,history:raw.history as unknown as import("./discovery-r12-pod-recovery").PodFailedPassHistory,classificationHash:discoveryV2Hash(classification)};
+}
+/** Proposal only. The successor keeps the Goal and original allowance; it does
+ * not restart the revoked policy or create runtime keys before confirmation. */
+export async function preparePodResearchRecovery(c:OwnerUiContext,input:PodResearchSetupAction){
+ await owned(c,input.businessId);if(!podId(input.setupId)||!podId(input.submissionId))podFail();
+ const recovered=await readPodResearch(c,input.businessId,null,input.submissionId),existing=recovered.setups.find(r=>r.submissionId===input.submissionId);
+ if(existing){if(existing.preview.recovery?.proof.predecessorSetupId!==input.setupId)podFail();return existing;}
+ const catalog=await readPodResearch(c,input.businessId,input.setupId),predecessor=catalog.setups.find(r=>r.setupId===input.setupId&&r.setupHash===input.setupHash);
+ if(!predecessor?.activated||!predecessor.stopped)podFail();
+ const inspected=await inspectPodRecovery(c,input.businessId,input.setupId),template=inspected.template,finance=inspected.finance;
+ if(!podObject(template)||!podId(template.id)||typeof template.hash!=="string")throw Error("r12_pod_recovery_template_unavailable");
+ if(!podObject(finance)||finance.hasBlockingUnknown!==false||!podMoney(finance.maximumMicrounits)||!podMoney(finance.committedMicrounits)||!podMoney(inspected.proof.remainingMaximumMicrounits))podFail();
+ const amount=Math.min(Number(inspected.proof.remainingMaximumMicrounits),Number(finance.maximumMicrounits)-Number(finance.committedMicrounits));
+ const quote=await discoveryR12ServerDependencies().quote({podResearch:true});if(amount<quote.maximumMicrousd)throw Error("r12_pod_recovery_remaining_budget_below_quote");
+ // Price and serialize the actual bounded failed history before saving a proposal.
+ const request=routeDiscoveryR12Request(buildPodPlannerRequest(predecessor.setupHash,predecessor.preview.sourcePolicyHash,predecessor.preview.publicBrief,predecessor.preview.sourcePolicy.excludedDomains,inspected.history),"plan",quote.luna,false,false,true);
+ await inspectDiscoveryR12Wire(request,"plan",false,false,false,true);
+ return parsePodReceipt(await rpc(c,"r12_pod_recovery_owner_server",{p_business_id:input.businessId,p_operation:"prepare",p_payload:{input:{businessId:input.businessId,goalId:predecessor.goalId,goalRevision:predecessor.preview.goalRevision,templateId:template.id,templateHash:template.hash,publicBrief:predecessor.preview.publicBrief,maximumMicrounits:String(amount),businessLifetimeLimitMicrounits:finance.maximumMicrounits,submissionId:input.submissionId,predecessorSetupId:input.setupId,proofHash:inspected.proofHash,historyHash:inspected.historyHash,classificationHash:inspected.classificationHash},quote},p_server_key:podApplicationCapability()}),input.businessId);
 }

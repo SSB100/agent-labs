@@ -150,7 +150,7 @@ function validateNode(
         : [];
 
       for (const requiredKey of required) {
-        if (!(requiredKey in value)) {
+        if (!Object.hasOwn(value, requiredKey)) {
           issues.push({
             path: childPath(path, requiredKey),
             message: "is required",
@@ -160,7 +160,7 @@ function validateNode(
 
       if (schemaValue.additionalProperties === false) {
         for (const key of Object.keys(value)) {
-          if (!(key in properties)) {
+          if (!Object.hasOwn(properties, key)) {
             issues.push({
               path: childPath(path, key),
               message: "is not an allowed property",
@@ -170,7 +170,7 @@ function validateNode(
       }
 
       for (const [key, childSchema] of Object.entries(properties)) {
-        if (key in value) {
+        if (Object.hasOwn(value, key)) {
           validateNode(childSchema, value[key], childPath(path, key), issues);
         }
       }

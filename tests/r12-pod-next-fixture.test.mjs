@@ -6,9 +6,9 @@ import { createHash, createHmac } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
-import { seedPodNextDatabase, podNextProvider, assertPodLeaseQuiet, podSafeRpcError } from './next-fixture/r12-pod-boundary.mjs';
+import { seedPodNextDatabase, podNextProvider, podNextFailedReview, podNextAudit, assertPodLeaseQuiet, podSafeRpcError } from './next-fixture/r12-pod-boundary.mjs';
 import { R12_INERT_ROOT } from './next-fixture/r12-sql.mjs';
-import { podRpc, podQuoteFixture, podInertOutputs, POD_PHASES } from './helpers/r12-pod-sql-fixture.mjs';
+import { podRpc, podQuoteFixture, podInertOutputs, podSource, podHash, POD_PHASES } from './helpers/r12-pod-sql-fixture.mjs';
 const host = process.env.R12_SQL_TEST_HOST;
 test('POD Next runner preserves production actions and Workflow host while blocking external transport', () => {
   const runner = readFileSync(new URL('./next-fixture/r12-pod-runner.mjs', import.meta.url), 'utf8');
@@ -24,6 +24,17 @@ test('POD Next runner preserves production actions and Workflow host while block
   const boundary = readFileSync(new URL('./next-fixture/r12-pod-boundary.mjs', import.meta.url), 'utf8');
   assert.match(boundary, /leaseExpiresAt: data\?\.head\?\.leaseExpiresAt/);
   assert.doesNotMatch(boundary, /(?:update|set)\s+[^;\n]*lease_expires_at/i);
+});
+test('the existing Next journey adds failed-pass recovery after its ordinary two-pass path without replacing runtime authority', () => {
+  const journey = readFileSync(new URL('./next-fixture/r12-pod-journey.mjs', import.meta.url), 'utf8');
+  const ordinary = journey.indexOf('actual background Workflow refines a weak pass'), recovery = journey.indexOf('a second ordinary owner run saves a rejected reviewer response');
+  assert.ok(ordinary >= 0 && recovery > ordinary, 'Keep the original owner/Workflow refinement journey before the additional recovery run');
+  for (const required of ["boundary.rejectNextReview()", "name: 'Stop research'", "name: 'Review next-pass recovery'", "action('preparePodResearchRecoveryAction'", 'boundary.audit(failedReceipt.scopeId)', "saved.inputs.pass.history.kind, 'failed_pass_context'", "saved.inputs.pass.history.reviewAccepted, false", "current().calls.length, 20"]) assert.ok(journey.includes(required), required);
+  assert.doesNotMatch(journey, /continuePodResearchRuntime\(|driveQuestOnce\(|podRuntimeFixture\(/);
+  const boundary = readFileSync(new URL('./next-fixture/r12-pod-boundary.mjs', import.meta.url), 'utf8');
+  for (const rpc of ['r12_pod_recovery_read', 'r12_pod_recovery_owner_server']) assert.ok(boundary.includes(rpc));
+  assert.match(boundary, /schemas: podSource\('products\/discovery-r12-pod-runtime'\)\.podResearchSchemaPins\(true\)/);
+  assert.doesNotMatch(boundary, /update\s+private\.r12_(?:discovery_response_observations|discovery_candidates|pod_templates)/i);
 });
 test('every Next runner uses the same unmodified R12 dependency fixture, including POD quote forwarding', () => {
   for (const file of ['../scripts/verify-r03-next.mjs', '../scripts/verify-r12-owner-next.mjs', './next-fixture/r12-pod-runner.mjs']) {
@@ -82,6 +93,12 @@ test('POD Next seed uses actual migrations and a synthetic template without exec
     assert.equal(catalog.setups.length, 0); assert.equal(catalog.business.ready, true);
     const stored = (await db.query('select server_key_hash from private.r12_pod_templates where id=$1', [seeded.templateId])).rows[0];
     assert.equal(stored.server_key_hash, createHash('sha256').update(capability).digest('hex'));
+    const recovery = (await db.query("select source_policy_hash,pins,pins_hash,server_key_hash from private.r12_pod_templates where version='r12.pod-template.3'")).rows;
+    assert.equal(recovery.length, 1); assert.equal(recovery[0].source_policy_hash, podHash(seeded.sourcePolicy));
+    assert.equal(recovery[0].server_key_hash, stored.server_key_hash); assert.equal(recovery[0].pins_hash, podHash(recovery[0].pins));
+    assert.deepEqual(recovery[0].pins.schemas, podSource('products/discovery-r12-pod-runtime').podResearchSchemaPins(true));
+    assert.equal(catalog.template.id, seeded.templateId, 'A recovery-only template cannot become the ordinary new-run template');
+    assert.deepEqual(await podNextAudit(db, seeded.templateId), { attempts: [], observations: [] }, 'Read-only browser audit queries must use the actual migrated response tables');
     const prepared = await podRpc(db, 'authenticated', seeded.ownerId, 'r12_pod_owner_server', [seeded.businessId, 'prepare', { input: seeded.input, quote: podQuoteFixture() }, capability]);
     assert.equal(prepared.activated, false); assert.equal(prepared.confirmed, false);
     assert.equal(prepared.preview.version, 'r12.pod-research-preview.2'); assert.equal(prepared.preview.quote.version, 'r12.pod-quote.2');
@@ -112,4 +129,40 @@ test('POD browser provider double binds every phase to its admitted pass and ref
   assert.equal(state.r12.calls.length, 10); assert.equal(state.r12.receipts.length, 10);
   const searches = state.r12.calls.filter(call => call.phase === 'search1'); assert.notEqual(searches[0].query, searches[1].query);
   state.r12.podPass = { ordinal: 2, actionHash: '2'.repeat(64) }; assert.throws(() => podNextProvider(state, request(1, 'plan')), /real admitted/);
+});
+
+test('the recovery provider double creates only length failures and requires labelled unaccepted history for its fresh pass', () => {
+  const failed = podNextFailedReview(), schema = podSource('products/discovery-r12-pod-analysis').podResearchSchema('review');
+  const issues = podSource('workers/schema-validator').validateJsonSchemaValue(schema, failed);
+  assert.deepEqual(issues.map(issue => issue.path), [1, 2, 3, 4, 5].map(index => `$.checks[${index}].rationale`).concat('$.nextTest'));
+  assert.ok(issues.every(issue => /^must contain no more than (240|400) characters$/.test(issue.message)));
+  assert.equal(failed.outcome, 'INSUFFICIENT_EVIDENCE'); assert.equal(failed.candidateIndex, null);
+  const state = { r12: { scopeId: 'inert-failed-scope', calls: [], receipts: [], podPass: { ordinal: 0 }, rejectNextReview: true } };
+  const history = { kind: 'failed_pass_context', previousPass: 0, reviewAccepted: false, failureKind: 'review_length_rejected',
+    untrustedCritique: failed, acceptedAssessment: { recommendation: { outcome: 'INSUFFICIENT_EVIDENCE' } },
+    acceptedOutputHashes: POD_PHASES.slice(0, 4).map(phase => ({ phase, responseHash: 'a'.repeat(64) })), priorQueries: [{ query: podInertOutputs({ passOrdinal: 0 }).plan.query }] };
+  const request = (ordinal, phase) => {
+    const output = podInertOutputs({ passOrdinal: ordinal, useful: ordinal === 1 });
+    return { phase, method: 'POST', url: 'https://openrouter.ai/api/v1/chat/completions', body: { provider: { only: [phase === 'review' ? 'amazon-bedrock/us' : 'azure/us'], zdr: true },
+      messages: [{ role: 'system', content: podSource('products/discovery-r12-pod-runtime').podResearchSystemInstruction('plan', true) }, { role: 'user', content: phase === 'search1' ? output.plan.query : JSON.stringify({ refinement: ordinal === 0 ? null : history }) }],
+      ...(phase === 'search1' ? { tools: [{ parameters: { allowed_domains: output.plan.sourceDomains } }] } : {}) } };
+  };
+  for (const phase of POD_PHASES) {
+    const response = podNextProvider(state, request(0, phase));
+    if (phase === 'review') assert.deepEqual(JSON.parse(response.body.choices[0].message.content), failed);
+  }
+  assert.equal(state.r12.rejectNextReview, false); assert.equal(state.r12.calls.length, 5);
+  state.r12.scopeId = 'inert-recovery-scope'; state.r12.podPass = { ordinal: 1 };
+  const malformed = request(1, 'plan'); history.reviewAccepted = true;
+  malformed.body.messages[1].content = JSON.stringify({ refinement: history });
+  assert.throws(() => podNextProvider(state, malformed)); assert.equal(state.r12.calls.length, 5);
+  history.reviewAccepted = false;
+  for (const phase of POD_PHASES) {
+    const response = podNextProvider(state, request(1, phase));
+    assert.throws(() => podNextProvider(state, request(1, phase)), /never regenerate/);
+    if (phase === 'review') assert.equal(JSON.parse(response.body.choices[0].message.content).outcome, 'HYPOTHESIS_TO_TEST');
+  }
+  assert.equal(state.r12.calls.length, 10); assert.deepEqual(failed, podNextFailedReview(), 'The original failed provider output was not shortened or rewritten');
+  state.r12.scopeId = 'inert-unrelated-scope'; state.r12.podPass = { ordinal: 0 };
+  assert.equal(podNextProvider(state, request(0, 'plan')).status, 200, 'Generation uniqueness is scoped to the actual run as well as pass/phase');
 });

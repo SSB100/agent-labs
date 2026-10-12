@@ -113,8 +113,8 @@ export function podInertOutputs({passOrdinal=0,useful=false}={}){
  if(useful){outputs.strategy.candidates[0].support=['E1'];outputs.strategy.recommendation={...outputs.strategy.recommendation,outcome:'HYPOTHESIS_TO_TEST',candidateIndex:0,rationale:'This entirely synthetic fixture supports only a bounded hypothesis to test; demand and profitable production remain unverified.'};outputs.review={...outputs.review,outcome:'HYPOTHESIS_TO_TEST',candidateIndex:0,rationale:'The independent synthetic review retains only a worthwhile hypothesis for further validation, without verifying Etsy demand or commercial viability.',checks:outputs.review.checks.map(check=>({...check,verdict:'PASS',rationale:'The limited proposal is explicitly a hypothesis to test and preserves the evidence gaps without commercial claims.'}))};}
  return outputs;
 }
-export async function podRuntimeFixture(db,{afterStage=null,usefulPass=0,fixtureOptions={}}={}){
- const a=await podActivate(db,fixtureOptions),outputsByPass=Array.from({length:5},(_,passOrdinal)=>podInertOutputs({passOrdinal,useful:passOrdinal===usefulPass})),output=outputsByPass[0],runtime=podSource('products/discovery-r12-runtime'),adapter=podSource('products/discovery-r12-adapter');
+export async function podRuntimeFixture(db,{afterStage=null,usefulPass=0,fixtureOptions={},activation=null}={}){
+ const a=activation??await podActivate(db,fixtureOptions),outputsByPass=Array.from({length:5},(_,passOrdinal)=>podInertOutputs({passOrdinal,useful:passOrdinal===usefulPass})),output=outputsByPass[0],runtime=podSource('products/discovery-r12-runtime'),adapter=podSource('products/discovery-r12-adapter');
  const executingRelease={version:'r12.executing-release.1',repository:'SSB100/agent-labs',environment:'production',commitSha:'a'.repeat(40),deploymentId:'dpl_inert_pod_sql_only'};
  const posted=[],got=[],sentRequests=[],registry={},generationPasses=new Map();
  const effects={
@@ -122,7 +122,7 @@ export async function podRuntimeFixture(db,{afterStage=null,usefulPass=0,fixture
   settle:async(attemptId,settlement)=>{const current=await a.store.read();await a.command('settle',{attemptId,settlement},current.head.epoch);},
   dispatchedAt:async attemptId=>{const loaded=await podRpc(db,'anon',null,'r12_discovery_server',[a.f.businessId,attemptId,'load',{},a.controller]);assert.equal(typeof loaded.dispatchedAt,'string');return loaded.dispatchedAt;},
  };
- for(const step of a.plan.steps){const phase=step.key;registry[step.adapter]=adapter.createDiscoveryR12QuestAdapter({scope:a.scope,phase,identity:{qualificationHash:step.qualificationHash,workflowDefinitionId:step.workflowDefinitionId,workerDefinitionId:step.workerDefinitionId,mode:'qualification'},executingRelease,
+ for(const step of a.plan.steps){const phase=step.key;registry[step.adapter]=adapter.createDiscoveryR12QuestAdapter({scope:a.scope,podRecovery:a.podRecovery??null,phase,identity:{qualificationHash:step.qualificationHash,workflowDefinitionId:step.workflowDefinitionId,workerDefinitionId:step.workerDefinitionId,mode:'qualification'},executingRelease,
    dataClasses:a.operations.find(operation=>operation.operationKey===step.operationKey).dataClasses,store:effects,
    request:async ctx=>runtime.buildDiscoveryR12PhaseRequest(ctx,runtime.readDiscoveryR12PhaseInputs(ctx,await a.inputs(ctx.attempt.id))),
    quote:async()=>podQuoteFixture(),

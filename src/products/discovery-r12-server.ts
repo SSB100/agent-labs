@@ -1,6 +1,7 @@
 import { podExecutingRelease } from "./discovery-r12-pod-release";
 import { isPodResearchGoalScope, validatePodResearchGoalScope } from "./discovery-r12-pod-goal";
 import { validatePodQuestPlan } from "./discovery-r12-pod-runtime";
+import type { PodRecoveryContext } from "./discovery-r12-pod-recovery";
 import "server-only";
 import { createHash, createHmac, randomUUID } from "node:crypto";
 import type { OwnerUiContext } from "../lib/core-ui/data";
@@ -52,7 +53,8 @@ async function continuePreparedDiscoveryR12(businessId:string,scopeId:string,row
  if(scope.id!==scopeId||scope.businessId!==businessId||scope.goalId!==row.goalId||plan.businessId!==businessId||plan.goalId!==scope.goalId||plan.discoveryScopeId!==scopeId||plan.discoveryScopeHash!==discoveryV2Hash(scope))return fail();
  // Historical scope validity permits bounded receipt recovery after dispatch
  // expiry. SQL separately checks current authority before every new send.
- if(isPodResearchGoalScope(scope)){validatePodResearchGoalScope(scope,Date.parse(scope.createdAt));validatePodQuestPlan({plan},scope);}
+ const podRecovery=(row.podRecovery??null) as PodRecoveryContext|null;
+ if(isPodResearchGoalScope(scope)){validatePodResearchGoalScope(scope,Date.parse(scope.createdAt));validatePodQuestPlan({plan},scope,podRecovery);}
  if(isDiscoveryOwnerEpisodeScope(scope)){validateDiscoveryOwnerEpisodeScope(scope,Date.parse(scope.createdAt));validateOwnerEpisodePlan(plan,scope);}
  if(row.focusedSuccessor!==undefined&&scope.version!=='r12.discovery-focused-pilot.1')return fail();
  const successor=row.focusedSuccessor===undefined?null:validateR12FocusedSuccessor(row.focusedSuccessor,{businessId,scopeId,goalId:scope.goalId,ownerId,...(scope.version==='r12.discovery-focused-pilot.1'?{scope}:{})});
@@ -78,7 +80,7 @@ async function continuePreparedDiscoveryR12(businessId:string,scopeId:string,row
   if(!DISCOVERY_R12_PHASES.includes(step.key as DiscoveryR12Phase))return fail();
   const operationScope=activation.operations.find(value=>object(value)&&value.operationKey===step.operationKey);
   if(!object(operationScope)||!Array.isArray(operationScope.dataClasses)||operationScope.dataClasses.some(value=>typeof value!=='string'))return fail();
-  adapters[step.adapter]=dependencies.createAdapter({...(isPodResearchGoalScope(scope)?{executingRelease:podExecutingRelease()}:{}),scope,phase:step.key as DiscoveryR12Phase,identity:{qualificationHash:step.qualificationHash,workflowDefinitionId:step.workflowDefinitionId,workerDefinitionId:step.workerDefinitionId,mode:'qualification'},dataClasses:operationScope.dataClasses as string[],store:effects,...(bounded?{fetcher:deadlineFetch(requestSignal)}:{}),
+  adapters[step.adapter]=dependencies.createAdapter({...(isPodResearchGoalScope(scope)?{executingRelease:podExecutingRelease(),podRecovery}:{}),scope,phase:step.key as DiscoveryR12Phase,identity:{qualificationHash:step.qualificationHash,workflowDefinitionId:step.workflowDefinitionId,workerDefinitionId:step.workerDefinitionId,mode:'qualification'},dataClasses:operationScope.dataClasses as string[],store:effects,...(bounded?{fetcher:deadlineFetch(requestSignal)}:{}),
    request:async ctx=>buildDiscoveryR12PhaseRequest(ctx,readDiscoveryR12PhaseInputs(ctx,await operation(ctx.attempt.id,'inputs',{}))),quote:freshQuote,
    project:async(qualified,ctx,request)=>projectDiscoveryR12Phase(ctx,readDiscoveryR12PhaseInputs(ctx,await operation(ctx.attempt.id,'inputs',{})),qualified,request)});
  }

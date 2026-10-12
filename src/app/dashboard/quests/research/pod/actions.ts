@@ -1,7 +1,7 @@
 "use server";
 import {start} from "workflow/api";
 import {requireOwnerUiContext} from "@/lib/core-ui/data";
-import {confirmPodResearch,preparePodResearch,readPodResearch,stopPodResearch} from "@/products/discovery-r12-pod-owner-server";
+import {confirmPodResearch,preparePodResearch,preparePodResearchRecovery,readPodResearch,stopPodResearch} from "@/products/discovery-r12-pod-owner-server";
 import {podResearchRuntimeWorkflow} from "@/workflows/pod-research-runtime";
 import type {PodResearchEntry,PodResearchSetupAction} from "@/products/discovery-r12-pod-owner-contract";
 function message(error:unknown){const code=error instanceof Error?error.message:"";
@@ -12,6 +12,7 @@ function message(error:unknown){const code=error instanceof Error?error.message:
  if(/expired|window|stale|changed/.test(code))return "This review is no longer current. Reload its saved status, then prepare a fresh review if needed. Existing attempts are never restarted.";
  return "The result could not be verified. Reload this saved research before retrying. No completion or new permission has been assumed.";}
 export async function preparePodResearchAction(input:PodResearchEntry){try{return{ok:true as const,receipt:await preparePodResearch(await requireOwnerUiContext(),input)};}catch(error){return{ok:false as const,message:message(error)};}}
+export async function preparePodResearchRecoveryAction(input:PodResearchSetupAction){try{return{ok:true as const,receipt:await preparePodResearchRecovery(await requireOwnerUiContext(),input)};}catch(error){return{ok:false as const,message:message(error)};}}
 export async function confirmPodResearchAction(input:PodResearchSetupAction){
  try{const context=await requireOwnerUiContext(),receipt=await confirmPodResearch(context,input);
   try{await start(podResearchRuntimeWorkflow,[{businessId:receipt.businessId,scopeId:receipt.scopeId}]);return{ok:true as const,receipt,runtimeStarted:true};}

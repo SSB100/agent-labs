@@ -73,6 +73,10 @@ export function validatePodAssessment(raw: unknown, pack: EvidencePack): PodAsse
 }
 export function validatePodReview(raw: unknown, assessment: PodAssessment, pack: EvidencePack): PodReview {
   assertJsonSchemaValue(podResearchSchema("review"), raw, "Independent POD research review");
+  return assertPodReviewMeaning(raw as PodReview, assessment, pack);
+}
+/** Domain checks only. Callers must separately validate the complete schema. */
+export function assertPodReviewMeaning(raw: PodReview, assessment: PodAssessment, pack: EvidencePack): PodReview {
   validatePodAssessment(assessment, pack);
   const review = structuredClone(raw) as PodReview, evidence = podEvidenceView(pack);
   if (new Set(review.checks.map(c => c.check)).size !== POD_REVIEW_CHECKS.length) fail();

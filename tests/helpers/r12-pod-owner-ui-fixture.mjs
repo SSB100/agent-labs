@@ -70,8 +70,8 @@ export function button(tree, label) {
 export const html = renderToStaticMarkup;
 export const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
 
-export function workspace(f = fixture(), { selected = null, status = null, result = null, actions = {}, storage = new Map() } = {}) {
-  let stateIndex = 0, refIndex = 0, effectIndex = 0, sequence = 100, pending = false;
+export function workspace(f = fixture(), { selected = null, status = null, result = null, actions = {}, storage = new Map(), uuidStart = 100 } = {}) {
+  let stateIndex = 0, refIndex = 0, effectIndex = 0, sequence = uuidStart, pending = false;
   const states = [], refs = [], effects = [], jobs = [], calls = [], navigation = [], listeners = new Map(), intervals = new Map();
   const hooks = {
     ...React,
@@ -82,7 +82,7 @@ export function workspace(f = fixture(), { selected = null, status = null, resul
     useTransition() { return [pending, callback => { pending = true; const job = Promise.resolve().then(callback).finally(() => { pending = false; }); jobs.push(job); }]; },
     useEffect(fn, deps) { const i = effectIndex++, old = effects[i]; if (!old || !deps || deps.some((value, index) => !Object.is(value, old.deps?.[index]))) effects[i] = { fn, deps, dirty: true, cleanup: old?.cleanup }; },
   };
-  const actionModule = Object.fromEntries(['preparePodResearchAction', 'confirmPodResearchAction', 'resumePodResearchAction', 'stopPodResearchAction'].map(name => [name, async input => {
+  const actionModule = Object.fromEntries(['preparePodResearchAction', 'preparePodResearchRecoveryAction', 'confirmPodResearchAction', 'resumePodResearchAction', 'stopPodResearchAction'].map(name => [name, async input => {
     calls.push({ name, input: structuredClone(input) });
     if (actions[name]) return actions[name](input);
     return { ok: true, runtimeStarted: true, receipt: { ...f.receipt, confirmed: name === 'confirmPodResearchAction', activated: name === 'confirmPodResearchAction', stopped: name === 'stopPodResearchAction' } };
@@ -108,7 +108,7 @@ export function workspace(f = fixture(), { selected = null, status = null, resul
 
 export function actionHarness(f = fixture(), { server = {}, start = async () => ({ runId: 'inert-workflow' }) } = {}) {
   const calls = [], context = { userId: id(90) }, workflow = Object.freeze({ inert: 'pod-runtime-boundary' });
-  const implementation = Object.fromEntries(['preparePodResearch', 'confirmPodResearch', 'readPodResearch', 'stopPodResearch'].map(name => [name, async (...args) => {
+  const implementation = Object.fromEntries(['preparePodResearch', 'preparePodResearchRecovery', 'confirmPodResearch', 'readPodResearch', 'stopPodResearch'].map(name => [name, async (...args) => {
     calls.push({ name, args });
     assert.equal(args[0], context);
     if (server[name]) return server[name](...args);
@@ -160,12 +160,13 @@ export function releaseRouteHarness({ owner = id(90), claimsError = null, busine
     '@/lib/supabase/server': { createClient: async () => { calls.push(['createClient']); return client; } },
     '@/products/discovery-r12-pod-server-key': { podApplicationCapability: () => { calls.push(['capability']); return capability.podApplicationCapability(); } },
     '@/products/discovery-r12-pod-release': { podExecutingRelease: () => { calls.push(['release']); return release.podExecutingRelease(); } },
-    '@/products/discovery-r12-pod-runtime': { podResearchSchemaPins: () => { calls.push(['schemas']); return runtime.podResearchSchemaPins(); } },
+    '@/products/discovery-r12-pod-runtime': { podResearchSchemaPins: recovery => { calls.push(recovery === undefined ? ['schemas'] : ['schemas', recovery]); return runtime.podResearchSchemaPins(recovery); } },
     '@/products/discovery-r12-pod-packs': { podResearchPackManifests: () => { calls.push(['packs']); return packs.podResearchPackManifests(); } },
   }, globals);
   return { calls, fixtureEnv,
     get: (businessId = id(1)) => route.GET(new Request(`https://agent-labs.example.invalid/api/research/pod/release${businessId === null ? '' : `?business=${encodeURIComponent(businessId)}`}`)),
     expectedSchemas: () => runtime.podResearchSchemaPins(),
+    expectedRecoverySchemas: () => runtime.podResearchSchemaPins(true),
     expectedPacks: () => packs.podResearchPackManifests().map(p => ({ packKey: p.packKey, version: p.version, manifestHash: hash(p) })),
   };
 }

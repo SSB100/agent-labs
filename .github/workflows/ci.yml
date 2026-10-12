@@ -25,6 +25,7 @@ on:
       - codex/r12-stable-connections-20261011
       - codex/r12-login-free-research-entry-20261011
       - codex/r12-goal-driven-public-research-20261012
+      - codex/r12-pod-counted-review-repair-20261012
 
 permissions:
   contents: read
@@ -563,6 +564,17 @@ jobs:
           set -o pipefail
           node --test --test-concurrency=1 tests/r12-owner-initial-sql.test.mjs tests/r12-owner-initial-security.test.mjs tests/r12-owner-initial-runtime-sql.test.mjs tests/r12-owner-catalog-scale.test.mjs tests/r12-owner-episode-sql.test.mjs tests/r12-owner-planner-preflight-sql.test.mjs tests/r12-owner-stopped-before-reservation-sql.test.mjs tests/r12-pod-goal-sql.test.mjs tests/r12-pod-bounded-liability-sql.test.mjs tests/r12-pod-bounded-plan-sql.test.mjs tests/r12-pod-server-continuation-sql.test.mjs 2>&1 | tee /tmp/r12-owner-lifecycle-ci.log
 
+      - name: Verify linked POD recovery and native Stop/confirmation races
+        env:
+          R12_SQL_TEST_HOST: ${{ runner.temp }}/r12-sql-host
+          R12_REQUIRE_POSTGRES: "1"
+          R12_POSTGRES_URL: postgresql://r12_test:r12-isolated-fixture@127.0.0.1:5432/r12_test
+        run: |
+          export R12_CI_POSTGRES_ADDRESS="$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' '${{ job.services.postgres.id }}')"
+          node scripts/reset-r12-ci-database.mjs
+          set -o pipefail
+          node --test tests/r12-pod-failed-pass-recovery-sql.test.mjs 2>&1 | tee /tmp/r12-pod-recovery-ci.log
+
       - name: Verify recovered adaptive and Etsy-only evidence admission
         env:
           R12_SQL_TEST_HOST: ${{ runner.temp }}/r12-sql-host
@@ -667,6 +679,7 @@ jobs:
             /tmp/r12-pod-fresh-backend.json
             /tmp/r12-scope-tests.log
             /tmp/r12-owner-lifecycle-ci.log
+            /tmp/r12-pod-recovery-ci.log
             /tmp/r12-http-ci-report.json
             /tmp/r12-http-ci-terminal-cold.json
             /tmp/r12-races-ci-report.json
