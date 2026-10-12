@@ -1,0 +1,38 @@
+{
+  "version": "r12.pod-recovery-morning-records.1",
+  "bundleHash": "4218718c48daa94a05db4979b0d2dfcc8f5cdb7a1cfc63df3b3a2dabf786068a",
+  "originalRecordCommit": "6355dba34864af996de0fb066a815b626118d4ee",
+  "files": [
+    {
+      "name": "README.md",
+      "sha256": "b253a441f5b7c63c7609994fe09687042050739ba39642affeec39694a30302d",
+      "gitSha": "1a22d645328e9454ad52a1f326d67c4ff3c457cf"
+    },
+    {
+      "name": "installation-bundle.json",
+      "sha256": "11b426fd0a62a241b85a5e867428e51dd4995442ebdf8dc08b957439f53e1128",
+      "gitSha": "6191af8c39ff86a6f2f6729bdf3c25994cb1918f"
+    },
+    {
+      "name": "installation-bundle.sha256",
+      "sha256": "e908775ba061f542380ec9eba1d72418db844036bebd93032449a2661dc3485b",
+      "gitSha": "7e451b680e949da4a375682dcd3074ca26d1fd86"
+    },
+    {
+      "name": "production-release.json",
+      "sha256": "409958dbaa56a8e15970ceddb21c1eddd246f6916e45008cd0bc6e3434e5cab1",
+      "gitSha": "bbc45ff96da2c8abe2c73a1b3210bab0f1e60d81"
+    },
+    {
+      "name": "production-preflight.json",
+      "sha256": "2c9dc7e69c3abca476485d9ea54df535dbb80fa10667631fc945a1f7e255afc3",
+      "gitSha": "dc8ec7e2d3d721fb1c5bee834adb736e5205d9fd"
+    },
+    {
+      "name": "final-bundle-review.json",
+      "sha256": "5293219bcc492cac9aabeb78fbb573eac5fe3693109ea23052bfa27eb01bb7be",
+      "gitSha": "cbb7bea3f0e4915ab53ab5058725937b990a9eb7"
+    }
+  ],
+  "authorityCreated": false
+}

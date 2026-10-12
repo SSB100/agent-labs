@@ -1,0 +1,20 @@
+{
+  "version": "r12.pod-recovery-production-readback.1",
+  "observedAt": "2026-10-12T17:57:20Z",
+  "repository": "SSB100/agent-labs",
+  "commitSha": "374788383d1dfad7e1199dbcb6e5840ebe5dc5ba",
+  "treeSha": "1353d381777bff9183ee34b24711ec00cf60820a",
+  "deploymentId": "dpl_DbnQb5UBVXGYESFaDwyRwGVRExh4",
+  "source": "git",
+  "state": "READY",
+  "target": "production",
+  "projectId": "prj_R8Z4UGEwN6jkkqUDrztLwwymTHH2",
+  "teamId": "team_vWDwkGoSk1NIOdKApGuukv0C",
+  "alias": "agent-labs-two.vercel.app",
+  "aliasResolvedDeploymentId": "dpl_DbnQb5UBVXGYESFaDwyRwGVRExh4",
+  "aliasUpdatedAt": "2026-10-12T15:41:39.814Z",
+  "readyAt": "2026-10-12T15:41:39.542Z",
+  "qualifiedRunId": "38265862266",
+  "priorReviewedDeploymentId": "dpl_4X4vu6Sq4FqSFrXMQ6pzQy39qwYm",
+  "reason": "Delayed normal Git integration deployment of identical qualified commit superseded earlier exact-SHA deployment; no source or scope change."
+}

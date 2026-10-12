@@ -1,0 +1,192 @@
+{
+  "version": "r12.pod-recovery-installation.1",
+  "authorityCreated": false,
+  "validFrom": "2026-10-12T15:31:52Z",
+  "validUntil": "2026-10-19T02:31:00.000Z",
+  "bounds": {
+    "originalMicrounits": 10000000,
+    "maximumPasses": 5,
+    "maximumCalls": 25,
+    "maximumSearches": 5,
+    "dispatchMinutes": 30,
+    "receiptMinutes": 30,
+    "formattingCalls": 0,
+    "allowanceReset": false
+  },
+  "parentTemplateId": "a958cb7b-d388-8316-a4b4-5117c23c994b",
+  "parentBundleHash": "37eccdecbfc4663a3aa07ab48970c81323e826b18263d4eec43a8784fa289b02",
+  "parentPinsHash": "ad917f1047fec43038cc8cee0131b08e08fcb12c7c7dcebdc75ab89a352acf6b",
+  "sourcePolicyHash": "c7226bd85c587e0e30b6c48301a48274dd9a9556fab45a864baa340aa29edc9b",
+  "applicationCapabilityHash": "c89e419be540dbe675201c1a51e3be91a6e2876af55c8e284a06797f06e249d3",
+  "ordinarySchemas": {
+    "plan": {
+      "localHash": "db511d623c6a20f26bf6373da878fe3eb51ce1ff0bec49df1df615334773fee0",
+      "wireHash": "7285b4d7f376da6477bc4a775ca7c62d0d776f591dbb1af7b9ca67ecbf049e23",
+      "systemHash": "dca90b45d3e6447dc2362ffece8cf3c832440c7f3feef9a0a846b822e9155eae",
+      "outputLimitsHash": "f9822307667d944c4632629070b391af3ddbdd31333cd30d2129c74e1471c1fc"
+    },
+    "select1": {
+      "localHash": "e1bedf858d2286df3a2007c6a17040eb4c2e42ef8f92c445979be74f02e3a39c",
+      "wireHash": "8ecda611f97e9ad9fb515c985be2eb93cdc1dd034d6e758760e888449d8a5cc9",
+      "systemHash": "32bd2898237eeebe2bf336d781d71ff5f4b49e0a6aea573da824458a66d6fc5e",
+      "outputLimitsHash": "4b5a8ff30291331a54bd9e904b47d8ecd79352763f41288ecf63bc9bd95deab8"
+    },
+    "strategy": {
+      "localHash": "5637450bf3f525d396db3ea3e11127169581d1fdd213d6d86d52806e049c3fcf",
+      "wireHash": "6ad11c598ea4c0a6406eb806a4aa91fd9898b7da111d64a644c4bedc0021b10b",
+      "systemHash": "9b4f35933e4844b8af36be3f2aae308316c5ba11281cf4c88545923b9e421345",
+      "outputLimitsHash": "854c04dc83791f19e21898cfb58971748095bc8a7777b6729250d47c58f11ee4"
+    },
+    "review": {
+      "localHash": "795c08c2b1b8e44deeb6324da82dc6e2c4af46b6d481caef0bbcb221764b1d53",
+      "wireHash": "6993a7b5ceb1e8f05557f363e3980333a18653573b48931f7f4a29c8bad29c65",
+      "systemHash": "ee0aa296907f272bb27f941e6d099d1ae9109700cc3dc5ddd0b5c72a086f4103",
+      "outputLimitsHash": "b8ac46e0861b3a657e4803a41ce62213aa4cb0f78d0a67adc2e7ddfb51bd501b"
+    }
+  },
+  "recoverySchemas": {
+    "plan": {
+      "localHash": "db511d623c6a20f26bf6373da878fe3eb51ce1ff0bec49df1df615334773fee0",
+      "wireHash": "7285b4d7f376da6477bc4a775ca7c62d0d776f591dbb1af7b9ca67ecbf049e23",
+      "systemHash": "11cd922449f69fe5aacbb635d8c48e9195128c1b265a19ede1ea030558d48507",
+      "outputLimitsHash": "f9822307667d944c4632629070b391af3ddbdd31333cd30d2129c74e1471c1fc"
+    },
+    "select1": {
+      "localHash": "e1bedf858d2286df3a2007c6a17040eb4c2e42ef8f92c445979be74f02e3a39c",
+      "wireHash": "8ecda611f97e9ad9fb515c985be2eb93cdc1dd034d6e758760e888449d8a5cc9",
+      "systemHash": "32bd2898237eeebe2bf336d781d71ff5f4b49e0a6aea573da824458a66d6fc5e",
+      "outputLimitsHash": "4b5a8ff30291331a54bd9e904b47d8ecd79352763f41288ecf63bc9bd95deab8"
+    },
+    "strategy": {
+      "localHash": "5637450bf3f525d396db3ea3e11127169581d1fdd213d6d86d52806e049c3fcf",
+      "wireHash": "6ad11c598ea4c0a6406eb806a4aa91fd9898b7da111d64a644c4bedc0021b10b",
+      "systemHash": "9b4f35933e4844b8af36be3f2aae308316c5ba11281cf4c88545923b9e421345",
+      "outputLimitsHash": "854c04dc83791f19e21898cfb58971748095bc8a7777b6729250d47c58f11ee4"
+    },
+    "review": {
+      "localHash": "795c08c2b1b8e44deeb6324da82dc6e2c4af46b6d481caef0bbcb221764b1d53",
+      "wireHash": "6993a7b5ceb1e8f05557f363e3980333a18653573b48931f7f4a29c8bad29c65",
+      "systemHash": "ee0aa296907f272bb27f941e6d099d1ae9109700cc3dc5ddd0b5c72a086f4103",
+      "outputLimitsHash": "b8ac46e0861b3a657e4803a41ce62213aa4cb0f78d0a67adc2e7ddfb51bd501b"
+    }
+  },
+  "executionReviewHash": "dfaf2c2829daaeafd4f3eb6808f418abbc335b1b6c8fbdb07d044521a29e263a",
+  "eligibilityReviewHash": "dd3cd5a0484475d4a512aac1436fb7450f0a43d713673db4fd0be9254fa1b452",
+  "policyInterpretationHash": "85dcaaf6d54a944c85f63f1a29f4579e18903fe4a302eb67c7f721b54033fa3e",
+  "migration": {
+    "path": "supabase/migrations/20261012131500_r12_pod_failed_pass_recovery.sql",
+    "sha256": "e4850eb1c4ae8fb1bec1acd4a0357d74c00915e107881542d567e7d5438a2ad4"
+  },
+  "templateRecipe": {
+    "path": "recovery-template.sql.in",
+    "sha256": "945ed8a8cf94c93c038e4334d6e00d6c8103507f2006a8f912d9dcfc69c06f54"
+  },
+  "executingRelease": {
+    "version": "r12.executing-release.1",
+    "repository": "SSB100/agent-labs",
+    "environment": "production",
+    "commitSha": "374788383d1dfad7e1199dbcb6e5840ebe5dc5ba",
+    "deploymentId": "dpl_DbnQb5UBVXGYESFaDwyRwGVRExh4"
+  },
+  "qualifiedRelease": {
+    "treeSha": "1353d381777bff9183ee34b24711ec00cf60820a",
+    "runId": "38265862266",
+    "artifactId": 11756282435,
+    "artifactSha256": "b7afbe73deaf35f3ab605390e0bdd62f21ba3cbfb09192957b1808d698204f75",
+    "requiredGroups": {
+      "quality": "success",
+      "r04-sql": "success",
+      "r05-sql": "success",
+      "r06-sql": "success",
+      "r07-sql": "success",
+      "r08-sql": "success",
+      "r09-sql": "success",
+      "r10-sql": "success",
+      "r11-sql": "success",
+      "r11-research-sql": "success",
+      "r12-sql": "success",
+      "r12-adaptive-races": "success",
+      "r03-next": "success",
+      "r12-direct": "success",
+      "r12-etsy-browser": "success"
+    }
+  },
+  "productionMapping": {
+    "projectId": "prj_R8Z4UGEwN6jkkqUDrztLwwymTHH2",
+    "teamId": "team_vWDwkGoSk1NIOdKApGuukv0C",
+    "alias": "agent-labs-two.vercel.app",
+    "observedAt": "2026-10-12T17:57:20Z",
+    "recordSha256": "409958dbaa56a8e15970ceddb21c1eddd246f6916e45008cd0bc6e3434e5cab1"
+  },
+  "verifierProvenance": {
+    "applicationKey": "Existing owner-provided nonsecret endpoint observation at 2026-10-12T08:16:18Z; unchanged key implementation; same stored capability hash independently read from current parent template at 2026-10-12T15:12:58.387581Z. No newly claimed owner endpoint observation.",
+    "schemasAndPacks": "Computed from qualified source and compared with the genuine prior owner endpoint. Ordinary schemas and all five pack manifests unchanged; only recovery planner system hash differs.",
+    "sourceContractEvidenceSha256": "80d35fe92dd6ea3b80191eae561ccb743448ed31258bb2d7605037d6829ec4ff",
+    "productionPreflightSha256": "2c9dc7e69c3abca476485d9ea54df535dbb80fa10667631fc945a1f7e255afc3"
+  },
+  "requestedRecovery": {
+    "businessId": "91ff7c87-60e4-4dbb-8e84-be63b53c2c79",
+    "goalId": "719c0f8b-72b5-44c1-ada3-e0323a212667",
+    "predecessorSetupId": "86867892-1aec-4d85-94b2-176597440bda",
+    "predecessorScopeId": "8320bdac-94d4-42ee-abc5-11bd3bf9cb44",
+    "objective": "Research viable print-on-demand products to sell on Etsy.",
+    "used": {
+      "knownMicrounits": "28912",
+      "calls": 5,
+      "passes": 1,
+      "searches": 1
+    },
+    "maximumRemaining": {
+      "microunits": "9971088",
+      "calls": 20,
+      "passes": 4,
+      "searches": 4
+    },
+    "oldSeparateHeldMicrounits": "25000",
+    "sameGoalAndFundingRoot": true,
+    "businessCapIncreased": false,
+    "oldReviewAccepted": false,
+    "formattingCalls": 0,
+    "newPolicyWindow": "30-minute dispatch from actual owner activation, then 30-minute exact already-sent receipt reconciliation; old deadlines stay unchanged.",
+    "stopWhenUsefulOrLimits": true
+  },
+  "transmission": {
+    "publicOnly": true,
+    "history": "Bounded prior accepted public evidence projection and explicitly unaccepted reviewer critique to OpenRouter/Azure for the next planner; no retroactive review acceptance.",
+    "router": "openrouter.ai",
+    "plannerAndResearcher": "azure/us",
+    "independentReviewer": "amazon-bedrock/us",
+    "search": "exa.ai",
+    "searchData": "New public query and domain filters only, not the whole historical packet.",
+    "inferenceRetention": "no_training_zdr",
+    "searchRetention": "query_retention_improvement_training_possible",
+    "applicationRetention": "bounded_attributed_audit_evidence",
+    "excludedDomains": [
+      "etsy.com",
+      "etsy.me",
+      "etsystatic.com",
+      "nrf.com",
+      "printify.com",
+      "printifyapp.com"
+    ]
+  },
+  "billing": {
+    "currency": "USD",
+    "paymentType": "existing pay-as-you-go provider billing",
+    "newSubscription": false,
+    "hostingCosts": "existing hosting costs separate",
+    "cancellation": "Completed calls may still cost money after Stop; refunds are not assumed."
+  },
+  "installation": {
+    "capability": "App-wide separately reviewed .3 recovery template; every business still requires its own owner approval.",
+    "installsOwnerGrant": false,
+    "installationSpends": false,
+    "risk": "Definition installation may briefly block affected reads; a failed transactional migration rolls back. After a recovery grant exists, code rollback alone cannot reinterpret a v2 plan as v1; Stop and preserve history while diagnosing."
+  },
+  "approvalRequired": {
+    "migration": true,
+    "templateInstallation": true,
+    "newOwnerRecoveryGrant": true,
+    "providerExecution": true
+  }
+}

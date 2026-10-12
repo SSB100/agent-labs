@@ -1,0 +1,92 @@
+{
+  "version": "r12.pod-recovery-morning-bundle-review.1",
+  "reviewedAt": "2026-10-12T17:59:10Z",
+  "verdict": "CONSISTENT_PENDING_EXACT_OWNER_APPROVAL",
+  "blockingFindings": [],
+  "priorBundleCanonicalHash": "27170bb8af63834f0d2a282188ada66c62019d9fbfee3f51a56e1f1e39a2047a",
+  "bundleCanonicalHash": "4218718c48daa94a05db4979b0d2dfcc8f5cdb7a1cfc63df3b3a2dabf786068a",
+  "bundleRawSha256": "11b426fd0a62a241b85a5e867428e51dd4995442ebdf8dc08b957439f53e1128",
+  "exactDiff": [
+    {
+      "path": "/executingRelease/deploymentId",
+      "prior": "dpl_4X4vu6Sq4FqSFrXMQ6pzQy39qwYm",
+      "current": "dpl_DbnQb5UBVXGYESFaDwyRwGVRExh4"
+    },
+    {
+      "path": "/productionMapping/observedAt",
+      "prior": "2026-10-12T15:31:52Z",
+      "current": "2026-10-12T17:57:20Z"
+    },
+    {
+      "path": "/productionMapping/recordSha256",
+      "prior": "970f44a2c98e59652604242dc3a66e65b64a3001f4cb9b358299facb46499f00",
+      "current": "409958dbaa56a8e15970ceddb21c1eddd246f6916e45008cd0bc6e3434e5cab1"
+    },
+    {
+      "path": "/verifierProvenance/productionPreflightSha256",
+      "prior": "0af6341f1df72262c04973e833887ff848812f0e0a8d0d5a9824692f2c0e4627",
+      "current": "2c9dc7e69c3abca476485d9ea54df535dbb80fa10667631fc945a1f7e255afc3"
+    }
+  ],
+  "release": {
+    "commitSha": "374788383d1dfad7e1199dbcb6e5840ebe5dc5ba",
+    "treeSha": "1353d381777bff9183ee34b24711ec00cf60820a",
+    "deploymentId": "dpl_DbnQb5UBVXGYESFaDwyRwGVRExh4",
+    "alias": "agent-labs-two.vercel.app",
+    "observedAt": "2026-10-12T17:57:20Z"
+  },
+  "reviewPins": {
+    "executionReviewHash": "dfaf2c2829daaeafd4f3eb6808f418abbc335b1b6c8fbdb07d044521a29e263a",
+    "eligibilityReviewHash": "dd3cd5a0484475d4a512aac1436fb7450f0a43d713673db4fd0be9254fa1b452",
+    "policyInterpretationHash": "85dcaaf6d54a944c85f63f1a29f4579e18903fe4a302eb67c7f721b54033fa3e"
+  },
+  "migration": {
+    "path": "supabase/migrations/20261012131500_r12_pod_failed_pass_recovery.sql",
+    "sha256": "e4850eb1c4ae8fb1bec1acd4a0357d74c00915e107881542d567e7d5438a2ad4"
+  },
+  "templateRecipe": {
+    "path": "recovery-template.sql.in",
+    "sha256": "945ed8a8cf94c93c038e4334d6e00d6c8103507f2006a8f912d9dcfc69c06f54"
+  },
+  "reviewedSourceHashesUnchanged": 17,
+  "freshSavedPreflight": {
+    "observedAt": "2026-10-12T17:58:04.807204+00:00",
+    "migrationPresent": false,
+    "recoveryTemplates": 0,
+    "goalActivePolicies": 0,
+    "predecessorStopped": true,
+    "knownSettledCalls": 5,
+    "usedMicrounits": 28912,
+    "usedPasses": 1,
+    "usedSearches": 1,
+    "businessCapMicrounits": 10828107,
+    "separateOldHeldMicrounits": 25000
+  },
+  "maximumRemaining": {
+    "microunits": "9971088",
+    "calls": 20,
+    "passes": 4,
+    "searches": 4
+  },
+  "unchanged": [
+    "Original validity window, same Goal/root/predecessor, public-data scope, all six source exclusions, recipients/retention, review pins, migration and recipe.",
+    "Historical owner verifier remains identified as historical; fresh DB read checks stored parent capability and does not fabricate an endpoint refresh.",
+    "No reset, formatting call, old-review acceptance, expanded cap or new authority."
+  ],
+  "limitations": [
+    "Saved connector records independently checked for consistency and hashes; reviewer made no new live read.",
+    "Maximum remaining allowance remains subject to current quote, immutable lineage, Business exposure, source/template validity and a fresh owner confirmation.",
+    "Owner approval must bind the new exact bundle hash; no activation approval or installation is implied."
+  ],
+  "authorityCreated": false,
+  "ownerRunApproved": false,
+  "productionMigrationApproved": false,
+  "templateInstallationApproved": false,
+  "reviewerActions": {
+    "liveReads": 0,
+    "productionWrites": 0,
+    "providerCalls": 0,
+    "ciRuns": 0,
+    "appEdits": 0
+  }
+}
