@@ -692,6 +692,7 @@ jobs:
             /tmp/r12-scope-tests.log
             /tmp/r12-owner-lifecycle-ci.log
             /tmp/r12-pod-recovery-ci.log
+            /tmp/r12-pod-counted-failure-ci.log
             /tmp/r12-http-ci-report.json
             /tmp/r12-http-ci-terminal-cold.json
             /tmp/r12-races-ci-report.json
