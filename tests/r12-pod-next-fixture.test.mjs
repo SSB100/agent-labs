@@ -2,12 +2,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { createHash, createHmac } from 'node:crypto';
+import { createHash, createHmac, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { seedPodNextDatabase, podNextProvider, podNextFailedReview, podNextAudit, podNextRejectedReviewReady, podNextRecoveryResultReady, assertPodLeaseQuiet, podSafeRpcError } from './next-fixture/r12-pod-boundary.mjs';
 import { R12_INERT_ROOT } from './next-fixture/r12-sql.mjs';
+import { readPodSavedSetup, waitForPodSelectedSetup } from './next-fixture/r12-pod-journey.mjs';
 import { podRpc, podQuoteFixture, podInertOutputs, podSource, podHash, POD_PHASES } from './helpers/r12-pod-sql-fixture.mjs';
 const host = process.env.R12_SQL_TEST_HOST;
 test('POD Next runner preserves production actions and Workflow host while blocking external transport', () => {
@@ -50,6 +51,37 @@ test('POD browser expands complete saved findings and provenance in ordinary and
   for (const stage of ['saved sourced second-pass hypothesis', 'a malformed thorough review', 'explicit recovery approval']) {
     const start = journey.indexOf(`await check('${stage}`), end = journey.indexOf('await check(', start + 1);
     assert.ok(start >= 0, stage); assert.match(journey.slice(start, end < 0 ? undefined : end), /await assertPodResultDetails\(page, secondOutput, receipt.scopeId\)/);
+  }
+});
+test('saved receipt reads keep exact identity with two historical setups and never mistake an old Stop for the current one', async () => {
+  const old = { setupId: randomUUID(), stopped: true }, current = { setupId: randomUUID(), stopped: false }, rows = [old, current], reads = [];
+  const boundary = { catalog: async setupId => { reads.push(setupId); return { error: null, data: { setups: rows.filter(row => !setupId || row.setupId === setupId) } }; } };
+  assert.equal((await boundary.catalog()).data.setups.length, 2);
+  await assert.rejects(readPodSavedSetup(boundary), /exact POD setup ID/);
+  assert.equal((await readPodSavedSetup(boundary, current.setupId)).stopped, false);
+  current.stopped = true;
+  assert.equal((await readPodSavedSetup(boundary, current.setupId)).stopped, true);
+  assert.equal(await readPodSavedSetup(boundary, old.setupId), old);
+  assert.deepEqual(reads, [undefined, current.setupId, current.setupId, old.setupId]);
+  await assert.rejects(readPodSavedSetup(boundary, randomUUID()), /one receipt/);
+  await assert.rejects(readPodSavedSetup({ catalog: async () => ({ error: null, data: { setups: rows } }) }, current.setupId), /one receipt/);
+  await assert.rejects(readPodSavedSetup({ catalog: async () => ({ error: null, data: { setups: [old] } }) }, current.setupId), /cannot substitute/);
+  const journey = readFileSync(new URL('./next-fixture/r12-pod-journey.mjs', import.meta.url), 'utf8');
+  assert.doesNotMatch(journey, /getSaved\(\)/, 'All saved-state polls, including Stop, require the selected setup ID');
+});
+test('new setup acquisition waits for the actual routed identity and lost-reply replay pins the original proposal', async () => {
+  const businessId = randomUUID(), old = { setupId: randomUUID(), businessId }, saved = { setupId: randomUUID(), businessId }, other = randomUUID();
+  const base = `http://localhost:3210/dashboard/quests/research/pod?business=${businessId}`, selected = `${base}&setup=${saved.setupId}`;
+  for (const exactReplay of [false, true]) {
+    const rejected = [base, `${base}&setup=${old.setupId}`, selected.replace('3210', '3211'), selected.replace(businessId, randomUUID()), selected.replace('/pod?', '/other?'), `${base}&setup=invalid`, `${selected}&setup=${other}`, ...(exactReplay ? [`${base}&setup=${other}`] : [])];
+    let navigated = false, url = `${base}&setup=${old.setupId}`;
+    const page = { url: () => url, waitForURL: async predicate => {
+      for (const candidate of rejected) assert.equal(predicate(new URL(candidate)), false, candidate);
+      assert.equal(predicate(new URL(selected)), true); url = selected; navigated = true;
+    } };
+    const reads = [], boundary = { catalog: async setupId => { assert.equal(navigated, true, 'Receipt read follows the UI navigation, not a mutable latest-setup pointer'); reads.push(setupId); return { error: null, data: { setups: [old, saved].filter(row => row.setupId === setupId) } }; } };
+    assert.equal(await waitForPodSelectedSetup(page, boundary, base, { previousSetupId: old.setupId, ...(exactReplay ? { expectedSetupId: saved.setupId } : {}) }), saved);
+    assert.deepEqual(reads, [saved.setupId]);
   }
 });
 test('async owner confirmation polls successful null progress until the real rejected review exists', () => {
@@ -143,6 +175,19 @@ test('POD Next seed uses actual migrations and a synthetic template without exec
     assert.equal(prepared.preview.version, 'r12.pod-research-preview.2'); assert.equal(prepared.preview.quote.version, 'r12.pod-quote.2');
     assert.equal(prepared.preview.maximumPasses, 5); assert.equal(prepared.preview.maximumCalls, 25); assert.equal(prepared.preview.maximumCollections, 5);
     assert.deepEqual((await db.query('select (select count(*)::int from private.r12_discovery_scopes) scopes,(select count(*)::int from private.r05_requests) requests')).rows[0], { scopes: 0, requests: 0 });
+    const server = (operation, payload) => podRpc(db, 'authenticated', seeded.ownerId, 'r12_pod_owner_server', [seeded.businessId, operation, payload, capability]);
+    const boundary = { catalog: async setupId => ({ error: null, data: await podRpc(db, 'authenticated', seeded.ownerId, 'r12_pod_research_read', [seeded.businessId, null, setupId ?? null, null]) }) };
+    const stop = receipt => server('stop', { setupId: receipt.setupId, setupHash: receipt.setupHash, submissionId: randomUUID() });
+    const originalStopped = await stop(prepared);
+    const payload = { input: { ...seeded.input, submissionId: randomUUID() }, quote: podQuoteFixture() };
+    const second = await server('prepare', payload), replayed = await server('prepare', payload);
+    assert.notEqual(second.setupId, prepared.setupId); assert.equal(replayed.setupId, second.setupId); assert.equal(replayed.setupHash, second.setupHash);
+    assert.equal((await boundary.catalog()).data.setups.length, 2, 'Lost-reply replay preserves both historical setups without a duplicate proposal');
+    assert.deepEqual(await readPodSavedSetup(boundary, prepared.setupId), originalStopped);
+    assert.equal((await readPodSavedSetup(boundary, second.setupId)).stopped, false, 'An older stopped row cannot satisfy the current Stop poll');
+    await stop(second); assert.equal((await readPodSavedSetup(boundary, second.setupId)).stopped, true);
+    assert.deepEqual(await readPodSavedSetup(boundary, prepared.setupId), originalStopped, 'Stopping the exact current setup preserves the earlier saved row');
+    assert.equal((await boundary.catalog()).data.setups.length, 2);
   } finally { await db.close(); }
 });
 

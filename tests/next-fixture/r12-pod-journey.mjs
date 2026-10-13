@@ -12,6 +12,28 @@ const waitUntil = async (check, description, timeout = 90000) => {
   while (Date.now() < until) { if (await check()) return; await new Promise(resolve => setTimeout(resolve, 100)); }
   throw Error(`Timed out: ${description}`);
 };
+// Catalog reads without a setup ID intentionally return historical setups.
+// Receipt assertions must request and verify the exact selected identity.
+export async function readPodSavedSetup(boundary, setupId) {
+  assert.ok(typeof setupId === 'string' && setupId.length > 0, 'An exact POD setup ID is required');
+  const catalog = await boundary.catalog(setupId);
+  assert.equal(catalog.error, null); assert.equal(catalog.data.setups.length, 1, 'Exact POD setup read must return one receipt');
+  assert.equal(catalog.data.setups[0].setupId, setupId, 'POD setup read cannot substitute a historical receipt');
+  return catalog.data.setups[0];
+}
+export async function waitForPodSelectedSetup(page, boundary, baseUrl, { previousSetupId = null, expectedSetupId = null } = {}) {
+  const base = new URL(baseUrl);
+  await page.waitForURL(url => {
+    const setupId = url.searchParams.get('setup');
+    return url.origin === base.origin && url.pathname === base.pathname &&
+      url.searchParams.getAll('business').length === 1 && url.searchParams.get('business') === base.searchParams.get('business') &&
+      url.searchParams.getAll('setup').length === 1 && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(setupId ?? '') &&
+      setupId !== previousSetupId && (!expectedSetupId || setupId === expectedSetupId);
+  });
+  const receipt = await readPodSavedSetup(boundary, new URL(page.url()).searchParams.get('setup'));
+  assert.equal(receipt.businessId, base.searchParams.get('business'), 'Selected POD setup must belong to the routed Business');
+  return receipt;
+}
 // Follow the owner's disclosure controls: a collapsed result must stay concise,
 // while the complete saved findings, attribution and receipts remain reachable.
 async function assertPodResultDetails(page, expected, scopeId) {
@@ -80,7 +102,7 @@ export async function runPodNextJourney({ origin, boundary, output, fixture, htt
     const result = values.find(v => v && typeof v === 'object' && typeof v.ok === 'boolean'); assert.ok(result, `${name} must expose its exact action outcome`); return result;
   }
   const input = () => ({ businessId: current().businessId, setupId: receipt.setupId, setupHash: receipt.setupHash, submissionId: randomUUID() });
-  const getSaved = async setupId => { const catalog = await boundary.catalog(setupId); assert.equal(catalog.error, null); assert.equal(catalog.data.setups.length, 1); return catalog.data.setups[0]; };
+  const getSaved = setupId => readPodSavedSetup(boundary, setupId);
   try {
     await check('actual Next owner route, auth and release verifier render without authority or provider calls', async () => {
       assert.match(await read(basePath), /Research viable print-on-demand products to sell on Etsy/);
@@ -105,14 +127,15 @@ export async function runPodNextJourney({ origin, boundary, output, fixture, htt
         assert.deepEqual(names, ['budget', 'objective', 'printful']);
         await page.getByRole('textbox', { name: 'Total limit for up to five research passes (USD)', exact: true }).fill('10.00');
         await page.getByRole('button', { name: 'Review cost and permissions', exact: true }).click();
-        await page.getByRole('button', { name: 'Recover the same review', exact: true }).waitFor(); receipt = await getSaved();
-        await page.getByRole('button', { name: 'Recover the same review', exact: true }).click(); await page.waitForURL(origin + selectedPath());
+        await page.getByRole('button', { name: 'Recover the same review', exact: true }).waitFor(); receipt = await getSaved(current().ownerSetup?.setupId);
+        await page.getByRole('button', { name: 'Recover the same review', exact: true }).click();
+        const recovered = await waitForPodSelectedSetup(page, boundary, origin + basePath, { expectedSetupId: receipt.setupId }); assert.equal(recovered.setupHash, receipt.setupHash); receipt = recovered;
       } else {
         const entry = { businessId: current().businessId, publicBrief: { objective: POD_OBJECTIVE, publicConstraints: [], fulfilmentContext: 'unspecified' }, maximumMicrounits: '10000000', deadlineAt: new Date(Date.now() + 3600000).toISOString(), submissionId: randomUUID() };
-        assert.equal((await action('preparePodResearchAction', entry)).ok, false); const saved = await getSaved();
+        assert.equal((await action('preparePodResearchAction', entry)).ok, false); const saved = await getSaved(current().ownerSetup?.setupId);
         const recovered = await action('preparePodResearchAction', entry); assert.equal(recovered.ok, true, recovered.message); receipt = recovered.receipt; assert.equal(receipt.setupId, saved.setupId);
       }
-      assert.equal(receipt.preview.profile, 'r12.pod-thorough.1'); assert.equal(receipt.preview.automaticFormatFailureContinuation, true); assert.equal(receipt.activated, false); assert.equal(receipt.confirmed, false); assert.equal((await getSaved()).setupId, receipt.setupId); assert.deepEqual(current().calls, []);
+      assert.equal(receipt.preview.profile, 'r12.pod-thorough.1'); assert.equal(receipt.preview.automaticFormatFailureContinuation, true); assert.equal(receipt.activated, false); assert.equal(receipt.confirmed, false); assert.equal((await getSaved(receipt.setupId)).setupId, receipt.setupId); assert.deepEqual(current().calls, []);
       const html = await read(selectedPath());
       for (const phrase of [POD_OBJECTIVE, 'Exa may retain queries', 'USD 10.000000', 'shared total ceiling for all five passes', 'Unused allowance carries between passes', 'Proposed cumulative cap', '30 minutes after approval', 'another 30 minutes']) assert.ok(html.includes(phrase), phrase);
       if (page) { const approve = page.getByRole('button', { name: 'Approve and research', exact: true }); assert.equal(await approve.isDisabled(), true); await page.reload(); assert.equal(await approve.isDisabled(), true); await page.screenshot({ path: path.join(output, 'pod-approval-desktop.png'), fullPage: true }); }
@@ -157,7 +180,7 @@ export async function runPodNextJourney({ origin, boundary, output, fixture, htt
       assert.equal(saved.inputs.pass.history.priorQueries[0].query, searches[0].query);
       assert.equal(saved.context.plan.maximumDispatches, 25); assert.equal(saved.context.plan.maximumMicrounits, '10000000');
       for (const operation of ['admit', 'context', 'complete']) assert.ok(boundary.logs.some(item => item.kind === 'actual-workflow-pass' && item.operation === operation));
-      receipt = await getSaved(); assert.equal(receipt.activated, true);
+      receipt = await getSaved(receipt.setupId); assert.equal(receipt.activated, true);
     });
     await check('saved sourced second-pass hypothesis retains caveats, reload and Stop without a third pass or repeat calls', async () => {
       if (page) { await page.goto(origin + selectedPath()); await page.getByRole('heading', { name: 'A hypothesis worth testing', exact: true }).waitFor(); }
@@ -169,13 +192,13 @@ export async function runPodNextJourney({ origin, boundary, output, fixture, htt
         await page.reload(); await page.getByRole('heading', { name: 'A hypothesis worth testing', exact: true }).waitFor();
         await assertPodResultDetails(page, secondOutput, receipt.scopeId);
         for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 }]) { await page.setViewportSize(viewport); const geometry = await page.evaluate(() => ({ viewport: document.documentElement.clientWidth, content: document.documentElement.scrollWidth })); assert.ok(geometry.content <= geometry.viewport + 1, 'POD result has no horizontal page overflow'); await page.screenshot({ path: path.join(output, `pod-result-${viewport.width}.png`), fullPage: true }); }
-        await page.getByRole('button', { name: 'Stop research', exact: true }).click(); await waitUntil(async () => (await getSaved()).stopped, 'saved Stop');
+        await page.getByRole('button', { name: 'Stop research', exact: true }).click(); await waitUntil(async () => (await getSaved(receipt.setupId)).stopped, 'saved Stop');
         await page.getByRole('button', { name: 'Stop research', exact: true }).waitFor({ state: 'hidden' });
       } else { const stopped = await action('stopPodResearchAction', input(), selectedPath()); assert.equal(stopped.ok, true, stopped.message); assert.equal(stopped.receipt.stopped, true); }
       assert.match(await read(selectedPath()), /A hypothesis worth testing/); assert.deepEqual(sentPhases(), expectedPhases);
       const saved = await boundary.result(receipt.scopeId); assert.equal(saved.error, null); assert.equal(saved.data.version, 'r12.pod-saved-result.2'); assert.equal(saved.data.current.candidate.output.outcome, 'HYPOTHESIS_TO_TEST');
       assert.equal((await boundary.passSummary(receipt.scopeId)).passes.length, 2);
-      assert.equal((await getSaved()).preview.finance.runLimitMicrounits, '10000000');
+      assert.equal((await getSaved(receipt.setupId)).preview.finance.runLimitMicrounits, '10000000');
       assert.deepEqual(external, []); assert.deepEqual(errors, []); assert.deepEqual(boundary.denied, []); assert.deepEqual(boundary.base.denied, []);
     });
     await check('a malformed thorough review is counted, reconciled and followed by a new independent pass without owner reapproval', async () => {
@@ -184,7 +207,7 @@ export async function runPodNextJourney({ origin, boundary, output, fixture, htt
         await page.goto(origin + basePath); await page.getByRole('textbox', { name: 'Research goal', exact: true }).fill(POD_OBJECTIVE);
         await page.getByRole('textbox', { name: 'Total limit for up to five research passes (USD)', exact: true }).fill('10.00');
         await page.getByRole('button', { name: 'Review cost and permissions', exact: true }).click();
-        await waitUntil(() => current().ownerSetup?.setupId && current().ownerSetup.setupId !== previousSetupId, 'new thorough failure setup'); receipt = await getSaved(current().ownerSetup.setupId); await page.waitForURL(origin + selectedPath());
+        receipt = await waitForPodSelectedSetup(page, boundary, origin + basePath, { previousSetupId });
         assert.equal(receipt.preview.profile, 'r12.pod-thorough.1');
         await page.getByRole('checkbox', { name: 'I approve this public brief, recipients, bounded source policy and maximum charge.', exact: true }).check(); await page.getByRole('button', { name: 'Approve and research', exact: true }).click();
       } else {
@@ -202,7 +225,8 @@ export async function runPodNextJourney({ origin, boundary, output, fixture, htt
         await assertPodResultDetails(page, secondOutput, receipt.scopeId);
         assert.equal(await page.getByRole('button', { name: 'Review next-pass recovery', exact: true }).count(), 0);
         await page.screenshot({ path: path.join(output, 'pod-counted-failure-result.png'), fullPage: true });
-        await page.getByRole('button', { name: 'Stop research', exact: true }).click(); await waitUntil(async () => (await getSaved()).stopped, 'Stop after counted recovery');
+        await page.getByRole('button', { name: 'Stop research', exact: true }).click(); await waitUntil(async () => (await getSaved(receipt.setupId)).stopped, 'Stop after counted recovery');
+        await page.getByRole('button', { name: 'Stop research', exact: true }).waitFor({ state: 'hidden' });
       } else { const stopped = await action('stopPodResearchAction', input(), selectedPath()); assert.equal(stopped.ok, true, stopped.message); }
       assert.deepEqual(sentPhases().slice(start), expectedPhases); assert.deepEqual(boundary.logs.filter(event => event.kind === 'actual-workflow-rpc-error'), []);
     });
@@ -214,8 +238,7 @@ export async function runPodNextJourney({ origin, boundary, output, fixture, htt
         await page.getByRole('textbox', { name: 'Research goal', exact: true }).fill(POD_OBJECTIVE);
         await page.getByRole('textbox', { name: 'Total limit for up to five research passes (USD)', exact: true }).fill('10.00');
         await page.getByRole('button', { name: 'Review cost and permissions', exact: true }).click();
-        await waitUntil(() => current().ownerSetup?.setupId && current().ownerSetup.setupId !== previousSetupId, 'a distinct second ordinary setup');
-        receipt = await getSaved(current().ownerSetup.setupId); await page.waitForURL(origin + selectedPath());
+        receipt = await waitForPodSelectedSetup(page, boundary, origin + basePath, { previousSetupId });
         await page.getByRole('checkbox', { name: 'I approve this public brief, recipients, bounded source policy and maximum charge.', exact: true }).check();
         await page.getByRole('button', { name: 'Approve and research', exact: true }).click();
       } else {
@@ -252,9 +275,10 @@ export async function runPodNextJourney({ origin, boundary, output, fixture, htt
       if (page) {
         await page.getByRole('button', { name: 'Review next-pass recovery', exact: true }).click();
         await page.getByRole('status').filter({ hasText: 'The result could not be verified.' }).waitFor();
-        const savedProposalId = current().ownerSetup.setupId; assert.notEqual(savedProposalId, failedReceipt.setupId);
+        const savedProposal = await getSaved(current().ownerSetup?.setupId); assert.notEqual(savedProposal.setupId, failedReceipt.setupId);
         await page.reload(); await page.getByRole('button', { name: 'Review next-pass recovery', exact: true }).click();
-        receipt = await getSaved(savedProposalId); await page.waitForURL(origin + selectedPath());
+        receipt = await waitForPodSelectedSetup(page, boundary, origin + basePath, { expectedSetupId: savedProposal.setupId, previousSetupId: failedReceipt.setupId });
+        assert.equal(receipt.setupHash, savedProposal.setupHash);
       } else {
         const recoveryInput = { ...input(), approveGoalDeadlineRevision: true }; assert.equal((await action('preparePodResearchRecoveryAction', recoveryInput, selectedPath())).ok, false);
         const savedProposalId = current().ownerSetup.setupId;
